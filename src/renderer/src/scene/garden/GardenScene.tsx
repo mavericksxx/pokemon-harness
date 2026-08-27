@@ -93,6 +93,14 @@ export function GardenScene(): JSX.Element {
       const map = new TiledMapRenderer(gardenMap, tilesets);
       world.addChild(map.getContainer());
       const charLayer = map.getCharacterContainer();
+      // Evolution ceremony layers, in the same (map) coordinate space as
+      // charLayer and stacked above it: overlayLayer holds each in-flight
+      // ceremony's dim/flash rect (so every OTHER walker in charLayer reads as
+      // dimmed beneath it), and ceremonyLayer — above that — is where a
+      // ceremony reparents its own walker for the duration, so it stays lit.
+      const evolutionOverlayLayer = new Container();
+      const evolutionCeremonyLayer = new Container();
+      world.addChild(evolutionOverlayLayer, evolutionCeremonyLayer);
       console.log(
         `[garden] map ${map.width}x${map.height} tiles, ${map.tileSpriteCount} tile sprites, ` +
           `${map.getAllSpawnPoints().size} spawn points, ${map.getAllZones().size} zones`
@@ -157,6 +165,8 @@ export function GardenScene(): JSX.Element {
           homeTile: map.getSpawnPoint(homePatch) ?? entrance,
           accentColor: session.accent,
           label: session.title,
+          overlayLayer: evolutionOverlayLayer,
+          ceremonyLayer: evolutionCeremonyLayer,
           onClick: (id) => useStore.getState().select(id)
         });
         charLayer.addChild(walker.container);

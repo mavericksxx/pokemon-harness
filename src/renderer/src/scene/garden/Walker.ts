@@ -3,6 +3,8 @@ import { WalkerSprite, type Facing } from './WalkerSprite';
 import type { Locomotion, PokemonAnimation } from './showdownArt';
 import { findPath } from './pathfinding';
 import { ToolBubble } from './ToolBubble';
+import { EvolutionCeremony } from './EvolutionCeremony';
+import { evolutionConfig } from './evolution';
 import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { SessionStatus } from '@shared/types';
 
@@ -28,15 +30,6 @@ const BACK_VIEW_ON = 2;
 const BACK_VIEW_OFF = -1;
 const BACK_VIEW_BIAS_MAX = 3;
 
-/** Evolution flash + pulse + sparkle duration, seconds. */
-const EVOLVE_DURATION = 2;
-/** Scale-oscillation cycles over that duration (spec: 2-3). */
-const EVOLVE_PULSES = 3;
-/** Fraction of the way through the effect when the sprite actually swaps —
- *  timed to land while the flash is near its brightest, so the swap is hidden
- *  in the whiteout rather than visible mid-animation. */
-const EVOLVE_SWAP_AT = 0.55;
-
 interface WalkerOptions {
   sessionId: string;
   map: TiledMapRenderer;
@@ -48,20 +41,13 @@ interface WalkerOptions {
   homeTile: { x: number; y: number };
   accentColor: number;
   label: string;
+  /** Shared scene layers the evolution ceremony renders into — see
+   *  GardenScene.tsx. Both sit above the character layer so a ceremony's dim
+   *  overlay covers every OTHER walker, while the evolving one (reparented
+   *  into `ceremonyLayer` for the ceremony's duration) stays visible above it. */
+  overlayLayer: Container;
+  ceremonyLayer: Container;
   onClick?: (sessionId: string) => void;
-}
-
-interface EvolutionFx {
-  animation: PokemonAnimation;
-  toLabel: string;
-  fromLabel: string;
-  elapsed: number;
-  swapped: boolean;
-  sparkleTimer: number;
-  /** Fired the instant the sprite swaps (hidden in the flash), so the caller
-   *  can update the session store's `pokemon` field in step with what's on
-   *  screen rather than at evolve() call time, ~1s earlier. */
-  onSwap?: () => void;
 }
 
 export class Walker {
@@ -74,8 +60,9 @@ export class Walker {
   private badge: Graphics;
   private nameTag: Text;
   private selectionRing: Graphics;
-  private sparkleLayer: Container;
   private floatLayer: Container;
+  private overlayLayer: Container;
+  private ceremonyLayer: Container;
 
   private px: number;
   private py: number;
@@ -101,13 +88,20 @@ export class Walker {
   private badgePulse = 0;
   private accentColor: number;
 
-  private evolutionFx: EvolutionFx | null = null;
+  private ceremony: EvolutionCeremony | null = null;
+  /** Saved badge/ring visibility while the ceremony hides all UI chrome
+   *  (everything but the sprite itself and its floating text) — restored
+   *  verbatim on teardown rather than forced true, since either could have
+   *  been legitimately hidden already. */
+  private chromeWasVisible: [badge: boolean, ring: boolean] | null = null;
 
   constructor(opts: WalkerOptions) {
     this.sessionId = opts.sessionId;
     this.map = opts.map;
     this.homeTile = { ...opts.homeTile };
     this.locomotion = opts.animation.info.locomotion;
+    this.overlayLayer = opts.overlayLayer;
+    this.ceremonyLayer = opts.ceremonyLayer;
 
     const ts = this.map.tileSize;
     this.px = opts.startTile.x * ts + ts / 2;
@@ -135,17 +129,9 @@ export class Walker {
     this.nameTag.y = 4;
 
     this.bubble = new ToolBubble();
-    this.sparkleLayer = new Container();
     this.floatLayer = new Container();
 
-    this.container.addChild(
-      this.selectionRing,
-      this.sprite.container,
-      this.badge,
-      this.nameTag,
-      this.sparkleLayer,
-      this.floatLayer
-    );
+    this.container.addChild(this.selectionRing, this.sprite.container, this.badge, this.nameTag, this.floatLayer);
     this.container.eventMode = 'static';
     this.container.cursor = 'pointer';
     this.accentColor = opts.accentColor;
@@ -205,8 +191,13 @@ export class Walker {
 
   /** Walk to a tile. Wandering stops until the walker is put back into it.
    *  Returns false when the tile is unreachable, so the caller can retry on the
-   *  next status change rather than believing the walker is on its way. */
+   *  next status change rather than believing the walker is on its way.
+   *  Also returns false — same "retry later" contract — while an evolution
+   *  ceremony is running: the walker is exclusive/uninterruptible for its
+   *  duration, and GardenScene's reconcile already retries a failed goTo on
+   *  the next status change. */
   goTo(tile: { x: number; y: number }): boolean {
+    if (this.ceremony) return false;
     const path = findPath(this.map, this.tile, tile, this.canEnter);
     if (!path) return false; // unreachable — stay put rather than teleport
     this.wandering = false;
@@ -226,6 +217,7 @@ export class Walker {
    *  strand the sprite between tiles, and running it to completion would make an
    *  idle session visibly finish work it is no longer doing. */
   beginWander(): void {
+    if (this.ceremony) return;
     this.path = this.path.slice(0, 1);
     this.wandering = true;
     this.wanderTimer = 0;
@@ -254,25 +246,40 @@ export class Walker {
     this.bubble.hide();
   }
 
-  /** Kick off the evolution animation; the actual sprite swap happens partway
-   *  through it (see EVOLVE_SWAP_AT), hidden inside the white flash. A second
-   *  call while one is already running is ignored — thresholds are crossed in
-   *  order, so evolve() is called once per stage. */
+  /** Kick off the evolution ceremony — exclusive/uninterruptible: the walker
+   *  is halted and gated (see goTo/beginWander) until it runs to completion.
+   *  The actual sprite swap happens partway through it (see
+   *  EvolutionCeremony's decay phase), hidden inside the white flash-out. A
+   *  second call while one is already running is ignored — thresholds are
+   *  crossed in order, so evolve() is called once per stage. */
   evolve(nextAnimation: PokemonAnimation, fromLabel: string, toLabel: string, onSwap?: () => void): void {
-    if (this.evolutionFx) return;
-    this.evolutionFx = {
-      animation: nextAnimation,
+    if (this.ceremony) return;
+    const ts = this.map.tileSize;
+    this.ceremony = new EvolutionCeremony({
+      container: this.container,
+      sprite: this.sprite,
+      newAnimation: nextAnimation,
+      tileSize: ts,
+      overlayLayer: this.overlayLayer,
+      ceremonyLayer: this.ceremonyLayer,
+      mapWidthPx: this.map.width * ts,
+      mapHeightPx: this.map.height * ts,
+      durationScale: evolutionConfig().durationScale,
+      spriteWidth: this.sprite.drawnWidth,
+      spriteHeight: this.sprite.drawnHeight,
       fromLabel,
       toLabel,
-      elapsed: 0,
-      swapped: false,
-      sparkleTimer: 0,
-      onSwap
-    };
+      spawnText: (text) => this.spawnFloatingText(text),
+      setChromeHidden: (hidden) => this.setChromeHidden(hidden),
+      applySwap: () => {
+        this.setAnimation(nextAnimation);
+        onSwap?.();
+      }
+    });
   }
 
   get isEvolving(): boolean {
-    return this.evolutionFx !== null;
+    return this.ceremony !== null;
   }
 
   /** Instant, no-flash art swap — used when a lazily-fetched species' real
@@ -291,10 +298,14 @@ export class Walker {
   }
 
   update(dt: number): void {
-    if (this.walking) this.updateWalk(dt);
-    else if (this.wandering) this.updateWander(dt);
-    this.sprite.update(dt);
-    if (this.evolutionFx) this.updateEvolution(dt);
+    if (this.ceremony) {
+      this.ceremony.update(dt);
+      if (this.ceremony.done) this.ceremony = null;
+    } else {
+      if (this.walking) this.updateWalk(dt);
+      else if (this.wandering) this.updateWander(dt);
+      this.sprite.update(dt);
+    }
     this.updateFloatingText(dt);
 
     if (this.status === 'blocked') {
@@ -386,64 +397,19 @@ export class Walker {
     }
   }
 
-  private updateEvolution(dt: number): void {
-    const fx = this.evolutionFx;
-    if (!fx) return;
-    fx.elapsed += dt;
-    const t = Math.min(fx.elapsed / EVOLVE_DURATION, 1);
-
-    // Scale pulses the whole time; the flash rises fast, holds near white
-    // through the swap, then fades out over the last third.
-    this.sprite.setPulse(1 + 0.16 * Math.sin(t * EVOLVE_PULSES * Math.PI * 2));
-    const flashIn = Math.min(fx.elapsed / 0.2, 1);
-    const flashOut = t > 0.65 ? Math.max(0, 1 - (t - 0.65) / 0.35) : 1;
-    this.sprite.setFlash(Math.min(flashIn, flashOut));
-
-    fx.sparkleTimer += dt;
-    if (fx.sparkleTimer > 0.12 && t < 0.9) {
-      fx.sparkleTimer = 0;
-      this.spawnSparkle();
-    }
-    this.updateSparkles(dt);
-
-    if (!fx.swapped && t >= EVOLVE_SWAP_AT) {
-      fx.swapped = true;
-      this.setAnimation(fx.animation);
-      fx.onSwap?.();
-    }
-
-    if (t >= 1) {
-      this.sprite.setFlash(0);
-      this.sprite.setPulse(1);
-      this.evolutionFx = null;
-      this.spawnFloatingText(`${fx.fromLabel} evolved into ${fx.toLabel}!`);
-    }
-  }
-
-  private spawnSparkle(): void {
-    const g = new Graphics();
-    const angle = Math.random() * Math.PI * 2;
-    const dist = this.sprite.drawnWidth * (0.25 + Math.random() * 0.35);
-    g.x = Math.cos(angle) * dist;
-    g.y = -this.sprite.drawnHeight * (0.3 + Math.random() * 0.6) + Math.sin(angle) * dist * 0.3;
-    g.star(0, 0, 4, 2.5, 1).fill({ color: 0xfff6c8, alpha: 0.9 });
-    (g as Graphics & { life: number }).life = 0;
-    this.sparkleLayer.addChild(g);
-  }
-
-  private updateSparkles(dt: number): void {
-    for (const child of [...this.sparkleLayer.children]) {
-      const g = child as Graphics & { life: number };
-      g.life += dt;
-      const t = g.life / 0.6;
-      if (t >= 1) {
-        this.sparkleLayer.removeChild(g);
-        g.destroy();
-        continue;
-      }
-      g.y -= dt * 14;
-      g.alpha = 1 - t;
-      g.scale.set(1 + t * 0.6);
+  /** Hide/restore the name tag, status badge and selection ring — the
+   *  ceremony's overlay is meant to show nothing but the Pokemon and its
+   *  floating text (floatLayer stays untouched), same as the games. */
+  private setChromeHidden(hidden: boolean): void {
+    if (hidden) {
+      this.chromeWasVisible = [this.badge.visible, this.selectionRing.visible];
+      this.badge.visible = false;
+      this.selectionRing.visible = false;
+      this.nameTag.visible = false;
+    } else if (this.chromeWasVisible) {
+      [this.badge.visible, this.selectionRing.visible] = this.chromeWasVisible;
+      this.nameTag.visible = true;
+      this.chromeWasVisible = null;
     }
   }
 
@@ -511,6 +477,11 @@ export class Walker {
   }
 
   destroy(): void {
+    // A ceremony in flight owns overlay graphics living in the SHARED
+    // overlayLayer, outside this walker's own container — dispose it first so
+    // that overlay doesn't outlive the walker it was dimming the garden for.
+    this.ceremony?.dispose();
+    this.ceremony = null;
     this.bubble.destroy();
     this.container.destroy({ children: true });
   }

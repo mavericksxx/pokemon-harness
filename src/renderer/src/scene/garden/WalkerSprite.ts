@@ -1,4 +1,4 @@
-import { AnimatedSprite, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { AnimatedSprite, Container, Graphics } from 'pixi.js';
 import type { FrameSet, Locomotion, PokemonAnimation } from './showdownArt';
 import { spriteScale } from './spriteScale';
 
@@ -31,10 +31,6 @@ const BOB: Record<Locomotion, { amplitude: number; rate: number; whileStill: boo
 export class WalkerSprite {
   readonly container: Container;
   private body: AnimatedSprite;
-  /** Evolution whiteout: a copy of the current frame, additively blended, with
-   *  alpha driving the flash. Tint alone can only darken a texture, never push
-   *  it toward white, so the flash needs its own always-white layer on top. */
-  private flash: Sprite;
   private shadow: Graphics;
   private locomotion: Locomotion;
   private bobPhase = 0;
@@ -42,13 +38,13 @@ export class WalkerSprite {
   private facing: Facing = NATIVE_FACING;
   private scale = 1;
   private tileSize: number;
-  /** Extra scale multiplier on top of the base scale, for the evolution pulse.
-   *  1 = normal. */
-  private pulseMult = 1;
 
   private frontFrames!: FrameSet;
   private backFrames?: FrameSet;
   private usingBack = false;
+  /** The species currently configured, for the evolution ceremony's
+   *  silhouette (it needs both the outgoing and incoming form's frame 0). */
+  private currentAnimation!: PokemonAnimation;
 
   constructor(animation: PokemonAnimation, tileSize: number) {
     this.tileSize = tileSize;
@@ -65,13 +61,7 @@ export class WalkerSprite {
     this.body.animationSpeed = 1;
     this.body.play();
 
-    this.flash = new Sprite(Texture.EMPTY);
-    this.flash.anchor.set(0.5, 1);
-    this.flash.tint = 0xffffff;
-    this.flash.blendMode = 'add';
-    this.flash.alpha = 0;
-
-    this.container.addChild(this.shadow, this.body, this.flash);
+    this.container.addChild(this.shadow, this.body);
     this.configure(animation);
   }
 
@@ -82,6 +72,7 @@ export class WalkerSprite {
    * shadow, then resets to the front view.
    */
   configure(animation: PokemonAnimation): void {
+    this.currentAnimation = animation;
     this.locomotion = animation.info.locomotion;
     // Scale is derived from the FRONT sheet only: front and back geometry
     // differ per species (e.g. Pikachu front 50x46, back 40x47), and rescaling
@@ -107,8 +98,8 @@ export class WalkerSprite {
     }
 
     this.body.textures = this.frontFrames.frames;
-    this.flash.alpha = 0;
-    this.pulseMult = 1;
+    this.body.alpha = 1;
+    this.shadow.alpha = 1;
     this.body.play();
     this.applyTransform();
   }
@@ -118,6 +109,17 @@ export class WalkerSprite {
   setFacing(facing: Facing): void {
     this.facing = facing;
     this.applyTransform();
+  }
+
+  get currentFacing(): Facing {
+    return this.facing;
+  }
+
+  /** The species currently shown — the evolution ceremony needs this for the
+   *  outgoing form's silhouette (the incoming form is the one it's evolving
+   *  into, passed to it directly). */
+  get animation(): PokemonAnimation {
+    return this.currentAnimation;
   }
 
   /** Switch between the front and back sheet (Phase 3 §3: predominantly
@@ -136,15 +138,19 @@ export class WalkerSprite {
     return !!this.backFrames;
   }
 
-  /** Evolution whiteout intensity, 0 (none) to 1 (fully white). */
-  setFlash(amount: number): void {
-    this.flash.alpha = Math.max(0, Math.min(1, amount));
+  /** Pause/resume the idle loop without touching visibility — the evolution
+   *  ceremony freezes the walker in place the instant it halts. */
+  freeze(frozen: boolean): void {
+    if (frozen) this.body.stop();
+    else this.body.play();
   }
 
-  /** Extra scale multiplier for the evolution pulse; 1 clears it. */
-  setPulse(mult: number): void {
-    this.pulseMult = mult;
-    this.applyTransform();
+  /** Fade the normal colored art in/out (1 = fully shown), for the ceremony's
+   *  crossfade into a silhouette and its reveal back out of one. The shadow
+   *  fades with it — a silhouette casting a normal shadow reads wrong. */
+  setBodyAlpha(alpha: number): void {
+    this.body.alpha = alpha;
+    this.shadow.alpha = alpha;
   }
 
   setMoving(moving: boolean): void {
@@ -166,15 +172,8 @@ export class WalkerSprite {
     const bob = BOB[this.locomotion];
     const riding = this.moving || bob.whileStill;
     this.body.y = -LIFT[this.locomotion] - (riding ? Math.abs(Math.sin(this.bobPhase)) * bob.amplitude : 0);
-    const effective = this.scale * this.pulseMult;
-    this.body.scale.x = this.facing === NATIVE_FACING ? effective : -effective;
-    this.body.scale.y = effective;
-    // The flash overlay always mirrors the body's current frame, transform and
-    // position, so it reads as the same Pokemon lighting up rather than a
-    // separate blob.
-    this.flash.texture = this.body.texture;
-    this.flash.y = this.body.y;
-    this.flash.scale.copyFrom(this.body.scale);
+    this.body.scale.x = this.facing === NATIVE_FACING ? this.scale : -this.scale;
+    this.body.scale.y = this.scale;
   }
 
   /** Drawn size in world pixels, for hit areas and bubble placement. */
