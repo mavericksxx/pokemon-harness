@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId } from '@shared/agentProvider';
 import { startSession } from '@/sessions';
 import { useStore } from '@/store/store';
-import { pickFreePokemon, POKEMON_ROSTER } from '@/scene/garden/showdownArt';
+import { pickFreeLine, POKEMON_ROSTER } from '@/scene/garden/showdownArt';
+import { baseStageOf, chainLabel, searchDex, speciesEntry, type DexEntry } from '@/scene/garden/dexData';
 import { PokemonFace } from './PokemonFace';
 
 interface Props {
@@ -11,9 +12,18 @@ interface Props {
 
 export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const sessions = useStore((s) => s.sessions);
-  const taken = new Set(sessions.map((s) => s.pokemon));
-  // Random default, chosen once on open from whoever is not already out there.
-  const [pokemon, setPokemon] = useState(() => pickFreePokemon([...taken]));
+  const takenLines = new Set(sessions.map((s) => s.line));
+  // Random default, chosen once on open from whichever bundled line is free.
+  const [pokemon, setPokemon] = useState(() => pickFreeLine([...takenLines]).name);
+  const [query, setQuery] = useState('');
+  // Debounced: every intermediate keystroke's result set would otherwise mount
+  // a PokemonFace per unbundled result, each firing a real GIF fetch — typing
+  // "gengar" would fetch every species matching "g", "ge", "gen"... on the way.
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQuery(query), 200);
+    return () => window.clearTimeout(t);
+  }, [query]);
   const [provider, setProvider] = useState<AgentProviderId>(DEFAULT_PROVIDER);
   const [cwd, setCwd] = useState('');
   const [command, setCommand] = useState(AGENT_PROVIDERS[DEFAULT_PROVIDER].defaultCommand);
@@ -21,6 +31,21 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Empty query: the bundled 42 need no network and cover most of the fun
+  // evolution lines already, so they stay the default listing. Non-empty:
+  // type-ahead over the full 649-species dex by name or dex number.
+  const results: DexEntry[] = debouncedQuery.trim()
+    ? searchDex(debouncedQuery, 30)
+    : POKEMON_ROSTER.map((p) => speciesEntry(p.name)).filter((e): e is DexEntry => !!e);
+
+  const chosen = speciesEntry(pokemon);
+  const base = baseStageOf(pokemon);
+  const chain = chainLabel(base.line);
+  const isBaseStage = chosen ? chosen.stage === 1 : true;
+  const note = isBaseStage
+    ? chain
+    : `${chosen?.name ?? pokemon} joins as ${base.name} — it'll evolve as your agent works (${chain})`;
 
   const pickFolder = async (): Promise<void> => {
     const picked = await window.api.chooseFolder();
@@ -38,8 +63,8 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
       setError('Choose a working directory.');
       return;
     }
-    if (taken.has(pokemon)) {
-      setError('That Pokemon is already out in the garden.');
+    if (takenLines.has(base.line)) {
+      setError(`${base.name}'s line is already out in the garden.`);
       return;
     }
     setBusy(true);
@@ -118,25 +143,34 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         </label>
 
         <label>
-          Pokemon <span className="hint">(one per session)</span>
+          Pokemon <span className="hint">(one per evolution line)</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search all 649 by name or dex number…"
+            spellCheck={false}
+          />
           <div className="pokemon-picker">
-            {POKEMON_ROSTER.map((p) => {
-              const isTaken = taken.has(p.name);
+            {results.map((entry) => {
+              const entryBase = baseStageOf(entry.id);
+              const isTaken = takenLines.has(entryBase.line);
               return (
                 <button
-                  key={p.name}
+                  key={entry.id}
                   type="button"
-                  className={p.name === pokemon ? 'pokemon-option chosen' : 'pokemon-option'}
+                  className={entry.id === pokemon ? 'pokemon-option chosen' : 'pokemon-option'}
                   disabled={isTaken}
-                  title={isTaken ? `${p.label} is already in the garden` : p.label}
-                  onClick={() => setPokemon(p.name)}
+                  title={isTaken ? `${entry.name}'s line is already in the garden` : entry.name}
+                  onClick={() => setPokemon(entry.id)}
                 >
-                  <PokemonFace name={p.name} />
-                  <span>{p.label}</span>
+                  <PokemonFace name={entry.id} />
+                  <span>{entry.name}</span>
                 </button>
               );
             })}
+            {debouncedQuery.trim() && results.length === 0 && <p className="hint">No match.</p>}
           </div>
+          <p className="hint pokemon-note">{note}</p>
         </label>
 
         {error && <p className="error">{error}</p>}

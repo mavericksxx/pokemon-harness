@@ -3,6 +3,7 @@ import { GardenScene } from '@/scene/garden/GardenScene';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
 import { PokemonFace } from '@/components/PokemonFace';
+import { Toasts } from '@/components/Toasts';
 import { useStore } from '@/store/store';
 
 export function App(): JSX.Element {
@@ -46,6 +47,7 @@ export function App(): JSX.Element {
       </main>
 
       {dialogOpen && <NewSessionDialog onClose={() => setDialogOpen(false)} />}
+      <Toasts />
     </div>
   );
 }

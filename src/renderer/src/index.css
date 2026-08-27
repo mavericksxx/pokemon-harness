@@ -91,6 +91,13 @@ body {
   image-rendering: pixelated;
 }
 
+/* Shown while a lazy (unbundled) species' thumbnail is still being fetched. */
+.pokemon-face.loading {
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, var(--panel-2) 0 55%, var(--line) 55% 60%, var(--panel-2) 60%);
+  opacity: 0.6;
+}
+
 .pokemon-picker {
   display: grid;
   /* auto-fill, not a fixed column count: the roster is whatever the showdown
@@ -333,6 +340,10 @@ button.icon {
   opacity: 0.6;
 }
 
+.pokemon-note {
+  margin: 2px 0 0;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -344,6 +355,28 @@ button.icon {
   color: var(--danger);
   margin: 0;
   font-size: 12px;
+}
+
+/* ── Toasts ──────────────────────────────────────────────────────────────── */
+.toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1000;
+}
+
+.toast {
+  max-width: 320px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 .drawer-error {
