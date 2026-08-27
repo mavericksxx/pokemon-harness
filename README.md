@@ -44,6 +44,16 @@ Electron:
 POKE_EVOLVE_SECONDS=20,60 npm run dev
 ```
 
+Evolving plays a ~9s ceremony (flash-in, silhouette, an accelerating
+old/new-form oscillation, a lock, a flash-out reveal) modeled on the games'
+own. A third, optional value scales its real-time speed (authored timings
+assume `1.0` ≈ 15s; the default is `0.6`) — useful for slowing it down enough
+to catch a screenshot mid-effect:
+
+```sh
+POKE_EVOLVE_SECONDS=20,60,3 npm run dev
+```
+
 ## Pokemon picker
 
 The "Pokemon" field in the New Session dialog is a type-ahead search over all
