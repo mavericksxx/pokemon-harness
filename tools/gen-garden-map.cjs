@@ -80,8 +80,9 @@ const SMALL_TREE = k(28);
 const SHRUB = k(17);
 const MUSHROOMS = k(29);
 const SIGNPOST = k(83);
+const MAILBOX = k(95); // a red post on a stake — the second "waiting on you" spot
 const WORKBENCH = k(106); // a felled log — the "run a command here" station
-const CRATE = k(107);
+const CRATE = k(103);
 const BEEHIVE = k(94);
 
 // OGA "mostly flowers" (1024x207, 64 cols). Row 0 is the bloomed stage.
@@ -139,25 +140,46 @@ for (let y = 0; y < H; y++) {
   }
 }
 
-// ── paths: a 2-tile-wide loop from the gate, plus the pond's sandy bank ─────
-// Kenney's dirt is a 3x3 patch with grass-blended edges and no inner-corner
-// tiles, so paths are kept 2 wide: every cell then has grass on exactly one of
-// each axis and lands on a real edge tile. Junctions get the plain centre tile.
-const PATH_RECTS = [
-  { x0: 23, y0: 18, x1: 24, y1: 30 }, // gate spine
-  { x0: 8, y0: 17, x1: 24, y1: 18 }, // west promenade
-  { x0: 8, y0: 10, x1: 9, y1: 18 }, // north-west vertical
-  { x0: 8, y0: 10, x1: 40, y1: 11 }, // north walk, running along the pond bank
-  { x0: 39, y0: 11, x1: 40, y1: 26 }, // east vertical
-  { x0: 23, y0: 25, x1: 40, y1: 26 } // south walk, closing the loop
-];
-const PONDR = { x0: 30, y0: 3, x1: 39, y1: 9 };
+// ── paths ───────────────────────────────────────────────────────────────────
+// Kenney's dirt is a 3x3 patch with grass-blended edges and NO inner-corner
+// tiles, so a path must stay 2 wide: every cell then has grass on exactly one
+// side of each axis and lands on a real edge tile. A 1-wide path would need a
+// tile fringed on both sides, which the sheet does not have.
+//
+// Narrowness is therefore bought with SHAPE, not width: short segments that turn
+// often, rather than the long straight avenues a rectangle list produces.
+// `route` walks a polyline whose points are the top-left corner of the 2x2 band.
+const PATH_W = 2;
+const route = (pts) => {
+  for (let i = 0; i < pts.length - 1; i++) {
+    let [x, y] = pts[i];
+    const [tx, ty] = pts[i + 1];
+    if (x !== tx && y !== ty) throw new Error(`route segment ${i} is not axis-aligned`);
+    const dx = Math.sign(tx - x);
+    const dy = Math.sign(ty - y);
+    for (;;) {
+      for (let a = 0; a < PATH_W; a++) {
+        for (let b = 0; b < PATH_W; b++) if (inside(x + a, y + b)) isPath[y + b][x + a] = true;
+      }
+      if (x === tx && y === ty) break;
+      x += dx;
+      y += dy;
+    }
+  }
+};
+
+// The pond sits in the north-east, away from the walks, so its bank stays a
+// 1-tile rim instead of merging into a path and reading as one dirt slab.
+const PONDR = { x0: 35, y0: 4, x1: 43, y1: 9 };
 const inPond = (x, y) => x >= PONDR.x0 && x <= PONDR.x1 && y >= PONDR.y0 && y <= PONDR.y1;
 
-for (const r of PATH_RECTS) {
-  for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) if (inside(x, y)) isPath[y][x] = true;
-}
-// A one-tile sand bank rings the pond, so the water never abuts raw grass — the
+route([[23, 29], [23, 26], [18, 26], [18, 22], [26, 22], [26, 18], [21, 18], [21, 14]]); // gate → centre
+route([[21, 14], [30, 14], [30, 11], [34, 11]]); // centre → pond bank
+route([[18, 22], [11, 22], [11, 17], [15, 17]]); // west meadow spur
+route([[26, 18], [33, 18], [33, 23], [39, 23]]); // east lawn spur
+route([[23, 26], [34, 26], [34, 29]]); // south-east spur
+
+// A one-tile sand rim rings the pond, so the water never abuts raw grass — the
 // pond sheet's greens are a shade yellower than Kenney's and the joint shows.
 for (let y = PONDR.y0 - 1; y <= PONDR.y1 + 1; y++) {
   for (let x = PONDR.x0 - 1; x <= PONDR.x1 + 1; x++) {
@@ -168,7 +190,7 @@ for (let y = PONDR.y0 - 1; y <= PONDR.y1 + 1; y++) {
 for (let y = 0; y < H; y++) {
   for (let x = 0; x < W; x++) {
     if (!isPath[y][x]) continue;
-    // The pond counts as "path" for edging purposes, so the bank blends into the
+    // The pond counts as "path" for edging purposes, so the rim blends into the
     // water instead of drawing a grass lip against it.
     const solid = (px, py) => (inside(px, py) ? isPath[py][px] || inPond(px, py) : false);
     const row = !solid(x, y - 1) ? 0 : !solid(x, y + 1) ? 2 : 1;
@@ -231,10 +253,14 @@ for (let y = 0; y < H; y++) {
 // spawn placed on a prop would put the walker inside it.
 const SPAWNS = [];
 
-/** A 3x2 flower bed; the walker tends it from the middle of its bottom row. */
+/** A 3x2 planting bed: tilled soil on the floor, flowers over it. The walker
+ *  tends it from the middle of its bottom row. */
 const bed = (name, x, y) => {
   for (let dy = 0; dy < 2; dy++) {
     for (let dx = 0; dx < 3; dx++) {
+      // Soil uses the dirt patch's own edge tiles, so the bed gets the same
+      // grass-blended rim the paths do rather than a hard rectangle.
+      put(floor, x + dx, y + dy, DIRT[dy === 0 ? 0 : 2][dx === 0 ? 0 : dx === 2 ? 2 : 1]);
       put(below, x + dx, y + dy, pick(FLOWER_BED));
       claim(x + dx, y + dy);
     }
@@ -251,21 +277,27 @@ const prop = (name, gid, x, y) => {
   if (name) SPAWNS.push({ name, x, y: y + 1 });
 };
 
-bed('patch-1', 11, 13);
-bed('patch-2', 15, 13);
-bed('patch-3', 11, 20);
-bed('patch-4', 15, 20);
-bed('patch-5', 28, 21);
-bed('patch-6', 32, 21);
+// Planting beds, each tucked into a lawn pocket beside a walk.
+bed('patch-1', 13, 19);
+bed('patch-2', 14, 24);
+bed('patch-3', 22, 20);
+bed('patch-4', 28, 24);
+bed('patch-5', 35, 20);
+bed('patch-6', 24, 12);
 
-prop('stump-1', WORKBENCH, 20, 20);
-prop('stump-2', WORKBENCH, 27, 14);
-prop('signpost-1', SIGNPOST, 22, 16);
+// Felled logs — "run a command here".
+prop('stump-1', WORKBENCH, 20, 24);
+prop('stump-2', WORKBENCH, 31, 16);
+prop('stump-3', WORKBENCH, 16, 15);
 
-// The pond is solid, so its stations sit on the sand bank along its south shore.
+// Where a walker waits on you.
+prop('signpost-1', SIGNPOST, 25, 28);
+prop('mailbox-1', MAILBOX, 20, 12);
+
+// The pond is solid, so its stations sit on the sand rim along its south shore.
 for (const [name, x, y] of [
-  ['pond-1', 33, 10],
-  ['pond-2', 36, 10]
+  ['pond-1', 37, 10],
+  ['pond-2', 41, 10]
 ]) {
   SPAWNS.push({ name, x, y });
   claim(x, y);
@@ -273,10 +305,10 @@ for (const [name, x, y] of [
 
 // Idle strolling spots: open lawn a session loiters around when it has no work.
 const WANDER = [
-  { name: 'wander-1', x: 4, y: 6 },
-  { name: 'wander-2', x: 14, y: 28 },
-  { name: 'wander-3', x: 34, y: 17 },
-  { name: 'wander-4', x: 44, y: 20 }
+  { name: 'wander-1', x: 6, y: 8 },
+  { name: 'wander-2', x: 8, y: 28 },
+  { name: 'wander-3', x: 42, y: 16 },
+  { name: 'wander-4', x: 30, y: 6 }
 ];
 for (const w of WANDER) {
   SPAWNS.push(w);
@@ -287,26 +319,36 @@ SPAWNS.push({ name: 'entrance', x: 23, y: 30 });
 claim(23, 30);
 
 // A couple of non-station props for flavour, next to the stations they dress.
-prop(null, CRATE, 19, 20);
-prop(null, BEEHIVE, 35, 21);
+prop(null, CRATE, 19, 24);
+prop(null, BEEHIVE, 38, 20);
+
+// Reeds on the sand rim, so the pond does not read as a rectangle in a rectangle.
+// The rim is `claim`ed, so the scatter pass below skips it; this dresses it
+// explicitly, keeping every rim tile walkable (a station sits on the south shore).
+for (let y = PONDR.y0 - 1; y <= PONDR.y1 + 1; y++) {
+  for (let x = PONDR.x0 - 1; x <= PONDR.x1 + 1; x++) {
+    if (inPond(x, y) || !inside(x, y) || below[idx(x, y)] !== 0) continue;
+    const onRim =
+      x === PONDR.x0 - 1 || x === PONDR.x1 + 1 || y === PONDR.y0 - 1 || y === PONDR.y1 + 1;
+    if (!onRim || rnd() > 0.45) continue;
+    put(below, x, y, rnd() < 0.6 ? pick(GRASS_TUFT) : SHRUB);
+  }
+}
 
 // ── trees: canopy on furniture-above so walkers pass behind the foliage ─────
 // Only the trunk blocks; the canopy tile stays walkable, which is the whole
 // point of the split.
+//
+// Positions are jittered off a coarse lattice rather than listed: an evenly
+// spaced list reads as an orchard grid from a distance, which a garden should
+// not. The lattice guarantees coverage, the jitter kills the rows.
 const TREES = [];
-// An orchard hedge just inside the fence, with gaps so it never reads as a wall.
-for (let x = 2; x < W - 2; x += 3) {
-  TREES.push([x, 2], [x + 1, H - 3]);
+for (let gy = 3; gy < H - 3; gy += 4) {
+  for (let gx = 3; gx < W - 3; gx += 4) {
+    if (rnd() < 0.28) continue; // gaps, so the canopy never closes into a wall
+    TREES.push([gx + Math.floor(rnd() * 3) - 1, gy + Math.floor(rnd() * 3) - 1]);
+  }
 }
-for (let y = 4; y < H - 3; y += 3) {
-  TREES.push([2, y], [W - 3, y + 1]);
-}
-// Interior clusters, framing the lawns the stations sit in.
-TREES.push(
-  [5, 14], [6, 21], [5, 25], [12, 6], [16, 6], [20, 5], [24, 6], [27, 6],
-  [13, 24], [17, 24], [20, 27], [28, 28], [32, 28], [36, 28],
-  [26, 18], [30, 17], [37, 16], [44, 14], [44, 24], [12, 17], [16, 17]
-);
 let treeCount = 0;
 for (const [x, y] of TREES) {
   if (!free(x, y) || !free(x, y - 1)) continue;
@@ -324,20 +366,22 @@ for (let y = 1; y < H - 1; y++) {
   for (let x = 1; x < W - 1; x++) {
     if (!free(x, y)) continue;
     const r = rnd();
-    if (r < 0.035) {
+    if (r < 0.03) {
       put(below, x, y, BUSH); // solid
       block(x, y);
       claim(x, y);
-    } else if (r < 0.05) {
+    } else if (r < 0.042) {
       put(below, x, y, SMALL_TREE);
       block(x, y);
       claim(x, y);
     } else if (r < 0.075) {
       put(below, x, y, pick(GRASS_TUFT));
-    } else if (r < 0.085) {
+    } else if (r < 0.09) {
       put(below, x, y, SHRUB);
-    } else if (r < 0.092) {
+    } else if (r < 0.098) {
       put(below, x, y, MUSHROOMS);
+    } else if (r < 0.108) {
+      put(below, x, y, pick(FLOWER_BED)); // stray wildflowers on the lawn
     }
   }
 }
