@@ -32,12 +32,20 @@ export const TOOL_TO_STATION: Record<string, StationKind> = {
 export const STATION_SPAWNS: Record<StationKind, readonly string[]> = {
   patch: ['patch-1', 'patch-2', 'patch-3', 'patch-4', 'patch-5', 'patch-6'],
   stump: ['stump-1', 'stump-2', 'stump-3'],
-  // pond-2 and pond-3 are on the FAR shore: a walker treks around the rim to
-  // reach them, a flier goes straight over the water.
-  pond: ['pond-1', 'pond-2', 'pond-3'],
+  // pond-island is out in the water; see AIR_ONLY_SPAWNS below.
+  pond: ['pond-1', 'pond-2', 'pond-island', 'pond-3'],
   signpost: ['signpost-1', 'mailbox-1'],
   wander: ['wander-1', 'wander-2', 'wander-3', 'wander-4']
 };
+
+/**
+ * Spawns only a flying or levitating Pokemon can reach. A walker offered one
+ * would simply never move, so these are filtered out for it.
+ *
+ * The generator asserts this both ways: every other spawn must be reachable on
+ * foot from the entrance, and each of these must NOT be.
+ */
+export const AIR_ONLY_SPAWNS: ReadonlySet<string> = new Set(['pond-island']);
 
 /** Where a walker enters the garden. */
 export const ENTRANCE_SPAWN = 'entrance';

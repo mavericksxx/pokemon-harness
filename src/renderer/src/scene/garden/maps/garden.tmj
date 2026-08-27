@@ -11,7 +11,7 @@
  "version": "1.10",
  "tiledversion": "1.10.2",
  "nextlayerid": 9,
- "nextobjectid": 123,
+ "nextobjectid": 124,
  "tilesets": [
   {
    "firstgid": 1,
@@ -410,6 +410,43 @@
      ]
     },
     {
+     "id": 221,
+     "animation": [
+      {
+       "tileid": 221,
+       "duration": 180
+      },
+      {
+       "tileid": 232,
+       "duration": 180
+      },
+      {
+       "tileid": 243,
+       "duration": 180
+      },
+      {
+       "tileid": 254,
+       "duration": 180
+      },
+      {
+       "tileid": 573,
+       "duration": 180
+      },
+      {
+       "tileid": 584,
+       "duration": 180
+      },
+      {
+       "tileid": 595,
+       "duration": 180
+      },
+      {
+       "tileid": 606,
+       "duration": 180
+      }
+     ]
+    },
+    {
      "id": 222,
      "animation": [
       {
@@ -801,7 +838,7 @@
     187,
     231,
     187,
-    275,
+    354,
     275,
     187,
     231,
@@ -6997,7 +7034,7 @@
     12,
     12,
     12,
-    12,
+    0,
     12,
     12,
     12,
@@ -8546,7 +8583,7 @@
     187,
     231,
     187,
-    275,
+    0,
     275,
     187,
     231,
@@ -9937,6 +9974,18 @@
     },
     {
      "id": 114,
+     "name": "pond-island",
+     "type": "",
+     "point": true,
+     "x": 624,
+     "y": 96,
+     "width": 0,
+     "height": 0,
+     "rotation": 0,
+     "visible": true
+    },
+    {
+     "id": 115,
      "name": "wander-1",
      "type": "",
      "point": true,
@@ -9948,7 +9997,7 @@
      "visible": true
     },
     {
-     "id": 115,
+     "id": 116,
      "name": "wander-2",
      "type": "",
      "point": true,
@@ -9960,7 +10009,7 @@
      "visible": true
     },
     {
-     "id": 116,
+     "id": 117,
      "name": "wander-3",
      "type": "",
      "point": true,
@@ -9972,7 +10021,7 @@
      "visible": true
     },
     {
-     "id": 117,
+     "id": 118,
      "name": "wander-4",
      "type": "",
      "point": true,
@@ -9984,7 +10033,7 @@
      "visible": true
     },
     {
-     "id": 118,
+     "id": 119,
      "name": "entrance",
      "type": "",
      "point": true,

@@ -10,7 +10,7 @@ import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
 import { loadGardenTilesets } from './gardenArt';
 import { loadPokemonAnimations, POKEMON_ROSTER } from './showdownArt';
-import { BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
+import { AIR_ONLY_SPAWNS, BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -28,6 +28,8 @@ interface Runtime {
    *  reserved (SeatPool already keeps those distinct), so two concurrent
    *  sessions running Bash go to different logs instead of stacking on one. */
   slot: number;
+  /** Whether this session's Pokemon may be sent to an air-only station. */
+  canFly: boolean;
   /** Last (station, tool, target) applied, so we don't restart the path every frame. */
   lastStation: StationKind | null;
   lastToolKey: string;
@@ -93,8 +95,16 @@ export function GardenScene(): JSX.Element {
 
       const entrance = map.getSpawnPoint(ENTRANCE_SPAWN) ?? { x: 2, y: 2 };
 
-      const spawnTileFor = (station: StationKind, slot: number): { x: number; y: number } => {
-        const names = STATION_SPAWNS[station];
+      const spawnTileFor = (
+        station: StationKind,
+        slot: number,
+        canFly: boolean
+      ): { x: number; y: number } => {
+        // A walking Pokemon is never sent somewhere only wings can reach; it
+        // would just stand still, because findPath returns null and goTo fails.
+        const names = canFly
+          ? STATION_SPAWNS[station]
+          : STATION_SPAWNS[station].filter((n) => !AIR_ONLY_SPAWNS.has(n));
         if (names.length === 0) return entrance;
         return map.getSpawnPoint(names[slot % names.length]) ?? entrance;
       };
@@ -120,7 +130,14 @@ export function GardenScene(): JSX.Element {
         charLayer.addChild(walker.bubbleContainer);
         walker.showText(session.title);
         walker.lingerBubble();
-        const rt: Runtime = { walker, homePatch, slot, lastStation: null, lastToolKey: '' };
+        const rt: Runtime = {
+          walker,
+          homePatch,
+          slot,
+          canFly: animation.info.locomotion !== 'walk',
+          lastStation: null,
+          lastToolKey: ''
+        };
         runtimes.set(session.id, rt);
         return rt;
       };
@@ -158,7 +175,7 @@ export function GardenScene(): JSX.Element {
             if (station === 'wander') {
               walker.beginWander();
               rt.lastStation = station;
-            } else if (walker.goTo(spawnTileFor(station, rt.slot))) {
+            } else if (walker.goTo(spawnTileFor(station, rt.slot, rt.canFly))) {
               rt.lastStation = station;
             }
             // A failed goTo leaves lastStation alone so the next status change

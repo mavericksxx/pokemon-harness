@@ -101,7 +101,11 @@ const POND_E = p(57);
 const POND_SW = p(50);
 const POND_S = p(18);
 const POND_SE = p(52);
-const POND_TILES = [POND_NW, POND_N, POND_NE, POND_W, ...POND_C, POND_E, POND_SW, POND_S, POND_SE];
+/** A single grass tile ringed by its own shoreline — an island in open water. */
+const POND_ISLAND = p(56);
+const POND_TILES = [
+  POND_NW, POND_N, POND_NE, POND_W, ...POND_C, POND_E, POND_SW, POND_S, POND_SE, POND_ISLAND
+];
 
 // ── grid helpers ────────────────────────────────────────────────────────────
 // Deterministic PRNG so regenerating the map produces byte-identical output.
@@ -299,9 +303,7 @@ prop('stump-3', WORKBENCH, 16, 15);
 prop('signpost-1', SIGNPOST, 25, 28);
 prop('mailbox-1', MAILBOX, 20, 12);
 
-// The pond is solid, so its stations sit on the sand rim. Two are on the FAR
-// (north) shore on purpose: a walking Pokemon has to trek around the rim to
-// reach them, a flying one goes straight over the water.
+// The pond is solid, so most of its stations sit on the sand rim.
 for (const [name, x, y] of [
   ['pond-1', 37, 10],
   ['pond-2', 38, 3],
@@ -310,6 +312,25 @@ for (const [name, x, y] of [
   SPAWNS.push({ name, x, y });
   claim(x, y);
 }
+
+// One station on an island in the middle of the water, reachable only from the
+// air. This is what makes a flying Pokemon's locomotion actually visible: the
+// pond is a convex rectangle, so on a 4-connected grid walking around it costs
+// exactly what crossing it would, and a flier given a shore destination would
+// never have reason to leave the ground. An island forces the difference.
+const ISLAND = {
+  x: PONDR.x0 + Math.floor((PONDR.x1 - PONDR.x0) / 2),
+  y: PONDR.y0 + Math.floor((PONDR.y1 - PONDR.y0) / 2)
+};
+put(floor, ISLAND.x, ISLAND.y, POND_ISLAND);
+collision[idx(ISLAND.x, ISLAND.y)] = 0;
+water[idx(ISLAND.x, ISLAND.y)] = 0; // land, so a flier can stand on it
+SPAWNS.push({ name: 'pond-island', x: ISLAND.x, y: ISLAND.y });
+claim(ISLAND.x, ISLAND.y);
+
+/** Spawns a walking Pokemon is not expected to reach. Must match
+ *  stations.ts's AIR_ONLY_SPAWNS. */
+const AIR_ONLY = new Set(['pond-island']);
 
 // Idle strolling spots: open lawn a session loiters around when it has no work.
 const WANDER = [
@@ -423,7 +444,15 @@ for (const x of GATE) collision[idx(x, H - 1)] = 0;
     }
   }
   for (const s of SPAWNS) {
-    if (!seen[s.y][s.x]) throw new Error(`spawn ${s.name} at ${s.x},${s.y} is unreachable`);
+    const reachable = seen[s.y][s.x];
+    // Air-only spawns must be unreachable on foot — that is the whole point of
+    // them — and every other spawn must be reachable. Both directions are
+    // asserted, so the island cannot silently become walkable either.
+    if (AIR_ONLY.has(s.name)) {
+      if (reachable) throw new Error(`air-only spawn ${s.name} is reachable on foot`);
+    } else if (!reachable) {
+      throw new Error(`spawn ${s.name} at ${s.x},${s.y} is unreachable`);
+    }
   }
 }
 
