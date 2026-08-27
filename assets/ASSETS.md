@@ -94,6 +94,58 @@ indices were individually visually verified against known species appearance rat
 than trusted from the arithmetic alone -- see `build_pokemon.py`-equivalent notes in
 manifest.json.
 
+## assets/showdown/ -- animated battle sprites (garden pets)
+
+- Source: Pokemon Showdown (https://play.pokemonshowdown.com/sprites/), the
+  Gen-5 (Black/White style) animated battle sprite sets: `gen5ani/` (front-facing)
+  and `gen5ani-back/` (back-facing). Same fan-use non-commercial disclaimer as
+  above applies: these sprites are copyright (c) Nintendo, Game Freak, and
+  Creatures Inc.; the Gen-5 animations themselves are the work of the
+  Smogon/Pokemon Showdown community pixel artists. Used here purely as
+  non-commercial fan content for a personal project, with no ownership claimed
+  and no affiliation with Nintendo, Game Freak, Creatures Inc., The Pokemon
+  Company, or Smogon/Pokemon Showdown. Assets will be removed on request from
+  the rights holders.
+- These are the pixel-art Gen-5 sprites (`gen5ani`), not the larger modern-style
+  `ani/` set, to match the rest of the project's pixel aesthetic.
+- Format delivered: one `<name>.png` per Pokemon at `assets/showdown/<name>.png`
+  -- a horizontal spritesheet of every animation frame at the source GIF's
+  native size (not scaled), laid out left-to-right, RGBA with transparency
+  preserved. Back-facing versions are under `assets/showdown/back/<name>.png`
+  (delivered for all 42; front and back sheets are NOT guaranteed to share the
+  same frame size or frame count -- e.g. Pikachu front is 50x46/61 frames,
+  back is 40x47/60 frames).
+- Frames were coalesced from each animated GIF with Pillow (each output frame
+  is a complete image reflecting the GIF's own disposal method between frames)
+  so there is no ghosting or partial-frame artifacts. Verified: every sheet's
+  pixel dimensions equal `frameWidth * frameCount` wide by `frameHeight` tall,
+  every frame has non-transparent pixels (no blank frames), and a magnified
+  spot check against a dark background found no white/light halo fringing on
+  edges.
+- `assets/showdown/manifest.json` is `{"pokemon": [...]}` (matches the shape
+  `src/renderer/src/scene/garden/showdownArt.ts` already reads), one entry per
+  Pokemon: dex number, evolution `line` id, 1-based `stage` within that line
+  (both agree with `assets/dex/lines.json`), `evolvesTo` (name(s) of the next
+  stage -- Eevee lists all seven Eeveelutions, final stages are empty),
+  `locomotion` (`"fly"` for Charizard, `"levitate"` for the
+  Gastly/Haunter/Gengar line, `"walk"` for everything else -- Charmander and
+  Charmeleon are `"walk"`; flight is only gained at the Charizard stage),
+  frame geometry (`frameWidth`/`frameHeight`/`frameCount`), per-frame
+  `durations` in ms as an array with one entry per frame (matches the
+  consumer's `entry.durations?.[i]`), `sourceUrl`, `image` path, and `hasBack`
+  plus a nested `back` object (geometry/durations/sourceUrl/image) when a back
+  sheet was delivered.
+- Roster delivered (42/42 requested, full evolution lines): Pichu-Pikachu-Raichu;
+  Eevee + all seven Eeveelutions (Vaporeon, Jolteon, Flareon, Espeon, Umbreon,
+  Leafeon, Glaceon); Bulbasaur-Ivysaur-Venusaur; Charmander-Charmeleon-Charizard;
+  Squirtle-Wartortle-Blastoise; Chikorita-Bayleef-Meganium;
+  Cyndaquil-Quilava-Typhlosion; Totodile-Croconaw-Feraligatr; Psyduck-Golduck;
+  Igglybuff-Jigglypuff-Wigglytuff; Gastly-Haunter-Gengar; Munchlax-Snorlax;
+  Larvitar-Pupitar-Tyranitar. No 404s encountered; every front and back GIF in
+  the roster fetched successfully.
+- `assets/showdown/_preview.png` is a contact sheet (dex-order grid) of the
+  first frame of all 42 Pokemon for a quick human eyeball check.
+
 ## assets/garden/ -- tileset
 
 See `assets/garden/sources.md` for full per-file source URL, author, and license.
@@ -118,6 +170,10 @@ ArkyonVeil (opengameart.org/content/16x-tileset-mostly-flowers), CC-BY 4.0."
 - `assets/pokemon/<name>.png` -- 12 walk spritesheets (see above)
 - `assets/pokemon/manifest.json` -- machine-readable per-Pokemon source/format details
 - `assets/pokemon/_preview.png` -- human-eyeball contact sheet
+- `assets/showdown/<name>.png` -- 42 animated front-facing spritesheets (see above)
+- `assets/showdown/back/<name>.png` -- 42 animated back-facing spritesheets
+- `assets/showdown/manifest.json` -- machine-readable per-Pokemon source/format/evolution details
+- `assets/showdown/_preview.png` -- human-eyeball contact sheet
 - `assets/garden/*.png` -- tileset images
 - `assets/garden/sources.md` -- per-file source/license details
 - `assets/ASSETS.md` -- this file
