@@ -10,7 +10,8 @@
  *
  * Licences for these three sheets are in assets/ASSETS.md and assets/garden/sources.md.
  */
-import { Assets, Texture } from 'pixi.js';
+import type { Texture } from 'pixi.js';
+import { loadPixelTexture } from './imageTexture';
 import tilesetSpec from './maps/gardenTilesets.json';
 import kenneyTinyTown from '@assets/garden/kenney_tiny_town.png';
 import grasswaterPond from '@assets/garden/grasswater_pond_light.png';
@@ -30,8 +31,5 @@ export async function loadGardenTilesets(): Promise<Texture[]> {
     if (!url) throw new Error(`gardenTilesets.json lists ${t.image}, which has no import here`);
     return url;
   });
-  const textures = await Promise.all(urls.map((url) => Assets.load<Texture>(url)));
-  // Pixel art: nearest lives on the SOURCE, not the texture.
-  for (const texture of textures) texture.source.scaleMode = 'nearest';
-  return textures;
+  return Promise.all(urls.map(loadPixelTexture));
 }
