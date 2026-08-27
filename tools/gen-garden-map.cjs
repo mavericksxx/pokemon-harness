@@ -335,12 +335,17 @@ const STRUCTURES = [];
  *   WALL         DOOR (open)     WALL
  */
 const pottingShed = (ox, oy) => {
-  const cells = [
+  // The 7 perimeter cells are solid walls; (ox+1, oy+1) is the walkable
+  // interior (roofed over, but not itself blocked) and (ox+1, oy+2) is the
+  // walkable, always-open doorway. Both are claimed separately below so
+  // `block()` is never called on them.
+  const perimeter = [
     [ox, oy], [ox + 1, oy], [ox + 2, oy],
-    [ox, oy + 1], [ox + 1, oy + 1], [ox + 2, oy + 1],
+    [ox, oy + 1], [ox + 2, oy + 1],
     [ox, oy + 2], [ox + 2, oy + 2]
   ];
-  for (const [x, y] of cells) claimOrThrow(x, y, 'potting-shed wall');
+  for (const [x, y] of perimeter) claimOrThrow(x, y, 'potting-shed wall');
+  claimOrThrow(ox + 1, oy + 1, 'potting-shed interior');
   claimOrThrow(ox + 1, oy + 2, 'potting-shed door');
 
   put(walls, ox, oy, WALL_STONE);
@@ -353,7 +358,7 @@ const pottingShed = (ox, oy) => {
   put(walls, ox + 2, oy + 2, WALL_STONE_ALT);
   put(walls, ox + 1, oy + 2, DOOR_STONE); // always visible — a hole in the roof, not a wall
 
-  for (const [x, y] of cells) block(x, y);
+  for (const [x, y] of perimeter) block(x, y);
   // Interior floor + doorway both stay walkable and grass-floored underneath;
   // only their `walls`/`above` art changes.
 
@@ -742,6 +747,7 @@ for (const x of GATE) collision[idx(x, H - 1)] = 0;
 // The structures' own walkable tiles (doorways, arch, gazebo gap) that aren't
 // already a station spawn — asserted below by name for a clear failure.
 const EXTRA_REACHABLE = [
+  { name: 'potting-shed interior', x: shedRooms.interior.x, y: shedRooms.interior.y },
   { name: 'potting-shed door', x: shedRooms.door.x, y: shedRooms.door.y },
   { name: 'ruin arch (west)', x: 38, y: 15 },
   { name: 'ruin arch (east)', x: 39, y: 15 }
