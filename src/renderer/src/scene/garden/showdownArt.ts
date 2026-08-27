@@ -13,17 +13,17 @@
  *
  * Licence and fan-use disclaimer: assets/ASSETS.md.
  */
-import { Rectangle, Texture } from 'pixi.js';
+import { Texture } from 'pixi.js';
 import { loadPixelTexture } from './imageTexture';
+import { sliceFrames } from './spriteSheet';
 import manifest from '@assets/showdown/manifest.json';
 
 /** How a species gets around, which decides whether it can cross the pond. */
 export type Locomotion = 'walk' | 'fly' | 'levitate';
 
-interface ManifestEntry {
-  name: string;
-  dex: number;
-  /** Sheet filename, relative to assets/showdown/. */
+interface ManifestSheet {
+  /** Sheet filename, relative to assets/showdown/ (back sheets: relative to
+   *  assets/showdown/back/). */
   image: string;
   frameWidth: number;
   frameHeight: number;
@@ -31,9 +31,16 @@ interface ManifestEntry {
   /** Milliseconds to hold each frame — either one value for the whole loop or
    *  one per frame. The rip emits both forms. */
   durations?: number | number[];
+}
+
+interface ManifestEntry extends ManifestSheet {
+  name: string;
+  dex: number;
   hasBack?: boolean;
+  back?: ManifestSheet;
   locomotion?: Locomotion;
-  /** Evolution data, unused here; Phase 3's picker reads it. */
+  /** Evolution data: the line's id, this species' 1-based stage within it, and
+   *  the name(s) of the next stage (branching for Eevee, empty at the top). */
   line?: string;
   stage?: number;
   evolvesTo?: string[];
@@ -60,14 +67,19 @@ if (ENTRIES.length === 0) console.error('[showdown] manifest produced no Pokemon
 
 // Sheets are found rather than listed, so the roster is the manifest's alone.
 // The path is relative (not via the @assets alias) because Vite resolves glob
-// patterns against this file on disk.
-// `_preview.png` is a human contact sheet, not art the app uses; excluding it
-// keeps it out of the bundle. `back/` is not matched — nothing renders back
-// views yet, and a walker turns by mirroring.
+// patterns against this file on disk. `_preview.png` is a human contact sheet,
+// not art the app uses; excluding it keeps it out of the bundle. The glob is
+// deliberately non-recursive, so `back/*.png` needs its own glob below.
 const SHEET_MODULES = import.meta.glob(
   ['../../../../../assets/showdown/*.png', '!../../../../../assets/showdown/_*.png'],
   { eager: true, query: '?url', import: 'default' }
 ) as Record<string, string>;
+
+const BACK_SHEET_MODULES = import.meta.glob('../../../../../assets/showdown/back/*.png', {
+  eager: true,
+  query: '?url',
+  import: 'default'
+}) as Record<string, string>;
 
 /** Sheet filename (as the manifest's `image` names it) → bundled URL. */
 export const SHEET_URLS: Record<string, string> = {};
@@ -75,9 +87,18 @@ for (const [path, url] of Object.entries(SHEET_MODULES)) {
   SHEET_URLS[path.slice(path.lastIndexOf('/') + 1)] = url;
 }
 
+/** Back-sheet filename (as the manifest's `back.image` names it, e.g.
+ *  `back/bulbasaur.png`) → bundled URL. */
+export const BACK_SHEET_URLS: Record<string, string> = {};
+for (const [path, url] of Object.entries(BACK_SHEET_MODULES)) {
+  const slash = path.lastIndexOf('/');
+  const dir = path.slice(0, slash).split('/').pop();
+  BACK_SHEET_URLS[`${dir}/${path.slice(slash + 1)}`] = url;
+}
+
 /** Hold time for frame `i`, whichever form the manifest used. */
-function frameTime(entry: ManifestEntry, i: number): number {
-  const d = entry.durations;
+function frameTime(sheet: ManifestSheet, i: number): number {
+  const d = sheet.durations;
   if (typeof d === 'number') return d;
   return d?.[i] ?? DEFAULT_FRAME_MS;
 }
@@ -137,12 +158,27 @@ export interface PokemonInfo {
   frameWidth: number;
   frameHeight: number;
   sheetUrl: string;
+  /** Evolution line id (shared by every stage) and this species' 1-based stage
+   *  within it. Branching (Eevee) and top-of-line (empty) both show here. */
+  line: string;
+  stage: number;
+  evolvesTo: string[];
+  hasBack: boolean;
 }
 
-/** One species' idle loop: Pixi FrameObjects (texture + hold time in ms). */
+/** One direction's idle loop: Pixi FrameObjects (texture + hold time in ms). */
+export interface FrameSet {
+  frameWidth: number;
+  frameHeight: number;
+  frames: { texture: Texture; time: number }[];
+}
+
+/** One species' art: the front loop always, the back loop when a back sheet
+ *  exists (Phase 3 §3 — walking predominantly upward uses it). */
 export interface PokemonAnimation {
   info: PokemonInfo;
-  frames: { texture: Texture; time: number }[];
+  front: FrameSet;
+  back?: FrameSet;
 }
 
 const toInfo = (entry: ManifestEntry): PokemonInfo => ({
@@ -152,10 +188,41 @@ const toInfo = (entry: ManifestEntry): PokemonInfo => ({
   locomotion: entry.locomotion ?? 'walk',
   frameWidth: entry.frameWidth,
   frameHeight: entry.frameHeight,
-  sheetUrl: SHEET_URLS[entry.image] ?? ''
+  sheetUrl: SHEET_URLS[entry.image] ?? '',
+  line: entry.line ?? entry.name,
+  stage: entry.stage ?? 1,
+  evolvesTo: entry.evolvesTo ?? [],
+  hasBack: !!entry.hasBack
 });
 
 export const POKEMON_ROSTER: readonly PokemonInfo[] = ENTRIES.map(toInfo);
+
+/** Bundled species keyed by name, for evolution/dex lookups elsewhere. */
+export const BUNDLED_BY_NAME: ReadonlyMap<string, ManifestEntry> = new Map(
+  ENTRIES.map((e) => [e.name, e])
+);
+
+async function loadFrameSet(sheet: ManifestSheet, sheetUrl: string): Promise<FrameSet> {
+  const texture = await loadPixelTexture(sheetUrl);
+  const geo = { frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight, frameCount: sheet.frameCount };
+  const textures = sliceFrames(texture, geo);
+  return {
+    frameWidth: sheet.frameWidth,
+    frameHeight: sheet.frameHeight,
+    frames: textures.map((t, i) => ({ texture: t, time: frameTime(sheet, i) }))
+  };
+}
+
+/** Stand-in art for a species whose sheet is missing, still loading (lazy
+ *  fetch), or failed outright. Exported for `lazySprites.ts`'s placeholder. */
+export function pokeballFrameSet(): FrameSet {
+  const texture = pokeballTexture();
+  return {
+    frameWidth: texture.width,
+    frameHeight: texture.height,
+    frames: [{ texture, time: DEFAULT_FRAME_MS }]
+  };
+}
 
 /** Sheets are needed the moment a session appears, so they load once, up front. */
 export async function loadPokemonAnimations(): Promise<Map<string, PokemonAnimation>> {
@@ -164,23 +231,27 @@ export async function loadPokemonAnimations(): Promise<Map<string, PokemonAnimat
       const info = toInfo(entry);
       try {
         if (!info.sheetUrl) throw new Error('no sheet file on disk for this manifest entry');
-        const sheet = await loadPixelTexture(info.sheetUrl);
-        const frames = Array.from({ length: entry.frameCount }, (_, i) => ({
-          texture: new Texture({
-            source: sheet.source,
-            frame: new Rectangle(i * entry.frameWidth, 0, entry.frameWidth, entry.frameHeight)
-          }),
-          time: frameTime(entry, i)
-        }));
-        return [entry.name, { info, frames }] as const;
+        const front = await loadFrameSet(entry, info.sheetUrl);
+        let back: FrameSet | undefined;
+        if (entry.back) {
+          const backUrl = BACK_SHEET_URLS[entry.back.image];
+          if (backUrl) {
+            try {
+              back = await loadFrameSet(entry.back, backUrl);
+            } catch (err) {
+              console.error(`[showdown] ${entry.name}: back sheet failed to load —`, err);
+            }
+          }
+        }
+        return [entry.name, { info, front, back }] as const;
       } catch (err) {
         // One missing sheet must not take the whole garden down with it, but it
         // must be findable — say which species and why, then stand a pokeball in.
         console.error(`[showdown] ${entry.name}: sheet failed to load —`, err);
-        const texture = pokeballTexture();
+        const front = pokeballFrameSet();
         const fallback: PokemonAnimation = {
-          info: { ...info, frameWidth: texture.width, frameHeight: texture.height },
-          frames: [{ texture, time: DEFAULT_FRAME_MS }]
+          info: { ...info, frameWidth: front.frameWidth, frameHeight: front.frameHeight },
+          front
         };
         return [entry.name, fallback] as const;
       }
@@ -189,9 +260,12 @@ export async function loadPokemonAnimations(): Promise<Map<string, PokemonAnimat
   return new Map(loaded);
 }
 
-/** A species no live session is using, or — if all are taken — a random one. */
-export function pickFreePokemon(taken: readonly string[]): string {
-  const free = POKEMON_ROSTER.filter((p) => !taken.includes(p.name));
-  const pool = free.length > 0 ? free : POKEMON_ROSTER;
-  return pool[Math.floor(Math.random() * pool.length)].name;
+/** A bundled evolution LINE no live session is using (by base-stage name), or
+ *  — if all are taken — a random one. Only among the 42 bundled species, so
+ *  the default/random assignment never needs a network fetch. */
+export function pickFreeLine(takenLines: readonly string[]): PokemonInfo {
+  const bases = POKEMON_ROSTER.filter((p) => p.stage === 1);
+  const free = bases.filter((p) => !takenLines.includes(p.line));
+  const pool = free.length > 0 ? free : bases;
+  return pool[Math.floor(Math.random() * pool.length)];
 }

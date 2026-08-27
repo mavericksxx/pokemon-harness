@@ -25,6 +25,8 @@
     "src/renderer/**/*",
     "src/preload/index.d.ts",
     "src/shared/**/*",
-    "assets/showdown/manifest.json"
+    "assets/showdown/manifest.json",
+    "assets/dex/dexIndex.json",
+    "assets/dex/lines.json"
   ]
 }
