@@ -3,7 +3,8 @@ import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest } from '@shared/types';
 import { useStore } from '@/store/store';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
-import { pickFreePokemon } from '@/scene/garden/showdownArt';
+import { pickFreeLine } from '@/scene/garden/showdownArt';
+import { baseStageOf } from '@/scene/garden/dexData';
 
 function basename(p: string): string {
   const parts = p.replace(/\/+$/, '').split('/');
@@ -23,6 +24,19 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     // selected.
     createTerminal(id);
 
+    // Sessions always hatch at their line's base stage, whatever stage of the
+    // line the picker's search resolved to.
+    let pokemon: string;
+    let line: string;
+    if (req.pokemon) {
+      const base = baseStageOf(req.pokemon);
+      pokemon = base.id;
+      line = base.line;
+    } else {
+      const picked = pickFreeLine(useStore.getState().takenLines());
+      pokemon = picked.name;
+      line = picked.line;
+    }
     useStore.getState().addSession({
       id,
       title: req.title?.trim() || basename(req.cwd),
@@ -30,7 +44,8 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       command,
       provider: req.provider,
       model: req.model,
-      pokemon: req.pokemon ?? pickFreePokemon(useStore.getState().takenPokemon())
+      pokemon,
+      line
     });
     sessionAdded = true;
 
