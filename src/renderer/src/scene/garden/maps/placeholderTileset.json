@@ -1,0 +1,24 @@
+{
+  "name": "placeholder-garden",
+  "tilewidth": 16,
+  "tileheight": 16,
+  "columns": 6,
+  "tilecount": 12,
+  "imagewidth": 96,
+  "imageheight": 32,
+  "image": "generated://placeholder-garden",
+  "tiles": [
+    { "id": 0, "key": "grass" },
+    { "id": 1, "key": "grass-alt" },
+    { "id": 2, "key": "path" },
+    { "id": 3, "key": "path-edge" },
+    { "id": 4, "key": "water" },
+    { "id": 5, "key": "water-deep" },
+    { "id": 6, "key": "hedge" },
+    { "id": 7, "key": "tree" },
+    { "id": 8, "key": "flowers" },
+    { "id": 9, "key": "signpost" },
+    { "id": 10, "key": "stone" },
+    { "id": 11, "key": "block" }
+  ]
+}

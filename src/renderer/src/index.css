@@ -1,0 +1,312 @@
+:root {
+  --bg: #0d150e;
+  --panel: #16220f;
+  --panel-2: #1e2f16;
+  --line: #2c4224;
+  --text: #dfeed4;
+  --muted: #8fa383;
+  --accent: #b5e48c;
+  --danger: #ff8a8a;
+  font-family: ui-sans-serif, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── top bar ─────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 88px; /* room for the macOS traffic lights */
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+  min-height: 42px;
+}
+
+.topbar button,
+.topbar .chip {
+  -webkit-app-region: no-drag;
+}
+
+.brand {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.session-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  max-width: 55vw;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.chip.active {
+  border-color: var(--accent);
+}
+
+.chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.chip em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: #2f5a22;
+  border-color: #4b8a37;
+}
+
+button.danger {
+  color: var(--danger);
+  border-color: #5a2626;
+}
+
+button.icon {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+}
+
+/* ── body ────────────────────────────────────────────────────────────────── */
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.garden {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.garden canvas {
+  display: block;
+}
+
+/* ── terminal drawer ─────────────────────────────────────────────────────── */
+.drawer {
+  width: 46%;
+  min-width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  min-height: 0;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+}
+
+.drawer-tabs {
+  display: flex;
+  overflow-x: auto;
+  flex: 1;
+}
+
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.tab.active {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.drawer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.drawer-meta .path {
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.status {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.status.working {
+  color: var(--accent);
+}
+.status.blocked {
+  color: #ffd23f;
+}
+.status.done {
+  color: var(--muted);
+}
+.status.idle {
+  color: #8ecae6;
+}
+.status.starting {
+  color: var(--muted);
+}
+
+.terminal-mount {
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+  background: #0d150e;
+}
+
+.empty {
+  color: var(--muted);
+  padding: 16px;
+}
+
+/* ── modal ───────────────────────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+
+.modal {
+  width: 460px;
+  max-width: 92vw;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.modal input,
+.modal select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.modal .row {
+  display: flex;
+  gap: 6px;
+}
+
+.modal .row input {
+  flex: 1;
+}
+
+.hint {
+  opacity: 0.6;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0;
+  font-size: 12px;
+}
+
+.drawer-error {
+  padding: 6px 10px;
+}
