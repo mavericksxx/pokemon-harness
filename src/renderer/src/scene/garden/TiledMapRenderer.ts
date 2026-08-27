@@ -81,6 +81,9 @@ export interface Point {
 
 const TILE_LAYERS = ['floor', 'walls', 'furniture-below', 'furniture-above'] as const;
 const COLLISION_LAYER = 'collision';
+/** Blocked tiles that are wet rather than solid. A flying Pokemon may cross
+ *  these; a walking one may not. Not in TILE_LAYERS, so it is never drawn. */
+const WATER_LAYER = 'water';
 const SPAWN_POINTS_LAYER = 'spawn-points';
 const ZONES_LAYER = 'zones';
 
@@ -93,6 +96,7 @@ export class TiledMapRenderer {
   readonly tileSpriteCount: number = 0;
 
   private walkabilityGrid: boolean[][] = [];
+  private waterGrid: boolean[][] = [];
   private spawnPoints: Map<string, Point> = new Map();
   private zones: Map<string, ZoneRect> = new Map();
   private characterContainer: Container;
@@ -125,6 +129,7 @@ export class TiledMapRenderer {
     this.characterContainer.sortableChildren = true;
 
     this.parseCollisionLayer();
+    this.waterGrid = this.parseBoolLayer(WATER_LAYER);
     this.parseSpawnPoints();
     this.markWalkableSpawnPoints();
     this.parseZones();
@@ -161,6 +166,12 @@ export class TiledMapRenderer {
     return this.walkabilityGrid[ty][tx];
   }
 
+  /** Water — blocked for walkers, passable for fliers. */
+  isWater(tx: number, ty: number): boolean {
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
+    return this.waterGrid[ty][tx];
+  }
+
   tileToPixel(tx: number, ty: number): Point {
     return { x: tx * this.tileSize, y: ty * this.tileSize };
   }
@@ -192,6 +203,19 @@ export class TiledMapRenderer {
         if ((rawId & TILE_ID_MASK) !== 0) this.walkabilityGrid[y][x] = false;
       }
     }
+  }
+
+  /** A non-drawn tile layer read as a boolean mask (any non-zero gid = true). */
+  private parseBoolLayer(name: string): boolean[][] {
+    const layer = this.findLayer(name, 'tilelayer');
+    const grid = Array.from({ length: this.height }, () => Array(this.width).fill(false));
+    if (!layer?.data) return grid;
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        grid[y][x] = (layer.data[y * this.width + x] & TILE_ID_MASK) !== 0;
+      }
+    }
+    return grid;
   }
 
   private parseSpawnPoints(): void {

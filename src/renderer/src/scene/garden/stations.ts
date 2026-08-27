@@ -32,7 +32,9 @@ export const TOOL_TO_STATION: Record<string, StationKind> = {
 export const STATION_SPAWNS: Record<StationKind, readonly string[]> = {
   patch: ['patch-1', 'patch-2', 'patch-3', 'patch-4', 'patch-5', 'patch-6'],
   stump: ['stump-1', 'stump-2', 'stump-3'],
-  pond: ['pond-1', 'pond-2'],
+  // pond-2 and pond-3 are on the FAR shore: a walker treks around the rim to
+  // reach them, a flier goes straight over the water.
+  pond: ['pond-1', 'pond-2', 'pond-3'],
   signpost: ['signpost-1', 'mailbox-1'],
   wander: ['wander-1', 'wander-2', 'wander-3', 'wander-4']
 };

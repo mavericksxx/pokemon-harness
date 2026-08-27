@@ -121,6 +121,10 @@ const walls = blank();
 const below = blank();
 const above = blank();
 const collision = blank();
+// Water is blocked in `collision` like anything else, but marked here too so the
+// runtime can tell "solid" from "wet": a flying Pokemon crosses the pond that a
+// walking one has to go around. Not in the renderer's TILE_LAYERS, so never drawn.
+const water = blank();
 
 const isPath = Array.from({ length: H }, () => new Array(W).fill(false));
 /** Tiles claimed by paths / pond / beds / props, so scatter never lands on them. */
@@ -226,6 +230,7 @@ for (let y = PONDR.y0; y <= PONDR.y1; y++) {
             : pick(POND_C);
     put(floor, x, y, gid);
     block(x, y);
+    put(water, x, y, gid);
     claim(x, y);
   }
 }
@@ -294,10 +299,13 @@ prop('stump-3', WORKBENCH, 16, 15);
 prop('signpost-1', SIGNPOST, 25, 28);
 prop('mailbox-1', MAILBOX, 20, 12);
 
-// The pond is solid, so its stations sit on the sand rim along its south shore.
+// The pond is solid, so its stations sit on the sand rim. Two are on the FAR
+// (north) shore on purpose: a walking Pokemon has to trek around the rim to
+// reach them, a flying one goes straight over the water.
 for (const [name, x, y] of [
   ['pond-1', 37, 10],
-  ['pond-2', 41, 10]
+  ['pond-2', 38, 3],
+  ['pond-3', 42, 3]
 ]) {
   SPAWNS.push({ name, x, y });
   claim(x, y);
@@ -487,7 +495,7 @@ const map = {
   type: 'map',
   version: '1.10',
   tiledversion: '1.10.2',
-  nextlayerid: 8,
+  nextlayerid: 9,
   nextobjectid: 100 + SPAWNS.length + ZONES.length,
   tilesets,
   layers: [
@@ -496,6 +504,7 @@ const map = {
     tileLayer('furniture-below', below, 3),
     tileLayer('furniture-above', above, 4),
     { ...tileLayer('collision', collision, 5), visible: false },
+    { ...tileLayer('water', water, 8), visible: false },
     {
       id: 6,
       name: 'spawn-points',

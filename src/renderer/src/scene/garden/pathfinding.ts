@@ -20,9 +20,20 @@ const DIRECTIONS: Point[] = [
   { x: 1, y: 0 }
 ];
 
-export function findPath(map: Walkable, start: Point, goal: Point): Point[] | null {
+/**
+ * `canEnter` overrides the map's own walkability for one search. It exists so a
+ * flying Pokemon can cross the pond that a walking one has to go around, without
+ * a second grid: the map stays the single source of truth and the caller widens
+ * what counts as passable for itself.
+ */
+export function findPath(
+  map: Walkable,
+  start: Point,
+  goal: Point,
+  canEnter: (x: number, y: number) => boolean = (x, y) => map.isWalkable(x, y)
+): Point[] | null {
   if (start.x === goal.x && start.y === goal.y) return [];
-  if (!map.isWalkable(goal.x, goal.y)) return null;
+  if (!canEnter(goal.x, goal.y)) return null;
 
   const key = (p: Point): string => `${p.x},${p.y}`;
   const visited = new Set<string>();
@@ -37,7 +48,7 @@ export function findPath(map: Walkable, start: Point, goal: Point): Point[] | nu
       const next: Point = { x: current.x + dir.x, y: current.y + dir.y };
       const nextKey = key(next);
 
-      if (visited.has(nextKey) || !map.isWalkable(next.x, next.y)) continue;
+      if (visited.has(nextKey) || !canEnter(next.x, next.y)) continue;
 
       visited.add(nextKey);
       parent.set(nextKey, current);
