@@ -42,10 +42,13 @@ interface WalkerOptions {
   accentColor: number;
   label: string;
   /** Shared scene layers the evolution ceremony renders into — see
-   *  GardenScene.tsx. Both sit above the character layer so a ceremony's dim
-   *  overlay covers every OTHER walker, while the evolving one (reparented
-   *  into `ceremonyLayer` for the ceremony's duration) stays visible above it. */
-  overlayLayer: Container;
+   *  GardenScene.tsx. All three sit above the character layer, in order
+   *  (dim, flash, ceremony), so a ceremony's dim overlay covers every OTHER
+   *  walker, its flash-out is never crushed by another ceremony's dim, and
+   *  the evolving walker itself (reparented into `ceremonyLayer` for the
+   *  ceremony's duration) stays visible above both. */
+  dimLayer: Container;
+  flashLayer: Container;
   ceremonyLayer: Container;
   onClick?: (sessionId: string) => void;
 }
@@ -61,7 +64,8 @@ export class Walker {
   private nameTag: Text;
   private selectionRing: Graphics;
   private floatLayer: Container;
-  private overlayLayer: Container;
+  private dimLayer: Container;
+  private flashLayer: Container;
   private ceremonyLayer: Container;
 
   private px: number;
@@ -100,7 +104,8 @@ export class Walker {
     this.map = opts.map;
     this.homeTile = { ...opts.homeTile };
     this.locomotion = opts.animation.info.locomotion;
-    this.overlayLayer = opts.overlayLayer;
+    this.dimLayer = opts.dimLayer;
+    this.flashLayer = opts.flashLayer;
     this.ceremonyLayer = opts.ceremonyLayer;
 
     const ts = this.map.tileSize;
@@ -260,7 +265,8 @@ export class Walker {
       sprite: this.sprite,
       newAnimation: nextAnimation,
       tileSize: ts,
-      overlayLayer: this.overlayLayer,
+      dimLayer: this.dimLayer,
+      flashLayer: this.flashLayer,
       ceremonyLayer: this.ceremonyLayer,
       mapWidthPx: this.map.width * ts,
       mapHeightPx: this.map.height * ts,

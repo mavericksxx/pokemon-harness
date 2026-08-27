@@ -10,9 +10,13 @@
  * and a larger one slows it down.
  *
  * One instance per in-flight evolution. Two can run concurrently (one per
- * walker) without conflict: each owns its own overlay graphics (added to, and
- * removed from, the scene's shared `overlayLayer`) and reparents only its own
- * walker into the shared `ceremonyLayer`.
+ * walker) without conflict: each owns its own dim/flash overlay graphics
+ * (added to, and removed from, the scene's shared `dimLayer`/`flashLayer`)
+ * and reparents only its own walker into the shared `ceremonyLayer`. Dims and
+ * flashes live in separate layers (flash always drawn above every dim) so one
+ * ceremony's flash-out is never visually crushed by another's still-active
+ * dim — Pixi composites siblings back-to-front, so two dims sharing one layer
+ * with a flash would otherwise occlude it whenever the dim was added later.
  */
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { Facing, WalkerSprite } from './WalkerSprite';
@@ -120,7 +124,15 @@ export interface CeremonyDeps {
   sprite: WalkerSprite;
   newAnimation: PokemonAnimation;
   tileSize: number;
-  overlayLayer: Container;
+  /** Where each ceremony's dim (black) overlay goes — shared, so with two
+   *  ceremonies running at once, both dims stack; kept BELOW flashLayer so
+   *  neither ceremony's flash-out is ever crushed by the other's still-active
+   *  dim (they'd otherwise composite in call order, since Pixi draws children
+   *  back-to-front — see the concurrency note above). */
+  dimLayer: Container;
+  /** Where each ceremony's flash (white) overlay goes — shared, always above
+   *  dimLayer. */
+  flashLayer: Container;
   ceremonyLayer: Container;
   /** Full map size in world pixels, so the dim/flash overlay covers whatever
    *  the camera could possibly show. */
@@ -194,7 +206,8 @@ export class EvolutionCeremony {
       .fill({ color: SILHOUETTE_COLOR, alpha: 1 });
     this.whiteOverlay.alpha = 0;
     this.whiteOverlay.visible = false;
-    deps.overlayLayer.addChild(this.blackOverlay, this.whiteOverlay);
+    deps.dimLayer.addChild(this.blackOverlay);
+    deps.flashLayer.addChild(this.whiteOverlay);
 
     this.bubbleLayer = new Container();
     this.blobContainer = new Container();

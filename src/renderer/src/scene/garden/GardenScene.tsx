@@ -94,13 +94,18 @@ export function GardenScene(): JSX.Element {
       world.addChild(map.getContainer());
       const charLayer = map.getCharacterContainer();
       // Evolution ceremony layers, in the same (map) coordinate space as
-      // charLayer and stacked above it: overlayLayer holds each in-flight
-      // ceremony's dim/flash rect (so every OTHER walker in charLayer reads as
-      // dimmed beneath it), and ceremonyLayer — above that — is where a
+      // charLayer and stacked above it, in this order: evolutionDimLayer
+      // holds each in-flight ceremony's dim (black) rect, so every OTHER
+      // walker in charLayer reads as dimmed beneath it; evolutionFlashLayer,
+      // above that, holds each ceremony's flash (white) rect — kept separate
+      // and always on top of every dim so one ceremony's flash-out can never
+      // be visually crushed by another's still-active dim (see
+      // EvolutionCeremony.ts); evolutionCeremonyLayer, above both, is where a
       // ceremony reparents its own walker for the duration, so it stays lit.
-      const evolutionOverlayLayer = new Container();
+      const evolutionDimLayer = new Container();
+      const evolutionFlashLayer = new Container();
       const evolutionCeremonyLayer = new Container();
-      world.addChild(evolutionOverlayLayer, evolutionCeremonyLayer);
+      world.addChild(evolutionDimLayer, evolutionFlashLayer, evolutionCeremonyLayer);
       console.log(
         `[garden] map ${map.width}x${map.height} tiles, ${map.tileSpriteCount} tile sprites, ` +
           `${map.getAllSpawnPoints().size} spawn points, ${map.getAllZones().size} zones`
@@ -165,7 +170,8 @@ export function GardenScene(): JSX.Element {
           homeTile: map.getSpawnPoint(homePatch) ?? entrance,
           accentColor: session.accent,
           label: session.title,
-          overlayLayer: evolutionOverlayLayer,
+          dimLayer: evolutionDimLayer,
+          flashLayer: evolutionFlashLayer,
           ceremonyLayer: evolutionCeremonyLayer,
           onClick: (id) => useStore.getState().select(id)
         });
