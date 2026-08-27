@@ -179,6 +179,7 @@ export function GardenScene(): JSX.Element {
 
       app.ticker.add((ticker) => {
         const dt = Math.min(ticker.deltaMS / 1000, 0.1);
+        map.update(dt * 1000);
         for (const rt of runtimes.values()) rt.walker.update(dt);
 
         const selectedId = useStore.getState().selectedId;

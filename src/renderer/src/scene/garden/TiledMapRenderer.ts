@@ -35,6 +35,16 @@ export interface TiledObject {
   height?: number;
 }
 
+export interface TiledTileAnimationFrame {
+  tileid: number;
+  duration: number;
+}
+
+export interface TiledTilesetTile {
+  id: number;
+  animation?: TiledTileAnimationFrame[];
+}
+
 export interface TiledTilesetRef {
   firstgid: number;
   source?: string;
@@ -43,6 +53,19 @@ export interface TiledTilesetRef {
   tilewidth?: number;
   tileheight?: number;
   tilecount?: number;
+  tiles?: TiledTilesetTile[];
+}
+
+/** Every sprite painted with one animated gid, plus that gid's frame textures.
+ *  Grouped by gid rather than per sprite: the pond paints ~60 sprites from 11
+ *  gids, and one shared Texture per (gid, frame) means a phase change is an
+ *  assignment loop instead of an allocation storm. */
+interface AnimatedTileGroup {
+  textures: Texture[];
+  durations: number[];
+  sprites: Sprite[];
+  elapsedMs: number;
+  frame: number;
 }
 
 export interface ZoneRect {
@@ -74,6 +97,8 @@ export class TiledMapRenderer {
   private zones: Map<string, ZoneRect> = new Map();
   private characterContainer: Container;
   private rootContainer: Container;
+  /** gid → its animation, for gids the map's tilesets declare `animation` on. */
+  private animatedTiles: Map<number, AnimatedTileGroup> = new Map();
 
   /** Spawn points whose tile is forced walkable even if the art under them is
    *  solid — a walker must be able to path ONTO its station. findPath() returns
@@ -103,7 +128,25 @@ export class TiledMapRenderer {
     this.parseSpawnPoints();
     this.markWalkableSpawnPoints();
     this.parseZones();
+    this.parseTileAnimations();
     this.tileSpriteCount = this.buildTileLayers();
+  }
+
+  /** Advance Tiled tile animations (the pond's water). Call once per frame. */
+  update(deltaMs: number): void {
+    for (const group of this.animatedTiles.values()) {
+      if (group.sprites.length === 0) continue;
+      group.elapsedMs += deltaMs;
+      let advanced = false;
+      while (group.elapsedMs >= group.durations[group.frame]) {
+        group.elapsedMs -= group.durations[group.frame];
+        group.frame = (group.frame + 1) % group.textures.length;
+        advanced = true;
+      }
+      if (!advanced) continue;
+      const texture = group.textures[group.frame];
+      for (const sprite of group.sprites) sprite.texture = texture;
+    }
   }
 
   getContainer(): Container {
@@ -198,6 +241,33 @@ export class TiledMapRenderer {
     return undefined;
   }
 
+  /** One tile's sub-rectangle of its tileset image, as a Texture. */
+  private sliceTile(tileset: TiledTilesetRef, sheet: Texture, localId: number): Texture {
+    const cols = tileset.columns ?? 16;
+    const tw = tileset.tilewidth ?? this.tileSize;
+    const th = tileset.tileheight ?? this.tileSize;
+    const frame = new Rectangle((localId % cols) * tw, Math.floor(localId / cols) * th, tw, th);
+    return new Texture({ source: sheet.source, frame });
+  }
+
+  private parseTileAnimations(): void {
+    this.mapData.tilesets.forEach((tileset, i) => {
+      const sheet = this.tilesetTextures[i];
+      if (!sheet) return;
+      for (const tile of tileset.tiles ?? []) {
+        if (!tile.animation?.length) continue;
+        this.animatedTiles.set(tileset.firstgid + tile.id, {
+          textures: tile.animation.map((f) => this.sliceTile(tileset, sheet, f.tileid)),
+          // A zero duration would spin the advance loop forever.
+          durations: tile.animation.map((f) => Math.max(16, f.duration)),
+          sprites: [],
+          elapsedMs: 0,
+          frame: 0
+        });
+      }
+    });
+  }
+
   private buildTileLayers(): number {
     if (this.mapData.tilesets.length === 0) return 0;
     let painted = 0;
@@ -223,15 +293,14 @@ export class TiledMapRenderer {
 
             const { tileset, texture } = resolved;
             if (!texture) continue;
-            const cols = tileset.columns ?? 16;
-            const tw = tileset.tilewidth ?? this.tileSize;
-            const th = tileset.tileheight ?? this.tileSize;
-            const localId = tileId - tileset.firstgid;
-            const srcX = (localId % cols) * tw;
-            const srcY = Math.floor(localId / cols) * th;
 
-            const frame = new Rectangle(srcX, srcY, tw, th);
-            const sprite = new Sprite(new Texture({ source: texture.source, frame }));
+            const animation = this.animatedTiles.get(tileId);
+            const sprite = new Sprite(
+              animation
+                ? animation.textures[animation.frame]
+                : this.sliceTile(tileset, texture, tileId - tileset.firstgid)
+            );
+            animation?.sprites.push(sprite);
 
             if (flippedH || flippedV || flippedD) {
               sprite.anchor.set(0.5, 0.5);
