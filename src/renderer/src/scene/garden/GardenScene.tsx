@@ -13,7 +13,7 @@ import { loadPokemonAnimations, type PokemonAnimation } from './showdownArt';
 import { AIR_ONLY_SPAWNS, BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 import { loadLazyAnimation, placeholderAnimation } from './lazySprites';
 import { evolutionConfig, initEvolutionConfig } from './evolution';
-import { speciesEntry } from './dexData';
+import { randomAnimatedSpecies, speciesEntry } from './dexData';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -196,12 +196,16 @@ export function GardenScene(): JSX.Element {
 
       /** Evolve `session`'s walker to a random member of its current
        *  species' evolvesTo, loading that species' art first (bundled: instant;
-       *  lazy: fetched, falling back to a pokeball + toast on failure). */
+       *  lazy: fetched, falling back to a pokeball + toast on failure).
+       *  Static (Gen 6-9) targets are excluded from the random draw (Phase 6
+       *  §4) — if every branch is static, the species just doesn't evolve
+       *  further here; it's still reachable by picking it directly. */
       const triggerEvolve = (session: Session, rt: Runtime): void => {
         const entry = speciesEntry(session.pokemon);
         if (!entry || entry.evolvesTo.length === 0) return;
+        const nextId = randomAnimatedSpecies(entry.evolvesTo);
+        if (!nextId) return;
         rt.evolvePending = true;
-        const nextId = entry.evolvesTo[Math.floor(Math.random() * entry.evolvesTo.length)];
         const bundled = pokemonAnimations.get(nextId);
 
         const proceed = (anim: PokemonAnimation, failed: boolean): void => {

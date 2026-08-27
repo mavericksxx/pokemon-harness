@@ -34,7 +34,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
 
   // Empty query: the bundled 42 need no network and cover most of the fun
   // evolution lines already, so they stay the default listing. Non-empty:
-  // type-ahead over the full 649-species dex by name or dex number.
+  // type-ahead over the full ~1025-species dex by name or dex number.
   const results: DexEntry[] = debouncedQuery.trim()
     ? searchDex(debouncedQuery, 30)
     : POKEMON_ROSTER.map((p) => speciesEntry(p.name)).filter((e): e is DexEntry => !!e);
@@ -147,24 +147,39 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search all 649 by name or dex number…"
+            placeholder="Search all 1025 by name or dex number…"
             spellCheck={false}
           />
           <div className="pokemon-picker">
             {results.map((entry) => {
               const entryBase = baseStageOf(entry.id);
               const isTaken = takenLines.has(entryBase.line);
+              // hasSprite: false means the builder's coverage sweep confirmed
+              // the Smogon Sprite Project has no art for this species (Phase
+              // 6 §2) — grey it out rather than let a pick fail at fetch time.
+              const noSprite = entry.hasSprite === false;
+              const disabled = isTaken || noSprite;
+              const optionTitle = noSprite
+                ? `No sprite available for ${entry.name}`
+                : isTaken
+                  ? `${entry.name}'s line is already in the garden`
+                  : entry.name;
               return (
                 <button
                   key={entry.id}
                   type="button"
                   className={entry.id === pokemon ? 'pokemon-option chosen' : 'pokemon-option'}
-                  disabled={isTaken}
-                  title={isTaken ? `${entry.name}'s line is already in the garden` : entry.name}
+                  disabled={disabled}
+                  title={optionTitle}
                   onClick={() => setPokemon(entry.id)}
                 >
-                  <PokemonFace name={entry.id} />
+                  {noSprite ? (
+                    <i className="pokemon-face loading" aria-hidden />
+                  ) : (
+                    <PokemonFace name={entry.id} />
+                  )}
                   <span>{entry.name}</span>
+                  {entry.static && <em className="pokemon-static-tag">static sprite</em>}
                 </button>
               );
             })}
