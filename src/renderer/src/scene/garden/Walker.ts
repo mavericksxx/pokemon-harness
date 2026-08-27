@@ -76,13 +76,19 @@ export class Walker {
     this.container = new Container();
     this.container.sortableChildren = true;
 
-    this.selectionRing = new Graphics();
-    this.selectionRing.visible = false;
-    this.selectionRing.ellipse(0, -2, 12, 6).stroke({ width: 1.5, color: opts.accentColor });
-
     // No tint: the walkers are real Pokemon sprites now, and each session is
     // told apart by its species. The accent survives on the selection ring.
     this.sprite = new WalkerSprite(opts.animation, ts);
+
+    // Ring sized to the drawn sprite, so it reads as a ring around the Pokemon
+    // rather than a mark inside its shadow. Snorlax and Pichu need very
+    // different circles.
+    this.selectionRing = new Graphics();
+    this.selectionRing.visible = false;
+    const ringX = Math.max(9, this.sprite.drawnWidth * 0.42);
+    this.selectionRing
+      .ellipse(0, -2, ringX, ringX * 0.42)
+      .stroke({ width: 1.5, color: opts.accentColor });
 
     this.badge = new Graphics();
     this.badge.visible = false;
