@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { GardenScene } from '@/scene/garden/GardenScene';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
+import { PokemonFace } from '@/components/PokemonFace';
 import { useStore } from '@/store/store';
 
 export function App(): JSX.Element {
@@ -27,10 +28,7 @@ export function App(): JSX.Element {
               onClick={() => select(s.id === selectedId ? null : s.id)}
               title={`${s.command} — ${s.cwd}`}
             >
-              <i
-                className="dot"
-                style={{ background: `#${s.accent.toString(16).padStart(6, '0')}` }}
-              />
+              <PokemonFace name={s.pokemon} scale={0.75} />
               {s.title}
               <em className={`status ${s.status}`}>{s.status}</em>
             </button>

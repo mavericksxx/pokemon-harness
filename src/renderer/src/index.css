@@ -82,11 +82,46 @@ body {
   border-color: var(--accent);
 }
 
-.chip .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+/* ── Pokemon faces (a cropped frame of the walk sheet) ───────────────────── */
+.pokemon-face {
   display: inline-block;
+  flex: none;
+  background-repeat: no-repeat;
+  /* Pixel art: never smooth these. */
+  image-rendering: pixelated;
+}
+
+.pokemon-picker {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.pokemon-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 2px;
+  font-size: 9px;
+  color: var(--muted);
+  background: var(--bg);
+}
+
+.pokemon-option.chosen {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.pokemon-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+.pokemon-option:disabled:hover {
+  border-color: var(--line);
 }
 
 .chip em {

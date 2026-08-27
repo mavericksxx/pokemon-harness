@@ -62,6 +62,7 @@ const SPEC = manifest as unknown as {
   frameWidth: number;
   frameHeight: number;
   gridColumns: number;
+  gridRows: number;
   rowOrder: Direction[];
   pokemon: PokemonEntry[];
 };
@@ -76,6 +77,8 @@ export interface PokemonInfo {
 
 export const FRAME_WIDTH = SPEC.frameWidth;
 export const FRAME_HEIGHT = SPEC.frameHeight;
+export const GRID_COLUMNS = SPEC.gridColumns;
+export const GRID_ROWS = SPEC.gridRows;
 
 /**
  * Pixels of empty space below the sprite inside its frame. Measured across the

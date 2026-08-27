@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId } from '@shared/agentProvider';
 import { startSession } from '@/sessions';
+import { useStore } from '@/store/store';
+import { pickFreePokemon, POKEMON_ROSTER } from '@/scene/garden/pokemonArt';
+import { PokemonFace } from './PokemonFace';
 
 interface Props {
   onClose(): void;
 }
 
 export function NewSessionDialog({ onClose }: Props): JSX.Element {
+  const sessions = useStore((s) => s.sessions);
+  const taken = new Set(sessions.map((s) => s.pokemon));
+  // Random default, chosen once on open from whoever is not already out there.
+  const [pokemon, setPokemon] = useState(() => pickFreePokemon([...taken]));
   const [provider, setProvider] = useState<AgentProviderId>(DEFAULT_PROVIDER);
   const [cwd, setCwd] = useState('');
   const [command, setCommand] = useState(AGENT_PROVIDERS[DEFAULT_PROVIDER].defaultCommand);
@@ -31,10 +38,21 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
       setError('Choose a working directory.');
       return;
     }
+    if (taken.has(pokemon)) {
+      setError('That Pokemon is already out in the garden.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await startSession({ provider, cwd: cwd.trim(), command, model: model.trim() || undefined, title });
+      await startSession({
+        provider,
+        cwd: cwd.trim(),
+        command,
+        model: model.trim() || undefined,
+        title,
+        pokemon
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -97,6 +115,28 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="defaults to the folder name"
           />
+        </label>
+
+        <label>
+          Pokemon <span className="hint">(one per session)</span>
+          <div className="pokemon-picker">
+            {POKEMON_ROSTER.map((p) => {
+              const isTaken = taken.has(p.name);
+              return (
+                <button
+                  key={p.name}
+                  type="button"
+                  className={p.name === pokemon ? 'pokemon-option chosen' : 'pokemon-option'}
+                  disabled={isTaken}
+                  title={isTaken ? `${p.label} is already in the garden` : p.label}
+                  onClick={() => setPokemon(p.name)}
+                >
+                  <PokemonFace name={p.name} />
+                  <span>{p.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </label>
 
         {error && <p className="error">{error}</p>}
