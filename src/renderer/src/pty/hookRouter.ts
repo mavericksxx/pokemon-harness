@@ -35,6 +35,11 @@ export function clearHookAuthority(sessionId: string): void {
 
 export function handleHookEvent(sessionId: string, evt: HookEvent): void {
   lastHookAt.set(sessionId, Date.now());
+  // A hook can arrive after the pty itself already exited (e.g. a trailing
+  // Stop racing the process's own exit) — never resurrect a done session's
+  // state, same guard the regex parser's idle timer uses.
+  const live = useStore.getState().sessions.find((s) => s.id === sessionId);
+  if (!live || live.status === 'done') return;
   const update = (patch: Parameters<ReturnType<typeof useStore.getState>['updateSession']>[1]): void =>
     useStore.getState().updateSession(sessionId, patch);
 
