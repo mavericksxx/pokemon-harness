@@ -69,6 +69,11 @@ export function createPtyParser(sessionId: string): PtyParser {
     cancelIdle();
     idleTimer = window.setTimeout(() => {
       idleTimer = null;
+      // A timer armed before hooks became authoritative must not fire into a
+      // now hook-owned session — this callback runs independently of push()'s
+      // own guard, on a delay long enough for hooks to have taken over since
+      // it was scheduled.
+      if (isHookAuthoritative(sessionId)) return;
       const s = useStore.getState().sessions.find((x) => x.id === sessionId);
       if (!s || s.status === 'done') return;
       // Regex-fallback heuristic (Part B): no clean per-subagent completion

@@ -171,6 +171,12 @@ export class BattleManager {
           this.updateFaceoff(pb, dt);
           break;
         case 'looping':
+          // Re-assert every tick, idempotently (WalkerSprite.setBackView
+          // no-ops once already in the target state): an evolution ceremony
+          // mid-battle resets the sprite to its front view on the reveal
+          // swap (setAnimation), which would otherwise silently drop the
+          // battle stance once the ceremony hands the walker back.
+          pb.parentWalker.setForcedBackView(true);
           if (pb.currentAttack) this.advanceAttack(pb, dt);
           break;
         case 'ending':
