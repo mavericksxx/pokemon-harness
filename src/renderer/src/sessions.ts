@@ -56,7 +56,8 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       args: buildProviderArgs(req.provider, req.model),
       env: preset.env,
       cols: 100,
-      rows: 30
+      rows: 30,
+      provider: req.provider
     });
 
     if (!res.ok) throw new Error(res.error ?? 'Failed to start session.');

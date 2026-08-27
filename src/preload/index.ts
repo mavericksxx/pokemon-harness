@@ -8,6 +8,7 @@ import type {
   SpawnPtyOptions,
   SpriteView
 } from '../shared/types';
+import type { HookEvent } from '../shared/hookEvents';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -31,6 +32,12 @@ const api = {
   onPtyExit: (id: string, cb: (info: PtyExit) => void): (() => void) => {
     const channel = `pty:exit:${id}`;
     const listener = (_e: IpcRendererEvent, info: PtyExit): void => cb(info);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
+  onHookEvent: (id: string, cb: (evt: HookEvent) => void): (() => void) => {
+    const channel = `hooks:event:${id}`;
+    const listener = (_e: IpcRendererEvent, evt: HookEvent): void => cb(evt);
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },

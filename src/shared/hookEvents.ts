@@ -1,0 +1,87 @@
+/**
+ * Claude Code lifecycle hook payload shape and the normalized event the main
+ * process forwards to the renderer over `hooks:event:<id>`.
+ *
+ * Dependency-free (shared by main, preload and renderer) — mirrors the shape
+ * munder-difflin's HookServer/HOOK_SHIM use (MIT, Chaitanya Giri), trimmed to
+ * the events this app actually wires: PreToolUse, PostToolUse, Stop,
+ * SubagentStop, Notification, UserPromptSubmit, SessionStart.
+ */
+
+export type HookEventName =
+  | 'SessionStart'
+  | 'UserPromptSubmit'
+  | 'PreToolUse'
+  | 'PostToolUse'
+  | 'Notification'
+  | 'Stop'
+  | 'SubagentStop';
+
+/** Raw JSON the generated shim forwards over the socket — one line, Claude's
+ *  own hook payload shape plus the `agent_id` the shim stamps from env. */
+export interface HookPayload {
+  hook_event_name?: string;
+  agent_id?: string | null;
+  session_id?: string;
+  tool_name?: string;
+  tool_input?: unknown;
+  notification_type?: string;
+  message?: string;
+  source?: string;
+}
+
+/** Normalized event sent to the renderer — one per hook boundary. */
+export interface HookEvent {
+  agentId: string;
+  event: HookEventName | string;
+  tool?: string;
+  toolTarget?: string;
+  notificationType?: string;
+  message?: string;
+  source?: string;
+}
+
+const KNOWN_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'Notification',
+  'Stop',
+  'SubagentStop'
+]);
+
+export function isKnownHookEvent(name: string): name is HookEventName {
+  return KNOWN_EVENTS.has(name);
+}
+
+/** Best-effort human-readable target for a tool call, so the garden's tool
+ *  bubble reads the same under hooks as it does under the regex parser (e.g.
+ *  "Read App.tsx", "$ npm test"). Every field is optional/untyped upstream —
+ *  Claude's tool_input shape varies per tool — so this never throws. */
+export function toolTargetFromInput(toolName: string | undefined, input: unknown): string {
+  if (!input || typeof input !== 'object') return '';
+  const o = input as Record<string, unknown>;
+  const pick = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+  };
+  switch (toolName) {
+    case 'Bash':
+      return pick('command');
+    case 'WebFetch':
+      return pick('url');
+    case 'WebSearch':
+      return pick('query');
+    case 'Grep':
+    case 'Glob':
+      return pick('pattern');
+    case 'Task':
+      return pick('description', 'subagent_type');
+    default:
+      return pick('file_path', 'path', 'notebook_path');
+  }
+}

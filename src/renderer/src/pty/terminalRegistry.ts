@@ -17,6 +17,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { createPtyParser, type PtyParser } from './ptyParser';
+import { handleHookEvent } from './hookRouter';
 import { useStore } from '@/store/store';
 
 const THEME = {
@@ -37,6 +38,7 @@ interface Entry {
   parser: PtyParser;
   offData: () => void;
   offExit: () => void;
+  offHook: () => void;
   resizeObserver: ResizeObserver | null;
 }
 
@@ -87,6 +89,11 @@ export function createTerminal(sessionId: string): void {
     void window.api.writePty(sessionId, data);
   });
 
+  // Phase 4 Part A — a no-op subscription for non-claude providers (main
+  // never emits on this channel for them), authoritative for claude once its
+  // first hook fires. See hookRouter.ts.
+  const offHook = window.api.onHookEvent(sessionId, (evt) => handleHookEvent(sessionId, evt));
+
   entries.set(sessionId, {
     id: sessionId,
     term,
@@ -96,6 +103,7 @@ export function createTerminal(sessionId: string): void {
     parser,
     offData,
     offExit,
+    offHook,
     resizeObserver: null
   });
 }
@@ -166,6 +174,7 @@ export function disposeTerminal(sessionId: string): void {
   detachTerminal(sessionId);
   e.offData();
   e.offExit();
+  e.offHook();
   e.parser.dispose();
   e.term.dispose();
   entries.delete(sessionId);

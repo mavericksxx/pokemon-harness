@@ -1,11 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import { PtyManager } from './pty';
+import { HookBridge } from './hookBridge';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
 
-const ptyManager = new PtyManager();
 let mainWindow: BrowserWindow | null = null;
+const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
+const ptyManager = new PtyManager(hookBridge);
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -50,6 +52,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Independent of any live claude session — the socket must be up before the
+  // first spawn (and before any manual shim verification) ever happens.
+  hookBridge.ensureFiles();
+  hookBridge.start();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -61,7 +67,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => ptyManager.killAll());
+app.on('before-quit', () => {
+  ptyManager.killAll();
+  hookBridge.stop();
+});
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
 ipcMain.handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts));

@@ -9,6 +9,10 @@ export interface SpawnPtyOptions {
   cols?: number;
   rows?: number;
   env?: Record<string, string>;
+  /** When 'claude', main wires the Claude Code hooks shim (Phase 4 Part A) —
+   *  a per-session `--settings` file routing lifecycle hooks over a Unix
+   *  domain socket back to this app. Omitted/other providers spawn as before. */
+  provider?: AgentProviderId;
 }
 
 export interface PtyResult {

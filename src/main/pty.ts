@@ -12,8 +12,17 @@
 import * as pty from 'node-pty';
 import type { WebContents } from 'electron';
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
+import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import type { PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
+
+/** Where per-session hook settings.json files live — plain OS temp, not
+ *  userData: these are throwaway routing files, not app state. */
+function hookTmpDir(): string {
+  return join(tmpdir(), 'pokemon-harness-hooks');
+}
 
 interface PtySession {
   id: string;
@@ -27,6 +36,10 @@ interface PtySession {
 export class PtyManager {
   private sessions = new Map<string, PtySession>();
   private webContents: WebContents | null = null;
+
+  /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
+   *  it's absent. */
+  constructor(private hookBridge?: HookBridge) {}
 
   attachWebContents(wc: WebContents): void {
     this.webContents = wc;
@@ -63,8 +76,20 @@ export class PtyManager {
       return { ok: false, error: `command not found on PATH: ${opts.command}` };
     }
 
+    // Phase 4 Part A — wire the Claude Code hooks shim for claude sessions
+    // only: a per-session --settings file routes lifecycle hooks over a UDS
+    // back to this app, so the garden can use them as the authoritative state
+    // source instead of scraping terminal text. Other providers are unaffected.
+    let args = opts.args ?? [];
+    let hookEnv: Record<string, string> = {};
+    if (opts.provider === 'claude' && this.hookBridge) {
+      const settingsPath = this.hookBridge.prepareSession(opts.id, hookTmpDir());
+      args = [...args, '--settings', settingsPath];
+      hookEnv = { [AGENT_ID_ENV]: opts.id, [HOOK_SOCK_ENV]: this.hookBridge.sockPath };
+    }
+
     try {
-      const proc = pty.spawn(file, opts.args ?? [], {
+      const proc = pty.spawn(file, args, {
         name: 'xterm-256color',
         cols: opts.cols ?? 100,
         rows: opts.rows ?? 30,
@@ -74,7 +99,8 @@ export class PtyManager {
           PATH: userShellPath(),
           TERM: 'xterm-256color',
           LANG: process.env.LANG || 'en_US.UTF-8',
-          ...(opts.env ?? {})
+          ...(opts.env ?? {}),
+          ...hookEnv
         }
       });
 
@@ -137,6 +163,7 @@ export class PtyManager {
     // Delete BEFORE killing: onExit fires asynchronously and its identity guard
     // then correctly treats the dying process as stale.
     this.sessions.delete(id);
+    this.hookBridge?.cleanupSession(id, hookTmpDir());
     try {
       s.proc.kill();
       return { ok: true };

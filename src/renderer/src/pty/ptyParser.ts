@@ -13,9 +13,19 @@
 import { createAnsiStripper } from './ansiText';
 import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
+import { clearHookAuthority, isHookAuthoritative } from './hookRouter';
+import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
 
 // Tool call lines look like: `● Read SPEC.md`, `● Bash npm test`, `● Edit src/foo.ts`
 const TOOL_RE = /●\s+([A-Za-z][A-Za-z_]*)(?:\s+(.+))?/g;
+
+// Subagent-battle regex fallback (Part B) — Claude's transcript prints a Task
+// tool call the same way as any other tool line: `● Task(description)`. There
+// is no equivalent text signal for a subagent's completion, so the fallback
+// heuristic ends the whole battle when the parent goes idle/blocked instead
+// (see scheduleIdle/BLOCK_HINTS below) — subagents finish before their parent
+// does, so this is late but never wrong.
+const TASK_SPAWN_RE = /●\s+Task\(/g;
 
 // "Blocked" = the CLI is genuinely waiting on the user. Match only real prompts.
 // Do NOT match the bare word "permission": the TUI footer always shows "bypass
@@ -61,6 +71,10 @@ export function createPtyParser(sessionId: string): PtyParser {
       idleTimer = null;
       const s = useStore.getState().sessions.find((x) => x.id === sessionId);
       if (!s || s.status === 'done') return;
+      // Regex-fallback heuristic (Part B): no clean per-subagent completion
+      // signal exists in plain text, so a battle this session started ends
+      // when the parent itself goes idle — a no-op if none is active.
+      emitBattleSignal({ type: 'endAll', parentId: sessionId });
       update({ status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
     }, IDLE_AFTER_MS);
   };
@@ -68,7 +82,18 @@ export function createPtyParser(sessionId: string): PtyParser {
   return {
     push(chunk: string): void {
       const text = strip(chunk);
+      // Hooks are authoritative once they start flowing for this session —
+      // the stripper above still runs so its ANSI state stays consistent for
+      // if/when fallback ever resumes, but nothing below may touch the store.
+      if (isHookAuthoritative(sessionId)) return;
       if (!text.trim()) return;
+
+      // Subagent-battle regex fallback: one spawn signal per NEW `● Task(`
+      // occurrence in this chunk.
+      TASK_SPAWN_RE.lastIndex = 0;
+      while (TASK_SPAWN_RE.exec(text) !== null) {
+        emitBattleSignal({ type: 'spawn', parentId: sessionId });
+      }
 
       // The "esc to interrupt" footer is only shown while a turn is in progress.
       const running = /esc to interrupt/i.test(text);
@@ -92,6 +117,8 @@ export function createPtyParser(sessionId: string): PtyParser {
           toolTarget: target,
           station: stationForTool(lastTool)
         });
+        // Regex-fallback attack beat — a no-op unless this session is battling.
+        emitBattleSignal({ type: 'attack', parentId: sessionId, tool: lastTool });
         if (running) cancelIdle();
         else scheduleIdle();
         return;
@@ -113,6 +140,7 @@ export function createPtyParser(sessionId: string): PtyParser {
         // that actually needs your attention. It clears when the CLI prints
         // again, which is exactly when you have answered it.
         cancelIdle();
+        emitBattleSignal({ type: 'endAll', parentId: sessionId });
         update({ status: 'blocked', station: 'signpost' });
         return;
       }
@@ -123,6 +151,7 @@ export function createPtyParser(sessionId: string): PtyParser {
 
     dispose(): void {
       cancelIdle();
+      clearHookAuthority(sessionId);
     }
   };
 }
