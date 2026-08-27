@@ -1,6 +1,6 @@
-import { Container, Graphics, Text, Texture } from 'pixi.js';
-import { WalkerSprite, type Direction } from './WalkerSprite';
-import { FOOT_INSET } from './pokemonArt';
+import { Container, Graphics, Text } from 'pixi.js';
+import { WalkerSprite, type Facing } from './WalkerSprite';
+import type { PokemonAnimation } from './showdownArt';
 import { findPath } from './pathfinding';
 import { ToolBubble } from './ToolBubble';
 import type { TiledMapRenderer } from './TiledMapRenderer';
@@ -24,7 +24,7 @@ const WANDER_RANGE = 5;
 interface WalkerOptions {
   sessionId: string;
   map: TiledMapRenderer;
-  frames: Texture[][];
+  animation: PokemonAnimation;
   /** Where the walker first appears (the garden entrance). */
   startTile: { x: number; y: number };
   /** The tile wandering orbits — the session's claimed station, so several
@@ -49,8 +49,11 @@ export class Walker {
   private px: number;
   private py: number;
   private path: { x: number; y: number }[] = [];
-  private direction: Direction = 'down';
+  private facing: Facing = 'left';
   private walking = false;
+  /** Whether this species may cross water. Flying and levitating Pokemon take
+   *  the short way over the pond; walkers go around it. */
+  private readonly overWater: boolean;
 
   private wandering = true;
   private wanderTimer = 0;
@@ -64,6 +67,7 @@ export class Walker {
     this.sessionId = opts.sessionId;
     this.map = opts.map;
     this.homeTile = { ...opts.homeTile };
+    this.overWater = opts.animation.info.locomotion !== 'walk';
 
     const ts = this.map.tileSize;
     this.px = opts.startTile.x * ts + ts / 2;
@@ -78,10 +82,12 @@ export class Walker {
 
     // No tint: the walkers are real Pokemon sprites now, and each session is
     // told apart by its species. The accent survives on the selection ring.
-    this.sprite = new WalkerSprite(opts.frames, FOOT_INSET);
+    this.sprite = new WalkerSprite(opts.animation, ts);
 
     this.badge = new Graphics();
     this.badge.visible = false;
+    // Badge art is drawn around its own origin; park that origin above the head.
+    this.badge.y = -this.sprite.drawnHeight - 4;
 
     this.nameTag = new Text({
       text: opts.label,
@@ -96,7 +102,14 @@ export class Walker {
     this.container.addChild(this.selectionRing, this.sprite.container, this.badge, this.nameTag);
     this.container.eventMode = 'static';
     this.container.cursor = 'pointer';
-    this.container.hitArea = { contains: (x: number, y: number) => x > -12 && x < 12 && y > -32 && y < 4 };
+    // Hit area follows the DRAWN sprite: a Snorlax and a Pikachu are very
+    // different targets, and a fixed box would miss most of one and overreach
+    // the other.
+    const halfW = Math.max(8, this.sprite.drawnWidth / 2);
+    const top = -Math.max(16, this.sprite.drawnHeight);
+    this.container.hitArea = {
+      contains: (x: number, y: number) => x > -halfW && x < halfW && y > top && y < 4
+    };
     if (opts.onClick) this.container.on('pointertap', () => opts.onClick!(this.sessionId));
 
     this.syncPosition();
@@ -131,14 +144,19 @@ export class Walker {
    *  Returns false when the tile is unreachable, so the caller can retry on the
    *  next status change rather than believing the walker is on its way. */
   goTo(tile: { x: number; y: number }): boolean {
-    const path = findPath(this.map, this.tile, tile);
+    const path = findPath(this.map, this.tile, tile, this.canEnter);
     if (!path) return false; // unreachable — stay put rather than teleport
     this.wandering = false;
     this.path = path;
     this.walking = path.length > 0;
-    if (this.walking) this.sprite.setAnimation('walk', this.direction);
+    this.sprite.setMoving(this.walking);
     return true;
   }
+
+  /** Where this Pokemon may go. Fliers add the pond to the walkable grid; they
+   *  do not get a grid of their own, so the map stays the one source of truth. */
+  private canEnter = (x: number, y: number): boolean =>
+    this.map.isWalkable(x, y) || (this.overWater && this.map.isWater(x, y));
 
   /** Resume aimless strolling around the walker's home station. Any errand in
    *  flight is truncated to its current step: dropping the path outright would
@@ -176,6 +194,7 @@ export class Walker {
   update(dt: number): void {
     if (this.walking) this.updateWalk(dt);
     else if (this.wandering) this.updateWander(dt);
+    this.sprite.update(dt);
 
     if (this.status === 'blocked') {
       this.badgePulse += dt;
@@ -183,13 +202,15 @@ export class Walker {
     }
 
     this.bubble.update(dt);
-    this.bubble.setPosition(this.px, this.py);
+    // Above the head, not the feet: these sprites are several tiles tall, and a
+    // foot-anchored bubble would sit across the Pokemon's chest.
+    this.bubble.setPosition(this.px, this.py - this.sprite.drawnHeight);
   }
 
   private updateWalk(dt: number): void {
     if (this.path.length === 0) {
       this.walking = false;
-      this.sprite.setAnimation('idle', this.direction);
+      this.sprite.setMoving(false);
       return;
     }
 
@@ -213,9 +234,14 @@ export class Walker {
     const step = Math.min(SPEED * dt, dist);
     this.px += (dx / dist) * step;
     this.py += (dy / dist) * step;
-    this.direction =
-      Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
-    this.sprite.setAnimation('walk', this.direction);
+    // Only horizontal travel changes facing: there is no back view to turn to,
+    // so a walker heading straight up or down keeps the way it was already
+    // pointing rather than snapping about.
+    if (Math.abs(dx) > Math.abs(dy)) {
+      this.facing = dx > 0 ? 'right' : 'left';
+      this.sprite.setFacing(this.facing);
+    }
+    this.sprite.setMoving(true);
     this.syncPosition();
   }
 
@@ -229,12 +255,12 @@ export class Walker {
     for (let attempt = 0; attempt < 16; attempt++) {
       const tx = this.homeTile.x + Math.floor(Math.random() * WANDER_RANGE * 2) - WANDER_RANGE;
       const ty = this.homeTile.y + Math.floor(Math.random() * WANDER_RANGE * 2) - WANDER_RANGE;
-      if ((tx === cur.x && ty === cur.y) || !this.map.isWalkable(tx, ty)) continue;
-      const path = findPath(this.map, cur, { x: tx, y: ty });
+      if ((tx === cur.x && ty === cur.y) || !this.canEnter(tx, ty)) continue;
+      const path = findPath(this.map, cur, { x: tx, y: ty }, this.canEnter);
       if (!path || path.length === 0) continue;
       this.path = path;
       this.walking = true;
-      this.sprite.setAnimation('walk', this.direction);
+      this.sprite.setMoving(true);
       return;
     }
   }
@@ -252,15 +278,15 @@ export class Walker {
     this.badgePulse = 0;
     if (this.status === 'blocked') {
       // A pulsing "!" above the head.
-      this.badge.roundRect(-3, -46, 6, 12, 2).fill(0xffd23f);
-      this.badge.rect(-1, -44, 2, 6).fill(0x3a2a05);
-      this.badge.rect(-1, -37, 2, 2).fill(0x3a2a05);
+      this.badge.roundRect(-3, -12, 6, 12, 2).fill(0xffd23f);
+      this.badge.rect(-1, -10, 2, 6).fill(0x3a2a05);
+      this.badge.rect(-1, -3, 2, 2).fill(0x3a2a05);
       this.badge.visible = true;
     } else if (this.status === 'working') {
-      this.badge.circle(0, -40, 2.5).fill(0x7bd45f);
+      this.badge.circle(0, -6, 2.5).fill(0x7bd45f);
       this.badge.visible = true;
     } else if (this.status === 'done') {
-      this.badge.circle(0, -40, 2.5).fill(0x8a8f88);
+      this.badge.circle(0, -6, 2.5).fill(0x8a8f88);
       this.badge.visible = true;
     } else {
       this.badge.visible = false;

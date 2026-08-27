@@ -9,7 +9,7 @@ import { Camera } from './Camera';
 import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
 import { loadGardenTilesets } from './gardenArt';
-import { loadPokemonSheets, POKEMON_ROSTER } from './pokemonArt';
+import { loadPokemonAnimations, POKEMON_ROSTER } from './showdownArt';
 import { BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
@@ -63,9 +63,9 @@ export function GardenScene(): JSX.Element {
 
       // Both art sets are loaded before the store subscription is wired: a
       // session can appear the instant it is, and addWalker must stay sync.
-      const [tilesets, pokemonSheets] = await Promise.all([
+      const [tilesets, pokemonAnimations] = await Promise.all([
         loadGardenTilesets(),
-        loadPokemonSheets()
+        loadPokemonAnimations()
       ]);
       if (destroyed) {
         app.destroy(true, { children: true });
@@ -102,11 +102,13 @@ export function GardenScene(): JSX.Element {
       const addWalker = (session: Session): Runtime => {
         const homePatch = patchPool.reserveNext() ?? STATION_SPAWNS.patch[0];
         const slot = Math.max(0, STATION_SPAWNS.patch.indexOf(homePatch));
-        const frames = pokemonSheets.get(session.pokemon) ?? pokemonSheets.get(POKEMON_ROSTER[0].name)!;
+        const animation =
+          pokemonAnimations.get(session.pokemon) ??
+          pokemonAnimations.get(POKEMON_ROSTER[0].name)!;
         const walker = new Walker({
           sessionId: session.id,
           map,
-          frames,
+          animation,
           startTile: entrance,
           // Wander around the claimed patch, not the shared gate.
           homeTile: map.getSpawnPoint(homePatch) ?? entrance,

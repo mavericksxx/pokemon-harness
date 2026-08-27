@@ -28,7 +28,7 @@ export function App(): JSX.Element {
               onClick={() => select(s.id === selectedId ? null : s.id)}
               title={`${s.command} — ${s.cwd}`}
             >
-              <PokemonFace name={s.pokemon} scale={0.75} />
+              <PokemonFace name={s.pokemon} box={22} />
               {s.title}
               <em className={`status ${s.status}`}>{s.status}</em>
             </button>

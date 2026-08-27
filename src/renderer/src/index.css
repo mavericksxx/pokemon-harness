@@ -93,8 +93,12 @@ body {
 
 .pokemon-picker {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* auto-fill, not a fixed column count: the roster is whatever the showdown
+     manifest holds, and it is expected to grow. */
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
   gap: 4px;
+  max-height: 232px;
+  overflow-y: auto;
 }
 
 .pokemon-option {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId } from '@shared/agentProvider';
 import { startSession } from '@/sessions';
 import { useStore } from '@/store/store';
-import { pickFreePokemon, POKEMON_ROSTER } from '@/scene/garden/pokemonArt';
+import { pickFreePokemon, POKEMON_ROSTER } from '@/scene/garden/showdownArt';
 import { PokemonFace } from './PokemonFace';
 
 interface Props {

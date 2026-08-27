@@ -1,40 +1,36 @@
 import type { CSSProperties } from 'react';
-import {
-  FRAME_HEIGHT,
-  FRAME_WIDTH,
-  GRID_COLUMNS,
-  GRID_ROWS,
-  SHEET_URLS
-} from '@/scene/garden/pokemonArt';
+import { POKEMON_ROSTER } from '@/scene/garden/showdownArt';
 
 /**
- * One Pokemon's down-facing idle frame, as a DOM element.
+ * One Pokemon's first animation frame, as a DOM element.
  *
  * The garden draws its walkers through Pixi; the picker and the session pills
- * are plain DOM, so they crop the same sheet with `background-position` instead.
- * `background-size` scales the WHOLE sheet, hence the grid multipliers.
+ * are plain DOM, so they crop the same horizontal sheet with CSS instead.
+ * `background-size` scales the WHOLE strip, so the width multiplier is the frame
+ * count — here expressed as "make one frame `box` px wide".
  */
 
-/** Empty pixels above the art inside a frame — 4..15px across the twelve
- *  sheets. Hiding six of them keeps the face filling its box without clipping
- *  the tallest sprite (Snorlax). */
-const HEAD_ROOM = 6;
+/** Rendered size of the box, in CSS px. Sheets are ~96px, so this is a
+ *  nearest-neighbour downscale; every species uses the same box so the grid
+ *  stays even whatever the source frames measure. */
+const DEFAULT_BOX = 44;
 
 interface Props {
   name: string;
-  /** Pixel scale. 1 renders the sheet at its native 32px frame. */
-  scale?: number;
+  box?: number;
 }
 
-export function PokemonFace({ name, scale = 1.5 }: Props): JSX.Element {
-  const url = SHEET_URLS[name];
-  const style: CSSProperties = {
-    backgroundImage: url ? `url(${url})` : undefined,
-    backgroundSize: `${FRAME_WIDTH * GRID_COLUMNS * scale}px ${FRAME_HEIGHT * GRID_ROWS * scale}px`,
-    // Row 0, column 0: the down-facing idle frame.
-    backgroundPosition: `0 -${HEAD_ROOM * scale}px`,
-    width: FRAME_WIDTH * scale,
-    height: (FRAME_HEIGHT - HEAD_ROOM) * scale
-  };
+export function PokemonFace({ name, box = DEFAULT_BOX }: Props): JSX.Element {
+  const info = POKEMON_ROSTER.find((p) => p.name === name);
+  const style: CSSProperties = info
+    ? {
+        backgroundImage: `url(${info.sheetUrl})`,
+        // Scale so one frame is `box` wide; the strip is many frames long.
+        backgroundSize: `auto ${(box / info.frameWidth) * info.frameHeight}px`,
+        backgroundPosition: 'left top',
+        width: box,
+        height: (box / info.frameWidth) * info.frameHeight
+      }
+    : { width: box, height: box };
   return <i className="pokemon-face" style={style} aria-hidden />;
 }

@@ -3,7 +3,7 @@ import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest } from '@shared/types';
 import { useStore } from '@/store/store';
 import { createTerminal, disposeTerminal } from '@/pty/terminalRegistry';
-import { pickFreePokemon } from '@/scene/garden/pokemonArt';
+import { pickFreePokemon } from '@/scene/garden/showdownArt';
 
 function basename(p: string): string {
   const parts = p.replace(/\/+$/, '').split('/');
