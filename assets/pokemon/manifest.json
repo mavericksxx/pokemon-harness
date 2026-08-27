@@ -1,0 +1,657 @@
+{
+  "frameWidth": 32,
+  "frameHeight": 32,
+  "gridColumns": 4,
+  "gridRows": 4,
+  "rowOrder": [
+    "down",
+    "left",
+    "right",
+    "up"
+  ],
+  "notes": [
+    "Sprites sourced from spritedatabase.net (HeartGold/SoulSilver overworld rip, credited on-sheet to ripper 'Grim').",
+    "Each source block has 8 32x32 columns: 0-3 = down-facing walk (4 authentic frames), 4-5 = one side-facing pose (2 frames), 6-7 = the same pose mirrored horizontally (confirmed 100% pixel-identical to an hflip of columns 4-5 for all 12 species).",
+    "Left/right facing was determined by visual inspection (Bulbasaur's snout points left in column 4, right in column 6) and applied uniformly.",
+    "The source sheet contains NO back/up-facing art. The 'up' row in every delivered PNG is a placeholder that duplicates the 'down' row -- see the per-Pokemon 'directions.up' entry (authentic: false) in this manifest.",
+    "Transparency was produced by flood-filling each frame's background from its four corners (the source uses a soft cyan vignette per cell, not a single flat color), not a fixed color-key."
+  ],
+  "pokemon": [
+    {
+      "name": "bulbasaur",
+      "dex": 1,
+      "file": "pokemon/bulbasaur.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          43,
+          74
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "charmander",
+      "dex": 4,
+      "file": "pokemon/charmander.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          169,
+          200
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "squirtle",
+      "dex": 7,
+      "file": "pokemon/squirtle.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          295,
+          326
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "pikachu",
+      "dex": 25,
+      "file": "pokemon/pikachu.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          1051,
+          1082
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "jigglypuff",
+      "dex": 39,
+      "file": "pokemon/jigglypuff.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          1681,
+          1712
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "psyduck",
+      "dex": 54,
+      "file": "pokemon/psyduck.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          2311,
+          2342
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "gengar",
+      "dex": 94,
+      "file": "pokemon/gengar.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          3991,
+          4022
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "eevee",
+      "dex": 133,
+      "file": "pokemon/eevee.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          5629,
+          5660
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "snorlax",
+      "dex": 143,
+      "file": "pokemon/snorlax.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen1Overworld.png",
+        "blockY": [
+          6049,
+          6080
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "chikorita",
+      "dex": 152,
+      "file": "pokemon/chikorita.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen2Overworld.png",
+        "blockY": [
+          43,
+          74
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "cyndaquil",
+      "dex": 155,
+      "file": "pokemon/cyndaquil.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen2Overworld.png",
+        "blockY": [
+          169,
+          200
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    },
+    {
+      "name": "totodile",
+      "dex": 158,
+      "file": "pokemon/totodile.png",
+      "source": {
+        "sheet": "https://spritedatabase.net/files/ds/1735/Sprite/Gen2Overworld.png",
+        "blockY": [
+          295,
+          326
+        ]
+      },
+      "directions": {
+        "down": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": true
+        },
+        "left": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+        },
+        "right": {
+          "frames": [
+            0,
+            1,
+            0,
+            1
+          ],
+          "authentic": true,
+          "note": "pixel-perfect horizontal mirror of 'left' in the source sheet"
+        },
+        "up": {
+          "frames": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "authentic": false,
+          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+        }
+      }
+    }
+  ]
+}
