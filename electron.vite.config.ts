@@ -30,7 +30,10 @@ export default defineConfig({
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src/renderer/src'),
-        '@shared': resolve(__dirname, 'src/shared')
+        '@shared': resolve(__dirname, 'src/shared'),
+        // Real art lives at the repo root, outside the renderer's vite root, so
+        // it stays next to its licence paperwork (assets/ASSETS.md).
+        '@assets': resolve(__dirname, 'assets')
       }
     }
   }

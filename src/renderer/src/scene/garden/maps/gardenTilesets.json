@@ -1,0 +1,39 @@
+{
+  "_comment": "Tileset metadata shared by tools/gen-garden-map.cjs (which writes garden.tmj's `tilesets` array and does the gid arithmetic) and gardenArt.ts (which loads the images in this exact order, so texture[i] lines up with tilesets[i]). Keeping one copy means map gids can never drift from the runtime painter. `image` paths are relative to assets/.",
+  "tilewidth": 16,
+  "tileheight": 16,
+  "tilesets": [
+    {
+      "name": "kenney-tiny-town",
+      "image": "garden/kenney_tiny_town.png",
+      "imagewidth": 192,
+      "imageheight": 176,
+      "columns": 12,
+      "tilecount": 132
+    },
+    {
+      "name": "grasswater-pond",
+      "image": "garden/grasswater_pond_light.png",
+      "imagewidth": 704,
+      "imageheight": 256,
+      "columns": 44,
+      "tilecount": 704,
+      "animation": {
+        "_comment": "The sheet is 8 copies of one 11x8-tile block, differing only in water phase. Block k sits at column bx=k%blocksAcross, row by=floor(k/blocksAcross).",
+        "blockCols": 11,
+        "blockRows": 8,
+        "blocksAcross": 4,
+        "frames": 8,
+        "durationMs": 180
+      }
+    },
+    {
+      "name": "oga-mostly-flowers",
+      "image": "garden/oga_mostly_flowers.png",
+      "imagewidth": 1024,
+      "imageheight": 207,
+      "columns": 64,
+      "tilecount": 768
+    }
+  ]
+}
