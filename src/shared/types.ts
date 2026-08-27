@@ -43,6 +43,29 @@ export interface NewSessionRequest {
   command: string;
   model?: string;
   title?: string;
-  /** Species for this session's walker. Defaults to a free one at random. */
+  /** Species picked in the dialog — any stage of any dex line. The session
+   *  actually hatches at that line's stage 1; defaults to a free line at
+   *  random when omitted. */
   pokemon?: string;
+}
+
+/** Front or back sprite sheet, for the lazy (unbundled-species) sprite cache. */
+export type SpriteView = 'front' | 'back';
+
+/** Sidecar JSON next to a cached, runtime-decoded sheet PNG. */
+export interface LazySpriteMeta {
+  frameWidth: number;
+  frameHeight: number;
+  frameCount: number;
+  /** Milliseconds to hold each frame. */
+  durations: number[];
+  /** Sheet layout: frames wrap into multiple rows once a single row would
+   *  exceed 8192px wide. */
+  columns: number;
+  rows: number;
+}
+
+export interface CachedSprite {
+  png: ArrayBuffer;
+  meta: LazySpriteMeta;
 }

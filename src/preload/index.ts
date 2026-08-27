@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
+import type {
+  CachedSprite,
+  LazySpriteMeta,
+  PtyExit,
+  PtyInfo,
+  PtyResult,
+  SpawnPtyOptions,
+  SpriteView
+} from '../shared/types';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -27,7 +35,16 @@ const api = {
     return () => ipcRenderer.removeListener(channel, listener);
   },
 
-  chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder')
+  chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
+
+  getCachedSprite: (id: string, view: SpriteView): Promise<CachedSprite | null> =>
+    ipcRenderer.invoke('sprites:getCached', id, view),
+  fetchSpriteGif: (id: string, view: SpriteView): Promise<ArrayBuffer | null> =>
+    ipcRenderer.invoke('sprites:fetchGif', id, view),
+  saveCachedSprite: (id: string, view: SpriteView, png: ArrayBuffer, meta: LazySpriteMeta): Promise<void> =>
+    ipcRenderer.invoke('sprites:saveCache', id, view, png, meta),
+
+  getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds')
 };
 
 export type HarnessApi = typeof api;

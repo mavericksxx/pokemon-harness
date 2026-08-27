@@ -1,7 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import { PtyManager } from './pty';
-import type { SpawnPtyOptions } from '../shared/types';
+import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
+import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
 
 const ptyManager = new PtyManager();
 let mainWindow: BrowserWindow | null = null;
@@ -71,6 +72,24 @@ ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
 ipcMain.handle('pty:kill', (_e, id: string) => ptyManager.kill(id));
 ipcMain.handle('pty:list', () => ptyManager.list());
 ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
+
+// ─── Lazy sprite cache (Phase 3 §2) ────────────────────────────────────────
+// Main is the only network and disk actor here: the renderer's CSP has no
+// 'unsafe-eval' script-src beyond self and no external connect-src, so it can
+// neither fetch Showdown directly nor reach outside contextBridge to touch
+// userData. Decoding/re-encoding happens renderer-side (it has a canvas).
+ipcMain.handle('sprites:getCached', (_e, id: string, view: SpriteView) => getCachedSprite(id, view));
+ipcMain.handle('sprites:fetchGif', (_e, id: string, view: SpriteView) => fetchSpriteGif(id, view));
+ipcMain.handle(
+  'sprites:saveCache',
+  (_e, id: string, view: SpriteView, png: ArrayBuffer, meta: LazySpriteMeta) =>
+    saveCachedSprite(id, view, png, meta)
+);
+
+// ─── Config ─────────────────────────────────────────────────────────────────
+// The renderer is sandboxed and cannot reliably read process.env itself; main
+// definitely can. Lets POKE_EVOLVE_SECONDS accelerate evolution for demos/tests.
+ipcMain.handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? null);
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:chooseFolder', async () => {
