@@ -46,6 +46,11 @@ const OVERLAY_ALPHA = 0.85;
 
 const BUBBLE_COUNT = 7;
 const STAR_COUNT = 20;
+/** Discrete plus-sign half-lengths a starfield sparkle steps through — see
+ *  makeStar()/updateTwinkle(). */
+const STAR_SIZES = [1.5, 2.5, 3.5];
+/** How often (ms) a star re-rolls its size — the "twinkle" cadence. */
+const STAR_TWINKLE_MS = 120;
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * Math.max(0, Math.min(1, t));
@@ -100,20 +105,25 @@ function makeSilhouetteSprite(animation: PokemonAnimation, tileSize: number, fac
   return sprite;
 }
 
-/** Small soft round particle used for both the feet-orbit bubbles and the
- *  flash-hold rain. */
+/** Small SOFT round particle used for both the feet-orbit bubbles and the
+ *  flash-hold rain — three concentric circles falling off in alpha, the same
+ *  cheap stand-in for a blur WalkerSprite's shadow uses (no filters/shaders). */
 function makeBubble(): Graphics {
   const r = 2 + Math.random() * 3; // 4-10px across
   const g = new Graphics();
-  g.circle(0, 0, r).fill({ color: 0xffffff, alpha: 0.85 });
+  g.circle(0, 0, r * 1.4).fill({ color: 0xffffff, alpha: 0.18 });
+  g.circle(0, 0, r).fill({ color: 0xffffff, alpha: 0.4 });
+  g.circle(0, 0, r * 0.55).fill({ color: 0xffffff, alpha: 0.9 });
   return g;
 }
 
-function makeStar(): Graphics {
+/** Small white "+" twinkle. Renders at one of three fixed sizes rather than a
+ *  continuously-scaled one — see updateTwinkle(): a smoothly scaling
+ *  plus-sign doesn't read as a GBA-style twinkle, a snappy 3-frame cycle does. */
+function makeStar(size: number): Graphics {
   const g = new Graphics();
-  const s = 2 + Math.random() * 2;
-  g.rect(-s, -0.6, s * 2, 1.2).fill({ color: 0xffffff, alpha: 1 });
-  g.rect(-0.6, -s, 1.2, s * 2).fill({ color: 0xffffff, alpha: 1 });
+  g.rect(-size, -0.5, size * 2, 1).fill({ color: 0xffffff, alpha: 1 });
+  g.rect(-0.5, -size, 1, size * 2).fill({ color: 0xffffff, alpha: 1 });
   return g;
 }
 
@@ -179,7 +189,7 @@ export class EvolutionCeremony {
   private oldSilhouette: Sprite;
   private newSilhouette: Sprite;
   private bubbles: Bubble[] = [];
-  private stars: { g: Graphics; phase: number; x: number; y: number }[] = [];
+  private stars: { g: Graphics; sizeIdx: number; timer: number }[] = [];
 
   private crossfadeStarted = false;
   private rayBurstSpawned = false;
@@ -237,6 +247,11 @@ export class EvolutionCeremony {
       });
     }
 
+    // Face the camera before anything else: a walker mid-upward-walk halts on
+    // its back sheet, and evolving with its back turned reads badly. The
+    // silhouettes below already force front frames regardless, but the
+    // colored sprite visible through halt/crossfade needs the same turn.
+    deps.sprite.setBackView(false);
     deps.sprite.freeze(true);
     deps.setChromeHidden(true);
     deps.spawnText(`What? ${deps.fromLabel} is evolving!`);
@@ -267,7 +282,7 @@ export class EvolutionCeremony {
     } else if (this.v < FLASH_HOLD_END) {
       this.phaseFlashHold();
     } else if (this.v < DECAY_END) {
-      this.phaseDecay();
+      this.phaseDecay(dt);
     } else {
       this.finish();
     }
@@ -323,13 +338,29 @@ export class EvolutionCeremony {
     }
   }
 
-  private cycleDurationAt(v: number): number {
+  /** A full shrink-then-pop cycle must span at least this many real frames —
+   *  otherwise, at the strobe band's 30-70ms authored rate, dividing by a
+   *  sub-1.0 durationScale (or running on a 60Hz display) can shrink a cycle
+   *  below one frame's deltaMS, so shrink and pop never both get a frame and
+   *  it reads as flicker/stutter instead of a strobe. Floored against the
+   *  ticker's OWN deltaMS for this frame, not a hardcoded 16.7ms guess — see
+   *  cycleDurationAt(). */
+  private static readonly MIN_FRAMES_PER_CYCLE = 4;
+
+  /** `dtMs` is the CURRENT frame's real deltaMS (from the ticker), used only
+   *  to floor the cycle so it can't be faster than the display can show. */
+  private cycleDurationAt(v: number, dtMs: number): number {
+    let dur: number;
     if (v < OSC_BAND1_END) {
-      return lerp(500, 300, (v - STATIC_END) / (OSC_BAND1_END - STATIC_END));
+      dur = lerp(500, 300, (v - STATIC_END) / (OSC_BAND1_END - STATIC_END));
     } else if (v < OSC_BAND2_END) {
-      return lerp(250, 150, (v - OSC_BAND1_END) / (OSC_BAND2_END - OSC_BAND1_END));
+      dur = lerp(250, 150, (v - OSC_BAND1_END) / (OSC_BAND2_END - OSC_BAND1_END));
+    } else {
+      dur = lerp(70, 30, (v - OSC_BAND2_END) / (OSC_END - OSC_BAND2_END));
     }
-    return lerp(70, 30, (v - OSC_BAND2_END) / (OSC_END - OSC_BAND2_END));
+    const floorRealMs = dtMs * EvolutionCeremony.MIN_FRAMES_PER_CYCLE;
+    const floorVirtualMs = floorRealMs / this.deps.durationScale;
+    return Math.max(dur, floorVirtualMs);
   }
 
   /** Linear scale for a blob whose AREA is 35-75% of full size (area = scale²
@@ -343,7 +374,7 @@ export class EvolutionCeremony {
       this.oscStarted = true;
       this.oscForm = 'old';
       this.oscCycleElapsed = 0;
-      this.oscCycleDur = this.cycleDurationAt(STATIC_END);
+      this.oscCycleDur = this.cycleDurationAt(STATIC_END, dt * 1000);
       this.oscBlobScale = this.pickBlobScale();
       this.oscSwappedThisCycle = false;
     }
@@ -370,7 +401,7 @@ export class EvolutionCeremony {
 
     if (this.oscCycleElapsed >= this.oscCycleDur) {
       this.oscCycleElapsed = 0;
-      this.oscCycleDur = this.cycleDurationAt(this.v);
+      this.oscCycleDur = this.cycleDurationAt(this.v, dt * 1000);
       this.oscBlobScale = this.pickBlobScale();
       this.oscSwappedThisCycle = false;
     }
@@ -414,7 +445,7 @@ export class EvolutionCeremony {
     }
   }
 
-  private phaseDecay(): void {
+  private phaseDecay(dt: number): void {
     const stepIdx = Math.min(
       DECAY_STEPS.length - 1,
       Math.floor((this.v - FLASH_HOLD_END) / DECAY_STEP_MS)
@@ -432,29 +463,45 @@ export class EvolutionCeremony {
       this.starsSpawned = true;
       this.spawnStars();
     }
-    this.updateTwinkle(stepIdx);
+    this.updateTwinkle(dt, stepIdx);
   }
 
   private spawnStars(): void {
     const spread = this.deps.spriteWidth * 2.5;
     for (let i = 0; i < STAR_COUNT; i++) {
-      const g = makeStar();
       const x = (Math.random() - 0.5) * spread;
       const y = -this.deps.spriteHeight * (0.3 + Math.random() * 1.4);
+      const sizeIdx = Math.floor(Math.random() * STAR_SIZES.length);
+      const g = makeStar(STAR_SIZES[sizeIdx]);
       g.x = x;
       g.y = y;
       this.starLayer.addChild(g);
-      this.stars.push({ g, phase: Math.random() * Math.PI * 2, x, y });
+      // Desynced timers so stars don't all flip on the same frame.
+      this.stars.push({ g, sizeIdx, timer: Math.random() * STAR_TWINKLE_MS });
     }
   }
 
-  private updateTwinkle(stepIdx: number): void {
+  /** Twinkle IN PLACE: no drift (x/y never change after spawn), just a snappy
+   *  discrete size/brightness change every ~120ms — a smoothly-eased scale
+   *  reads as "growing balls," not the GBA's blocky twinkle. Redraws the
+   *  Graphics only on the (infrequent) frame its size actually changes. */
+  private updateTwinkle(dt: number, stepIdx: number): void {
     const dim = DECAY_STEPS[stepIdx] / DECAY_STEPS[0];
     for (const s of this.stars) {
-      s.phase += 0.3;
-      const twinkle = 0.5 + 0.5 * Math.sin(s.phase);
-      s.g.alpha = dim * (0.4 + twinkle * 0.6);
-      s.g.scale.set(0.7 + twinkle * 0.6);
+      s.timer += dt * 1000;
+      if (s.timer >= STAR_TWINKLE_MS) {
+        s.timer -= STAR_TWINKLE_MS;
+        const nextIdx = Math.floor(Math.random() * STAR_SIZES.length);
+        if (nextIdx !== s.sizeIdx) {
+          s.sizeIdx = nextIdx;
+          const size = STAR_SIZES[nextIdx];
+          s.g.clear();
+          s.g.rect(-size, -0.5, size * 2, 1).fill({ color: 0xffffff, alpha: 1 });
+          s.g.rect(-0.5, -size, 1, size * 2).fill({ color: 0xffffff, alpha: 1 });
+        }
+      }
+      const brightness = 0.5 + (s.sizeIdx / (STAR_SIZES.length - 1)) * 0.5;
+      s.g.alpha = dim * brightness;
     }
   }
 

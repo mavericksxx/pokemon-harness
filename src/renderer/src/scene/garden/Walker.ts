@@ -187,6 +187,13 @@ export class Walker {
   }
 
   setSelected(selected: boolean): void {
+    // Ceremony in progress: don't let a live selection change leak the ring
+    // back into view — update the saved state setChromeHidden(false) will
+    // restore instead of the live (forced-hidden) flag.
+    if (this.chromeWasVisible) {
+      this.chromeWasVisible[1] = selected;
+      return;
+    }
     this.selectionRing.visible = selected;
   }
 
@@ -478,6 +485,14 @@ export class Walker {
       this.badge.circle(0, -6, 2.5).fill(0x8a8f88);
       this.badge.visible = true;
     } else {
+      this.badge.visible = false;
+    }
+    // Ceremony in progress: a status change mid-ceremony (working -> idle and
+    // back is routine over ~9s) must not leak the badge back into view — bank
+    // the value it WOULD have and force it hidden; setChromeHidden(false)
+    // restores from this saved state rather than what's live at that point.
+    if (this.chromeWasVisible) {
+      this.chromeWasVisible[0] = this.badge.visible;
       this.badge.visible = false;
     }
   }
