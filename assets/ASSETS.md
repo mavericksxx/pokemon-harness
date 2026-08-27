@@ -74,6 +74,30 @@ tilesets".
 - `assets/showdown/_preview.png` is a contact sheet (dex-order grid) of the
   first frame of all 42 Pokemon for a quick human eyeball check.
 
+## Runtime-fetched sprites (species beyond the bundled 42)
+
+The full Gen 1-5 picker (`assets/dex/`, 649 species) covers far more than the
+42 bundled here. Picking anything else fetches its Gen-5 animated sprite from
+Pokemon Showdown at runtime -- the same `gen5ani`/`gen5ani-back` sets as the
+bundled sheets, under the same fan-use disclaimer above (copyright Nintendo,
+Game Freak, and Creatures Inc.; used purely as non-commercial fan content, no
+ownership claimed, no affiliation, removed on request from the rights
+holders). The app is the fetcher, not a redistributor: nothing runtime-fetched
+ships in this repository or its releases.
+
+Mechanics: the main process fetches
+`https://play.pokemonshowdown.com/sprites/gen5ani/<id>.gif` (and
+`gen5ani-back/<id>.gif`), the renderer decodes the GIF and coalesces its
+frames the same way the bundled sheets were produced (each output frame
+reflecting the source GIF's own disposal method), and the result is cached to
+`app.getPath('userData')/sprites/<id>-front.png` /
+`<id>-back.png` (plus a `.json` sidecar of frame geometry and durations) so
+each species is fetched at most once per machine. A sheet that would exceed
+8192px wide wraps into multiple rows, recorded in that sidecar. A failed fetch
+(offline, 404 -- most species have no back sprite, which is expected and not
+an error) shows a pokeball placeholder and a toast, and is not cached, so the
+next pick retries.
+
 ## assets/garden/ -- tileset
 
 See `assets/garden/sources.md` for full per-file source URL, author, and license.

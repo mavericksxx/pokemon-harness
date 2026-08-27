@@ -15,10 +15,51 @@ own flow.
   tree canopies walkers pass behind, planting beds, fences, a signpost
 - PTY-backed agent sessions with an xterm terminal drawer, multiple at once
 - Walkers are Pokemon Showdown's animated Gen-5 sprites, one species per
-  session, picked when the session starts
+  session, picked when the session starts — from the full 649-species Gen 1-5
+  dex via search, or a free bundled species at random
 - Walkers driven by scraping the agent's terminal output: `working` walks to a
   station and shows the tool in a bubble, `blocked` walks to the signpost with a
   pulsing `!`, `idle` wanders
+- Walkers face the way they're walking: predominantly-upward movement swaps to
+  the species' back sheet (bundled or lazily fetched), front otherwise
+- Sessions evolve as their agent works: accumulated `working` time crosses
+  thresholds and the walker plays a flash/pulse/sparkle animation into its
+  line's next stage, gaining whatever locomotion that stage has (e.g.
+  Charizard/Gyarados can fly and cross the pond)
+
+## Evolution
+
+A session always hatches at its picked line's base stage (picking Gengar in
+the dialog starts you with Gastly, which evolves into Gengar on its own).
+Only time spent in `working` status counts toward the thresholds — idle,
+blocked, and wall-clock time do not. Branching lines (Eevee) evolve into a
+random member of the next stage.
+
+Defaults: 10 minutes of working time to reach stage 2, 30 minutes to reach
+stage 3. Override for testing/demos with the `POKE_EVOLVE_SECONDS` environment
+variable, `"<stage2>,<stage3>"` in seconds, set on the process that launches
+Electron:
+
+```sh
+POKE_EVOLVE_SECONDS=20,60 npm run dev
+```
+
+## Pokemon picker
+
+The "Pokemon" field in the New Session dialog is a type-ahead search over all
+649 Gen 1-5 species by name or dex number (empty search shows the 42 bundled
+species, which need no network). Uniqueness is per evolution **line**: picking
+any stage of a line that's already out in the garden is greyed out. Picking a
+non-base stage shows an inline note ("Gengar joins as Gastly — it'll evolve as
+your agent works (Gastly → Haunter → Gengar)"); base-stage picks show the same
+chain without the caveat.
+
+Species outside the bundled 42 are fetched on demand from Pokemon Showdown at
+runtime (see `assets/ASSETS.md`) and cached to disk under
+`app.getPath('userData')/sprites/`, so each species is fetched at most once
+ever, from any machine running the app. A fetch failure (offline, 404) falls
+back to a pokeball placeholder plus a dismissible toast, and retries on the
+next pick rather than remembering the failure.
 
 ## Running
 
@@ -47,11 +88,17 @@ Both art seams are pure data changes:
   `maps/gardenTilesets.json`, in that order. A new sheet is an entry there plus
   an import line.
 - **Pokemon** — `scene/garden/showdownArt.ts` reads
-  `assets/showdown/manifest.json` for frame geometry, per-frame durations and
-  locomotion, and finds the sheets by glob. Adding a Pokemon is a PNG plus a
-  manifest entry; no code change.
+  `assets/showdown/manifest.json` for frame geometry, per-frame durations,
+  locomotion and evolution data (line/stage/evolvesTo), and finds the front and
+  back sheets by glob. Adding a Pokemon is a PNG plus a manifest entry; no code
+  change.
 - **Sprite size** — `scene/garden/spriteScale.ts` normalises each species'
-  native sheet height to a target height in tiles.
+  native sheet height to a target height in tiles (`TILE_HEIGHT_OVERRIDES` for
+  a species that lands wrong).
+- **Full dex / evolution** — `scene/garden/dexData.ts` reads
+  `assets/dex/dexIndex.json` and `lines.json` for the 649-species search and
+  line/stage/evolvesTo beyond the bundled 42; `scene/garden/lazySprites.ts`
+  fetches and decodes art for anything not bundled.
 
 The tool → station mapping lives in `stations.ts` as data, so retheming the
 garden is an edit there plus a new map.
