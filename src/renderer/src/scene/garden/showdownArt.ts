@@ -39,12 +39,24 @@ interface ManifestEntry {
   evolvesTo?: string[];
 }
 
-// One cast at the boundary: the manifest is a map keyed by Showdown id, and TS
-// widens its repeated object literals into shapes that are awkward to index.
-const ENTRIES = Object.values(manifest as unknown as Record<string, ManifestEntry>)
+// One cast at the boundary: the manifest is data, and TS widens its repeated
+// object literals into shapes that are awkward to index.
+const RAW = manifest as unknown as Record<string, unknown>;
+
+const isEntry = (value: unknown): value is ManifestEntry =>
+  !!value && typeof value === 'object' && typeof (value as ManifestEntry).name === 'string';
+
+// Accepts the manifest either as a flat map keyed by Showdown id or as
+// `{ pokemon: [...] }`, and drops anything that is not an entry. Both shapes
+// have been delivered, and a stray metadata key used to crash the whole
+// renderer on load — the roster is the one thing here that must not be brittle.
+const ENTRIES: ManifestEntry[] = (Array.isArray(RAW.pokemon) ? RAW.pokemon : Object.values(RAW))
+  .filter(isEntry)
   // Dex order, so the picker grid reads like a Pokedex rather than like a
   // directory listing.
   .sort((a, b) => a.dex - b.dex || a.name.localeCompare(b.name));
+
+if (ENTRIES.length === 0) console.error('[showdown] manifest produced no Pokemon');
 
 // Sheets are found rather than listed, so the roster is the manifest's alone.
 // The path is relative (not via the @assets alias) because Vite resolves glob

@@ -49,8 +49,9 @@ tilesets".
   every frame has non-transparent pixels (no blank frames), and a magnified
   spot check against a dark background found no white/light halo fringing on
   edges.
-- `assets/showdown/manifest.json` is `{"pokemon": [...]}` (matches the shape
-  `src/renderer/src/scene/garden/showdownArt.ts` already reads), one entry per
+- `assets/showdown/manifest.json` is a flat object keyed by Showdown id
+  (matches the shape `src/renderer/src/scene/garden/showdownArt.ts` reads via
+  `Object.values(manifest as Record<string, ManifestEntry>)`), one entry per
   Pokemon: dex number, evolution `line` id, 1-based `stage` within that line
   (both agree with `assets/dex/lines.json`), `evolvesTo` (name(s) of the next
   stage -- Eevee lists all seven Eeveelutions, final stages are empty),
@@ -58,10 +59,10 @@ tilesets".
   Gastly/Haunter/Gengar line, `"walk"` for everything else -- Charmander and
   Charmeleon are `"walk"`; flight is only gained at the Charizard stage),
   frame geometry (`frameWidth`/`frameHeight`/`frameCount`), per-frame
-  `durations` in ms as an array with one entry per frame (matches the
-  consumer's `entry.durations?.[i]`), `sourceUrl`, `image` path, and `hasBack`
-  plus a nested `back` object (geometry/durations/sourceUrl/image) when a back
-  sheet was delivered.
+  `durations` in ms (a single number when uniform across all frames, else an
+  array -- the consumer's `frameTime()` handles both forms), `sourceUrl`,
+  `image` path, and `hasBack` plus a nested `back` object
+  (geometry/durations/sourceUrl/image) when a back sheet was delivered.
 - Roster delivered (42/42 requested, full evolution lines): Pichu-Pikachu-Raichu;
   Eevee + all seven Eeveelutions (Vaporeon, Jolteon, Flareon, Espeon, Umbreon,
   Leafeon, Glaceon); Bulbasaur-Ivysaur-Venusaur; Charmander-Charmeleon-Charizard;
