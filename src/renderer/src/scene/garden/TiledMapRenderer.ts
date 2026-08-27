@@ -298,8 +298,15 @@ export class TiledMapRenderer {
 
     for (const layerName of TILE_LAYERS) {
       const layer = this.findLayer(layerName, 'tilelayer');
-      const container = new Container();
-      container.label = layerName;
+      // `furniture-above` is canopy foliage (see gen-garden-map.cjs): every tile
+      // on it sits exactly one row above its tree's trunk on `furniture-below`.
+      // Rather than always drawing over characters, its sprites go straight into
+      // the character container and get y-sorted against walkers by the trunk
+      // row's depth, so a Pokemon standing in front of a tree's base occludes
+      // the canopy instead of the canopy always winning.
+      const isCanopy = layerName === 'furniture-above';
+      const container = isCanopy ? this.characterContainer : new Container();
+      if (!isCanopy) container.label = layerName;
 
       if (layer?.data) {
         for (let y = 0; y < this.height; y++) {
@@ -351,17 +358,24 @@ export class TiledMapRenderer {
               sprite.y = y * this.tileSize;
             }
 
+            if (isCanopy) {
+              // Depth-key off the trunk row directly below this canopy tile
+              // (y + 1), at its bottom pixel edge — the same "feet" convention
+              // Walker uses for its own zIndex, so the two compare correctly.
+              sprite.zIndex = (y + 2) * this.tileSize;
+            }
             container.addChild(sprite);
             painted++;
           }
         }
       }
 
-      // `furniture-above` draws over characters, so the character layer is
-      // inserted just before it.
-      if (layerName === 'furniture-above') this.rootContainer.addChild(this.characterContainer);
-      this.rootContainer.addChild(container);
+      if (!isCanopy) this.rootContainer.addChild(container);
     }
+
+    // Now holding both walkers and canopy tiles, y-sorted together. Added last
+    // so it still draws over the flat floor/walls/furniture-below layers.
+    this.rootContainer.addChild(this.characterContainer);
 
     return painted;
   }
