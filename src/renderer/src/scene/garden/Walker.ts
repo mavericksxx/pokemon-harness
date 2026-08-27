@@ -180,6 +180,12 @@ export class Walker {
     return this.map.pixelToTile(this.px, this.py - 1);
   }
 
+  /** Drawn sprite height, for placing battle UI (the "+N" overflow badge)
+   *  above the head without hardcoding a per-species offset. */
+  get spriteHeight(): number {
+    return this.sprite.drawnHeight;
+  }
+
   /** Whether this species may cross water right now — checked live so an
    *  evolve into (or out of) flight takes effect immediately. */
   get canFly(): boolean {
@@ -244,6 +250,24 @@ export class Walker {
 
   showTool(tool: string, target: string): void {
     this.bubble.show(tool, target);
+  }
+
+  /** Public wrapper for the evolution flavor-text mechanism — reused by the
+   *  subagent battle system (Phase 4 Part B) for its "«Species» used
+   *  «Tool»!" move text. */
+  showFloatingText(text: string): void {
+    this.spawnFloatingText(text);
+  }
+
+  /** Force the back sheet on/off regardless of the walk-direction hysteresis
+   *  — used by the battle system to put the parent in its "facing away from
+   *  camera, toward the opponent" battle stance (falls back to the front
+   *  sheet automatically when the species has no back view; see
+   *  WalkerSprite.setBackView). A no-op while an evolution ceremony is
+   *  running, which already owns the sprite's view for its duration. */
+  setForcedBackView(useBack: boolean): void {
+    if (this.ceremony) return;
+    this.sprite.setBackView(useBack);
   }
 
   showText(text: string): void {

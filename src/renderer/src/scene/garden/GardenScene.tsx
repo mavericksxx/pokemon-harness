@@ -14,6 +14,8 @@ import { AIR_ONLY_SPAWNS, BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from
 import { loadLazyAnimation, placeholderAnimation } from './lazySprites';
 import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { speciesEntry } from './dexData';
+import { BattleManager } from './battle/BattleManager';
+import { clearBattleFx } from './battle/battleFx';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -144,6 +146,28 @@ export function GardenScene(): JSX.Element {
         return placeholderAnimation(name);
       };
 
+      // Phase 4 Part B — subagent battles. Instantiated here (not module-level)
+      // because it needs this scene's own map/charLayer/animation resolvers,
+      // and torn down with everything else in cleanup().
+      const battleManager = new BattleManager({
+        map,
+        charLayer,
+        resolveAnimation,
+        loadLazyAnimation,
+        getRuntime: (parentId) => runtimes.get(parentId),
+        getParentLabel: (parentId) => {
+          const s = useStore.getState().sessions.find((x) => x.id === parentId);
+          return s ? (speciesEntry(s.pokemon)?.name ?? s.pokemon) : 'The trainer';
+        },
+        activeSessionLines: () => useStore.getState().takenLines(),
+        onBattleEnd: (parentId) => {
+          const rt = runtimes.get(parentId);
+          if (!rt) return;
+          rt.lastStation = null;
+          rt.walker.beginWander();
+        }
+      });
+
       const upgradeIfLazy = (session: Session, walker: Walker, rt: Runtime): void => {
         if (pokemonAnimations.has(session.pokemon)) return;
         void loadLazyAnimation(session.pokemon).then((anim) => {
@@ -229,6 +253,7 @@ export function GardenScene(): JSX.Element {
       const removeWalker = (id: string): void => {
         const rt = runtimes.get(id);
         if (!rt) return;
+        battleManager.forceEnd(id);
         patchPool.release(rt.homePatch);
         rt.walker.destroy();
         runtimes.delete(id);
@@ -249,22 +274,28 @@ export function GardenScene(): JSX.Element {
           walker.setLabel(session.title);
           walker.setStatus(session.status);
 
-          const station: StationKind =
-            session.status === 'blocked'
-              ? BLOCKED_STATION
-              : session.status === 'working'
-                ? session.station
-                : 'wander';
+          // A battling parent owns its own walker's position/facing for the
+          // duration (approach/faceoff/attack loop) — the normal station
+          // reconcile stands down until BattleManager hands it back via
+          // onBattleEnd, which resets lastStation so this picks up again.
+          if (!battleManager.isBattling(session.id)) {
+            const station: StationKind =
+              session.status === 'blocked'
+                ? BLOCKED_STATION
+                : session.status === 'working'
+                  ? session.station
+                  : 'wander';
 
-          if (station !== rt.lastStation) {
-            if (station === 'wander') {
-              walker.beginWander();
-              rt.lastStation = station;
-            } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
-              rt.lastStation = station;
+            if (station !== rt.lastStation) {
+              if (station === 'wander') {
+                walker.beginWander();
+                rt.lastStation = station;
+              } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
+                rt.lastStation = station;
+              }
+              // A failed goTo leaves lastStation alone so the next status change
+              // retries rather than assuming the walker is en route.
             }
-            // A failed goTo leaves lastStation alone so the next status change
-            // retries rather than assuming the walker is en route.
           }
 
           const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}`;
@@ -298,6 +329,10 @@ export function GardenScene(): JSX.Element {
           rt.walker.update(dt);
           if (rt.status === 'working') rt.workAccumMs += dt * 1000;
         }
+        // Runs after every walker's own update() so battle positioning always
+        // overwrites with a fresh absolute (base + offset) value rather than
+        // fighting Walker's own syncPosition from a stale frame.
+        battleManager.update(dt);
 
         flushAccum += dt;
         if (flushAccum >= 1) {
@@ -310,7 +345,10 @@ export function GardenScene(): JSX.Element {
             rt.workAccumMs = 0;
             useStore.getState().updateSession(session.id, { workedMs });
 
-            if (rt.evolvePending || rt.walker.isEvolving) continue;
+            // A battle mid-attack retries next tick — the evolution ceremony
+            // waits for the current attack beat to finish, then takes over
+            // (it's already exclusive), and the battle resumes after.
+            if (rt.evolvePending || rt.walker.isEvolving || battleManager.isMidAttack(session.id)) continue;
             const entry = speciesEntry(session.pokemon);
             if (!entry) continue;
             const crossedStage2 = entry.stage === 1 && workedMs >= cfg.stage2Ms;
@@ -339,6 +377,8 @@ export function GardenScene(): JSX.Element {
         ro.disconnect();
         unsubscribe();
         for (const id of [...runtimes.keys()]) removeWalker(id);
+        battleManager.dispose();
+        clearBattleFx();
         app.destroy(true, { children: true });
       };
     };

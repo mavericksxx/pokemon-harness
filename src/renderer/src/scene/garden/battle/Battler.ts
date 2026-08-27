@@ -1,0 +1,184 @@
+import { Container } from 'pixi.js';
+import { WalkerSprite, type Facing } from '../WalkerSprite';
+import type { PokemonAnimation } from '../showdownArt';
+import type { TiledMapRenderer } from '../TiledMapRenderer';
+import type { DexEntry } from '../dexData';
+import { findPath } from '../pathfinding';
+import { spawnMoveText } from './battleFx';
+
+const SPEED = 44; // px/sec — matches Walker's SPEED so approach reads the same
+const POOF_IN_MS = 260;
+const POOF_OUT_MS = 220;
+
+/**
+ * One wild Pokemon spawned for a subagent battle (Phase 4 Part B).
+ *
+ * A deliberately lighter sibling of `Walker`: it reuses `WalkerSprite` (the
+ * bob/lift/mirror rendering) and `findPath` (the same BFS the garden's own
+ * walkers use, so "no teleporting" holds here too), but skips everything a
+ * battler doesn't need — station routing, the tool bubble, evolution, the
+ * name tag/badge/selection ring. It never turns to a back view; the spec
+ * only asks that of the parent.
+ */
+export class Battler {
+  readonly container: Container;
+  readonly species: DexEntry;
+
+  private map: TiledMapRenderer;
+  private sprite: WalkerSprite;
+  private px: number;
+  private py: number;
+  private path: { x: number; y: number }[] = [];
+  private moving = false;
+  private facing: Facing = 'left';
+
+  private poofPhase: 'in' | 'live' | 'out' | 'gone' = 'in';
+  private poofElapsed = 0;
+
+  constructor(opts: {
+    map: TiledMapRenderer;
+    animation: PokemonAnimation;
+    species: DexEntry;
+    spawnTile: { x: number; y: number };
+  }) {
+    this.map = opts.map;
+    this.species = opts.species;
+    const ts = this.map.tileSize;
+    this.px = opts.spawnTile.x * ts + ts / 2;
+    this.py = opts.spawnTile.y * ts + ts;
+
+    this.container = new Container();
+    this.container.sortableChildren = true;
+    this.sprite = new WalkerSprite(opts.animation, ts);
+    this.container.addChild(this.sprite.container);
+    this.container.scale.set(0.05); // poof-in starts tiny and grows
+    this.syncPosition();
+  }
+
+  get worldX(): number {
+    return this.px;
+  }
+  get worldY(): number {
+    return this.py;
+  }
+
+  get tile(): { x: number; y: number } {
+    return this.map.pixelToTile(this.px, this.py - 1);
+  }
+
+  /** Drawn height, for move-text/flash placement above the head. */
+  get drawnHeight(): number {
+    return this.sprite.drawnHeight;
+  }
+
+  get isSpawning(): boolean {
+    return this.poofPhase === 'in';
+  }
+
+  get isPoofedOut(): boolean {
+    return this.poofPhase === 'gone';
+  }
+
+  /** True once the poof-in finished and any queued path has been walked. */
+  get arrived(): boolean {
+    return this.poofPhase === 'live' && this.path.length === 0 && !this.moving;
+  }
+
+  /** BFS-path to a tile, ground-only (wild battlers don't need flight — every
+   *  meet/fan tile is chosen walkable). Returns false if unreachable; caller
+   *  falls back to standing at the spawn tile rather than teleporting. */
+  goTo(tile: { x: number; y: number }): boolean {
+    const path = findPath(this.map, this.tile, tile, (x, y) => this.map.isWalkable(x, y));
+    if (!path) return false;
+    this.path = path;
+    this.moving = path.length > 0;
+    this.sprite.setMoving(this.moving);
+    return true;
+  }
+
+  /** Instant art swap for a species that finished a lazy fetch after this
+   *  battler already spawned with a placeholder — mirrors Walker's own
+   *  non-ceremony setAnimation. */
+  setAnimation(animation: PokemonAnimation): void {
+    this.sprite.configure(animation);
+  }
+
+  /** The floating "«Species» used «Tool»!" move text. */
+  showMoveText(text: string): void {
+    spawnMoveText(this.container, text, -this.sprite.drawnHeight - 4);
+  }
+
+  /** Turn to face a tile without moving — used once arrived, to look at
+   *  whichever opponent it's about to trade blows with. */
+  faceToward(tile: { x: number; y: number }): void {
+    const cur = this.tile;
+    if (tile.x === cur.x) return; // directly above/below — keep current facing
+    this.facing = tile.x > cur.x ? 'right' : 'left';
+    this.sprite.setFacing(this.facing);
+  }
+
+  /** Begin the poof-out shrink; `isPoofedOut` goes true once it completes. */
+  startPoofOut(): void {
+    if (this.poofPhase === 'out' || this.poofPhase === 'gone') return;
+    this.poofPhase = 'out';
+    this.poofElapsed = 0;
+  }
+
+  update(dt: number): void {
+    if (this.poofPhase === 'in') {
+      this.poofElapsed += dt * 1000;
+      const t = Math.min(1, this.poofElapsed / POOF_IN_MS);
+      this.container.scale.set(0.05 + 0.95 * t);
+      if (t >= 1) this.poofPhase = 'live';
+    } else if (this.poofPhase === 'out') {
+      this.poofElapsed += dt * 1000;
+      const t = Math.min(1, this.poofElapsed / POOF_OUT_MS);
+      this.container.scale.set(Math.max(0.001, 1 - t));
+      if (t >= 1) this.poofPhase = 'gone';
+    }
+
+    if (this.path.length > 0) this.updateWalk(dt);
+    this.sprite.update(dt);
+    this.syncPosition();
+  }
+
+  private updateWalk(dt: number): void {
+    const target = this.path[0];
+    const ts = this.map.tileSize;
+    const targetPx = target.x * ts + ts / 2;
+    const targetPy = target.y * ts + ts;
+    const dx = targetPx - this.px;
+    const dy = targetPy - this.py;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 1) {
+      this.px = targetPx;
+      this.py = targetPy;
+      this.path.shift();
+      if (this.path.length === 0) {
+        this.moving = false;
+        this.sprite.setMoving(false);
+      }
+      return;
+    }
+
+    const step = Math.min(SPEED * dt, dist);
+    this.px += (dx / dist) * step;
+    this.py += (dy / dist) * step;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      this.facing = dx > 0 ? 'right' : 'left';
+      this.sprite.setFacing(this.facing);
+    }
+  }
+
+  private syncPosition(): void {
+    this.container.x = Math.round(this.px);
+    this.container.y = Math.round(this.py);
+    this.container.zIndex = Math.round(this.py);
+  }
+
+  destroy(): void {
+    this.sprite.destroy();
+    this.container.destroy({ children: true });
+  }
+}
