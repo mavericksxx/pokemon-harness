@@ -33,6 +33,9 @@ export interface TiledObject {
   y: number;
   width?: number;
   height?: number;
+  /** Tiled's object `type` field. Zones use `'structure'` to mark an enclosed
+   *  building's footprint for the roof-fade behaviour below. */
+  type?: string;
 }
 
 export interface TiledTileAnimationFrame {
@@ -86,6 +89,14 @@ const COLLISION_LAYER = 'collision';
 const WATER_LAYER = 'water';
 const SPAWN_POINTS_LAYER = 'spawn-points';
 const ZONES_LAYER = 'zones';
+/** Zone `type` that marks an enclosed structure's footprint (gen-garden-map.cjs
+ *  writes this on the shed/greenhouse-style buildings, not on the merely
+ *  informational region zones like `meadow` or `orchard`). */
+const STRUCTURE_ZONE_TYPE = 'structure';
+/** Alpha a structure's roof fades to while a walker's anchor tile is inside its
+ *  zone, and the time constant (ms) of the tween toward that target. */
+const STRUCTURE_FADE_ALPHA = 0.3;
+const STRUCTURE_FADE_MS = 250;
 
 export class TiledMapRenderer {
   readonly width: number;
@@ -103,6 +114,23 @@ export class TiledMapRenderer {
   private rootContainer: Container;
   /** gid → its animation, for gids the map's tilesets declare `animation` on. */
   private animatedTiles: Map<number, AnimatedTileGroup> = new Map();
+
+  // ── enclosed-structure roof fade ──────────────────────────────────────────
+  // An enclosed structure (potting shed, etc.) draws its `furniture-above`
+  // tiles as a solid roof, in their own per-structure container stacked ABOVE
+  // the walker layer (unlike tree canopy, which y-sorts WITH walkers) — so by
+  // default it fully hides anyone inside. When a walker's anchor tile enters
+  // the structure's zone, that container's alpha tweens down so they stay
+  // visible; it tweens back up once the zone is empty again.
+  /** Zones whose Tiled `type` is `structure`, keyed by zone/structure name. */
+  private structureZones: Map<string, ZoneRect> = new Map();
+  /** One container per structure, holding just its roof tiles. */
+  private structureRoofs: Map<string, Container> = new Map();
+  /** Current (tweening) alpha per structure. */
+  private structureAlpha: Map<string, number> = new Map();
+  /** Canopy sprites this renderer added to `characterContainer` itself (tree
+   *  foliage) — excluded when scanning that container for walker occupants. */
+  private canopySprites: Set<Sprite> = new Set();
 
   /** Spawn points whose tile is forced walkable even if the art under them is
    *  solid — a walker must be able to path ONTO its station. findPath() returns
@@ -137,7 +165,8 @@ export class TiledMapRenderer {
     this.tileSpriteCount = this.buildTileLayers();
   }
 
-  /** Advance Tiled tile animations (the pond's water). Call once per frame. */
+  /** Advance Tiled tile animations (the pond's water) and enclosed-structure
+   *  roof fades. Call once per frame. */
   update(deltaMs: number): void {
     for (const group of this.animatedTiles.values()) {
       if (group.sprites.length === 0) continue;
@@ -152,6 +181,7 @@ export class TiledMapRenderer {
       const texture = group.textures[group.frame];
       for (const sprite of group.sprites) sprite.texture = texture;
     }
+    this.updateStructureFade(deltaMs);
   }
 
   getContainer(): Container {
@@ -243,13 +273,40 @@ export class TiledMapRenderer {
     const layer = this.findLayer(ZONES_LAYER, 'objectgroup');
     if (!layer?.objects) return;
     for (const obj of layer.objects) {
-      this.zones.set(obj.name, {
+      const rect: ZoneRect = {
         x: Math.floor(obj.x / this.tileSize),
         y: Math.floor(obj.y / this.tileSize),
         width: Math.floor((obj.width ?? 0) / this.tileSize),
         height: Math.floor((obj.height ?? 0) / this.tileSize)
-      });
+      };
+      this.zones.set(obj.name, rect);
+      if (obj.type === STRUCTURE_ZONE_TYPE) {
+        this.structureZones.set(obj.name, rect);
+        this.structureAlpha.set(obj.name, 1);
+      }
     }
+  }
+
+  /** The structure (if any) whose zone contains tile (x, y) — used to route a
+   *  `furniture-above` tile into that structure's own fading roof container
+   *  instead of the normal tree-canopy y-sort path. */
+  private structureAt(x: number, y: number): string | undefined {
+    for (const [name, rect] of this.structureZones) {
+      if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height) {
+        return name;
+      }
+    }
+    return undefined;
+  }
+
+  private getOrCreateStructureRoof(name: string): Container {
+    let container = this.structureRoofs.get(name);
+    if (!container) {
+      container = new Container();
+      container.label = `structure-roof:${name}`;
+      this.structureRoofs.set(name, container);
+    }
+    return container;
   }
 
   /** Resolve a gid to its tileset. Scans BACKWARDS, so `tilesets` must be in
@@ -333,6 +390,12 @@ export class TiledMapRenderer {
             );
             animation?.sprites.push(sprite);
 
+            // A furniture-above tile inside a `structure` zone is that
+            // building's roof, not tree canopy: it goes into its own
+            // per-structure container (faded on occupancy, see
+            // updateStructureFade) instead of the walker-sorted one below.
+            const structureName = isCanopy ? this.structureAt(x, y) : undefined;
+
             if (flippedH || flippedV || flippedD) {
               sprite.anchor.set(0.5, 0.5);
               sprite.x = x * this.tileSize + this.tileSize / 2;
@@ -358,13 +421,21 @@ export class TiledMapRenderer {
               sprite.y = y * this.tileSize;
             }
 
-            if (isCanopy) {
-              // Depth-key off the trunk row directly below this canopy tile
-              // (y + 1), at its bottom pixel edge — the same "feet" convention
-              // Walker uses for its own zIndex, so the two compare correctly.
-              sprite.zIndex = (y + 2) * this.tileSize;
+            if (structureName !== undefined) {
+              // Roof tile: its own container, no y-sort, added on top of
+              // everything (see below) — full occlusion until faded.
+              this.getOrCreateStructureRoof(structureName).addChild(sprite);
+            } else {
+              if (isCanopy) {
+                // Depth-key off the trunk row directly below this canopy tile
+                // (y + 1), at its bottom pixel edge — the same "feet"
+                // convention Walker uses for its own zIndex, so the two
+                // compare correctly.
+                sprite.zIndex = (y + 2) * this.tileSize;
+                this.canopySprites.add(sprite);
+              }
+              container.addChild(sprite);
             }
-            container.addChild(sprite);
             painted++;
           }
         }
@@ -377,7 +448,49 @@ export class TiledMapRenderer {
     // so it still draws over the flat floor/walls/furniture-below layers.
     this.rootContainer.addChild(this.characterContainer);
 
+    // Structure roofs draw on top of walkers too (that's the whole point —
+    // they represent a real ceiling), so they need to come after the
+    // character container. Fading them on occupancy is what keeps a walker
+    // inside from disappearing for good.
+    for (const roof of this.structureRoofs.values()) this.rootContainer.addChild(roof);
+
     return painted;
+  }
+
+  /** Tween each enclosed structure's roof toward transparent while a walker's
+   *  anchor tile sits inside its zone, and back to opaque once it's empty.
+   *  Walker positions are read straight off `characterContainer`'s children —
+   *  every sprite this renderer put there itself is in `canopySprites` and
+   *  skipped, so whatever's left is a walker's body or speech-bubble
+   *  container (both track the walker's world position via `.x`/`.y`). */
+  private updateStructureFade(deltaMs: number): void {
+    if (this.structureZones.size === 0) return;
+
+    const occupantTiles: Point[] = [];
+    for (const child of this.characterContainer.children) {
+      // Every tile sprite this renderer put here itself is in canopySprites;
+      // skip it. Whatever's left is a walker's body or bubble container.
+      if (this.canopySprites.has(child as Sprite)) continue;
+      const px = child.x;
+      const py = child.y;
+      // An idle bubble container parked at the origin would otherwise read as
+      // a permanent occupant of tile (0, 0).
+      if (px === 0 && py === 0) continue;
+      occupantTiles.push(this.pixelToTile(px, py - 1));
+    }
+
+    const rate = Math.min(1, deltaMs / STRUCTURE_FADE_MS);
+    for (const [name, rect] of this.structureZones) {
+      const occupied = occupantTiles.some(
+        (t) => t.x >= rect.x && t.x < rect.x + rect.width && t.y >= rect.y && t.y < rect.y + rect.height
+      );
+      const target = occupied ? STRUCTURE_FADE_ALPHA : 1;
+      const current = this.structureAlpha.get(name) ?? 1;
+      const next = current + (target - current) * rate;
+      this.structureAlpha.set(name, next);
+      const roof = this.structureRoofs.get(name);
+      if (roof) roof.alpha = next;
+    }
   }
 
   private findLayer(name: string, type: 'tilelayer' | 'objectgroup'): TiledLayer | undefined {
