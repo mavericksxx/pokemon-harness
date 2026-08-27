@@ -25,28 +25,36 @@ be removed on request from the rights holders.
 - Format delivered: one PNG per Pokemon at `assets/pokemon/<name>.png`, 128x128px,
   a 4x4 grid of 32x32 frames. Row order (top to bottom): **down, left, right, up**.
   Transparent background (see "Transparency" below).
+- **A row's four columns are not one cycle.** Play the column sequence in
+  `manifest.json`'s `directions.<dir>.frames` — see the correction below.
 - Roster delivered (12/12 requested): bulbasaur, charmander, squirtle, pikachu,
   jigglypuff, psyduck, gengar, eevee, snorlax, chikorita, cyndaquil, totodile.
 - Full details (dex numbers, exact source row per Pokemon, frame-authenticity per
   direction) are in `assets/pokemon/manifest.json`.
 
-### Important limitation: no back/up-facing art in the source
+### Correction: the source DOES have back/up-facing art
 
-The source sheets only contain two real camera angles per Pokemon: a front-facing
-("down") walk cycle (4 authentic frames) and one side-facing pose (2 frames), which is
-mirrored horizontally in the source to give the opposite side direction (confirmed
-pixel-identical to a horizontal flip for all 12 delivered Pokemon). There is **no**
-back/up-facing artwork anywhere in either source file.
+An earlier reading of this rip described each source block's columns 0-3 as a
+four-frame front walk and concluded there was no back-facing artwork anywhere. That
+was wrong, and it produced a visible bug: a walker played columns 0,1,2,3 as one
+cycle and flipped between facing the camera and facing away every other frame.
 
-Because of this:
-- `down`, `left`, and `right` rows are authentic source frames (left/right duplicated
-  from the source's 2 unique side-pose frames to fill 4 columns: pattern `[0,1,0,1]`).
-- The `up` row in every delivered PNG is a **placeholder that duplicates the down row**.
-  It is not real back-view art. This is called out per-Pokemon in manifest.json via
-  `directions.up.authentic: false`.
+Inspecting the delivered pixels for all 12 species shows each source block is:
 
-If real back-view sprites are found later (e.g. from a Pokemon Essentials-style
-pre-cut community pack), only the `up` row of each file needs to be replaced.
+| Source columns | Content |
+| --- | --- |
+| 0-1 | front / **down** walk, 2 poses |
+| 2-3 | back / **up** walk, 2 poses (no face; tail, spines and ear-backs visible) |
+| 4-5 | one side-facing pose, 2 frames |
+| 6-7 | that pose mirrored horizontally (pixel-identical to an hflip of 4-5) |
+
+All four directions are therefore authentic. Because the delivered `up` row is a byte
+copy of the `down` row, the genuine back frames sit at **columns 2-3** of it, which is
+what `directions.up.frames` (`[2,3,2,3]`) points at. Every direction plays two unique
+poses, repeated to fill a four-column cycle.
+
+Consumers must read `directions.<dir>.frames` as the column sequence to play in row
+`rowOrder.indexOf(dir)`, rather than assuming a row's four columns are one cycle.
 
 ### Transparency
 
@@ -61,6 +69,8 @@ Verified no visible halo artifacts on any delivered frame.
 - Every `<name>.png` confirmed 128x128px, RGBA, with both fully-transparent (alpha=0)
   and fully-opaque (alpha=255) pixels present, and a non-empty first frame in each of
   the 4 rows.
+- Front vs back for row 0 columns 0-1 and 2-3 was confirmed by eye for all 12 species
+  from a magnified contact sheet, which is what surfaced the correction above.
 - `assets/pokemon/_preview.png` is a contact sheet tiling the down-facing idle frame of
   all 12 delivered Pokemon for a quick human eyeball check.
 - Species identity for every delivered Pokemon was confirmed by visual inspection

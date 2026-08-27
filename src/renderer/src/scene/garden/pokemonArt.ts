@@ -7,10 +7,10 @@
  * from SHEET_URLS, which only exists because the bundler needs a literal import
  * per file. Adding a Pokemon is a new PNG, a manifest entry and a line there.
  *
- * The manifest documents that the `up` row of every sheet is a placeholder copy
- * of `down` (the source rip has no back-facing art). That is deliberately NOT
- * special-cased: the row is read like any other, so replacing it with real art
- * later needs no code change.
+ * A row's four columns are NOT one animation cycle — the manifest's per-direction
+ * `frames` is, and it is the only thing read here. That is what keeps the `up`
+ * row (a byte copy of `down`, whose genuine back-facing poses sit at columns
+ * 2-3) working with no code that knows about it.
  *
  * Licence and fan-use disclaimer: assets/ASSETS.md.
  */
@@ -52,7 +52,9 @@ interface PokemonEntry {
   name: string;
   dex: number;
   /** Column sequence to play per direction, in the delivered sheet's own
-   *  columns. Side rows repeat their two unique poses as [0,1,0,1]. */
+   *  columns. A row's four columns are NOT one cycle: every direction has two
+   *  unique poses repeated to fill four, and `up` reads columns 2-3 because the
+   *  up row is a copy of the down row and the back-facing poses live there. */
   directions: Record<Direction, { frames: number[] }>;
 }
 

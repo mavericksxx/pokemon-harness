@@ -11,9 +11,10 @@
   ],
   "notes": [
     "Sprites sourced from spritedatabase.net (HeartGold/SoulSilver overworld rip, credited on-sheet to ripper 'Grim').",
-    "Each source block has 8 32x32 columns: 0-3 = down-facing walk (4 authentic frames), 4-5 = one side-facing pose (2 frames), 6-7 = the same pose mirrored horizontally (confirmed 100% pixel-identical to an hflip of columns 4-5 for all 12 species).",
+    "Each source block has 8 32x32 columns: 0-1 = front/down walk (2 poses), 2-3 = back/up walk (2 poses), 4-5 = one side-facing pose (2 frames), 6-7 = the same pose mirrored horizontally (confirmed 100% pixel-identical to an hflip of columns 4-5 for all 12 species).",
+    "CORRECTION (verified by inspecting the delivered pixels for all 12 species): an earlier reading of this rip described columns 0-3 as a four-frame front walk and concluded the source had no back-facing art. That is wrong. Columns 2-3 are the BACK view -- no face, tail/spines visible. Playing columns 0,1,2,3 as one cycle makes a walker flip between facing the camera and facing away every other frame.",
     "Left/right facing was determined by visual inspection (Bulbasaur's snout points left in column 4, right in column 6) and applied uniformly.",
-    "The source sheet contains NO back/up-facing art. The 'up' row in every delivered PNG is a placeholder that duplicates the 'down' row -- see the per-Pokemon 'directions.up' entry (authentic: false) in this manifest.",
+    "The delivered PNGs are a 4x4 grid whose rows are down/left/right/up, but the 'up' row is a byte copy of the 'down' row. The real back-facing frames therefore sit at columns 2-3 of that row, which is what directions.up.frames points at. Read `directions.<dir>.frames` as the column sequence to play in row `rowOrder.indexOf(dir)`; do not assume a row's four columns are one cycle.",
     "Transparency was produced by flood-filling each frame's background from its four corners (the source uses a soft cyan vignette per cell, not a single flat color), not a fixed color-key."
   ],
   "pokemon": [
@@ -33,10 +34,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -46,7 +48,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -60,13 +62,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -86,10 +88,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -99,7 +102,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -113,13 +116,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -139,10 +142,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -152,7 +156,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -166,13 +170,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -192,10 +196,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -205,7 +210,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -219,13 +224,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -245,10 +250,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -258,7 +264,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -272,13 +278,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -298,10 +304,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -311,7 +318,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -325,13 +332,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -351,10 +358,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -364,7 +372,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -378,13 +386,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -404,10 +412,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -417,7 +426,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -431,13 +440,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -457,10 +466,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -470,7 +480,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -484,13 +494,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -510,10 +520,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -523,7 +534,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -537,13 +548,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -563,10 +574,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -576,7 +588,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -590,13 +602,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     },
@@ -616,10 +628,11 @@
           "frames": [
             0,
             1,
-            2,
-            3
+            0,
+            1
           ],
-          "authentic": true
+          "authentic": true,
+          "note": "source block columns 0-1 are the two front-facing walk poses; duplicated to fill the four-column cycle"
         },
         "left": {
           "frames": [
@@ -629,7 +642,7 @@
             1
           ],
           "authentic": true,
-          "note": "source provides 2 unique side-facing frames; duplicated to fill 4 columns"
+          "note": "source provides 2 unique side-facing frames; duplicated to fill the four-column cycle"
         },
         "right": {
           "frames": [
@@ -643,13 +656,13 @@
         },
         "up": {
           "frames": [
-            0,
-            1,
+            2,
+            3,
             2,
             3
           ],
-          "authentic": false,
-          "note": "PLACEHOLDER: source sheet has no back/up-facing art; duplicates the down row"
+          "authentic": true,
+          "note": "this row is a byte copy of the down row, so the two genuine back-facing poses (source block columns 2-3) sit at columns 2-3 of it"
         }
       }
     }
