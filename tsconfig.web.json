@@ -25,6 +25,6 @@
     "src/renderer/**/*",
     "src/preload/index.d.ts",
     "src/shared/**/*",
-    "assets/pokemon/manifest.json"
+    "assets/showdown/manifest.json"
   ]
 }
