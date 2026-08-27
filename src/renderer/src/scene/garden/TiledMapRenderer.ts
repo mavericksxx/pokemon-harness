@@ -78,7 +78,15 @@ export class TiledMapRenderer {
   /** Spawn points whose tile is forced walkable even if the art under them is
    *  solid — a walker must be able to path ONTO its station. findPath() returns
    *  null (silently) when the goal tile is blocked. */
-  private static readonly WALKABLE_SPAWN_PREFIXES = ['patch-', 'pond-', 'signpost-', 'entrance'];
+  private static readonly WALKABLE_SPAWN_PREFIXES = [
+    'patch-',
+    'stump-',
+    'pond-',
+    'signpost-',
+    'mailbox-',
+    'wander-',
+    'entrance'
+  ];
 
   constructor(
     private mapData: TiledMap,

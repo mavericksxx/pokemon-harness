@@ -8,7 +8,8 @@ import { TiledMapRenderer, type TiledMap } from './TiledMapRenderer';
 import { Camera } from './Camera';
 import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
-import { buildTilesetTexture, buildWalkerSheet } from './placeholderArt';
+import { loadGardenTilesets } from './gardenArt';
+import { buildWalkerSheet } from './placeholderArt';
 import { BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
@@ -23,6 +24,10 @@ interface Runtime {
   walker: Walker;
   /** The patch station this session claimed for its file work. */
   homePatch: string;
+  /** This session's index into EVERY station list. Taken from the patch it
+   *  reserved (SeatPool already keeps those distinct), so two concurrent
+   *  sessions running Bash go to different logs instead of stacking on one. */
+  slot: number;
   /** Last (station, tool, target) applied, so we don't restart the path every frame. */
   lastStation: StationKind | null;
   lastToolKey: string;
@@ -56,11 +61,16 @@ export function GardenScene(): JSX.Element {
       }
       host.appendChild(app.canvas);
 
-      const tileset = buildTilesetTexture();
+      const tilesets = await loadGardenTilesets();
+      if (destroyed) {
+        app.destroy(true, { children: true });
+        return;
+      }
+
       const world = new Container();
       app.stage.addChild(world);
 
-      const map = new TiledMapRenderer(gardenMap, [tileset]);
+      const map = new TiledMapRenderer(gardenMap, tilesets);
       world.addChild(map.getContainer());
       const charLayer = map.getCharacterContainer();
       console.log(
@@ -78,14 +88,15 @@ export function GardenScene(): JSX.Element {
 
       const entrance = map.getSpawnPoint(ENTRANCE_SPAWN) ?? { x: 2, y: 2 };
 
-      const spawnTileFor = (station: StationKind, homePatch: string): { x: number; y: number } => {
-        if (station === 'patch') return map.getSpawnPoint(homePatch) ?? entrance;
-        const name = STATION_SPAWNS[station][0];
-        return (name ? map.getSpawnPoint(name) : undefined) ?? entrance;
+      const spawnTileFor = (station: StationKind, slot: number): { x: number; y: number } => {
+        const names = STATION_SPAWNS[station];
+        if (names.length === 0) return entrance;
+        return map.getSpawnPoint(names[slot % names.length]) ?? entrance;
       };
 
       const addWalker = (session: Session): Runtime => {
         const homePatch = patchPool.reserveNext() ?? STATION_SPAWNS.patch[0];
+        const slot = Math.max(0, STATION_SPAWNS.patch.indexOf(homePatch));
         const frames = buildWalkerSheet('#ffffff', '#e2e2e2');
         const walker = new Walker({
           sessionId: session.id,
@@ -102,7 +113,7 @@ export function GardenScene(): JSX.Element {
         charLayer.addChild(walker.bubbleContainer);
         walker.showText(session.title);
         walker.lingerBubble();
-        const rt: Runtime = { walker, homePatch, lastStation: null, lastToolKey: '' };
+        const rt: Runtime = { walker, homePatch, slot, lastStation: null, lastToolKey: '' };
         runtimes.set(session.id, rt);
         return rt;
       };
@@ -140,7 +151,7 @@ export function GardenScene(): JSX.Element {
             if (station === 'wander') {
               walker.beginWander();
               rt.lastStation = station;
-            } else if (walker.goTo(spawnTileFor(station, rt.homePatch))) {
+            } else if (walker.goTo(spawnTileFor(station, rt.slot))) {
               rt.lastStation = station;
             }
             // A failed goTo leaves lastStation alone so the next status change

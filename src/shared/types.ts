@@ -35,7 +35,7 @@ export interface PtyInfo {
 export type SessionStatus = 'starting' | 'idle' | 'working' | 'blocked' | 'done';
 
 /** Named place in the garden a walker heads for. Data-driven — see stations.ts. */
-export type StationKind = 'patch' | 'pond' | 'signpost' | 'wander';
+export type StationKind = 'patch' | 'stump' | 'pond' | 'signpost' | 'wander';
 
 export interface NewSessionRequest {
   provider: AgentProviderId;
