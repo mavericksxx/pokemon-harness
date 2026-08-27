@@ -1,5 +1,6 @@
 import { Container, Graphics, Text, Texture } from 'pixi.js';
 import { WalkerSprite, type Direction } from './WalkerSprite';
+import { FOOT_INSET } from './pokemonArt';
 import { findPath } from './pathfinding';
 import { ToolBubble } from './ToolBubble';
 import type { TiledMapRenderer } from './TiledMapRenderer';
@@ -75,10 +76,9 @@ export class Walker {
     this.selectionRing.visible = false;
     this.selectionRing.ellipse(0, -2, 12, 6).stroke({ width: 1.5, color: opts.accentColor });
 
-    this.sprite = new WalkerSprite(opts.frames);
-    // Tint the generated sheet toward this session's accent so multiple walkers
-    // are distinguishable even with one placeholder sprite.
-    this.sprite.container.tint = opts.accentColor;
+    // No tint: the walkers are real Pokemon sprites now, and each session is
+    // told apart by its species. The accent survives on the selection ring.
+    this.sprite = new WalkerSprite(opts.frames, FOOT_INSET);
 
     this.badge = new Graphics();
     this.badge.visible = false;

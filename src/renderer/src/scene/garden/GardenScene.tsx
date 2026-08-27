@@ -9,7 +9,7 @@ import { Camera } from './Camera';
 import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
 import { loadGardenTilesets } from './gardenArt';
-import { buildWalkerSheet } from './placeholderArt';
+import { loadPokemonSheets, POKEMON_ROSTER } from './pokemonArt';
 import { BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
@@ -61,7 +61,12 @@ export function GardenScene(): JSX.Element {
       }
       host.appendChild(app.canvas);
 
-      const tilesets = await loadGardenTilesets();
+      // Both art sets are loaded before the store subscription is wired: a
+      // session can appear the instant it is, and addWalker must stay sync.
+      const [tilesets, pokemonSheets] = await Promise.all([
+        loadGardenTilesets(),
+        loadPokemonSheets()
+      ]);
       if (destroyed) {
         app.destroy(true, { children: true });
         return;
@@ -97,7 +102,7 @@ export function GardenScene(): JSX.Element {
       const addWalker = (session: Session): Runtime => {
         const homePatch = patchPool.reserveNext() ?? STATION_SPAWNS.patch[0];
         const slot = Math.max(0, STATION_SPAWNS.patch.indexOf(homePatch));
-        const frames = buildWalkerSheet('#ffffff', '#e2e2e2');
+        const frames = pokemonSheets.get(session.pokemon) ?? pokemonSheets.get(POKEMON_ROSTER[0].name)!;
         const walker = new Walker({
           sessionId: session.id,
           map,

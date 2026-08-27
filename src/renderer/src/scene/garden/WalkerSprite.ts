@@ -11,11 +11,6 @@ export type AnimState = 'walk' | 'idle';
 /** Row order of the sheet: down=0, left=1, right=2, up=3. */
 const DIRECTION_ROW: Record<Direction, number> = { down: 0, left: 1, right: 2, up: 3 };
 
-const ANIM_FRAMES: Record<AnimState, number[]> = {
-  walk: [0, 1, 2, 3],
-  idle: [0]
-};
-
 export class WalkerSprite {
   readonly container: Container;
   private sprite: AnimatedSprite;
@@ -23,22 +18,28 @@ export class WalkerSprite {
   private currentDirection: Direction = 'down';
   private currentAnim: AnimState = 'idle';
 
-  constructor(frames: Texture[][]) {
+  /** `footInset` is how many transparent pixels sit below the art inside its
+   *  frame; the sprite is pushed down by that much so the feet land on the tile
+   *  rather than floating above it. */
+  constructor(frames: Texture[][], footInset = 0) {
     this.frames = frames;
     this.container = new Container();
 
     this.sprite = new AnimatedSprite(this.getFrames('down', 'idle'));
     // Feet at the origin: the walker's world position is its tile's bottom edge.
     this.sprite.anchor.set(0.5, 1);
+    this.sprite.y = footInset;
     this.sprite.animationSpeed = 0.12;
     this.sprite.play();
 
     this.container.addChild(this.sprite);
   }
 
+  /** The walk cycle is the direction's whole row — the sheet's own column
+   *  sequence, so a 2-pose side walk and a 4-pose front walk both just work. */
   private getFrames(direction: Direction, anim: AnimState): Texture[] {
-    const row = DIRECTION_ROW[direction];
-    return ANIM_FRAMES[anim].map((col) => this.frames[row][col]);
+    const row = this.frames[DIRECTION_ROW[direction]];
+    return anim === 'idle' ? [row[0]] : row;
   }
 
   setAnimation(anim: AnimState, direction: Direction): void {

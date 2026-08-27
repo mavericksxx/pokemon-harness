@@ -43,4 +43,6 @@ export interface NewSessionRequest {
   command: string;
   model?: string;
   title?: string;
+  /** Species for this session's walker. Defaults to a free one at random. */
+  pokemon?: string;
 }

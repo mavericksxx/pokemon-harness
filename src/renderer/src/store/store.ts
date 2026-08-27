@@ -16,7 +16,9 @@ export interface Session {
   toolTarget?: string;
   /** Where the walker should be, derived from `tool`. */
   station: StationKind;
-  /** Walker tint / UI accent. */
+  /** Which Pokemon walks for this session — a name in pokemonArt's roster. */
+  pokemon: string;
+  /** Selection-ring / UI accent. */
   accent: number;
   exitCode?: number;
   error?: string;
@@ -32,6 +34,9 @@ interface HarnessState {
   drawerOpen: boolean;
 
   addSession(s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station'>): Session;
+  /** Species already spoken for by a live session — the picker greys these out
+   *  and startSession avoids them, so no two walkers look alike. */
+  takenPokemon(): string[];
   updateSession(id: string, patch: Partial<Session>): void;
   removeSession(id: string): void;
   select(id: string | null): void;
@@ -54,6 +59,8 @@ export const useStore = create<HarnessState>((set, get) => ({
     set((st) => ({ sessions: [...st.sessions, session], selectedId: session.id }));
     return session;
   },
+
+  takenPokemon: () => get().sessions.map((s) => s.pokemon),
 
   updateSession: (id, patch) =>
     set((st) => {
