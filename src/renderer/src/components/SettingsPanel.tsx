@@ -23,21 +23,46 @@ import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
 const AUTO_MODE_PROVIDERS = PROVIDER_LIST.filter((p) => p.autoModeArgs);
 
 /**
- * Phase 8 §5 — the audio popover's full contents moved here: master mute,
- * music on/off + volume + the mini-player (`MiniPlayer.tsx`, shared with the
- * topbar's own sound-icon popover — `AudioPopover.tsx`), SFX on/off +
- * volume, plus a read-only Config section (shiny odds / evolve-seconds
- * overrides — both are env-only knobs with no UI to change them, but the
- * accessors were already there so a read-only display is cheap).
- *
-
- * Slides in from the right, munder-difflin ConfigDrawer-style (DESIGN.md
- * §7.9) — kept mounted always so the CSS transition actually animates;
- * `.settings-panel` without `.open` sits translated off-screen.
+ * Left-rail section list for the settings dialog. Order matches the brief
+ * ("appearance, automation, harness home, arceus, sound, diagnostics") with
+ * the panel's other pre-existing sections (terminal, config, closing time,
+ * about) kept in their original relative position between "sound" and
+ * "diagnostics" — nothing dropped, just re-housed. Change this array to
+ * reorder/merge sections; both the rail and the content switch below read
+ * off it.
  */
-export function SettingsPanel(): JSX.Element {
+const SECTIONS = [
+  { id: 'appearance', label: 'appearance' },
+  { id: 'automation', label: 'automation' },
+  { id: 'harness-home', label: 'harness home' },
+  { id: 'arceus', label: 'arceus' },
+  { id: 'sound', label: 'sound' },
+  { id: 'terminal', label: 'terminal' },
+  { id: 'config', label: 'config' },
+  { id: 'closing-time', label: 'closing time' },
+  { id: 'about', label: 'about' },
+  { id: 'diagnostics', label: 'diagnostics' }
+] as const;
+
+type SectionId = (typeof SECTIONS)[number]['id'];
+
+/**
+ * Phase 8 §5 (settings redesign) — was a right-edge slide-in panel, now a
+ * centered dialog matching the app's `.modal`/`.modal-backdrop` conventions
+ * (QuitDialog/NewSessionDialog): backdrop click and Escape both close it,
+ * Cmd/Ctrl has nothing to do with it. Structured as a real settings page —
+ * a left rail of section links with the active section's content on the
+ * right, one section visible at a time instead of one long scrolling column.
+ *
+ * Every control below is unchanged from the pre-redesign panel (same
+ * stores, same pixel checkbox/slider skin — now scoped to `.settings-dialog`
+ * instead of `.settings-panel`, see index.css) — this pass only changes the
+ * chrome around them, not what they do.
+ */
+export function SettingsPanel(): JSX.Element | null {
   const open = useStore((s) => s.settingsOpen);
   const setOpen = useStore((s) => s.setSettingsOpen);
+  const [activeSection, setActiveSection] = useState<SectionId>('appearance');
   const [resetArceusOpen, setResetArceusOpen] = useState(false);
   const settings = useAudioStore((s) => s.settings);
   const musicUnavailable = useAudioStore((s) => s.musicUnavailable);
@@ -123,232 +148,283 @@ export function SettingsPanel(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, setOpen]);
 
+  // Every open starts back at the first section — mirrors most settings
+  // pages (System Preferences, VS Code) rather than remembering where you
+  // last were.
+  useEffect(() => {
+    if (open) setActiveSection('appearance');
+  }, [open]);
+
+  if (!open) return null;
+
   const shiny = shinyConfig();
   const evo = evolutionConfig();
+  const activeLabel = SECTIONS.find((s) => s.id === activeSection)?.label ?? '';
 
   return (
     <>
-      {open && <div className="settings-backdrop" onClick={() => setOpen(false)} />}
-      <aside className={open ? 'settings-panel open' : 'settings-panel'} aria-hidden={!open}>
-        <header className="settings-head">
-          <h2>settings</h2>
-          <button className="icon tip" data-tip="close" aria-label="close settings" onClick={() => setOpen(false)}>
-            ×
-          </button>
-        </header>
-
-        <section className="settings-section">
-          <h3>appearance</h3>
-          <div className="segmented" role="group" aria-label="theme">
-            {(['system', 'light', 'dark'] as const).map((mode) => (
+      <div className="modal-backdrop" onClick={() => setOpen(false)}>
+        <div className="settings-dialog" onClick={(e) => e.stopPropagation()}>
+          <nav className="settings-rail">
+            {SECTIONS.map((s) => (
               <button
-                key={mode}
+                key={s.id}
                 type="button"
-                className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
-                aria-pressed={appSettings.theme === mode}
-                onClick={() => setTheme(mode)}
+                className={activeSection === s.id ? 'settings-rail-btn active' : 'settings-rail-btn'}
+                aria-current={activeSection === s.id}
+                onClick={() => setActiveSection(s.id)}
               >
-                {mode}
+                {s.label}
               </button>
             ))}
+          </nav>
+
+          <div className="settings-content">
+            <header className="settings-content-head">
+              <h2>{activeLabel}</h2>
+              <button
+                className="icon tip"
+                data-tip="close"
+                aria-label="close settings"
+                onClick={() => setOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="settings-content-body">
+              {activeSection === 'appearance' && (
+                <div className="segmented" role="group" aria-label="theme">
+                  {(['system', 'light', 'dark'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
+                      aria-pressed={appSettings.theme === mode}
+                      onClick={() => setTheme(mode)}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {activeSection === 'automation' && (
+                <>
+                  {AUTO_MODE_PROVIDERS.map((p) => {
+                    const on = appSettings.autoModeByProvider[p.id] ?? false;
+                    return (
+                      <label key={p.id} className="settings-row">
+                        <input type="checkbox" checked={on} onChange={(e) => setAutoMode(p.id, e.target.checked)} />
+                        <span className="settings-row-text">
+                          <span className="settings-row-label">{p.label} auto mode</span>
+                          <span className="settings-row-hint">
+                            {on ? 'agents act without asking first' : 'agents pause for your approval in the terminal'}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.keepAwake}
+                      onChange={(e) => setKeepAwake(e.target.checked)}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">keep Mac awake</span>
+                      <span className="settings-row-hint">
+                        {appSettings.keepAwake && liveSessionCount > 0
+                          ? `keeping your mac awake — ${liveSessionCount} session${liveSessionCount === 1 ? '' : 's'} live`
+                          : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
+                      </span>
+                    </span>
+                  </label>
+                </>
+              )}
+
+              {activeSection === 'harness-home' && (
+                <>
+                  <p className="hint">
+                    where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
+                  </p>
+                  <div className="row harness-home-row">
+                    <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
+                    <button type="button" onClick={() => void pickHarnessHome()}>
+                      choose…
+                    </button>
+                  </div>
+                  {appSettings.harnessHomeDir && (
+                    <button type="button" onClick={() => setHarnessHomeDir(null)}>
+                      reset to default
+                    </button>
+                  )}
+                  <p className="hint">
+                    changing this only points future writes at the new folder — nothing already on disk moves.
+                  </p>
+                </>
+              )}
+
+              {activeSection === 'arceus' && (
+                <>
+                  <p className="hint">
+                    onboarded once — after that he&apos;s auto-summoned on every launch, no setup dialog.
+                  </p>
+                  <button type="button" onClick={() => setResetArceusOpen(true)}>
+                    reset arceus…
+                  </button>
+                </>
+              )}
+
+              {activeSection === 'sound' && (
+                <>
+                  <label className="audio-row audio-row-master">
+                    <input
+                      type="checkbox"
+                      checked={settings.masterMuted}
+                      onChange={(e) => setMasterMuted(e.target.checked)}
+                    />
+                    mute all
+                  </label>
+
+                  <div className="audio-row">
+                    <label className="audio-toggle">
+                      <input type="checkbox" checked={settings.musicOn} onChange={(e) => setMusicOn(e.target.checked)} />
+                      music
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={settings.musicVolume}
+                      onChange={(e) => setMusicVolume(Number(e.target.value))}
+                      disabled={!settings.musicOn}
+                    />
+                  </div>
+                  {musicUnavailable && <div className="audio-status">unavailable offline</div>}
+
+                  {settings.musicOn && <MiniPlayer />}
+
+                  <div className="audio-row">
+                    <label className="audio-toggle">
+                      <input type="checkbox" checked={settings.sfxOn} onChange={(e) => setSfxOn(e.target.checked)} />
+                      sfx
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={settings.sfxVolume}
+                      onChange={(e) => setSfxVolume(Number(e.target.value))}
+                      disabled={!settings.sfxOn}
+                    />
+                  </div>
+                </>
+              )}
+
+              {activeSection === 'terminal' && (
+                <>
+                  <div className="audio-row">
+                    <span>font size</span>
+                    <input
+                      type="range"
+                      min={TERMINAL_FONT_SIZE_MIN}
+                      max={TERMINAL_FONT_SIZE_MAX}
+                      step={1}
+                      value={terminalSettings.fontSize}
+                      onChange={(e) => setFontSize(Number(e.target.value))}
+                      aria-label="terminal font size"
+                    />
+                    <span className="hint">{terminalSettings.fontSize}px</span>
+                  </div>
+                  <div className="audio-row">
+                    <span>scrollback</span>
+                    <input
+                      type="range"
+                      min={TERMINAL_SCROLLBACK_MIN}
+                      max={TERMINAL_SCROLLBACK_MAX}
+                      step={1000}
+                      value={terminalSettings.scrollback}
+                      onChange={(e) => setScrollback(Number(e.target.value))}
+                      aria-label="terminal scrollback depth"
+                    />
+                    <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
+                  </div>
+                </>
+              )}
+
+              {activeSection === 'config' && (
+                <>
+                  <p className="hint settings-config-note">
+                    env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
+                  </p>
+                  <dl className="settings-config-list">
+                    <dt>shiny odds</dt>
+                    <dd>1 in {shiny.odds}</dd>
+                    <dt>evolve to stage 2</dt>
+                    <dd>{Math.round(evo.stage2Ms / 1000)}s worked</dd>
+                    <dt>evolve to stage 3</dt>
+                    <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
+                  </dl>
+                </>
+              )}
+
+              {activeSection === 'closing-time' && (
+                <>
+                  <p className="hint">
+                    every session's Pokémon heads for the garden gate and waves out, then the app quits. esc cancels.
+                  </p>
+                  <button type="button" onClick={() => startClosingTime()}>
+                    wrap up &amp; quit <span className="hint">⌘⇧Q</span>
+                  </button>
+                </>
+              )}
+
+              {activeSection === 'about' && (
+                <>
+                  <div className="row settings-version-row">
+                    <span>pokéharness {appVersion && `v${appVersion}`}</span>
+                    <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
+                      {checkStatus === 'checking' ? 'checking…' : 'check now'}
+                    </button>
+                  </div>
+                  {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
+                    <p className="hint">{checkStatus}</p>
+                  )}
+                </>
+              )}
+
+              {activeSection === 'diagnostics' && (
+                <>
+                  <p className="hint">local-only — this never leaves your machine.</p>
+                  <dl className="settings-config-list">
+                    <dt>app version</dt>
+                    <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
+                    <dt>electron</dt>
+                    <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
+                    <dt>errors this session</dt>
+                    <dd>{diagnosticsInfo ? diagnosticsInfo.recentErrorCount : '—'}</dd>
+                  </dl>
+                  <div className="row harness-home-row">
+                    <input
+                      value={diagnosticsInfo?.logDir ?? ''}
+                      readOnly
+                      spellCheck={false}
+                      title={diagnosticsInfo?.logDir ?? ''}
+                    />
+                    <button type="button" onClick={() => void window.api.openLogsFolder()}>
+                      open logs
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </section>
-
-        <section className="settings-section">
-          <h3>automation</h3>
-          {AUTO_MODE_PROVIDERS.map((p) => {
-            const on = appSettings.autoModeByProvider[p.id] ?? false;
-            return (
-              <label key={p.id} className="settings-row">
-                <input type="checkbox" checked={on} onChange={(e) => setAutoMode(p.id, e.target.checked)} />
-                <span className="settings-row-text">
-                  <span className="settings-row-label">{p.label} auto mode</span>
-                  <span className="settings-row-hint">
-                    {on ? 'agents act without asking first' : 'agents pause for your approval in the terminal'}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-
-          <label className="settings-row">
-            <input type="checkbox" checked={appSettings.keepAwake} onChange={(e) => setKeepAwake(e.target.checked)} />
-            <span className="settings-row-text">
-              <span className="settings-row-label">keep Mac awake</span>
-              <span className="settings-row-hint">
-                {appSettings.keepAwake && liveSessionCount > 0
-                  ? `keeping your mac awake — ${liveSessionCount} session${liveSessionCount === 1 ? '' : 's'} live`
-                  : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
-              </span>
-            </span>
-          </label>
-        </section>
-
-        <section className="settings-section">
-          <h3>harness home</h3>
-          <p className="hint">
-            where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
-          </p>
-          <div className="row harness-home-row">
-            <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
-            <button type="button" onClick={() => void pickHarnessHome()}>
-              choose…
-            </button>
-          </div>
-          {appSettings.harnessHomeDir && (
-            <button type="button" onClick={() => setHarnessHomeDir(null)}>
-              reset to default
-            </button>
-          )}
-          <p className="hint">
-            changing this only points future writes at the new folder — nothing already on disk moves.
-          </p>
-        </section>
-
-        <section className="settings-section">
-          <h3>arceus</h3>
-          <p className="hint">
-            onboarded once — after that he&apos;s auto-summoned on every launch, no setup dialog.
-          </p>
-          <button type="button" onClick={() => setResetArceusOpen(true)}>
-            reset arceus…
-          </button>
-        </section>
-
-        <section className="settings-section">
-          <h3>sound</h3>
-          <label className="audio-row audio-row-master">
-            <input
-              type="checkbox"
-              checked={settings.masterMuted}
-              onChange={(e) => setMasterMuted(e.target.checked)}
-            />
-            mute all
-          </label>
-
-          <div className="audio-row">
-            <label className="audio-toggle">
-              <input type="checkbox" checked={settings.musicOn} onChange={(e) => setMusicOn(e.target.checked)} />
-              music
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={settings.musicVolume}
-              onChange={(e) => setMusicVolume(Number(e.target.value))}
-              disabled={!settings.musicOn}
-            />
-          </div>
-          {musicUnavailable && <div className="audio-status">unavailable offline</div>}
-
-          {settings.musicOn && <MiniPlayer />}
-
-          <div className="audio-row">
-            <label className="audio-toggle">
-              <input type="checkbox" checked={settings.sfxOn} onChange={(e) => setSfxOn(e.target.checked)} />
-              sfx
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={settings.sfxVolume}
-              onChange={(e) => setSfxVolume(Number(e.target.value))}
-              disabled={!settings.sfxOn}
-            />
-          </div>
-        </section>
-
-        <section className="settings-section">
-          <h3>terminal</h3>
-          <div className="audio-row">
-            <span>font size</span>
-            <input
-              type="range"
-              min={TERMINAL_FONT_SIZE_MIN}
-              max={TERMINAL_FONT_SIZE_MAX}
-              step={1}
-              value={terminalSettings.fontSize}
-              onChange={(e) => setFontSize(Number(e.target.value))}
-              aria-label="terminal font size"
-            />
-            <span className="hint">{terminalSettings.fontSize}px</span>
-          </div>
-          <div className="audio-row">
-            <span>scrollback</span>
-            <input
-              type="range"
-              min={TERMINAL_SCROLLBACK_MIN}
-              max={TERMINAL_SCROLLBACK_MAX}
-              step={1000}
-              value={terminalSettings.scrollback}
-              onChange={(e) => setScrollback(Number(e.target.value))}
-              aria-label="terminal scrollback depth"
-            />
-            <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
-          </div>
-        </section>
-
-        <section className="settings-section">
-          <h3>config</h3>
-          <p className="hint settings-config-note">
-            env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
-          </p>
-          <dl className="settings-config-list">
-            <dt>shiny odds</dt>
-            <dd>1 in {shiny.odds}</dd>
-            <dt>evolve to stage 2</dt>
-            <dd>{Math.round(evo.stage2Ms / 1000)}s worked</dd>
-            <dt>evolve to stage 3</dt>
-            <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
-          </dl>
-        </section>
-
-        <section className="settings-section">
-          <h3>closing time</h3>
-          <p className="hint">
-            every session's Pokémon heads for the garden gate and waves out, then the app quits. esc cancels.
-          </p>
-          <button type="button" onClick={() => startClosingTime()}>
-            wrap up &amp; quit <span className="hint">⌘⇧Q</span>
-          </button>
-        </section>
-
-        <section className="settings-section">
-          <h3>about</h3>
-          <div className="row settings-version-row">
-            <span>pokéharness {appVersion && `v${appVersion}`}</span>
-            <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
-              {checkStatus === 'checking' ? 'checking…' : 'check now'}
-            </button>
-          </div>
-          {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
-            <p className="hint">{checkStatus}</p>
-          )}
-        </section>
-
-        <section className="settings-section">
-          <h3>diagnostics</h3>
-          <p className="hint">local-only — this never leaves your machine.</p>
-          <dl className="settings-config-list">
-            <dt>app version</dt>
-            <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
-            <dt>electron</dt>
-            <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
-            <dt>errors this session</dt>
-            <dd>{diagnosticsInfo ? diagnosticsInfo.recentErrorCount : '—'}</dd>
-          </dl>
-          <div className="row harness-home-row">
-            <input value={diagnosticsInfo?.logDir ?? ''} readOnly spellCheck={false} title={diagnosticsInfo?.logDir ?? ''} />
-            <button type="button" onClick={() => void window.api.openLogsFolder()}>
-              open logs
-            </button>
-          </div>
-        </section>
-      </aside>
+        </div>
+      </div>
       {resetArceusOpen && <ResetArceusDialog onClose={() => setResetArceusOpen(false)} />}
     </>
   );

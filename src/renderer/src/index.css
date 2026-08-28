@@ -1182,13 +1182,16 @@ button.icon:active {
 
 /* ── Pixel-styled form controls (settings redesign, item 3) — the native
  * checkbox/radio/range clashed with the rest of the chrome (0-2px radius,
- * hard 2px borders, gold accent when active); scoped to `.settings-panel`
- * only, not app-wide — NewSessionDialog/SummonArceusDialog keep their
- * native checkboxes unchanged, out of this item's scope. Keyboard focus
- * ring comes from the existing app-wide `:focus-visible` rule further down
- * this file — `appearance: none` drops the native ring but not that one,
- * since outline is a normal painted property, untouched by `appearance`. */
-.settings-panel input[type='checkbox'] {
+ * hard 2px borders, gold accent when active); scoped to `.settings-dialog`
+ * (settings modal, formerly `.settings-panel`) and `.quick-settings-panel`
+ * (topbar quick-settings popover) only, not app-wide — NewSessionDialog/
+ * SummonArceusDialog keep their native checkboxes unchanged, out of this
+ * item's scope. Keyboard focus ring comes from the existing app-wide
+ * `:focus-visible` rule further down this file — `appearance: none` drops
+ * the native ring but not that one, since outline is a normal painted
+ * property, untouched by `appearance`. */
+.settings-dialog input[type='checkbox'],
+.quick-settings-panel input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -1202,21 +1205,24 @@ button.icon:active {
   cursor: pointer;
 }
 
-.settings-panel input[type='checkbox']:checked {
+.settings-dialog input[type='checkbox']:checked,
+.quick-settings-panel input[type='checkbox']:checked {
   background: var(--gold);
   border-color: var(--gold);
 }
 
 /* Square check — a plain inset block, not a checkmark glyph (spec: "square
  * check", hard edges, no curves). */
-.settings-panel input[type='checkbox']:checked::after {
+.settings-dialog input[type='checkbox']:checked::after,
+.quick-settings-panel input[type='checkbox']:checked::after {
   content: '';
   position: absolute;
   inset: 3px;
   background: var(--on-accent);
 }
 
-.settings-panel input[type='range'] {
+.settings-dialog input[type='range'],
+.quick-settings-panel input[type='range'] {
   appearance: none;
   -webkit-appearance: none;
   flex: 1;
@@ -1226,12 +1232,14 @@ button.icon:active {
   cursor: pointer;
 }
 
-.settings-panel input[type='range']::-webkit-slider-runnable-track {
+.settings-dialog input[type='range']::-webkit-slider-runnable-track,
+.quick-settings-panel input[type='range']::-webkit-slider-runnable-track {
   height: 4px;
   background: var(--line);
 }
 
-.settings-panel input[type='range']::-webkit-slider-thumb {
+.settings-dialog input[type='range']::-webkit-slider-thumb,
+.quick-settings-panel input[type='range']::-webkit-slider-thumb {
   appearance: none;
   -webkit-appearance: none;
   width: 12px;
@@ -1242,7 +1250,8 @@ button.icon:active {
   cursor: pointer;
 }
 
-.settings-panel input[type='range']:disabled {
+.settings-dialog input[type='range']:disabled,
+.quick-settings-panel input[type='range']:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -1668,68 +1677,85 @@ button.icon:active {
   overflow-y: auto;
 }
 
-/* ── Settings panel (Phase 8 §5) ─────────────────────────────────────────── */
-.settings-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 900;
+/* ── Settings dialog (settings redesign: side panel → centered dialog) ─────
+ * Uses the shared `.modal-backdrop` for the backdrop/click-outside/z-index
+ * (see index.css's `.modal` block) — this box just isn't `.modal` itself,
+ * since its two-column rail+content layout doesn't fit that class's single-
+ * column flex/padding, and sharing `.modal-backdrop`'s z-index/stacking
+ * means ResetArceusDialog (opened from the "arceus" section, also a plain
+ * `.modal-backdrop`) naturally paints above this one via DOM order rather
+ * than needing its own z-index tier. */
+.settings-dialog {
+  width: 720px;
+  max-width: 92vw;
+  height: 520px;
+  max-height: 86vh;
+  display: flex;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+  overflow: hidden;
 }
 
-/* munder-difflin ConfigDrawer motion (DESIGN.md §7.9/§12.1): 200ms snap, no
- * easing curve beyond a simple ease-out. Kept permanently mounted (App.tsx)
- * so this transition actually plays instead of popping in/out with display. */
-.settings-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 340px;
-  max-width: 92vw;
+.settings-rail {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 2px;
+  width: 160px;
+  flex: none;
+  padding: 14px 8px;
   overflow-y: auto;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
-  box-shadow: var(--shadow-hard);
-  transform: translateX(100%);
-  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  z-index: 950;
+  background: var(--panel-2);
+  border-right: 1px solid var(--line);
 }
 
-.settings-panel.open {
-  transform: translateX(0);
+.settings-rail-btn {
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--font-body-sm-size);
 }
 
-.settings-head {
+.settings-rail-btn.active {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-content-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: none;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
 }
 
-.settings-head h2 {
+.settings-content-head h2 {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--font-display-md-size);
   line-height: var(--font-display-md-line);
 }
 
-.settings-section {
+.settings-content-body {
+  flex: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-
-.settings-section h3 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--font-display-sm-size);
-  line-height: var(--font-display-sm-line);
-  color: var(--muted);
+  gap: 10px;
+  padding: 16px 18px;
 }
 
 .settings-config-note {
@@ -1957,4 +1983,52 @@ textarea,
     animation-duration: 0s !important;
     transition-duration: 0s !important;
   }
+}
+
+/* ── Quick settings (topbar popover — QuickSettings.tsx) ─────────────────────
+ * Self-contained block, kept together and appended at the end of the file on
+ * purpose: a concurrent topbar restructure is moving the settings gear (and
+ * other chrome) around, and this whole block moves as one unit whenever this
+ * component's mount point does. Same anchored-dropdown shape as
+ * `.audio-popover` (transparent full-screen catcher for outside-click,
+ * `--shadow-hard` for the panel, same z-index band) — anchored to the right
+ * edge, same reasoning as that block's own comment. The pixel checkbox/range
+ * skin itself lives with the settings dialog's copy further up this file
+ * (`.settings-dialog input[...], .quick-settings-panel input[...]`), not
+ * here — one skin, two scopes. */
+.quick-settings {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.quick-settings-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+.quick-settings-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 260px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+}
+
+.quick-settings-hint {
+  margin: -4px 0 0;
+  font-size: 11px;
+}
+
+.quick-settings-all {
+  width: 100%;
 }
