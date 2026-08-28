@@ -1,8 +1,15 @@
 import { Container, Graphics, Text } from 'pixi.js';
+import { ground, ink, hexToNumber } from '@/design/tokens';
 
 // Speech bubble shown above a walker: "<icon> <target>" (e.g. "> App.tsx").
 // Ported from munder-difflin (src/renderer/src/scene/office/ToolBubble.ts),
 // itself ported from shahar061/the-office (office/characters/ToolBubble.ts).
+//
+// Recolored to the chrome neutral+ink system (design spec §5): these bubbles
+// now also carry idle-chatter lines (gardenLines.ts), not just tool actions,
+// so they read as part of the UI's text system rather than garden-only set
+// dressing — the old dark-green/light-green pairing was a leftover from
+// before that widened scope.
 
 const TOOL_ICONS: Record<string, string> = {
   Read: '<',
@@ -22,11 +29,12 @@ const DEFAULT_ICON = '*';
 
 const PADDING_X = 6;
 const PADDING_Y = 3;
-const CORNER_RADIUS = 4;
+const CORNER_RADIUS = 2; // spec: 0 everywhere, 2px max for corner clips
 const MAX_WIDTH = 140;
-const BG_COLOR = 0x14210f;
+const BG_COLOR = hexToNumber(ground[100]); // panel fill, not the app ground
 const BG_ALPHA = 0.95;
-const TEXT_COLOR = '#f4ffe8';
+const BORDER_COLOR = hexToNumber(ground[300]); // the border hairline token
+const TEXT_COLOR = ink[900];
 const FONT_SIZE = 12;
 const RENDER_SCALE = 0.5; // render at 2x, scale down for crispness
 const OFFSET_Y = -34;
@@ -204,5 +212,7 @@ export class ToolBubble {
     this.bg.clear();
     this.bg.roundRect(0, 0, this.bgW, this.bgH, CORNER_RADIUS);
     this.bg.fill({ color: BG_COLOR, alpha: BG_ALPHA });
+    this.bg.roundRect(0, 0, this.bgW, this.bgH, CORNER_RADIUS);
+    this.bg.stroke({ width: 1, color: BORDER_COLOR, alpha: BG_ALPHA });
   }
 }

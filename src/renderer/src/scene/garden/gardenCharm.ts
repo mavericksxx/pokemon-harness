@@ -124,22 +124,39 @@ export class GardenCharm {
     }
   }
 
+  /** Bush art (Phase 8 §5b re-pass): the original flat single-tone blob got
+   *  lost against the map's own scattered red-flower/berry ground clutter
+   *  near wander-2 specifically — same red-dots-on-green silhouette at a
+   *  similar size and density, so the interactive bush read as one more
+   *  fleck of decoration instead of a distinct prop. Fixed with the cheap
+   *  tricks that separate a "thing" from "texture": a ground shadow so it
+   *  looks grounded rather than painted onto the grass, a two-tone leaf
+   *  highlight so it reads as one bigger shaded object rather than a flat
+   *  fill, a darker/thicker outline, and berries big enough (with their own
+   *  outline) to not disappear into the ambient flower speckle. */
   private redrawBush(bush: BerryBush): void {
     const g = bush.sprite;
     g.clear();
-    // The bush itself: a squat green blob sitting on the ground.
-    g.ellipse(0, -5, 9, 7).fill({ color: 0x3a6b2a });
-    g.ellipse(0, -5, 9, 7).stroke({ width: 1, color: 0x1a3313 });
+    // Soft ground shadow — separates the bush from the turf underneath it.
+    g.ellipse(0, 0, 8, 3).fill({ color: 0x000000, alpha: 0.22 });
+    // Base foliage, slightly bigger than the original.
+    g.ellipse(0, -6, 10, 8).fill({ color: 0x3a6b2a });
+    g.ellipse(0, -6, 10, 8).stroke({ width: 1.5, color: 0x14260f });
+    // Lighter leaf highlight — reads as one shaded object, not a flat blob,
+    // and is the main thing that keeps it from flattening into the tileset.
+    g.ellipse(-3, -9, 5, 4).fill({ color: 0x5c9c46, alpha: 0.9 });
     g.alpha = bush.berries > 0 ? 1 : 0.55;
-    // Berries: small red dots, one per remaining berry.
+    // Berries: small red dots, one per remaining berry — outlined so they
+    // don't merge with the map's own red-flower ground clutter nearby.
     const dots: [number, number][] = [
-      [-4, -8],
-      [4, -7],
-      [0, -3]
+      [-4, -9],
+      [4, -8],
+      [0, -4]
     ];
     for (let i = 0; i < bush.berries; i++) {
       const [dx, dy] = dots[i];
-      g.circle(dx, dy, 2).fill({ color: 0xe0403a });
+      g.circle(dx, dy, 2.3).fill({ color: 0xe0403a });
+      g.circle(dx, dy, 2.3).stroke({ width: 0.6, color: 0x14260f });
     }
   }
 
