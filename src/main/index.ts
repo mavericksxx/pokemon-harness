@@ -87,18 +87,25 @@ ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAva
 // 'unsafe-eval' script-src beyond self and no external connect-src, so it can
 // neither fetch Showdown directly nor reach outside contextBridge to touch
 // userData. Decoding/re-encoding happens renderer-side (it has a canvas).
-ipcMain.handle('sprites:getCached', (_e, id: string, view: SpriteView) => getCachedSprite(id, view));
-ipcMain.handle('sprites:fetchGif', (_e, id: string, view: SpriteView) => fetchSpriteGif(id, view));
+ipcMain.handle('sprites:getCached', (_e, id: string, view: SpriteView, shiny: boolean) =>
+  getCachedSprite(id, view, shiny)
+);
+ipcMain.handle('sprites:fetchGif', (_e, id: string, view: SpriteView, shiny: boolean) =>
+  fetchSpriteGif(id, view, shiny)
+);
 ipcMain.handle(
   'sprites:saveCache',
-  (_e, id: string, view: SpriteView, png: ArrayBuffer, meta: LazySpriteMeta) =>
-    saveCachedSprite(id, view, png, meta)
+  (_e, id: string, view: SpriteView, shiny: boolean, png: ArrayBuffer, meta: LazySpriteMeta) =>
+    saveCachedSprite(id, view, shiny, png, meta)
 );
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 // The renderer is sandboxed and cannot reliably read process.env itself; main
 // definitely can. Lets POKE_EVOLVE_SECONDS accelerate evolution for demos/tests.
 ipcMain.handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? null);
+// Phase 5 §1: POKE_SHINY_ODDS overrides the 1-in-N shiny roll (e.g. "1" =
+// always shiny, for demos/tests).
+ipcMain.handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:chooseFolder', async () => {

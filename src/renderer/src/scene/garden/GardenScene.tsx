@@ -13,9 +13,10 @@ import { loadPokemonAnimations, type PokemonAnimation } from './showdownArt';
 import { AIR_ONLY_SPAWNS, BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 import { loadLazyAnimation, placeholderAnimation } from './lazySprites';
 import { evolutionConfig, initEvolutionConfig } from './evolution';
+import { initShinyConfig } from './shiny';
 import { randomAnimatedSpecies, speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
-import { clearBattleFx } from './battle/battleFx';
+import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -82,7 +83,8 @@ export function GardenScene(): JSX.Element {
       const [tilesets, pokemonAnimations] = await Promise.all([
         loadGardenTilesets(),
         loadPokemonAnimations(),
-        initEvolutionConfig()
+        initEvolutionConfig(),
+        initShinyConfig()
       ]);
       if (destroyed) {
         app.destroy(true, { children: true });
@@ -139,10 +141,16 @@ export function GardenScene(): JSX.Element {
 
       /** Bundled species resolve to art already in memory; anything else
        *  starts as a pokeball and is upgraded in place once the lazy fetch
-       *  resolves (or stays a pokeball, with a toast, if it can't). */
-      const resolveAnimation = (name: string): PokemonAnimation => {
-        const bundled = pokemonAnimations.get(name);
-        if (bundled) return bundled;
+       *  resolves (or stays a pokeball, with a toast, if it can't). Bundled
+       *  sheets are never shiny (Phase 5 §2 — there are no local shiny
+       *  sheets), so a shiny pick skips the bundled map entirely and always
+       *  starts as a pokeball awaiting the lazy shiny fetch, even for one of
+       *  the 42 bundled species. */
+      const resolveAnimation = (name: string, shiny = false): PokemonAnimation => {
+        if (!shiny) {
+          const bundled = pokemonAnimations.get(name);
+          if (bundled) return bundled;
+        }
         return placeholderAnimation(name);
       };
 
@@ -169,9 +177,18 @@ export function GardenScene(): JSX.Element {
         }
       });
 
+      /** Bundled + not-shiny needs no fetch at all; everything else (any
+       *  lazy species, OR a shiny pick even of a bundled species — Phase 5
+       *  §2) resolves in place once loadLazyAnimation returns. A shiny
+       *  session's reveal sparkle + "✨ Shiny!" text fires here, at the
+       *  moment its REAL sprite lands — not at addWalker time, when it's
+       *  still a pokeball placeholder — so the screenshot-worthy reveal
+       *  shows the actual shiny palette. Fires even if the fetch failed
+       *  (still a pokeball): the flag, and therefore the reveal, doesn't
+       *  depend on the sprite actually loading. */
       const upgradeIfLazy = (session: Session, walker: Walker, rt: Runtime): void => {
-        if (pokemonAnimations.has(session.pokemon)) return;
-        void loadLazyAnimation(session.pokemon).then((anim) => {
+        if (!session.shiny && pokemonAnimations.has(session.pokemon)) return;
+        void loadLazyAnimation(session.pokemon, session.shiny).then((anim) => {
           if (runtimes.get(session.id) !== rt) return; // session gone/replaced meanwhile
           if (anim) {
             walker.setAnimation(anim);
@@ -179,13 +196,17 @@ export function GardenScene(): JSX.Element {
             const label = speciesEntry(session.pokemon)?.name ?? session.pokemon;
             useStore.getState().pushToast(`Couldn't load ${label}'s sprite — offline or not found.`);
           }
+          if (session.shiny) {
+            spawnShinySparkle(walker.container, -walker.spriteHeight - 8);
+            walker.showFloatingText('✨ Shiny!');
+          }
         });
       };
 
       const addWalker = (session: Session): Runtime => {
         const homePatch = patchPool.reserveNext() ?? STATION_SPAWNS.patch[0];
         const slot = Math.max(0, STATION_SPAWNS.patch.indexOf(homePatch));
-        const animation = resolveAnimation(session.pokemon);
+        const animation = resolveAnimation(session.pokemon, session.shiny);
         const walker = new Walker({
           sessionId: session.id,
           map,
@@ -231,7 +252,10 @@ export function GardenScene(): JSX.Element {
         const nextId = randomAnimatedSpecies(entry.evolvesTo);
         if (!nextId) return;
         rt.evolvePending = true;
-        const bundled = pokemonAnimations.get(nextId);
+        // Shiny stays shiny through evolution (Phase 5 §5): bundled sheets
+        // are never shiny, so a shiny session's next stage always goes
+        // through the lazy fetch too, exactly like resolveAnimation above.
+        const bundled = session.shiny ? undefined : pokemonAnimations.get(nextId);
 
         const proceed = (anim: PokemonAnimation, failed: boolean): void => {
           rt.evolvePending = false;
@@ -249,7 +273,7 @@ export function GardenScene(): JSX.Element {
         if (bundled) {
           proceed(bundled, false);
         } else {
-          void loadLazyAnimation(nextId).then((anim) => {
+          void loadLazyAnimation(nextId, session.shiny).then((anim) => {
             proceed(anim ?? placeholderAnimation(nextId), !anim);
           });
         }

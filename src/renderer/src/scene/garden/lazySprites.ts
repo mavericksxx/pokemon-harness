@@ -13,6 +13,19 @@
  * consumer (`WalkerSprite`'s bob/mirror/shadow treatment doesn't care how
  * many frames a sheet has). Line/stage/evolvesTo/locomotion come from
  * `dexData.ts` either way.
+ *
+ * Phase 5 §2 (shiny): every fetch/decode/cache function here takes a `shiny`
+ * flag threaded straight through to `window.api.fetchSpriteGif`/
+ * `getCachedSprite`/`saveCachedSprite` (whose cache keys already distinguish
+ * shiny — see spriteCache.ts). Bundled species have no local shiny sheets at
+ * all, so a shiny pick ALWAYS comes through this lazy path, even for one of
+ * the 42 bundled species — see GardenScene's `resolveAnimation`. If a shiny
+ * FRONT sheet 404s, `loadLazyAnimation` falls back to the normal front sheet
+ * (logged) rather than showing a pokeball forever; a shiny BACK sheet 404
+ * (most species genuinely lack a shiny-specific back distinct from front's
+ * fallback) just leaves `back` undefined, same as the existing "some species
+ * have no back view at all" case — falling back to a normal-palette back
+ * would give one walker two palettes depending on facing.
  */
 import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
 import { Texture } from 'pixi.js';
@@ -130,8 +143,12 @@ function frameSetFromSheet(meta: LazySpriteMeta, source: Texture | HTMLCanvasEle
   };
 }
 
-async function fetchAndDecode(id: string, view: SpriteView): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
-  const gifBytes = await window.api.fetchSpriteGif(id, view);
+async function fetchAndDecode(
+  id: string,
+  view: SpriteView,
+  shiny: boolean
+): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
+  const gifBytes = await window.api.fetchSpriteGif(id, view, shiny);
   if (!gifBytes) return null;
   const gif = parseGIF(gifBytes);
   const frames = decompressFrames(gif, true);
@@ -154,8 +171,12 @@ const STATIC_FRAME_MS = 1000;
  * wraps the single image as a 1-frame sheet, so everything downstream
  * (`frameSetFromSheet`, the cache write, `WalkerSprite`'s bob/mirror/shadow)
  * treats it exactly like an animated sheet that happens to have one frame. */
-async function fetchAndDecodeStatic(id: string, view: SpriteView): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
-  const pngBytes = await window.api.fetchSpriteGif(id, view);
+async function fetchAndDecodeStatic(
+  id: string,
+  view: SpriteView,
+  shiny: boolean
+): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
+  const pngBytes = await window.api.fetchSpriteGif(id, view, shiny);
   if (!pngBytes) return null;
   const blobUrl = URL.createObjectURL(new Blob([pngBytes], { type: 'image/png' }));
   try {
@@ -187,26 +208,28 @@ async function fetchAndDecodeStatic(id: string, view: SpriteView): Promise<{ she
  * same species retries the network instead of remembering the failure
  * forever. The back view is left cached even on failure: most species
  * genuinely have none, and that fact doesn't change between picks. */
-async function loadView(id: string, view: SpriteView, evictOnNull = true): Promise<FrameSet | null> {
-  const key = `${id}:${view}`;
+async function loadView(id: string, view: SpriteView, shiny: boolean, evictOnNull = true): Promise<FrameSet | null> {
+  const key = `${id}:${view}:${shiny ? 'shiny' : 'normal'}`;
   const existing = viewCache.get(key);
   if (existing) return existing;
 
   const promise = (async (): Promise<FrameSet | null> => {
-    const cached: CachedSprite | null = await window.api.getCachedSprite(id, view);
+    const cached: CachedSprite | null = await window.api.getCachedSprite(id, view, shiny);
     if (cached) {
       const texture = await loadPixelTexture(URL.createObjectURL(new Blob([cached.png], { type: 'image/png' })));
       return frameSetFromSheet(cached.meta, texture);
     }
 
-    const decoded = speciesEntry(id)?.static ? await fetchAndDecodeStatic(id, view) : await fetchAndDecode(id, view);
+    const decoded = speciesEntry(id)?.static
+      ? await fetchAndDecodeStatic(id, view, shiny)
+      : await fetchAndDecode(id, view, shiny);
     if (!decoded) return null;
 
     const frameSet = frameSetFromSheet(decoded.meta, decoded.sheet);
     // Cache write is fire-and-forget: the walker doesn't need to wait on disk
     // I/O, and a failed write (e.g. disk full) shouldn't break the pick.
     void canvasToPng(decoded.sheet)
-      .then((png) => window.api.saveCachedSprite(id, view, png, decoded.meta))
+      .then((png) => window.api.saveCachedSprite(id, view, shiny, png, decoded.meta))
       .catch((err) => console.error(`[lazySprites] ${id}: failed to cache ${view} sheet —`, err));
     return frameSet;
   })();
@@ -220,19 +243,38 @@ async function loadView(id: string, view: SpriteView, evictOnNull = true): Promi
   return promise;
 }
 
-/** Full animation for a lazily-loaded species: front required, back
- *  best-effort. Returns null only when the front view could not be obtained
- *  at all (offline/404) — the caller shows a pokeball and a toast. */
-export function loadLazyAnimation(id: string): Promise<PokemonAnimation | null> {
-  const existing = animationCache.get(id);
+/** `loadView`, plus the shiny-specific fallback: a shiny FRONT 404 falls back
+ *  to the normal front sheet (logged) rather than leaving the walker on a
+ *  pokeball forever. Non-shiny calls, and the back view, pass straight
+ *  through with no fallback — see this file's header for why the back view
+ *  doesn't get one. */
+async function loadFrontWithShinyFallback(id: string, shiny: boolean): Promise<FrameSet | null> {
+  const primary = await loadView(id, 'front', shiny);
+  if (primary || !shiny) return primary;
+  console.error(`[lazySprites] ${id}: shiny front sprite unavailable — falling back to normal`);
+  return loadView(id, 'front', false);
+}
+
+/** Full animation for a lazily-loaded species: front required (falling back
+ *  from shiny to normal on a 404 — see loadFrontWithShinyFallback), back
+ *  best-effort (no such fallback — see this file's header). Returns null
+ *  only when the front view could not be obtained at all, shiny or normal
+ *  (offline) — the caller shows a pokeball and a toast.
+ *
+ * `shiny` (Phase 5 §2, default false) selects the Showdown/Smogon shiny
+ * variant. Bundled species have no local shiny sheets, so a shiny pick
+ * always comes through here — see GardenScene's `resolveAnimation`. */
+export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAnimation | null> {
+  const key = shiny ? `${id}:shiny` : id;
+  const existing = animationCache.get(key);
   if (existing) return existing;
 
   const promise = (async (): Promise<PokemonAnimation | null> => {
     const entry = speciesEntry(id);
     if (!entry) return null;
-    const front = await loadView(id, 'front');
+    const front = await loadFrontWithShinyFallback(id, shiny);
     if (!front) return null;
-    const back = await loadView(id, 'back', false).catch(() => null);
+    const back = await loadView(id, 'back', shiny, false).catch(() => null);
     return {
       info: {
         name: entry.id,
@@ -252,9 +294,9 @@ export function loadLazyAnimation(id: string): Promise<PokemonAnimation | null> 
     };
   })();
 
-  animationCache.set(id, promise);
+  animationCache.set(key, promise);
   void promise.then((result) => {
-    if (result === null) animationCache.delete(id);
+    if (result === null) animationCache.delete(key);
   });
   return promise;
 }
@@ -307,14 +349,17 @@ function makeGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
 const thumbnailGate = makeGate(4);
 
 /** A single still frame of a lazy species, as an object URL, for the picker's
- *  search results. Cheap: reuses the same decode/cache as the full walker (a
- *  hit here means a later pick needs no further network). */
-export function loadLazyThumbnail(id: string): Promise<string | null> {
-  const existing = thumbnailCache.get(id);
+ *  search results and (`shiny`, Phase 5 §4) a shiny session's face thumbnail.
+ *  Cheap: reuses the same decode/cache as the full walker (a hit here means a
+ *  later pick needs no further network). Falls back shiny→normal on a 404,
+ *  same as loadLazyAnimation. */
+export function loadLazyThumbnail(id: string, shiny = false): Promise<string | null> {
+  const key = shiny ? `${id}:shiny` : id;
+  const existing = thumbnailCache.get(key);
   if (existing) return existing;
 
   const promise = thumbnailGate(async (): Promise<string | null> => {
-    const front = await loadView(id, 'front');
+    const front = await loadFrontWithShinyFallback(id, shiny);
     if (!front) return null;
     const frame = front.frames[0]?.texture;
     if (!frame) return null;
@@ -339,9 +384,9 @@ export function loadLazyThumbnail(id: string): Promise<string | null> {
     return canvas.toDataURL('image/png');
   });
 
-  thumbnailCache.set(id, promise);
+  thumbnailCache.set(key, promise);
   void promise.then((result) => {
-    if (result === null) thumbnailCache.delete(id);
+    if (result === null) thumbnailCache.delete(key);
   });
   return promise;
 }

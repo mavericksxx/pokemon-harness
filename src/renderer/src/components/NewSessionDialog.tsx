@@ -154,6 +154,12 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
             {results.map((entry) => {
               const entryBase = baseStageOf(entry.id);
               const isTaken = takenLines.has(entryBase.line);
+              // The picker doesn't show a shiny sprite for a taken option
+              // (disabled options render grayscaled — see .pokemon-option:
+              // disabled — so the palette difference wouldn't even show);
+              // it just flags that the line currently out in the garden
+              // happens to be shiny.
+              const takenByShiny = isTaken && sessions.some((s) => s.line === entryBase.line && s.shiny);
               // hasSprite: false means the builder's coverage sweep confirmed
               // the Smogon Sprite Project has no art for this species (Phase
               // 6 §2) — grey it out rather than let a pick fail at fetch time.
@@ -179,6 +185,11 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
                     <PokemonFace name={entry.id} />
                   )}
                   <span>{entry.name}</span>
+                  {takenByShiny && (
+                    <span className="shiny-badge" title="A shiny is out in the garden" aria-label="shiny">
+                      ★
+                    </span>
+                  )}
                   {entry.static && <em className="pokemon-static-tag">static sprite</em>}
                 </button>
               );

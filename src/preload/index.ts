@@ -44,14 +44,20 @@ const api = {
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
 
-  getCachedSprite: (id: string, view: SpriteView): Promise<CachedSprite | null> =>
-    ipcRenderer.invoke('sprites:getCached', id, view),
-  fetchSpriteGif: (id: string, view: SpriteView): Promise<ArrayBuffer | null> =>
-    ipcRenderer.invoke('sprites:fetchGif', id, view),
-  saveCachedSprite: (id: string, view: SpriteView, png: ArrayBuffer, meta: LazySpriteMeta): Promise<void> =>
-    ipcRenderer.invoke('sprites:saveCache', id, view, png, meta),
+  getCachedSprite: (id: string, view: SpriteView, shiny: boolean): Promise<CachedSprite | null> =>
+    ipcRenderer.invoke('sprites:getCached', id, view, shiny),
+  fetchSpriteGif: (id: string, view: SpriteView, shiny: boolean): Promise<ArrayBuffer | null> =>
+    ipcRenderer.invoke('sprites:fetchGif', id, view, shiny),
+  saveCachedSprite: (
+    id: string,
+    view: SpriteView,
+    shiny: boolean,
+    png: ArrayBuffer,
+    meta: LazySpriteMeta
+  ): Promise<void> => ipcRenderer.invoke('sprites:saveCache', id, view, shiny, png, meta),
 
-  getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds')
+  getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds'),
+  getShinyOddsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:shinyOdds')
 };
 
 export type HarnessApi = typeof api;

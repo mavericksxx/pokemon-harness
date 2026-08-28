@@ -103,6 +103,74 @@ export function spawnMoveText(container: Container, text: string, aboveY: number
   registerFx(tick);
 }
 
+/** Discrete sizes a shiny sparkle's four-point star steps through — mirrors
+ *  EvolutionCeremony's own star twinkle (a snappy stepped cycle reads as a
+ *  GBA-style twinkle; a smoothly-eased scale doesn't). */
+const SHINY_STAR_SIZES = [1.5, 2.5, 3.5];
+/** White/pale-gold, alternated per star and per twinkle — "white/yellow
+ *  four-point stars" per spec. */
+const SHINY_STAR_COLORS = [0xffffff, 0xfff2a8];
+const SHINY_STAR_TWINKLE_MS = 120;
+
+function drawShinyStar(g: Graphics, size: number, color: number): void {
+  g.clear();
+  g.rect(-size, -0.5, size * 2, 1).fill({ color, alpha: 1 });
+  g.rect(-0.5, -size, 1, size * 2).fill({ color, alpha: 1 });
+}
+
+/** The classic shiny reveal: a ring of 4-6 white/yellow four-point stars,
+ *  twinkling as they drift outward from `aboveY`, over ~1s. Used both for a
+ *  shiny session's walker on its first garden spawn and a shiny wild battler
+ *  on spawn — see GardenScene/BattleManager. Modeled on this file's own
+ *  `spawnSparkleBurst` (radiating parts, self-ticking, self-removing) and
+ *  EvolutionCeremony's star twinkle (stepped size/color rather than a smooth
+ *  scale), rather than a new particle system. */
+export function spawnShinySparkle(container: Container, aboveY: number): void {
+  const n = 4 + Math.floor(Math.random() * 3); // 4-6
+  const MAX_RADIUS = 16;
+  const parts: { g: Graphics; angle: number; sizeIdx: number; timer: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const g = new Graphics();
+    g.zIndex = 99999;
+    const sizeIdx = Math.floor(Math.random() * SHINY_STAR_SIZES.length);
+    drawShinyStar(g, SHINY_STAR_SIZES[sizeIdx], SHINY_STAR_COLORS[i % 2]);
+    container.addChild(g);
+    parts.push({
+      g,
+      angle: (i / n) * Math.PI * 2 + Math.random() * 0.4,
+      sizeIdx,
+      timer: Math.random() * SHINY_STAR_TWINKLE_MS
+    });
+  }
+  const DURATION = 1.0;
+  let elapsed = 0;
+  const tick = (dt: number): boolean => {
+    elapsed += dt;
+    const t = elapsed / DURATION;
+    for (const p of parts) {
+      const r = MAX_RADIUS * Math.min(1, t * 1.4);
+      p.g.x = Math.cos(p.angle) * r;
+      p.g.y = aboveY + Math.sin(p.angle) * r * 0.5;
+      p.timer += dt * 1000;
+      if (p.timer >= SHINY_STAR_TWINKLE_MS) {
+        p.timer -= SHINY_STAR_TWINKLE_MS;
+        p.sizeIdx = Math.floor(Math.random() * SHINY_STAR_SIZES.length);
+        drawShinyStar(p.g, SHINY_STAR_SIZES[p.sizeIdx], SHINY_STAR_COLORS[Math.random() < 0.5 ? 0 : 1]);
+      }
+      p.g.alpha = t < 0.15 ? t / 0.15 : Math.max(0, 1 - (t - 0.15) / 0.85);
+    }
+    if (t >= 1) {
+      for (const p of parts) {
+        container.removeChild(p.g);
+        p.g.destroy();
+      }
+      return true;
+    }
+    return false;
+  };
+  registerFx(tick);
+}
+
 /** The classic "trainer spotted you" alert: a small white bubble with a bold
  *  "!" pops up above a head with a quick overshoot bounce, holds, then pops
  *  back out. Used at battle initiation — both the parent and the newly

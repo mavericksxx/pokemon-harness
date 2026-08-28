@@ -24,6 +24,10 @@ export interface Session {
    *  per exact species, so a session can't claim a stage of a line another
    *  session is already walking. */
   line: string;
+  /** Rolled once at session creation (Phase 5 §1) and kept for the session's
+   *  whole lifetime, through every evolution stage. Not a property of the
+   *  species — of this particular session's Pokemon. */
+  shiny: boolean;
   /** Accumulated milliseconds spent in `working` status. Idle/blocked/wall-clock
    *  time does not count. Drives the evolution thresholds in `evolution.ts`. */
   workedMs: number;

@@ -13,6 +13,13 @@
  * generated dex's `static` flag; it returns raw bytes either way; the
  * renderer decides how to decode them the same way it already knows a
  * species is static (`dexData.ts`).
+ *
+ * Phase 5 §2: shiny variants live one path segment over — Showdown/Smogon
+ * both name them by appending `-shiny` to the same base directory
+ * (`gen5ani` → `gen5ani-shiny`, `gen5-back` → `gen5-back-shiny`, etc.), so a
+ * shiny fetch is the same URL with that suffix tacked on. Cache files get a
+ * `-shiny` filename suffix too, so a shiny and normal pick of the same
+ * species/view never collide on disk.
  */
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
@@ -44,15 +51,19 @@ function cacheDir(): string {
   return join(app.getPath('userData'), 'sprites');
 }
 
-function cachePaths(id: string, view: SpriteView): { png: string; meta: string } {
-  const base = join(cacheDir(), `${id}-${view}`);
+function cachePaths(id: string, view: SpriteView, shiny: boolean): { png: string; meta: string } {
+  const base = join(cacheDir(), `${id}-${view}${shiny ? '-shiny' : ''}`);
   return { png: `${base}.png`, meta: `${base}.json` };
 }
 
-/** A previously-cached sheet, if this species/view has been fetched before —
- *  so a second pick never hits the network again. */
-export async function getCachedSprite(id: string, view: SpriteView): Promise<CachedSprite | null> {
-  const { png, meta } = cachePaths(id, view);
+/** A previously-cached sheet, if this species/view/shininess has been fetched
+ *  before — so a second pick never hits the network again. */
+export async function getCachedSprite(
+  id: string,
+  view: SpriteView,
+  shiny: boolean
+): Promise<CachedSprite | null> {
+  const { png, meta } = cachePaths(id, view, shiny);
   if (!existsSync(png) || !existsSync(meta)) return null;
   try {
     const [pngBuf, metaBuf] = await Promise.all([readFile(png), readFile(meta)]);
@@ -70,22 +81,30 @@ export async function getCachedSprite(id: string, view: SpriteView): Promise<Cac
 export async function saveCachedSprite(
   id: string,
   view: SpriteView,
+  shiny: boolean,
   png: ArrayBuffer,
   meta: LazySpriteMeta
 ): Promise<void> {
   await mkdir(cacheDir(), { recursive: true });
-  const { png: pngPath, meta: metaPath } = cachePaths(id, view);
+  const { png: pngPath, meta: metaPath } = cachePaths(id, view, shiny);
   await Promise.all([writeFile(pngPath, Buffer.from(png)), writeFile(metaPath, JSON.stringify(meta))]);
 }
 
 /** Raw sprite bytes — an animated GIF for #1-649, a static PNG for #650-1025
- *  (Phase 6 §1/§3) — or null on any failure (offline, 404). The renderer
- *  falls back to a pokeball placeholder and a non-blocking toast either way. */
-export async function fetchSpriteGif(id: string, view: SpriteView): Promise<ArrayBuffer | null> {
+ *  (Phase 6 §1/§3), shiny or not (Phase 5 §2) — or null on any failure
+ *  (offline, 404). The renderer falls back to a pokeball placeholder and a
+ *  non-blocking toast either way (and, for a shiny 404 specifically, falls
+ *  back further to the normal sprite — see lazySprites.ts). */
+export async function fetchSpriteGif(
+  id: string,
+  view: SpriteView,
+  shiny: boolean
+): Promise<ArrayBuffer | null> {
   const kind = DEX[id]?.static ? 'static' : 'animated';
   const ext = kind === 'static' ? 'png' : 'gif';
+  const base = SPRITE_BASE[view][kind];
   try {
-    const res = await fetch(`${SPRITE_BASE[view][kind]}/${id}.${ext}`);
+    const res = await fetch(`${shiny ? `${base}-shiny` : base}/${id}.${ext}`);
     if (!res.ok) return null;
     return await res.arrayBuffer();
   } catch {

@@ -5,6 +5,7 @@ import { useStore } from '@/store/store';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf } from '@/scene/garden/dexData';
+import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
 
 function basename(p: string): string {
   const parts = p.replace(/\/+$/, '').split('/');
@@ -37,6 +38,13 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       pokemon = picked.name;
       line = picked.line;
     }
+    // The roll happens AFTER species/line resolution, per session, and is
+    // awaited so a POKE_SHINY_ODDS override is guaranteed in effect even for
+    // the very first session — the config's async IPC read might otherwise
+    // still be in flight when the earliest possible session is created (see
+    // shiny.ts's header).
+    await initShinyConfig();
+    const shiny = rollShiny();
     useStore.getState().addSession({
       id,
       title: req.title?.trim() || basename(req.cwd),
@@ -45,7 +53,8 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       provider: req.provider,
       model: req.model,
       pokemon,
-      line
+      line,
+      shiny
     });
     sessionAdded = true;
 

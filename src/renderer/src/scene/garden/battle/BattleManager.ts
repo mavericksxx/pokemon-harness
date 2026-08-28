@@ -39,7 +39,8 @@ import { targetTileHeight } from '../spriteScale';
 import { findPath } from '../pathfinding';
 import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
-import { spawnExclaimBubble, spawnHitFlash, spawnSparkleBurst, tickBattleFx } from './battleFx';
+import { spawnExclaimBubble, spawnHitFlash, spawnShinySparkle, spawnSparkleBurst, tickBattleFx } from './battleFx';
+import { rollShiny } from '../shiny';
 
 const LUNGE_MS = 150;
 const HOLD_MS = 150;
@@ -115,9 +116,11 @@ export interface BattleDeps {
   charLayer: Container;
   /** Bundled species resolve instantly; anything else starts as a pokeball
    *  and is upgraded via loadLazyAnimation, matching GardenScene's own
-   *  walkers. */
-  resolveAnimation: (species: string) => PokemonAnimation;
-  loadLazyAnimation: (species: string) => Promise<PokemonAnimation | null>;
+   *  walkers. `shiny` (Phase 5 §5: wild spawns may roll shiny too) forces
+   *  the lazy path even for a bundled species — see GardenScene's own
+   *  resolveAnimation for why. */
+  resolveAnimation: (species: string, shiny?: boolean) => PokemonAnimation;
+  loadLazyAnimation: (species: string, shiny?: boolean) => Promise<PokemonAnimation | null>;
   getRuntime: (parentId: string) => { walker: Walker } | undefined;
   /** The parent session's current species display name, for move text
    *  ("Pikachu used Grep!"). */
@@ -302,7 +305,11 @@ export class BattleManager {
     const species = this.pickSpecies();
     if (!species) return; // dex exhausted — extremely unlikely; just drop
 
-    const animation = this.deps.resolveAnimation(species.id);
+    // A wild challenger is a fresh roll every spawn — same odds as a session
+    // (Phase 5 §5), independent of it (battlers never evolve, so there's no
+    // "stays shiny" state to track beyond this one Battler's lifetime).
+    const shiny = rollShiny();
+    const animation = this.deps.resolveAnimation(species.id, shiny);
     const parentSpeciesId = this.deps.getParentSpeciesId(parentId);
     const gap = this.gapTilesFor(parentSpeciesId, animation);
     const slot = pb.battlers.length;
@@ -333,8 +340,15 @@ export class BattleManager {
       battler.goTo(standTile); // false (unreachable) just leaves it standing at spawnTile — no teleport either way
     }
 
-    if (!isBundled(species.id)) {
-      void this.deps.loadLazyAnimation(species.id).then((real) => {
+    if (shiny) {
+      spawnShinySparkle(battler.container, -battler.drawnHeight - 8);
+      battler.showMoveText('✨ Shiny!');
+    }
+
+    // A shiny pick always needs the lazy fetch too (see resolveAnimation),
+    // even for an otherwise-bundled species.
+    if (!isBundled(species.id) || shiny) {
+      void this.deps.loadLazyAnimation(species.id, shiny).then((real) => {
         if (real && pb!.battlers.includes(battler)) battler.setAnimation(real);
       });
     }

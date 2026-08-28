@@ -16,6 +16,11 @@ import { loadLazyThumbnail } from '@/scene/garden/lazySprites';
  * species (Phase 3 §2). Bundled species render instantly from the strip
  * already in memory; everything else fetches (and caches) a single-frame
  * thumbnail on demand and shows a pokeball placeholder until it resolves.
+ *
+ * `shiny` (Phase 5 §4): bundled species have no local shiny sheet, so a
+ * shiny face ALWAYS goes through the lazy-thumbnail path, even for one of
+ * the 42 bundled species — same rule as the garden's own walker art (see
+ * GardenScene's `resolveAnimation`).
  */
 
 /** Rendered size of the box, in CSS px. Sheets are ~96px, so this is a
@@ -26,23 +31,26 @@ const DEFAULT_BOX = 44;
 interface Props {
   name: string;
   box?: number;
+  /** Show the shiny variant. Forces the lazy-thumbnail path — see this
+   *  file's header. */
+  shiny?: boolean;
 }
 
-export function PokemonFace({ name, box = DEFAULT_BOX }: Props): JSX.Element {
-  const bundled = POKEMON_ROSTER.find((p) => p.name === name);
+export function PokemonFace({ name, box = DEFAULT_BOX, shiny = false }: Props): JSX.Element {
+  const bundled = shiny ? undefined : POKEMON_ROSTER.find((p) => p.name === name);
   const [lazyUrl, setLazyUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (bundled) return;
     setLazyUrl(null);
     let cancelled = false;
-    loadLazyThumbnail(name).then((url) => {
+    loadLazyThumbnail(name, shiny).then((url) => {
       if (!cancelled) setLazyUrl(url);
     });
     return () => {
       cancelled = true;
     };
-  }, [name, bundled]);
+  }, [name, bundled, shiny]);
 
   if (bundled) {
     const style: CSSProperties = {

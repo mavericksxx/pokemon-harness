@@ -152,6 +152,14 @@ body {
   color: var(--muted);
 }
 
+/* Shiny badge (Phase 5 §4): the session chip and the picker's taken display
+   both mark a shiny Pokemon with a small gold star next to its face. */
+.shiny-badge {
+  color: #ffd23f;
+  font-size: 11px;
+  line-height: 1;
+}
+
 button {
   font: inherit;
   color: var(--text);
