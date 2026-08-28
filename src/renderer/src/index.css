@@ -1,12 +1,66 @@
+/* Design tokens (Phase 8 §2) — values here mirror design/tokens.ts, which
+ * stamps the same custom properties onto :root at boot (applyTokens(), called
+ * from main.tsx before the first render). This block is the fallback/default
+ * so the sheet never resolves to an unset var even for a single frame;
+ * tokens.ts is the single source of truth for the actual values — change
+ * both together. Structure (ramp/space/type/shadow language) is ported from
+ * munder-difflin's design system (MIT, see ATTRIBUTION.md); values are ours. */
 :root {
   --bg: #0d150e;
   --panel: #16220f;
   --panel-2: #1e2f16;
   --line: #2c4224;
   --text: #dfeed4;
+  --text-secondary: #b9cdae;
   --muted: #8fa383;
+  --muted-dim: #5f7256;
   --accent: #b5e48c;
   --danger: #ff8a8a;
+
+  --accent-gold: #ffd166;
+  --accent-sky: #8ecae6;
+  --accent-pink: #ff8fa3;
+  --accent-leaf: #b5e48c;
+  --accent-lilac: #c8a2ff;
+  --accent-amber: #ffb27a;
+
+  --status-idle: var(--accent-sky);
+  --status-working: var(--accent-leaf);
+  --status-blocked: #ffd23f;
+  --status-done: var(--muted);
+  --status-starting: var(--muted);
+
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* Hard offset, no blur — munder-difflin DESIGN.md §6.4. */
+  --shadow-hard: 4px 4px 0 rgba(0, 0, 0, 0.4);
+
+  --font-display-size: 13px;
+  --font-display-line: 18px;
+  --font-display-weight: 600;
+  --font-display-tracking: 0.04em;
+  --font-label-size: 10px;
+  --font-label-line: 12px;
+  --font-label-tracking: 0.06em;
+  --font-body-size: 13px;
+  --font-body-line: 18px;
+  --font-body-sm-size: 11px;
+  --font-body-sm-line: 15px;
+  --font-mono-size: 12px;
+  --font-mono-line: 17px;
+
   font-family: ui-sans-serif, -apple-system, 'Segoe UI', sans-serif;
   font-size: 13px;
   color-scheme: dark;
@@ -53,8 +107,10 @@ body {
 }
 
 .brand {
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--font-display-size);
+  line-height: var(--font-display-line);
+  font-weight: var(--font-display-weight);
+  letter-spacing: var(--font-display-tracking);
   color: var(--accent);
 }
 
@@ -76,10 +132,12 @@ body {
   white-space: nowrap;
   background: var(--panel-2);
   border: 1px solid var(--line);
+  border-radius: var(--radius-md);
 }
 
 .chip.active {
   border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 /* ── Pokemon faces (a cropped frame of the walk sheet) ───────────────────── */
@@ -165,13 +223,19 @@ button {
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 4px 10px;
   cursor: pointer;
 }
 
 button:hover {
   border-color: var(--accent);
+}
+
+/* Pressable, not just clickable — DESIGN.md §7.2 (top edge bright, snaps down
+ * on press instead of easing). */
+button:active {
+  transform: translate(1px, 1px);
 }
 
 button.primary {
@@ -190,6 +254,10 @@ button.icon {
   font-size: 18px;
   line-height: 1;
   padding: 0 6px;
+}
+
+button.icon:active {
+  transform: translate(1px, 1px);
 }
 
 /* ── body ────────────────────────────────────────────────────────────────── */
@@ -268,24 +336,25 @@ button.icon {
 
 .status {
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
+  font-size: var(--font-label-size);
+  line-height: var(--font-label-line);
+  letter-spacing: var(--font-label-tracking);
 }
 
 .status.working {
-  color: var(--accent);
+  color: var(--status-working);
 }
 .status.blocked {
-  color: #ffd23f;
+  color: var(--status-blocked);
 }
 .status.done {
-  color: var(--muted);
+  color: var(--status-done);
 }
 .status.idle {
-  color: #8ecae6;
+  color: var(--status-idle);
 }
 .status.starting {
-  color: var(--muted);
+  color: var(--status-starting);
 }
 
 .terminal-mount {
@@ -315,7 +384,8 @@ button.icon {
   max-width: 92vw;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -342,7 +412,7 @@ button.icon {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 5px 8px;
 }
 
@@ -395,8 +465,8 @@ button.icon {
   padding: 10px 12px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
   z-index: 1000;
   font-size: 12px;
 }
@@ -469,7 +539,7 @@ button.icon {
   font-size: 15px;
   padding: 2px 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
 .mini-player-gen-select {
@@ -478,7 +548,7 @@ button.icon {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 4px 6px;
 }
 
@@ -488,7 +558,7 @@ button.icon {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 5px 8px;
 }
 
@@ -496,7 +566,7 @@ button.icon {
   max-height: 160px;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg);
 }
 
@@ -541,7 +611,9 @@ button.icon {
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-hard);
   cursor: pointer;
 }
 

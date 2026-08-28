@@ -41,6 +41,8 @@ from munder-difflin's, so the-office is upstream of it too.
 | Pixi init settings in `scene/garden/GardenScene.tsx` | munder-difflin `scene/office/OfficeFloor.tsx` | the pixel-art render settings (`antialias: false`, `roundPixels`, resolution floor of 2, `autoDensity`) |
 | Tiled layer convention (`floor`, `walls`, `furniture-below`, `furniture-above`, `collision`, `spawn-points`, `zones`) | munder-difflin / the-office | convention adopted as-is |
 
+| `src/renderer/src/design/tokens.ts` | munder-difflin `design/tokens.ts` + `DESIGN.md` §3-7 | structure only (color ramp / 4px space scale / type scale / hard-shadow panel language, mirrored onto `:root` as CSS custom properties); values are this app's own dark forest palette, not their cream/violet one, and no pixel display font is ported (renderer CSP has no font-src) |
+
 Written fresh for this project (no upstream): `tools/gen-garden-map.cjs`,
 `tools/build-dex.cjs`,
 `scene/garden/gardenArt.ts`, `scene/garden/showdownArt.ts`,

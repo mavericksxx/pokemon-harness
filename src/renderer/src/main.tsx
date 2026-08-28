@@ -18,7 +18,13 @@ import {
   playEvolutionCry
 } from './audio/audioEngine';
 import { useAudioStore } from './audio/audioStore';
+import { applyTokens } from './design/tokens';
 import './index.css';
+
+// Design tokens (Phase 8 §2) — stamped onto :root before anything paints, so
+// index.css's existing var(--x) rules never render with unset custom
+// properties even for a single frame.
+applyTokens();
 
 // Independent of the garden scene's own mount/unmount — the speaker popover
 // works even before/without it (see audioEngine.ts's initAudio doc comment).
