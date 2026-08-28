@@ -36,6 +36,16 @@ export function ViewModeSwitcher(): JSX.Element {
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const setSessionsOverviewOpen = useStore((s) => s.setSessionsOverviewOpen);
 
+  /** Only meaningful in 'garden' mode (the drawer is always open in
+   *  'terminal' and never shown in 'gardenFull' — TerminalDrawer.tsx's own
+   *  `open` calc). Rendered disabled rather than unmounted outside it — an
+   *  unmounted button changed the group's button count (4 vs 5), which
+   *  resized the whole group and shifted the topbar-actions cluster next to
+   *  it. Kept clickable (no-op) rather than the native `disabled` attribute
+   *  so the `.tip` tooltip — which relies on :hover/:focus-visible, neither
+   *  of which fire on a disabled control — still explains itself. */
+  const drawerToggleAvailable = viewMode === 'garden';
+
   return (
     <div className="view-switcher" role="group" aria-label="view mode">
       {MODES.map(({ mode, label, glyph, key }) => (
@@ -54,26 +64,23 @@ export function ViewModeSwitcher(): JSX.Element {
           {glyph ?? <TreeIcon />}
         </button>
       ))}
-      {/* Only meaningful in 'garden' mode (the drawer is always open in
-          'terminal' and never shown in 'gardenFull' — TerminalDrawer.tsx's
-          own `open` calc) — hidden rather than disabled outside it, same
-          conditional 'garden' mode already gated this on as a standalone
-          button, and a disabled button can't show a `.tip` (no hover/focus
-          on a disabled control), which would leave it unexplained. */}
-      {viewMode === 'garden' && (
-        <button
-          type="button"
-          className={
-            drawerOpen ? 'topbar-icon-btn view-switcher-btn active tip' : 'topbar-icon-btn view-switcher-btn tip'
-          }
-          data-tip="show/hide terminal panel"
-          aria-label="show/hide terminal panel"
-          aria-pressed={drawerOpen}
-          onClick={() => setDrawerOpen(!drawerOpen)}
-        >
-          <TerminalPanelIcon />
-        </button>
-      )}
+      <button
+        type="button"
+        className={
+          !drawerToggleAvailable
+            ? 'topbar-icon-btn view-switcher-btn view-switcher-btn-unavailable tip'
+            : drawerOpen
+              ? 'topbar-icon-btn view-switcher-btn active tip'
+              : 'topbar-icon-btn view-switcher-btn tip'
+        }
+        data-tip={drawerToggleAvailable ? 'show/hide terminal panel' : 'terminal panel (garden view only)'}
+        aria-label="show/hide terminal panel"
+        aria-pressed={drawerToggleAvailable && drawerOpen}
+        aria-disabled={!drawerToggleAvailable}
+        onClick={() => drawerToggleAvailable && setDrawerOpen(!drawerOpen)}
+      >
+        <TerminalPanelIcon />
+      </button>
       <button
         type="button"
         className="topbar-icon-btn view-switcher-btn tip"

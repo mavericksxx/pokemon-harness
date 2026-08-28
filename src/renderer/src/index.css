@@ -1892,6 +1892,25 @@ button.icon:active {
   transform: translate(1px, 1px);
 }
 
+/* View-switcher button rendered for a view that isn't reachable right now
+ * (e.g. the terminal-panel toggle outside 'garden' mode). Kept in the DOM
+ * — same box, same border width — with only color/cursor swapped, so the
+ * group's button count (and therefore its width) never changes. Not the
+ * native `disabled` attribute: that suppresses :hover/:focus-visible, which
+ * would silence this button's `.tip` tooltip. */
+.view-switcher-btn-unavailable {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.view-switcher-btn-unavailable:hover {
+  border-color: transparent;
+}
+
+.view-switcher-btn-unavailable:active {
+  transform: none;
+}
+
 /* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5) ──── */
 /* Horizontal strip replacing the old left sidebar (`.roster-sidebar`) — a
  * fixed-height band under the garden/terminal row, scrolling sideways once
