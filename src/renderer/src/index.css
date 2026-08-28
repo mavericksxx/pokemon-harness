@@ -755,6 +755,20 @@ button.icon:active {
   cursor: pointer;
 }
 
+/* Phase 8.5 #3 — the looping-session toast's "Steer" button. Same token set
+   as .toast itself; no new colors. */
+.toast-action {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
 .drawer-error {
   padding: 6px 10px;
 }

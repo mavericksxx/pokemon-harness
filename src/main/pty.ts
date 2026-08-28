@@ -193,6 +193,34 @@ export class PtyManager {
     }));
   }
 
+  /** Resolves `true` if session `id` is still alive after `graceMs`, `false`
+   *  if it exits before then (or doesn't exist at all). Used only by
+   *  app-launch session restore (main/index.ts) to detect a `claude --resume`
+   *  that fails fast — an expired/invalid session id starts the process fine
+   *  (spawn() alone can't see the failure) but the CLI prints an error and
+   *  exits almost immediately. Piggybacks a second `onExit` listener onto the
+   *  same proc rather than touching spawn()'s own — node-pty's onX are plain
+   *  multi-listener events, so this never interferes with the exit handling
+   *  spawn() already wired (map cleanup, `pty:exit:<id>` send). */
+  waitAlive(id: string, graceMs: number): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (!session) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve(this.sessions.get(id) === session);
+      }, graceMs);
+      session.proc.onExit(() => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(false);
+      });
+    });
+  }
+
   /** This PTY's trailing output (bounded, see REPLAY_MAX_CHARS), for a
    *  reattaching terminal to repaint before live data resumes. Empty for an
    *  unknown/dead id — the caller just gets a blank terminal, same as today. */

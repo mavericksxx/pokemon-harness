@@ -233,7 +233,8 @@ export class HookBridge {
       toolTarget: toolTargetFromInput(tool, p.tool_input),
       notificationType: p.notification_type,
       message: p.message,
-      source: p.source
+      source: p.source,
+      claudeSessionId: p.session_id
     };
     const wc = this.getWebContents();
     if (wc && !wc.isDestroyed()) {

@@ -14,6 +14,7 @@ import type { HookEvent } from '@shared/hookEvents';
 import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { noteToolUse, resetLoopStreak } from './loopDetector';
 
 /** How long a claude session's hooks may go quiet before regex fallback
  *  resumes authority. Generous on purpose — see file header. */
@@ -45,10 +46,22 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
 
   switch (evt.event) {
     case 'SessionStart':
-      update({ status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
+      // claudeSessionId is only ever added, never cleared, here: if a later
+      // SessionStart (shouldn't happen mid-session, but be defensive) ever
+      // arrived without one, silently dropping an already-captured id would
+      // break disk-persisted `--resume` respawns for no reason.
+      update({
+        status: 'idle',
+        tool: undefined,
+        toolTarget: undefined,
+        station: 'wander',
+        ...(evt.claudeSessionId ? { claudeSessionId: evt.claudeSessionId } : {})
+      });
       break;
 
     case 'UserPromptSubmit':
+      // A fresh prompt is a clean slate for the loop breaker (Phase 8.5 #3).
+      resetLoopStreak(sessionId);
       update({ status: 'working', tool: undefined, toolTarget: undefined, station: 'wander' });
       break;
 
@@ -71,6 +84,10 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // A tool call that actually ran — during an active battle this is one
       // attack beat (BattleManager no-ops if this session isn't battling).
       if (evt.tool) emitBattleSignal({ type: 'attack', parentId: sessionId, tool: evt.tool });
+      // Loop breaker (Phase 8.5 #3) — this is the hooks-path convergence
+      // point; ptyParser.ts's regex fallback has its own (no PostToolUse
+      // equivalent exists in plain terminal text).
+      noteToolUse(sessionId, evt.tool, evt.toolTarget);
       update({ status: 'working' });
       break;
 

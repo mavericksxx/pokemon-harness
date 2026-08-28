@@ -58,7 +58,12 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           <span className="roster-card-name">{session.title}</span>
           <span className="roster-card-provider">{providerLabel}</span>
         </span>
-        <em className={`status ${session.status}`}>{statusLabel(session.status)}</em>
+        {/* Phase 8.5 #3: `looping` is a flag orthogonal to `status`, not a
+            new status value (see loopDetector.ts's header) — same badge
+            class, just a different label, so this needs no new CSS. */}
+        <em className={`status ${session.status}`}>
+          {session.looping ? '💫 looping' : statusLabel(session.status)}
+        </em>
       </div>
 
       {toolText && <div className="roster-card-tool">{toolText}</div>}

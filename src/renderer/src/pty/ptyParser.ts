@@ -15,6 +15,7 @@ import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { clearHookAuthority, isHookAuthoritative } from './hookRouter';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { noteToolUse, resetLoopStreak } from './loopDetector';
 
 // Tool call lines look like: `● Read SPEC.md`, `● Bash npm test`, `● Edit src/foo.ts`
 const TOOL_RE = /●\s+([A-Za-z][A-Za-z_]*)(?:\s+(.+))?/g;
@@ -33,7 +34,11 @@ const TASK_SPAWN_RE = /●\s+Task\(/g;
 // on every repaint — making it flip-flop between working and blocked.
 const BLOCK_HINTS = [
   /Do you want to proceed/i,
-  /❯\s*\d+\.\s*Yes/i, // numbered approval menu, cursor on "1. Yes"
+  // Numbered approval menu, cursor on "1. Yes" (or "1. Yes, continue" etc).
+  // ❯ (U+276F) is Claude's own cursor glyph; › (U+203A) is codex's — same
+  // menu shape, different Unicode arrow, confirmed live against the real
+  // codex CLI (its directory-trust prompt renders "› 1. Yes, continue").
+  /[❯›]\s*\d+\.\s*Yes/i,
   /Yes, and don't ask again/i,
   /\(y\/n\)/i,
   /\[y\/n\]/i
@@ -124,6 +129,9 @@ export function createPtyParser(sessionId: string): PtyParser {
         });
         // Regex-fallback attack beat — a no-op unless this session is battling.
         emitBattleSignal({ type: 'attack', parentId: sessionId, tool: lastTool });
+        // Loop breaker (Phase 8.5 #3) — the regex-fallback path's closest
+        // analogue to a PostToolUse beat; see loopDetector.ts's header.
+        noteToolUse(sessionId, lastTool, target);
         if (running) cancelIdle();
         else scheduleIdle();
         return;
@@ -157,6 +165,7 @@ export function createPtyParser(sessionId: string): PtyParser {
     dispose(): void {
       cancelIdle();
       clearHookAuthority(sessionId);
+      resetLoopStreak(sessionId);
     }
   };
 }

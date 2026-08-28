@@ -340,7 +340,11 @@ export function GardenScene(): JSX.Element {
           const { walker } = rt;
           rt.status = session.status;
           walker.setSelected(session.id === selectedId);
-          walker.setLabel(session.title);
+          // Phase 8.5 #3: `looping` is a flag orthogonal to `status` (see
+          // loopDetector.ts's header) — reusing the existing name label for
+          // its glyph, rather than adding a new pixi visual, keeps this off
+          // the styling surface.
+          walker.setLabel(session.looping ? `${session.title} 💫` : session.title);
           walker.setStatus(session.status);
 
           // A battling parent owns its own walker's position/facing for the
@@ -367,10 +371,12 @@ export function GardenScene(): JSX.Element {
             }
           }
 
-          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}`;
+          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}|${session.looping ? 1 : 0}`;
           if (toolKey !== rt.lastToolKey) {
             rt.lastToolKey = toolKey;
-            if (session.status === 'working' && session.tool) {
+            if (session.looping) {
+              walker.showText('looping 💫');
+            } else if (session.status === 'working' && session.tool) {
               walker.showTool(session.tool, session.toolTarget ?? '');
             } else if (session.status === 'working') {
               walker.showTool('', '...');

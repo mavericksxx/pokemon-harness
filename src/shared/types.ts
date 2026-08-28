@@ -108,6 +108,19 @@ export interface SessionRecord {
   exitCode?: number;
   error?: string;
   createdAt: number;
+  /** The `claude` CLI's own session id, captured off the SessionStart hook
+   *  payload (Phase 8.5 #1) — lets a disk-persisted claude session respawn
+   *  with `claude --resume <id>` after a full app quit/relaunch instead of
+   *  starting a fresh conversation. Absent for non-claude sessions and for
+   *  any claude session whose hooks haven't fired yet. */
+  claudeSessionId?: string;
+  /** True once this session's PostToolUse events have repeated the same
+   *  tool+target enough times in a row to trip the loop-detection circuit
+   *  breaker (Phase 8.5 #3) — the walker/roster card show a distinct
+   *  "looping" badge without this becoming a new `SessionStatus` (that would
+   *  collide with the `working`/`blocked` semantics every consumer already
+   *  keys off). Cleared on any different tool+target or user input. */
+  looping?: boolean;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed
@@ -124,4 +137,14 @@ export interface RestoredSession {
 export interface RestoreSnapshot {
   sessions: RestoredSession[];
   selectedId: string | null;
+}
+
+/** Result of the launch-time disk restore (Phase 8.5 #1, `app:getDiskRestoreInfo`)
+ *  — how many persisted sessions came back, plus one human-readable note per
+ *  session that had to fall back to a plain shell (e.g. an expired
+ *  `claude --resume`). Consumed once per launch — see main/index.ts's
+ *  `diskRestoreConsumed`. */
+export interface DiskRestoreInfo {
+  count: number;
+  notes: string[];
 }

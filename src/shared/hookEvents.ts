@@ -44,6 +44,10 @@ export interface HookEvent {
   notificationType?: string;
   message?: string;
   source?: string;
+  /** The claude CLI's own session id (`session_id` on the raw payload), when
+   *  present — captured so a SessionStart can stash it on the SessionRecord
+   *  for disk-persisted `claude --resume` respawns (Phase 8.5 #1). */
+  claudeSessionId?: string;
 }
 
 const KNOWN_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
