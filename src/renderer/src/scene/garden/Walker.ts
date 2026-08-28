@@ -101,6 +101,14 @@ export class Walker {
   private static readonly BOUNCE_DURATION = 0.32;
   private static readonly BOUNCE_HEIGHT = 6;
 
+  /** Napping (Phase 8.5 Wave B items 3/4) — a plain-shell session quiet 30s+,
+   *  or a claude session between a PreCompact hook and its post-compact
+   *  SessionStart. Parks the walker and freezes its idle animation; a "z z z"
+   *  overlay (`this.zzz`) shows while true. */
+  private napping = false;
+  private zzz: Text;
+  private zzzT = 0;
+
   private ceremony: EvolutionCeremony | null = null;
   /** Saved badge/ring visibility while the ceremony hides all UI chrome
    *  (everything but the sprite itself and its floating text) — restored
@@ -145,7 +153,22 @@ export class Walker {
     this.bubble = new ToolBubble();
     this.floatLayer = new Container();
 
-    this.container.addChild(this.selectionRing, this.sprite.container, this.badge, this.nameTag, this.floatLayer);
+    this.zzz = new Text({
+      text: 'z z z',
+      style: { fontSize: 16, fontFamily: 'monospace', fontWeight: 'bold', fill: '#dfe9ff', align: 'center' }
+    });
+    this.zzz.scale.set(0.35);
+    this.zzz.anchor.set(0.5, 1);
+    this.zzz.visible = false;
+
+    this.container.addChild(
+      this.selectionRing,
+      this.sprite.container,
+      this.badge,
+      this.nameTag,
+      this.zzz,
+      this.floatLayer
+    );
     this.container.eventMode = 'static';
     this.container.cursor = 'pointer';
     this.accentColor = opts.accentColor;
@@ -164,6 +187,7 @@ export class Walker {
 
     // Badge art is drawn around its own origin; park that origin above the head.
     this.badge.y = -this.sprite.drawnHeight - 4;
+    this.zzz.y = -this.sprite.drawnHeight - 6;
 
     const halfW = Math.max(8, this.sprite.drawnWidth / 2);
     const top = -Math.max(16, this.sprite.drawnHeight);
@@ -231,7 +255,7 @@ export class Walker {
    *  duration, and GardenScene's reconcile already retries a failed goTo on
    *  the next status change. */
   goTo(tile: { x: number; y: number }): boolean {
-    if (this.ceremony) return false;
+    if (this.ceremony || this.napping) return false;
     const path = findPath(this.map, this.tile, tile, this.canEnter);
     if (!path) return false; // unreachable — stay put rather than teleport
     this.wandering = false;
@@ -251,7 +275,7 @@ export class Walker {
    *  strand the sprite between tiles, and running it to completion would make an
    *  idle session visibly finish work it is no longer doing. */
   beginWander(): void {
-    if (this.ceremony) return;
+    if (this.ceremony || this.napping) return;
     this.path = this.path.slice(0, 1);
     this.wandering = true;
     this.wanderTimer = 0;
@@ -352,6 +376,39 @@ export class Walker {
     return this.ceremony !== null;
   }
 
+  get isNapping(): boolean {
+    return this.napping;
+  }
+
+  /** Enter/leave the nap pose (Phase 8.5 Wave B items 3/4). Waking plays the
+   *  existing select-hop (`bounce()`) as the "stretch" beat the spec asks
+   *  for, then resumes ordinary wandering — reusing beginWander/bounce rather
+   *  than adding new animation machinery. A no-op mid-ceremony: the ceremony
+   *  already owns the walker exclusively for its duration (see goTo/
+   *  beginWander's own ceremony guards), and this napping/waking mustn't
+   *  fight it — GardenScene's reconcile calls setNapping again on the next
+   *  tick once the ceremony ends. */
+  setNapping(napping: boolean): void {
+    if (napping === this.napping || this.ceremony) return;
+    this.napping = napping;
+    if (napping) {
+      // Truncate any errand in flight, same as beginWander does, so the
+      // sprite doesn't get stranded mid-tile.
+      this.path = this.path.slice(0, 1);
+      this.wandering = false;
+      this.walking = false;
+      this.sprite.setMoving(false);
+      this.sprite.freeze(true);
+      this.zzz.visible = true;
+      this.zzzT = 0;
+    } else {
+      this.sprite.freeze(false);
+      this.zzz.visible = false;
+      this.bounce();
+      this.beginWander();
+    }
+  }
+
   /** Instant, no-flash art swap — used when a lazily-fetched species' real
    *  sprite finishes loading after the walker already spawned with a
    *  pokeball placeholder. (Evolution's own swap goes through the flash
@@ -377,6 +434,12 @@ export class Walker {
       this.sprite.update(dt);
     }
     this.updateFloatingText(dt);
+
+    if (this.napping) {
+      this.zzzT += dt;
+      this.zzz.y = -this.sprite.drawnHeight - 6 - Math.sin(this.zzzT * 1.6) * 2;
+      this.zzz.alpha = 0.65 + 0.35 * Math.sin(this.zzzT * 1.6);
+    }
 
     if (this.status === 'blocked') {
       this.badgePulse += dt;

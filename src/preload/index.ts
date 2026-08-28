@@ -14,6 +14,8 @@ import type {
 } from '../shared/types';
 import type { HookEvent } from '../shared/hookEvents';
 import type { AudioSettings } from '../shared/audioTypes';
+import type { TerminalSettings } from '../shared/terminalTypes';
+import type { SessionCostUpdate } from '../shared/costTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -70,6 +72,10 @@ const api = {
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
 
+  /** Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called after the
+   *  renderer's own walk/wave/toast/audio-fade sequence finishes. */
+  quitApp: (): Promise<void> => ipcRenderer.invoke('app:quit'),
+
   getCachedSprite: (id: string, view: SpriteView, shiny: boolean): Promise<CachedSprite | null> =>
     ipcRenderer.invoke('sprites:getCached', id, view, shiny),
   fetchSpriteGif: (id: string, view: SpriteView, shiny: boolean): Promise<ArrayBuffer | null> =>
@@ -84,6 +90,21 @@ const api = {
 
   getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds'),
   getShinyOddsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:shinyOdds'),
+  getDefaultShell: (): Promise<string> => ipcRenderer.invoke('config:defaultShell'),
+
+  getTerminalSettings: (): Promise<TerminalSettings> => ipcRenderer.invoke('terminal:getSettings'),
+  saveTerminalSettings: (settings: TerminalSettings): Promise<void> =>
+    ipcRenderer.invoke('terminal:saveSettings', settings),
+
+  onCostUpdate: (id: string, cb: (update: SessionCostUpdate) => void): (() => void) => {
+    const channel = `cost:update:${id}`;
+    const listener = (_e: IpcRendererEvent, update: SessionCostUpdate): void => cb(update);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
+  /** Test-only — see main/index.ts's `cost:registerTestPath` handler. */
+  registerCostTestPath: (agentId: string, transcriptPath: string): Promise<void> =>
+    ipcRenderer.invoke('cost:registerTestPath', agentId, transcriptPath),
 
   getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),
   saveAudioSettings: (settings: AudioSettings): Promise<void> =>

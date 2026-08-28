@@ -2,12 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electr
 import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
+import { CostWatcher } from './costWatcher';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
 import { loadAudioSettings, saveAudioSettings } from './audioSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
 import { respawnSession } from './sessionRespawn';
+import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import type {
   DiskRestoreInfo,
   LazySpriteMeta,
@@ -18,6 +20,7 @@ import type {
   SpriteView
 } from '../shared/types';
 import type { AudioSettings } from '../shared/audioTypes';
+import type { TerminalSettings } from '../shared/terminalTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -29,7 +32,15 @@ import type { AudioSettings } from '../shared/audioTypes';
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
-const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
+// Phase 8.5 Wave B item 1 — registered off every hook payload's own
+// `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
+// of any one hook event.
+const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
+const hookBridge = new HookBridge(
+  app.getPath('userData'),
+  () => mainWindow?.webContents ?? null,
+  (agentId, transcriptPath) => costWatcher.onHookPayload(agentId, transcriptPath)
+);
 const ptyManager = new PtyManager(hookBridge);
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
 
@@ -301,6 +312,7 @@ app.whenReady().then(() => {
   // first spawn (and before any manual shim verification) ever happens.
   hookBridge.ensureFiles();
   hookBridge.start();
+  costWatcher.start();
   createWindow();
   diskRestorePromise = restoreFromDisk();
   app.on('activate', () => {
@@ -320,6 +332,7 @@ app.on('before-quit', () => {
   sessionPersistence.flush();
   ptyManager.killAll();
   hookBridge.stop();
+  costWatcher.stop();
 });
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
@@ -328,7 +341,10 @@ ipcMain.handle('pty:write', (_e, id: string, data: string) => ptyManager.write(i
 ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
   ptyManager.resize(id, cols, rows)
 );
-ipcMain.handle('pty:kill', (_e, id: string) => ptyManager.kill(id));
+ipcMain.handle('pty:kill', (_e, id: string) => {
+  costWatcher.unregisterSession(id);
+  return ptyManager.kill(id);
+});
 ipcMain.handle('pty:list', () => ptyManager.list());
 ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
 
@@ -422,6 +438,32 @@ ipcMain.handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? 
 // Phase 5 §1: POKE_SHINY_ODDS overrides the 1-in-N shiny roll (e.g. "1" =
 // always shiny, for demos/tests).
 ipcMain.handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
+// Phase 8.5 Wave B item 3 §3 — the "plain shell" provider's actual command:
+// the user's own interactive shell, which only main can read off $SHELL.
+ipcMain.handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
+
+// ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
+ipcMain.handle('terminal:getSettings', () => loadTerminalSettings());
+ipcMain.handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
+  saveTerminalSettings(settings)
+);
+
+// ─── Cost & context HUD (Phase 8.5 Wave B item 1) ──────────────────────────
+// Test-only escape hatch: registers a session id against an arbitrary
+// transcript path, bypassing the real hook payload entirely — this app is
+// never allowed to spawn a real `claude` for testing (see hookRouter.ts), so
+// verifying the watcher means pointing it at a synthetic transcript from a
+// plain bash session instead.
+ipcMain.handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: string) =>
+  costWatcher.registerSession(agentId, transcriptPath)
+);
+
+// ─── App lifecycle ──────────────────────────────────────────────────────────
+// Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called once the
+// renderer's own walk/wave/toast/audio-fade sequence finishes (see
+// src/renderer/src/closingTime.ts). `before-quit` (above) already kills
+// every PTY and stops the hook/cost-watcher servers.
+ipcMain.handle('app:quit', () => app.quit());
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:chooseFolder', async () => {

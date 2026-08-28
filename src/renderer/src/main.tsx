@@ -18,6 +18,7 @@ import {
   playEvolutionCry
 } from './audio/audioEngine';
 import { useAudioStore } from './audio/audioStore';
+import { useTerminalSettingsStore } from './terminal/terminalSettingsStore';
 import { applyTokens } from './design/tokens';
 import './index.css';
 
@@ -29,6 +30,13 @@ applyTokens();
 // Independent of the garden scene's own mount/unmount — the speaker popover
 // works even before/without it (see audioEngine.ts's initAudio doc comment).
 void initAudio();
+
+// Phase 8.5 Wave B item 3 §2 — terminal font size / scrollback, same
+// fire-and-forget boot pattern as audio settings above. `hydrate` also
+// applies the loaded settings to any terminal already created (including
+// ones this same boot() creates for a crash/reload restore, below) —
+// ordering between the two doesn't matter.
+void window.api.getTerminalSettings().then((s) => useTerminalSettingsStore.getState().hydrate(s));
 
 // Dev-only introspection hook (stripped from production builds by Vite's
 // import.meta.env.DEV dead-code elimination) — lets an external CDP/manual
@@ -115,7 +123,7 @@ async function boot(): Promise<void> {
     await fontsReady;
 
     if (restored.length > 0) {
-      for (const { session, replay } of restored) createTerminal(session.id, replay);
+      for (const { session, replay } of restored) createTerminal(session.id, session.provider, replay);
       useStore.getState().restoreSessions(restored.map((r) => r.session), selectedId);
     }
 

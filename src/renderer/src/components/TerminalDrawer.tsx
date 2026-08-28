@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { stopSession } from '@/sessions';
-import { statusLabel } from '@/design/statusLabel';
+import { sessionStatusLabel } from '@/design/sessionLabel';
+import { TerminalFindBar } from '@/components/TerminalFindBar';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget). */
@@ -14,6 +15,11 @@ export function TerminalDrawer(): JSX.Element | null {
   const select = useStore((s) => s.select);
   const viewMode = useStore((s) => s.viewMode);
   const mountRef = useRef<HTMLDivElement>(null);
+  // Find-in-scrollback (item 3 §1) — closed whenever the selected session
+  // changes, so switching tabs never leaves a stale find bar (and its
+  // highlights, scoped to the PREVIOUS session's terminal) hanging around.
+  const [findOpen, setFindOpen] = useState(false);
+  useEffect(() => setFindOpen(false), [selectedId]);
 
   // Phase 8 §1: 'terminal'/'terminalFull' always show the terminal (it IS the
   // view); 'gardenFull' never does; 'garden' keeps the old manual toggle.
@@ -33,6 +39,20 @@ export function TerminalDrawer(): JSX.Element | null {
     return () => detachTerminal(selectedId);
     // Deliberately NOT keyed on the session list: re-attaching on every
     // spawn/kill would churn the terminal's WebGL context for no reason.
+  }, [open, selectedId]);
+
+  // Cmd/Ctrl+F opens the find bar instead of the OS/browser's own find —
+  // only while a terminal is actually mounted here.
+  useEffect(() => {
+    if (!open || !selectedId) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, selectedId]);
 
   if (!open) return null;
@@ -66,7 +86,9 @@ export function TerminalDrawer(): JSX.Element | null {
       {session ? (
         <>
           <div className="drawer-meta">
-            <span className={`status ${session.status}`}>{statusLabel(session.status)}</span>
+            <span className={session.napping ? 'status napping' : `status ${session.status}`}>
+              {sessionStatusLabel(session)}
+            </span>
             <span className="path" title={session.cwd}>
               {session.cwd}
             </span>
@@ -75,7 +97,10 @@ export function TerminalDrawer(): JSX.Element | null {
             </button>
           </div>
           {session.error && <p className="error drawer-error">{session.error}</p>}
-          <div className="terminal-mount" ref={mountRef} />
+          <div className="terminal-mount-wrap">
+            <div className="terminal-mount" ref={mountRef} />
+            {findOpen && <TerminalFindBar sessionId={session.id} onClose={() => setFindOpen(false)} />}
+          </div>
         </>
       ) : (
         <div className="empty-terminal">

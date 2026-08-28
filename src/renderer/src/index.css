@@ -315,6 +315,7 @@ button.icon:active {
  * modal treatment) matting the bright map on neutral chrome ground, with a
  * consistent margin on every side instead of an edge-to-edge letterbox. */
 .garden-mat {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -322,6 +323,29 @@ button.icon:active {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
+}
+
+/* Closing-time sunset ritual (Phase 8.5 Wave B item 2) — a warm overlay on
+ * the MAT (covers the letterbox too, unlike a Pixi layer inside `world`
+ * which is in map coordinates and would scale with the camera / sit under
+ * an evolution ceremony's own dim). Opacity-only transition so `.active`
+ * toggling on/off (start/cancel) both animate at the same ~4s rate. */
+.garden-sunset-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(232, 150, 64, 0) 0%,
+    rgba(224, 92, 58, 0.32) 55%,
+    rgba(107, 41, 61, 0.52) 100%
+  );
+  transition: opacity 4000ms linear;
+}
+
+.garden-sunset-overlay.active {
+  opacity: 1;
 }
 
 .garden {
@@ -471,12 +495,49 @@ button.icon:active {
 .status.starting::before {
   background: var(--status-starting);
 }
+/* Napping (Phase 8.5 Wave B items 3/4) — additive to `session.napping`, not a
+ * `SessionStatus` value (see that field's own comment) — borrows the idle
+ * hue, same as a resting session reads elsewhere in this badge set. */
+.status.napping {
+  background: var(--status-idle-bg);
+}
+.status.napping::before {
+  background: var(--status-idle);
+}
+
+/* Wraps `.terminal-mount` so the find bar (item 3 §1) can position itself
+ * absolutely over the terminal without affecting its flex sizing. */
+.terminal-mount-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
 
 .terminal-mount {
   flex: 1;
   min-height: 0;
   padding: 4px;
   background: var(--bg-terminal);
+}
+
+.terminal-find-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-hard);
+}
+
+.terminal-find-bar input {
+  width: 180px;
+  font-size: var(--font-body-sm-size);
 }
 
 .empty {
@@ -813,6 +874,7 @@ button.icon:active {
 }
 
 .roster-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -897,6 +959,26 @@ button.icon:active {
 .roster-card-evo-fill {
   height: 100%;
   background: var(--accent);
+}
+
+/* Cost & context HUD (Phase 8.5 Wave B item 1) — a thin gauge flush along the
+ * card's own bottom edge, distinct from the evo-progress bar above (which
+ * sits inline in the card's padded flow). Tooltip (title attr) carries the
+ * "~41k / 200k context (approx.) · $0.38" figures. */
+.roster-card-gauge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.roster-card-gauge-fill {
+  height: 100%;
+  background: var(--muted);
+  transition: width 400ms steps(2, end);
 }
 
 /* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */

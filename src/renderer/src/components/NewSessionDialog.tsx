@@ -54,7 +54,14 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
 
   const onProvider = (id: AgentProviderId): void => {
     setProvider(id);
-    setCommand(AGENT_PROVIDERS[id].defaultCommand);
+    if (id === 'shell') {
+      // The real $SHELL can only be read main-side (item 3 §3) — the
+      // registry's `defaultCommand` for this preset is a fallback only, used
+      // if this IPC round-trip somehow doesn't resolve before submit.
+      void window.api.getDefaultShell().then((shell) => setCommand(shell));
+    } else {
+      setCommand(AGENT_PROVIDERS[id].defaultCommand);
+    }
   };
 
   const submit = async (e: React.FormEvent): Promise<void> => {

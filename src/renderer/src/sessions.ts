@@ -23,7 +23,7 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     // startup output is missed) and it must exist before the session appears in
     // the store, because the drawer attaches as soon as the new session becomes
     // selected.
-    createTerminal(id);
+    createTerminal(id, req.provider);
 
     // Sessions always hatch at their line's base stage, whatever stage of the
     // line the picker's search resolved to.

@@ -87,7 +87,14 @@ export class HookBridge {
 
   constructor(
     userDataDir: string,
-    private getWebContents: () => WebContents | null
+    private getWebContents: () => WebContents | null,
+    /** Phase 8.5 Wave B item 1 — fired with every payload that has a known
+     *  agentId, regardless of event type or whether it's forwarded to the
+     *  renderer, so the cost/context HUD's transcript-path registration
+     *  (idempotent — see costWatcher.ts) isn't tied to any one hook event.
+     *  Optional so this class stays usable standalone (tests, other
+     *  callers) without a cost watcher in the loop. */
+    private onRawPayload?: (agentId: string, transcriptPath: string | undefined) => void
   ) {
     this.binDir = join(userDataDir, 'hooks-bin');
     this.shimFile = join(this.binDir, SHIM_FILENAME);
@@ -202,7 +209,11 @@ export class HookBridge {
         PostToolUse: [entry('*')],
         Notification: [entry()],
         Stop: [entry()],
-        SubagentStop: [entry()]
+        SubagentStop: [entry()],
+        // Phase 8.5 Wave B item 4 — fires just before a compaction; the
+        // post-compact SessionStart (source: 'compact') that follows is
+        // already covered by the SessionStart entry above.
+        PreCompact: [entry()]
       }
     };
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
@@ -223,6 +234,7 @@ export class HookBridge {
     const agentId = p.harness_agent_id ?? undefined;
     const eventName = p.hook_event_name ?? 'Unknown';
     if (!agentId) return {}; // no session to route to — drop silently
+    this.onRawPayload?.(agentId, p.transcript_path);
     if (!isKnownHookEvent(eventName)) return {};
 
     const tool = normalizeToolName(p.tool_name);

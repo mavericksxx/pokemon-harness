@@ -15,7 +15,14 @@ export type HookEventName =
   | 'PostToolUse'
   | 'Notification'
   | 'Stop'
-  | 'SubagentStop';
+  | 'SubagentStop'
+  // Phase 8.5 Wave B item 4 — fires just before Claude Code compacts the
+  // conversation; a post-compact `SessionStart` (source: 'compact') follows.
+  // Confirmed present in the installed CLI (2.1.250: `strings` on the binary
+  // shows "PreCompact" wired as a real hook type, matching Anthropic's public
+  // hooks docs) — not observed from a live session, since this app is never
+  // allowed to spawn a real `claude` for testing (see hookRouter.ts).
+  | 'PreCompact';
 
 /** Raw JSON the generated shim forwards over the socket — one line, Claude's
  *  own hook payload shape plus the `harness_agent_id` the shim stamps from
@@ -33,6 +40,12 @@ export interface HookPayload {
   notification_type?: string;
   message?: string;
   source?: string;
+  /** Absolute path to this session's own transcript .jsonl — present on the
+   *  CLI's real hook payloads (confirmed via the installed binary). Phase
+   *  8.5 Wave B item 1's cost/context HUD reads it via HookBridge's
+   *  `onRawPayload` constructor param rather than reconstructing the
+   *  munged-cwd transcript directory name itself. */
+  transcript_path?: string;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */
@@ -57,7 +70,8 @@ const KNOWN_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
   'PostToolUse',
   'Notification',
   'Stop',
-  'SubagentStop'
+  'SubagentStop',
+  'PreCompact'
 ]);
 
 export function isKnownHookEvent(name: string): name is HookEventName {

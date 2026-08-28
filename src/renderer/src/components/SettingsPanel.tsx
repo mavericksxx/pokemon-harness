@@ -5,6 +5,14 @@ import { playerNext, playerPickTrack, playerPrev, playerTogglePause } from '@/au
 import { GEN_LABELS, GEN_ORDER, MUSIC_CATALOG, MUSIC_CATALOG_BY_ID, type MusicGen } from '@shared/musicCatalog';
 import { shinyConfig } from '@/scene/garden/shiny';
 import { evolutionConfig } from '@/scene/garden/evolution';
+import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
+import { startClosingTime } from '@/closingTime';
+import {
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_MIN
+} from '@shared/terminalTypes';
 
 /** Cap on rendered rows in the mini-player's track list — see AudioPopover's
  *  old header comment (this replaces it verbatim, Phase 8 §5). */
@@ -42,6 +50,9 @@ export function SettingsPanel(): JSX.Element {
   const setSfxOn = useAudioStore((s) => s.setSfxOn);
   const setSfxVolume = useAudioStore((s) => s.setSfxVolume);
   const setGenFilter = useAudioStore((s) => s.setGenFilter);
+  const terminalSettings = useTerminalSettingsStore((s) => s.settings);
+  const setFontSize = useTerminalSettingsStore((s) => s.setFontSize);
+  const setScrollback = useTerminalSettingsStore((s) => s.setScrollback);
 
   // Esc closes, matching the sessions overview / new-session modals.
   useEffect(() => {
@@ -208,6 +219,36 @@ export function SettingsPanel(): JSX.Element {
         </section>
 
         <section className="settings-section">
+          <h3>Terminal</h3>
+          <div className="audio-row">
+            <span>Font size</span>
+            <input
+              type="range"
+              min={TERMINAL_FONT_SIZE_MIN}
+              max={TERMINAL_FONT_SIZE_MAX}
+              step={1}
+              value={terminalSettings.fontSize}
+              onChange={(e) => setFontSize(Number(e.target.value))}
+              aria-label="Terminal font size"
+            />
+            <span className="hint">{terminalSettings.fontSize}px</span>
+          </div>
+          <div className="audio-row">
+            <span>Scrollback</span>
+            <input
+              type="range"
+              min={TERMINAL_SCROLLBACK_MIN}
+              max={TERMINAL_SCROLLBACK_MAX}
+              step={1000}
+              value={terminalSettings.scrollback}
+              onChange={(e) => setScrollback(Number(e.target.value))}
+              aria-label="Terminal scrollback depth"
+            />
+            <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
+          </div>
+        </section>
+
+        <section className="settings-section">
           <h3>Config</h3>
           <p className="hint settings-config-note">
             Env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
@@ -220,6 +261,16 @@ export function SettingsPanel(): JSX.Element {
             <dt>Evolve to stage 3</dt>
             <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
           </dl>
+        </section>
+
+        <section className="settings-section">
+          <h3>Closing time</h3>
+          <p className="hint">
+            Every session's Pokémon heads for the garden gate and waves out, then the app quits. Esc cancels.
+          </p>
+          <button type="button" onClick={() => startClosingTime()}>
+            Wrap up &amp; quit <span className="hint">⌘⇧Q</span>
+          </button>
         </section>
       </aside>
     </>

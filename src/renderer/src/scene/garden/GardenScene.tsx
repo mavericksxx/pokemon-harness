@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Application, Container } from 'pixi.js';
 // Pixi 8 compiles shader/uniform code with `new Function` by default, which the
 // renderer's CSP (no 'unsafe-eval') forbids. This is Pixi's own supported
@@ -17,6 +17,8 @@ import { initShinyConfig } from './shiny';
 import { randomAnimatedSpecies, speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
 import { GardenCharm } from './gardenCharm';
+import { ClosingRitual } from './ClosingRitual';
+import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
 import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
@@ -53,6 +55,14 @@ interface Runtime {
 
 export function GardenScene(): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
+  // Closing-time sunset overlay (Phase 8.5 Wave B item 2) — a CSS layer on
+  // `.garden-mat` (not a Pixi layer: it needs to cover the whole mat,
+  // including the letterbox, and mustn't scale with the camera or be
+  // crushed by an in-flight evolution ceremony's own dim overlay). Plain
+  // React state is fine here even though the rest of this component is
+  // imperative Pixi: this is the one piece of UI actually in the React tree
+  // (see the JSX return below).
+  const [ritualActive, setRitualActive] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -198,6 +208,30 @@ export function GardenScene(): JSX.Element {
         layer: charLayer,
         onOpenSessions: () => useStore.getState().setSessionsOverviewOpen(true),
         onOpenSettings: () => useStore.getState().setSettingsOpen(true)
+      });
+
+      // Closing-time sunset ritual (Phase 8.5 Wave B item 2) — see
+      // ClosingRitual.ts and closingRitualBus.ts. 'start'/'cancel' arrive
+      // from closingTime.ts (settings button / Cmd+Shift+Q / Escape); this
+      // is the only place a walker's own goTo is called for the ritual —
+      // 'complete' flows back out so closingTime.ts can toast + quit.
+      const closingRitual = new ClosingRitual(map);
+      const offRitual = onClosingRitualSignal((signal) => {
+        if (signal.type === 'start') {
+          setRitualActive(true);
+          const entries = new Map(
+            [...runtimes].map(([id, rt]) => [id, { walker: rt.walker }])
+          );
+          closingRitual.start(entries, (wrappedCount) => {
+            emitClosingRitualSignal({ type: 'complete', wrappedCount });
+          });
+        } else if (signal.type === 'cancel') {
+          closingRitual.cancel();
+          setRitualActive(false);
+        }
+        // 'complete' is closingTime.ts's own signal to itself (it's the one
+        // that toasts + quits) — nothing for the scene to do with it, and
+        // the overlay deliberately stays lit until the app actually quits.
       });
 
       /** Bundled + not-shiny needs no fetch at all; everything else (any
@@ -346,12 +380,19 @@ export function GardenScene(): JSX.Element {
           // the styling surface.
           walker.setLabel(session.looping ? `${session.title} 💫` : session.title);
           walker.setStatus(session.status);
+          // Napping (Phase 8.5 Wave B items 3/4) — plain-shell idle 30s+, or a
+          // claude session between PreCompact and its post-compact
+          // SessionStart. `Walker.setNapping` is idempotent on repeat calls
+          // with the same value.
+          walker.setNapping(!!session.napping);
 
           // A battling parent owns its own walker's position/facing for the
           // duration (approach/faceoff/attack loop) — the normal station
           // reconcile stands down until BattleManager hands it back via
-          // onBattleEnd, which resets lastStation so this picks up again.
-          if (!battleManager.isBattling(session.id)) {
+          // onBattleEnd, which resets lastStation so this picks up again. A
+          // napping walker owns its own position the same way — it stays
+          // parked until it wakes.
+          if (!battleManager.isBattling(session.id) && !walker.isNapping) {
             const station: StationKind =
               session.status === 'blocked'
                 ? BLOCKED_STATION
@@ -371,11 +412,13 @@ export function GardenScene(): JSX.Element {
             }
           }
 
-          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}|${session.looping ? 1 : 0}`;
+          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}|${session.looping ? 1 : 0}|${!!session.napping}`;
           if (toolKey !== rt.lastToolKey) {
             rt.lastToolKey = toolKey;
             if (session.looping) {
               walker.showText('looping 💫');
+            } else if (session.napping) {
+              walker.hideBubble();
             } else if (session.status === 'working' && session.tool) {
               walker.showTool(session.tool, session.toolTarget ?? '');
             } else if (session.status === 'working') {
@@ -408,6 +451,7 @@ export function GardenScene(): JSX.Element {
         // overwrites with a fresh absolute (base + offset) value rather than
         // fighting Walker's own syncPosition from a stale frame.
         battleManager.update(dt);
+        closingRitual.update(dt);
 
         flushAccum += dt;
         if (flushAccum >= 1) {
@@ -458,6 +502,7 @@ export function GardenScene(): JSX.Element {
       cleanup = (): void => {
         ro.disconnect();
         unsubscribe();
+        offRitual();
         for (const id of [...runtimes.keys()]) removeWalker(id);
         battleManager.dispose();
         clearBattleFx();
@@ -487,6 +532,7 @@ export function GardenScene(): JSX.Element {
       <div className="garden" ref={hostRef}>
         <div className="garden-frame-shadow" />
       </div>
+      <div className={ritualActive ? 'garden-sunset-overlay active' : 'garden-sunset-overlay'} aria-hidden="true" />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { toolIcon } from '@/scene/garden/ToolBubble';
 import { speciesEntry } from '@/scene/garden/dexData';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
-import { statusLabel } from '@/design/statusLabel';
+import { sessionStatusLabel } from '@/design/sessionLabel';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
  *  status, current tool, an evolution progress hint, and a shiny star.
@@ -27,6 +27,12 @@ function evolutionHint(session: Session): { pct: number; label: string } | undef
   return { pct: Math.min(1, session.workedMs / threshold), label: 'next evolution' };
 }
 
+/** "~41k" — the cost gauge's compact token count. Under 1000 shown verbatim
+ *  (no point abbreviating a 3-digit number). */
+function formatTokenCount(n: number): string {
+  return n >= 1000 ? `~${Math.round(n / 1000)}k` : `${n}`;
+}
+
 export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Element {
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
   const toolText = session.tool
@@ -37,6 +43,14 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
         ? 'working…'
         : '';
   const hint = evolutionHint(session);
+  // Cost & context HUD (Phase 8.5 Wave B item 1) — undefined for a
+  // non-claude session (or a claude session whose transcript hasn't been
+  // parsed yet), which is the gauge's own "don't render" signal.
+  const cost = session.cost;
+  const contextPct = cost ? Math.min(1, cost.contextTokens / cost.contextWindow) : 0;
+  const gaugeTip = cost
+    ? `${formatTokenCount(cost.contextTokens)} / ${formatTokenCount(cost.contextWindow)} context (approx.) · $${cost.costUsd.toFixed(2)}`
+    : '';
 
   return (
     <button
@@ -58,11 +72,11 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           <span className="roster-card-name">{session.title}</span>
           <span className="roster-card-provider">{providerLabel}</span>
         </span>
-        {/* Phase 8.5 #3: `looping` is a flag orthogonal to `status`, not a
-            new status value (see loopDetector.ts's header) — same badge
-            class, just a different label, so this needs no new CSS. */}
-        <em className={`status ${session.status}`}>
-          {session.looping ? '💫 looping' : statusLabel(session.status)}
+        {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
+            `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
+            the label because it's the one that needs the user's eyes. */}
+        <em className={session.napping ? 'status napping' : `status ${session.status}`}>
+          {session.looping ? '💫 looping' : sessionStatusLabel(session)}
         </em>
       </div>
 
@@ -71,6 +85,12 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
       {hint && (
         <div className="roster-card-evo" title={hint.label}>
           <div className="roster-card-evo-fill" style={{ width: `${Math.round(hint.pct * 100)}%` }} />
+        </div>
+      )}
+
+      {cost && (
+        <div className="roster-card-gauge" title={gaugeTip} aria-label={gaugeTip}>
+          <div className="roster-card-gauge-fill" style={{ width: `${Math.round(contextPct * 100)}%` }} />
         </div>
       )}
     </button>
