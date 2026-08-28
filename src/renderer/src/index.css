@@ -462,6 +462,12 @@ button.icon:active {
  * same tinted chips clears 7-9:1 across every status, comfortably. */
 .status {
   display: inline-flex;
+  /* Never shrink below its own text — a flex sibling of `.roster-card-id`
+   * (which has `min-width: 0` precisely so IT gives up space first), the
+   * badge otherwise shrank along with it once the roster strip (parity
+   * sweep item 5) narrowed the card to a fixed 220px, clipping "needs you"
+   * / "idle" mid-glyph at the card's right edge. */
+  flex-shrink: 0;
   align-items: center;
   gap: 4px;
   font-style: normal;
@@ -470,6 +476,7 @@ button.icon:active {
   padding: 1px 6px 1px 5px;
   color: var(--text);
   background: transparent;
+  white-space: nowrap;
 }
 
 .status::before {
@@ -1015,6 +1022,15 @@ button.icon:active {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* `.roster-card` is a <button> — Chromium doesn't reliably stretch a flex
+   * child to a button's content-box width the way it would inside a <div>
+   * (a known button/flex-container quirk), so this row was sizing to its
+   * own content's natural width instead of the card's, letting the status
+   * badge spill past the card's fixed 220px strip width (parity sweep item
+   * 5) instead of `.roster-card-id`'s min-width:0 + ellipsis absorbing it.
+   * Forcing the width explicitly sidesteps the quirk. */
+  width: 100%;
+  min-width: 0;
 }
 
 .roster-card-face {
@@ -1032,7 +1048,15 @@ button.icon:active {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  flex: 1;
+  /* `flex: 1` (shorthand for `1 1 0%`) gives this a flex-basis of 0 — which
+   * also makes its SHRINK weight zero (weight = flex-shrink x flex-basis),
+   * so it couldn't actually absorb a width deficit and the row overflowed
+   * past the card's fixed 220px in the roster strip (parity sweep item 5)
+   * instead of this column truncating. `1 1 auto` keeps the same grow
+   * behavior but computes its shrink weight from its real content size, so
+   * it correctly gives up space first — `.roster-card-name`'s existing
+   * ellipsis then has something to actually truncate against. */
+  flex: 1 1 auto;
 }
 
 .roster-card-name {
