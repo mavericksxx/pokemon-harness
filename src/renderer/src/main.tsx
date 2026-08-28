@@ -26,6 +26,8 @@ import { applyTheme } from './design/tokens';
 import { resolveEffectiveTheme, watchSystemTheme } from './design/theme';
 import { startQuitInterceptListener } from './closingTime';
 import { startUpdateCheckListener } from './updateNotifier';
+import { safeLogDiagnostic } from './diagnosticsClient';
+import { startCounterReporting } from './diagnosticsCounters';
 import './index.css';
 
 // Design tokens (Phase 8 §2) — stamped onto :root before anything paints, so
@@ -43,6 +45,27 @@ startQuitInterceptListener();
 // Tier-1 update check (ship-cut item 4) — same independent-of-boot()
 // wiring as the quit-intercept listener above.
 startUpdateCheckListener();
+
+// Local-only diagnostics (BACKLOG item 1) — error capture + invariant
+// counters, both independent of boot()'s async recovery work, same as the
+// listeners above. `data` is kept to plain scalars/strings at both call
+// sites, matching diagnosticsClient.ts's own safety note.
+window.addEventListener('error', (e) => {
+  safeLogDiagnostic('renderer', 'error', e.message || 'window error', {
+    filename: e.filename,
+    lineno: e.lineno,
+    colno: e.colno,
+    stack: e.error instanceof Error ? e.error.stack : undefined
+  });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const reason: unknown = e.reason;
+  safeLogDiagnostic('renderer', 'error', 'unhandled promise rejection', {
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined
+  });
+});
+startCounterReporting();
 
 // Independent of the garden scene's own mount/unmount — the speaker popover
 // works even before/without it (see audioEngine.ts's initAudio doc comment).

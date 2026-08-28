@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## unreleased
+
+- local-only diagnostics: rotated JSONL log at `<harness home>/logs/harness.log` (2MB cap, 3 files kept); captures main uncaughtException/unhandledRejection, render-process-gone, malformed hook payloads, the harmless second-instance EADDRINUSE on the hooks socket, and nonzero pty exits, plus renderer errors (window.onerror/unhandledrejection) forwarded over IPC; invariant counters (battles started/resolved, hook events received/routed/dropped, subagents spawned/materialized/cleaned up) snapshotted every 60s and on quit, with a warn logged when a pair stays diverged too long; Settings gains a "diagnostics" row (app + electron version, logs folder with an open-logs button, errors-this-session count). Nothing here ever leaves the machine.
+
 ## v1.1.0 — 2026-08-28
 
 - long-text overflow fixes: compact tool labels everywhere (bash → `cmd …tail`, paths → `…/parent/file.ext`), roster-card/workspace-button/session-chip truncation, hardened topbar brand inset

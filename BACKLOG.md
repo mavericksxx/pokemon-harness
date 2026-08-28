@@ -21,11 +21,10 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ## post-v1.1.0 (one at a time, in rough order)
 
-1. **local diagnostics / metrics** — local-only, nothing phones home: rotated structured log in `~/PokemonHarness/logs/`; capture main-process uncaughtException/unhandledRejection, renderer errors via IPC, render-process-gone details, hook parse failures, nonzero pty exits; invariant counters (battles started vs resolved, hook events received vs routed, subagents spawned vs materialized); settings "diagnostics" row (version, open logs, recent-error count).
-2. **arceus dispatch box** — the "describe the task — arceus assigns it" box currently duplicates the terminal (no routing exists yet). Hide it or wire it as a distinct assignment-prompt wrapper until item 3 lands.
-3. **"tell chikorita to do X" routing** — speak to arceus naming an agent; arceus relays the instruction to that agent's session. North star of the agent-society phase (claude↔claude cross-session messaging; codex/cursor via file inboxes; per-agent memory; periodic arceus status reports).
-4. **arceus persona delivery** — evaluate munder difflin's approach (persona sent as an actual first prompt) vs our `--append-system-prompt`. Trade-offs: system prompt survives compaction and is firmer; first message is transcript-visible and matches MD. Deliberate decision, not a bug.
-5. **nebula backdrop grain** — reads too "zoomed in": rendered at coarse internal resolution then upscaled. Fix: higher internal resolution / finer noise, smaller + denser stars. Keep palette, composition, and the calm center zone.
+1. **arceus dispatch box** — the "describe the task — arceus assigns it" box currently duplicates the terminal (no routing exists yet). Hide it or wire it as a distinct assignment-prompt wrapper until item 2 lands.
+2. **"tell chikorita to do X" routing** — speak to arceus naming an agent; arceus relays the instruction to that agent's session. North star of the agent-society phase (claude↔claude cross-session messaging; codex/cursor via file inboxes; per-agent memory; periodic arceus status reports).
+3. **arceus persona delivery** — evaluate munder difflin's approach (persona sent as an actual first prompt) vs our `--append-system-prompt`. Trade-offs: system prompt survives compaction and is firmer; first message is transcript-visible and matches MD. Deliberate decision, not a bug.
+4. **nebula backdrop grain** — reads too "zoomed in": rendered at coarse internal resolution then upscaled. Fix: higher internal resolution / finer noise, smaller + denser stars. Keep palette, composition, and the calm center zone.
 
 ## smaller known items
 
@@ -33,7 +32,6 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 - light-theme lemon accent contrast (~2.3:1) — disclosed, revisit
 - cursor-agent binary name check (`which cursor-agent` vs `which agent`)
 - Cmd+0 reset-zoom returns to 100% instead of the −0.5 default (needs custom app menu)
-- EADDRINUSE hooks-socket note when a second app instance launches (harmless, could message better)
 
 ## bigger later
 

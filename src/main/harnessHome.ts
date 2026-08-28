@@ -39,6 +39,8 @@ This is the harness's town hall — the one folder on disk it keeps for you
   need to touch it by hand.
 - \`agents/\` — reserved for a future phase (per-agent memory and inboxes).
   Empty for now.
+- \`logs/\` — local-only diagnostics log (\`harness.log\`, rotated). Nothing in
+  here is ever sent anywhere; it's for your own eyes if something goes wrong.
 
 ## Moving this folder
 

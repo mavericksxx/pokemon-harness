@@ -14,6 +14,7 @@ import type { HookEvent } from '@shared/hookEvents';
 import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { bumpCounter } from '@/diagnosticsCounters';
 import { noteToolUse, resetLoopStreak } from './loopDetector';
 
 /** How long a claude session's hooks may go quiet before regex fallback
@@ -35,12 +36,20 @@ export function clearHookAuthority(sessionId: string): void {
 }
 
 export function handleHookEvent(sessionId: string, evt: HookEvent): void {
+  // Invariant counters (BACKLOG item 1 #3) — see diagnosticsCounters.ts's
+  // file header for why this is renderer-scoped (main-side drops in
+  // hookBridge.ts never reach here at all).
+  bumpCounter('hookEventsReceived');
   lastHookAt.set(sessionId, Date.now());
   // A hook can arrive after the pty itself already exited (e.g. a trailing
   // Stop racing the process's own exit) — never resurrect a done session's
   // state, same guard the regex parser's idle timer uses.
   const live = useStore.getState().sessions.find((s) => s.id === sessionId);
-  if (!live || live.status === 'done') return;
+  if (!live || live.status === 'done') {
+    bumpCounter('hookEventsDropped');
+    return;
+  }
+  bumpCounter('hookEventsRouted');
   const update = (patch: Parameters<ReturnType<typeof useStore.getState>['updateSession']>[1]): void =>
     useStore.getState().updateSession(sessionId, patch);
 
@@ -84,7 +93,10 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // Emit BEFORE the store update: BattleManager must mark this session as
       // battling before GardenScene's reconcile sees the station change, or
       // the parent's walker briefly starts walking to a station this tick.
-      if (tool === 'Task') emitBattleSignal({ type: 'spawn', parentId: sessionId });
+      if (tool === 'Task') {
+        emitBattleSignal({ type: 'spawn', parentId: sessionId });
+        bumpCounter('subagentsSpawned');
+      }
       update({
         status: 'working',
         tool: evt.tool,

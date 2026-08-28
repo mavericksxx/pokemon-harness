@@ -16,6 +16,7 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
 import { showUpdateToast } from '@/updateNotifier';
+import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
  *  item 1) — the ones with a verified `autoModeArgs` in agentProvider.ts. */
@@ -90,6 +91,27 @@ export function SettingsPanel(): JSX.Element {
     const picked = await window.api.chooseFolder();
     if (picked) setHarnessHomeDir(picked);
   };
+
+  // Diagnostics (BACKLOG item 1) — version/logs-path/error-count row.
+  // Polled every few seconds while the panel is open (not pushed — main has
+  // no reason to know or care whether Settings is on screen) so the
+  // error-count stays roughly live without a dedicated push channel.
+  const [diagnosticsInfo, setDiagnosticsInfo] = useState<DiagnosticsInfo | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const poll = (): void => {
+      void window.api.getDiagnosticsInfo().then((info) => {
+        if (!cancelled) setDiagnosticsInfo(info);
+      });
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [open]);
 
   // Esc closes, matching the sessions overview / new-session modals.
   useEffect(() => {
@@ -306,6 +328,25 @@ export function SettingsPanel(): JSX.Element {
           {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
             <p className="hint">{checkStatus}</p>
           )}
+        </section>
+
+        <section className="settings-section">
+          <h3>diagnostics</h3>
+          <p className="hint">local-only — this never leaves your machine.</p>
+          <dl className="settings-config-list">
+            <dt>app version</dt>
+            <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
+            <dt>electron</dt>
+            <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
+            <dt>errors this session</dt>
+            <dd>{diagnosticsInfo ? diagnosticsInfo.recentErrorCount : '—'}</dd>
+          </dl>
+          <div className="row harness-home-row">
+            <input value={diagnosticsInfo?.logDir ?? ''} readOnly spellCheck={false} title={diagnosticsInfo?.logDir ?? ''} />
+            <button type="button" onClick={() => void window.api.openLogsFolder()}>
+              open logs
+            </button>
+          </div>
         </section>
       </aside>
       {resetArceusOpen && <ResetArceusDialog onClose={() => setResetArceusOpen(false)} />}

@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
+import { log } from './diagnostics';
 import type { PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
@@ -144,6 +145,9 @@ export class PtyManager {
 
       proc.onExit(({ exitCode, signal }) => {
         if (this.sessions.get(opts.id) !== session) return;
+        if (exitCode !== 0) {
+          log('pty', 'warn', 'session exited nonzero', { id: opts.id, command: session.command, exitCode, signal });
+        }
         this.sessions.delete(opts.id);
         this.onSessionsChanged?.();
         this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal });

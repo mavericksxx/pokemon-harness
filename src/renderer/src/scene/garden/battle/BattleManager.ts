@@ -72,6 +72,7 @@ import { Battler } from './Battler';
 import { spawnExclaimBubble, spawnHitFlash, spawnShinySparkle, spawnSparkleBurst, tickBattleFx } from './battleFx';
 import { rollShiny } from '../shiny';
 import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
+import { bumpCounter } from '@/diagnosticsCounters';
 
 const LUNGE_MS = 150;
 const HOLD_MS = 150;
@@ -122,8 +123,11 @@ const CORNER_MARGIN = 3;
 /** Hard cap on how long a subagent may sit in `wandering` before this app
  *  gives up waiting for a completion signal and plays its final battle
  *  anyway — see file header on why this exists at all. Generous: real
- *  subagent work can run for many minutes. */
-const WANDER_SAFETY_MS = 8 * 60 * 1000;
+ *  subagent work can run for many minutes. Exported so diagnosticsCounters.ts
+ *  can size its "materialized vs cleaned up" divergence threshold above this
+ *  — a subagent legitimately sitting in `wandering` this long is normal, not
+ *  a stuck counter. */
+export const WANDER_SAFETY_MS = 8 * 60 * 1000;
 /** Watchdog for `alert`/`approaching` specifically — the only two wave
  *  phases NOT bounded purely by dt accumulation (faceoff/looping/ending all
  *  progress on a fixed clock regardless of anyone's position). If a goTo()
@@ -315,6 +319,11 @@ export class BattleManager {
   forceEnd(parentId: string): void {
     const pb = this.battles.get(parentId);
     if (!pb) return;
+    // A wave still active when a session is force-ended never reaches
+    // concludeWave/handleEndAll's own bump — without this, killing a session
+    // mid-skirmish would leave battlesStarted permanently ahead of
+    // battlesResolved (see diagnosticsCounters.ts's divergence check).
+    if (pb.wave !== 'idle') bumpCounter('battlesResolved');
     this.destroyBattle(pb);
     this.battles.delete(parentId);
     notifyBattleEnd(parentId);
@@ -323,6 +332,7 @@ export class BattleManager {
   dispose(): void {
     this.unsubscribe();
     for (const [parentId, pb] of this.battles) {
+      if (pb.wave !== 'idle') bumpCounter('battlesResolved');
       this.destroyBattle(pb);
       notifyBattleEnd(parentId);
     }
@@ -449,6 +459,11 @@ export class BattleManager {
       wanderSince: 0
     };
     pb.subs.push(sub);
+    // "Materialized" (vs. hookRouter.ts's "spawned" bump on the Task tool
+    // call itself) — this is the point a real battler enters the world; the
+    // gap between the two counters is exactly the `!rt`/`!species` guards
+    // above.
+    bumpCounter('subagentsMaterialized');
 
     if (shiny) {
       spawnShinySparkle(battler.container, -battler.drawnHeight - 8);
@@ -521,6 +536,7 @@ export class BattleManager {
       sub.battler.startPoofOut();
     }
     if (pb.wave !== 'idle') {
+      bumpCounter('battlesResolved');
       pb.wave = 'idle';
       pb.waveRing = [];
       pb.currentAttack = null;
@@ -593,6 +609,7 @@ export class BattleManager {
     for (const sub of admitted) sub.lifecycle = 'ring';
     pb.waveRing = admitted;
     pb.wave = 'alert';
+    bumpCounter('battlesStarted');
     pb.waveElapsedMs = 0;
     pb.waveStartedAt = Date.now();
     pb.waveAttacks = 0;
@@ -932,6 +949,7 @@ export class BattleManager {
     }
     pb.waveRing = [];
     pb.wave = 'idle';
+    bumpCounter('battlesResolved');
     pb.parentWalker.setForcedBackView(false);
     this.deps.onBattleEnd(pb.parentId);
     notifyBattleEnd(pb.parentId); // crossfades back to ambient once this was the last active wave anywhere
@@ -1012,12 +1030,19 @@ export class BattleManager {
     pb.subs = pb.subs.filter((sub) => {
       if (sub.lifecycle !== 'leaving' || !sub.battler.isPoofedOut) return true;
       sub.battler.destroy();
+      bumpCounter('subagentsCleanedUp');
       return false;
     });
   }
 
+  /** Hard teardown (forceEnd/dispose) — every remaining sub is destroyed
+   *  with no poof ceremony, so each one counts as cleaned up right here
+   *  rather than through reapSubs, which this bypasses entirely. */
   private destroyBattle(pb: ParentBattle): void {
-    for (const sub of pb.subs) sub.battler.destroy();
+    for (const sub of pb.subs) {
+      sub.battler.destroy();
+      bumpCounter('subagentsCleanedUp');
+    }
     pb.parentWalker.setForcedBackView(false);
   }
 }

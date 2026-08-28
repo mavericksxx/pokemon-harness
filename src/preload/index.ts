@@ -20,6 +20,7 @@ import type { AppSettings } from '../shared/appSettingsTypes';
 import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
+import type { DiagnosticsInfo, LogLevel } from '../shared/diagnosticsTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -192,7 +193,15 @@ const api = {
     const listener = (_e: IpcRendererEvent, result: UpdateCheckResult): void => cb(result);
     ipcRenderer.on('update:available', listener);
     return () => ipcRenderer.removeListener('update:available', listener);
-  }
+  },
+
+  // ─── Diagnostics (BACKLOG item 1) — local-only, nothing here leaves the
+  // machine. ─────────────────────────────────────────────────────────────
+  logDiagnostic: (area: string, level: LogLevel, message: string, data?: unknown): Promise<void> =>
+    ipcRenderer.invoke('diagnostics:log', area, level, message, data),
+  getDiagnosticsInfo: (): Promise<DiagnosticsInfo> => ipcRenderer.invoke('diagnostics:getInfo'),
+  /** Settings panel's "open logs" button — `shell.openPath` via IPC. */
+  openLogsFolder: (): Promise<void> => ipcRenderer.invoke('diagnostics:openLogs')
 };
 
 export type HarnessApi = typeof api;

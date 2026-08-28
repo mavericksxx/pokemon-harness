@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerSaveBlocker, shell } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
@@ -18,6 +18,7 @@ import { ensureArceusSystemPrompt } from './arceusPrompt';
 import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from './arceusSummonConfig';
 import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
 import { checkForUpdate } from './updateCheck';
+import { getLogDir, getRecentErrorCount, initDiagnostics, log } from './diagnostics';
 import type {
   DiskRestoreInfo,
   LazySpriteMeta,
@@ -33,6 +34,7 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
+import type { LogLevel } from '../shared/diagnosticsTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -49,6 +51,35 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // here — must run before `app.whenReady()` to reliably affect the dock/menu
 // bar in both dev and packaged builds.
 app.setName('Pokéharness');
+
+// ─── Local-only diagnostics (BACKLOG item 1) ───────────────────────────────
+// Pointed at the DEFAULT harness home right away (settings aren't loaded
+// yet at module-load time) so even a very early startup crash gets logged
+// somewhere; re-pointed at the resolved (possibly customized) directory once
+// settings load in `app.whenReady()` below, and again on every later change
+// (see `appSettings:saveSettings`) — same "future writes only, nothing
+// already on disk moves" contract harnessHome.ts's own ensureHarnessHome
+// follows.
+initDiagnostics(defaultHarnessHomeDir());
+
+// Preserve Electron/Node's existing fatal behavior for an uncaught
+// exception (an unhandled error here already crashes the process today) —
+// this only ADDS a log line before that happens, it must never turn a crash
+// into silent continuation.
+process.on('uncaughtException', (err) => {
+  log('main', 'error', 'uncaughtException', { message: err?.message, stack: err?.stack });
+  process.exit(1);
+});
+// Deliberately does NOT process.exit() here, unlike uncaughtException above:
+// whether an unhandled rejection is currently fatal depends on Node's
+// --unhandled-rejections flag/version behavior, which isn't something this
+// change should second-guess — forcing a hard exit here (skipping
+// `before-quit`'s flush/killAll) risks turning a survivable event into lost
+// session state, a worse outcome than under-logging. Log only.
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : undefined;
+  log('main', 'error', 'unhandledRejection', { message: err?.message ?? String(reason), stack: err?.stack });
+});
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -436,9 +467,7 @@ function createWindow(backgroundColor: string): void {
   // `crashTimestamps` is the only protection against a genuine crash loop.
   let crashTimestamps: number[] = [];
   win.webContents.on('render-process-gone', (_event, details) => {
-    console.error(
-      `[main] renderer process gone — reason: ${details.reason}, exitCode: ${details.exitCode}`
-    );
+    log('renderer', 'error', 'render-process-gone', { reason: details.reason, exitCode: details.exitCode });
 
     const now = Date.now();
     crashTimestamps = crashTimestamps.filter((t) => now - t < CRASH_WINDOW_MS);
@@ -506,6 +535,11 @@ app.whenReady().then(async () => {
   keepAwakeEnabled = appSettings.keepAwake;
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
+  initDiagnostics(harnessHomeDir);
+  // One line per launch — also guarantees `logs/` actually exists on disk
+  // (the folder is otherwise created lazily on first write) so the Settings
+  // panel's "open logs" button isn't a no-op on a fresh install.
+  log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
   createWindow(resolveWindowBg(appSettings.theme));
   diskRestorePromise = restoreFromDisk();
   app.on('activate', () => {
@@ -655,6 +689,7 @@ ipcMain.handle('appSettings:saveSettings', async (_e, settings: AppSettings) => 
     harnessHomeDir = nextHarnessHomeDir;
     await ensureHarnessHome(harnessHomeDir);
     saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+    initDiagnostics(harnessHomeDir); // future log writes only — see its own comment
   }
 
   await saveAppSettings(settings);
@@ -791,6 +826,37 @@ ipcMain.handle('app:openExternal', (_e, url: string) => shell.openExternal(url))
 // "you're up to date"), since a user who clicked the button is owed an
 // answer, not silence.
 ipcMain.handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
+
+// ─── Diagnostics (BACKLOG item 1) — local-only, nothing here leaves the
+// machine. ───────────────────────────────────────────────────────────────
+// Renderer → main log forwarding: window.onerror/unhandledrejection
+// (main.tsx), the counter snapshots (diagnosticsCounters.ts) — all routed
+// through the same `log()` hookBridge/pty/uncaughtException use, so the
+// Settings panel's "errors this session" count covers renderer-origin
+// errors too.
+ipcMain.handle('diagnostics:log', (_e, area: string, level: LogLevel, message: string, data?: unknown) =>
+  log(area, level, message, data)
+);
+ipcMain.handle('diagnostics:getInfo', () => ({
+  appVersion: app.getVersion(),
+  electronVersion: process.versions.electron,
+  logDir: getLogDir(),
+  recentErrorCount: getRecentErrorCount()
+}));
+// Settings panel's "open logs" button. `logDir` is only null if
+// initDiagnostics somehow never ran — falls back to harnessHomeDir itself
+// so the button still does something reasonable rather than silently no-op.
+// The `log()` in whenReady() already creates the folder on every normal
+// boot, but mkdirSync here too in case nothing has actually logged yet.
+ipcMain.handle('diagnostics:openLogs', () => {
+  const dir = getLogDir() ?? harnessHomeDir;
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    /* best-effort — openPath below will just fail visibly if this did too */
+  }
+  return shell.openPath(dir);
+});
 
 // ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
 ipcMain.handle('terminal:getSettings', () => loadTerminalSettings());

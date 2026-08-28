@@ -26,6 +26,7 @@ import { createServer, type Server } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebContents } from 'electron';
+import { log } from './diagnostics';
 import {
   isKnownHookEvent,
   normalizeToolName,
@@ -147,7 +148,10 @@ export class HookBridge {
         try {
           payload = JSON.parse(buf.slice(0, nl));
         } catch {
-          /* malformed line — respond empty rather than hang the shim */
+          // Malformed line — respond empty rather than hang the shim.
+          // Capped: this is the one place raw, agent-controlled content
+          // enters the diagnostics log.
+          log('hooks', 'warn', 'malformed hook payload — dropped', { raw: buf.slice(0, nl).slice(0, 500) });
         }
         let res: unknown = {};
         try {
@@ -165,7 +169,19 @@ export class HookBridge {
         /* shim hung up early — ignore */
       });
     });
-    this.server.on('error', (e) => console.error('[hooks] socket server error:', e));
+    this.server.on('error', (e: NodeJS.ErrnoException) => {
+      // EADDRINUSE here means a second app instance is running (both bind
+      // the same per-userData sockPath) — harmless: the first instance's
+      // socket keeps serving hooks fine, the second just won't route any
+      // (see BACKLOG's known-items note this closes).
+      if (e.code === 'EADDRINUSE') {
+        log('hooks', 'warn', 'hooks socket already in use — likely a second app instance; its hook events will be dropped', {
+          sockPath: this.sockPath
+        });
+      } else {
+        log('hooks', 'error', 'hooks socket server error', { message: e.message, code: e.code });
+      }
+    });
     this.server.listen(this.sockPath);
   }
 
