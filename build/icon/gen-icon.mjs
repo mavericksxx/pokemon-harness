@@ -1,13 +1,25 @@
 // Pokéharness app icon — production generator.
 //
-// Reproduces, verbatim, the user-approved mockup recipe (round 4 of the
-// icon-mockup exploration, candidate 35): a real Pokemon Showdown Garchomp
-// sprite (assets/garchomp-front.png, 96x96, gen5 static front sheet)
-// centered natively on a 128-unit squircle grid, deep-indigo ground with
-// three dithered nebula clusters, a sparse gold star field, and a solid
-// gold ">" caret top-left — the same drawing primitives (Float64Array pixel
-// grid, hand-rolled zlib PNG encoder, nearest-neighbor upscale / box-average
-// downscale) as the mockup toolkit it's ported from.
+// Based on the user-approved mockup recipe (round 4 of the icon-mockup
+// exploration, candidate 35): a real Pokemon Showdown Garchomp sprite
+// (assets/garchomp-front.png, 96x96, gen5 static front sheet) centered on a
+// 128-unit grid, deep-indigo ground with three dithered nebula clusters, a
+// sparse gold star field, and a solid gold ">" caret top-left — the same
+// drawing primitives (Float64Array pixel grid, hand-rolled zlib PNG
+// encoder, nearest-neighbor upscale / box-average downscale) as the mockup
+// toolkit it's ported from.
+//
+// Full-bleed background: the ground fills the entire square canvas
+// edge-to-edge with no drawn corner rounding and no transparent margin.
+// macOS applies its own squircle mask to Dock/Finder icons; a rounded tile
+// drawn inside a square canvas leaves a transparent margin between the
+// artwork's own rounded corners and the system mask's corners, and on
+// recent macOS that transparent margin gets composited onto the system's
+// light icon backing plate — showing up as a light/white ring around the
+// tile. Filling the whole canvas removes that margin entirely. Contents
+// (sprite + caret) are kept inset within the ~80% "safe area" Apple's own
+// icon guidelines use, so nothing sits close enough to a true corner to be
+// clipped by the mask.
 //
 // Why re-derive every size from the 128-unit grid instead of downscaling
 // the 1024/512 master: box-downsampling a flattened, already-composited PNG
@@ -66,19 +78,6 @@ function blend(grid, x, y, [r, g, b, a]) {
   d[i + 1] = d[i + 1] * (1 - A) + g * A;
   d[i + 2] = d[i + 2] * (1 - A) + b * A;
   d[i + 3] = d[i + 3] * (1 - A) + a * A;
-}
-
-function fillRoundRect(grid, x0, y0, x1, y1, radius, color) {
-  const rgba = hex(color);
-  for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
-    for (let x = Math.floor(x0); x < Math.ceil(x1); x++) {
-      const px = x + 0.5, py = y + 0.5;
-      const cx = Math.min(Math.max(px, x0 + radius), x1 - radius);
-      const cy = Math.min(Math.max(py, y0 + radius), y1 - radius);
-      const dx = px - cx, dy = py - cy;
-      if (dx * dx + dy * dy <= radius * radius) blend(grid, x, y, rgba);
-    }
-  }
 }
 
 function stampMask(grid, ox, oy, mask, color, alpha = 255, scale = 1) {
@@ -210,12 +209,22 @@ function savePNG(grid, path) {
   writeFileSync(path, encodePNG(grid));
 }
 
-// ---------- candidate-35 recipe (round4.mjs, verbatim) ----------
+// ---------- candidate-35 recipe (round4.mjs), adapted for a full-bleed background ----------
 
 const P = { gold: '#E8B740' };
 const GROUND = '#171233';
 const BASE4 = 128;
-const CARET_XY4 = [8, 8];
+// Apple's icon guidelines treat the middle ~80% of the canvas as the safe
+// area a squircle mask won't clip — roughly a 10%-per-side inset. SAFE4 is
+// that inset on the 128-unit grid; the caret is anchored to it (kept
+// top-left, just pulled in from the true corner) so the corner crop can't
+// clip it. Kept as a multiple of CARET_SOLID (4) rather than the exact 12.8
+// so the caret's cell grid stays phase-aligned with the box-downscale
+// factors used for the smaller icon sizes (2/4/8) instead of straddling
+// them at an arbitrary offset — checked against the sprite art that it
+// still clears the sprite's actual ink, not just its bounding box.
+const SAFE4 = 12;
+const CARET_XY4 = [SAFE4, SAFE4];
 const CARET_SOLID = 4; // stamp scale — see round4.mjs's comment on the proven legibility floor
 const CARET_MASK = [
   '0000000',
@@ -266,12 +275,15 @@ function starsField(grid, { count, seed, color }) {
   }
 }
 
-/** Draws the 128-unit backdrop (squircle ground, nebula, stars, caret) —
+/** Draws the 128-unit backdrop (full-bleed ground, nebula, stars, caret) —
  *  everything EXCEPT the real sprite, which ImageMagick composites in
- *  separately (see compositeSprite below). */
+ *  separately (see compositeSprite below). The ground fills the entire
+ *  canvas edge-to-edge (no drawn corner rounding) — macOS applies its own
+ *  squircle mask, so a self-drawn rounded tile would leave a transparent
+ *  margin that gets composited onto the system's light icon backing plate. */
 function drawBackdrop128() {
   const g = makeGrid(BASE4, BASE4);
-  fillRoundRect(g, 0, 0, BASE4, BASE4, BASE4 * 0.225, GROUND);
+  fillRect(g, 0, 0, BASE4, BASE4, GROUND);
   nebulaClouds(g, NEBULA_CLUSTERS);
   starsField(g, { count: STAR_COUNT, seed: STAR_SEED, color: P.gold });
   stampMask(g, CARET_XY4[0], CARET_XY4[1], CARET_MASK, P.gold, 255, CARET_SOLID);
