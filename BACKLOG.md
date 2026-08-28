@@ -27,20 +27,9 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ## queued phases (logged 2026-08-29 — batch per phase, dispatch after usage limits ships)
 
-### phase A — critical: subagent lifecycle REDESIGN (spec changed by user 2026-08-29, supersedes the v1.1.0 flow)
+### phase A — subagent lifecycle redesign — SHIPPED (2026-08-29, see CHANGELOG unreleased). Root cause of invisible/premature-death subagents found and fixed (Stop-never-signaled + shared-loop abort). Watch next real fan-out to confirm in the wild.
 
-- new lifecycle, replacing intro-skirmish → wander → final-skirmish: **on spawn, the subagent's pokemon just appears and roams the garden — no intro battle.** When the subagent finishes working, its pokemon walks over to the MAIN agent's (parent session's) pokemon, they battle, and the subagent's pokemon loses and faints. That completion battle is the only battle in the lifecycle.
-- **battle queue with breathing room**: if multiple subagents finish around the same time, queue their completion battles — one battle at a time, then a few seconds of free time before the next begins (this replaces/absorbs the "battles chain back-to-back" complaint; no overlapping or instantly-chained fights).
-- **victory celebration**: after each win, the main pokemon plays a victory/celebration animation ONLY if the sprite set we already pull actually contains one for that species — verify against the real sprite source first; if no such animation exists, skip silently (never fabricate frames or repurpose an unrelated animation).
-- **premature-death bug still applies and is now worse**: on v1.2.0 a subagent's pokemon fainted while the real subagent was still running; under the new design a false "done" triggers a visible walk-up-and-battle, so false positives are more jarring. Before coding, pull `~/PokemonHarness/logs/harness.log` for the repro window (battle counters + `battle-*` entries) to see whether the 8-min `WANDER_SAFETY_MS` fallback or a false completion signal fired. Fix shape: treat the parent session's ongoing hook activity (PreToolUse/PostToolUse still flowing) as proof the wave is alive — a roaming subagent pokemon should not die on a timer while its parent is visibly working; prefer dropping/greatly extending the timer fallback over tuning the constant.
-
-### phase B — layout/visual bugs
-
-- topbar right-side icon group: glyphs not optically centered in their boxes, and the buttons shift position as window width/content changes — normalize every topbar icon button to one fixed box size and baseline, pin the right cluster.
-- quick settings (sliders icon) sitting directly beside settings (gear) is confusing and the two are misaligned. PROPOSED: merge — drop the sliders icon; the single gear at the far right opens the quick-settings popover, whose existing "all settings…" row opens the full dialog. One entry point, no duplication.
-- tool dialogue box overlaps the status dot / "!" above the sprite's head (screenshot-confirmed on meganium) — bubble must offset above or hide while a status indicator/battle alert occupies that zone (gate on `battleManager.isBattling` for the battle case).
-- press-and-hold on a garden chip paints a white bar/ghost strip across the topbar under the chip row (video-confirmed) — looks like a native drag ghost or text-selection artifact on the held element; suppress with `user-select: none` + `-webkit-user-drag: none` on topbar controls and verify no draggable ancestor.
-- make the topbar slightly taller (user request, 2026-08-29) so the "pokéharness" brand has breathing room and reads less squashed — do together with the icon-alignment item above; note the separate unresolved brand-squash glyph mystery in smaller items still stands (taller bar is a mitigation, not the root-cause fix).
+### phase B — layout/visual bugs — SHIPPED (2026-08-29, see CHANGELOG unreleased): icon normalization, taller topbar, quick-settings/gear merge, chip actions folded in, ghost strip, tool-bubble overlap, zoom/pixel-font root-cause fix. Needs user visual QA on the new chrome.
 
 ### phase C — ux polish — SHIPPED (2026-08-29, see CHANGELOG unreleased): species name on roster card, visible change-pokemon action, bigger picker, exact-species swap + keep-at-stage checkbox.
 
@@ -64,11 +53,7 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ## smaller known items
 
-- "needs you" over-triggers: the CLI's idle waiting-for-input notification maps to the same badge as real permission prompts — split them (permission/questions → "needs you", plain turn-ended → "idle")
-- brand "pokéharness" squash ROOT CAUSE CONFIRMED (2026-08-29, discriminating screenshot): the settings dialog's "appearance" heading shows the same soft/squashed rendering as the brand — so it's the −0.5 default zoom (factor ≈0.91) breaking Press Start 2P's integer pixel grid app-wide; the drag-region hypothesis is dead. Fix assigned to the wave-2 topbar agent: stop using Chromium zoom for density — default zoomLevel back to 0, bake the ~9% density the user prefers into the CSS instead, keep every Press Start 2P size at integer px so pixel glyphs render crisp; Cmd+0 resets to the new default, Cmd+plus/minus keep stepping.
 - dock icon white ring RETURNED on macOS Tahoe (2026-08-29, dispatched): the shipped icns IS full-bleed (all corners verified opaque in the installed v1.2.0 bundle), so the v1.1.0 fix works as far as icns can — the remaining ring is Tahoe PLATING legacy-icns-only apps onto the system's light squircle regardless of bleed. Real fix: ship a compiled Icon Composer asset (`Assets.car` + `CFBundleIconName` in Info.plist) alongside the icns fallback; `actool` from Xcode 26.6 is available on the build machine.
-- "new workspace"/"delete workspace" dialog copy still says workspace under the new "+ new garden" vocabulary — align to "garden"
-- invisible-subagent root cause still unconfirmed: the spawn chain is hardened + logged; on next repro check `~/PokemonHarness/logs/harness.log` for `battle-bus`/`hook-router` errors and fix the named throw
 
 ## bigger later
 
