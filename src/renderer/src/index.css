@@ -1216,9 +1216,15 @@ button.icon:active {
  * item's scope. Keyboard focus ring comes from the existing app-wide
  * `:focus-visible` rule further down this file — `appearance: none` drops
  * the native ring but not that one, since outline is a normal painted
- * property, untouched by `appearance`. */
+ * property, untouched by `appearance`.
+ *
+ * `.pokemon-swap-freeze` (Phase C follow-up: the roster card's change-
+ * pokemon "keep at this stage" checkbox) added to this list explicitly —
+ * unlike NewSessionDialog/SummonArceusDialog above, THIS checkbox's own spec
+ * calls for the pixel treatment, so it opts in rather than staying native. */
 .settings-dialog input[type='checkbox'],
-.quick-settings-panel input[type='checkbox'] {
+.quick-settings-panel input[type='checkbox'],
+.pokemon-swap-freeze input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -1226,6 +1232,11 @@ button.icon:active {
   width: 16px;
   height: 16px;
   margin: 0;
+  /* `.modal input` (index.css, above) sets `padding: 5px 8px` on every
+   * input under a `.modal` — harmless no-op for the other two selectors
+   * here, but needed so `.pokemon-swap-freeze`'s checkbox doesn't inherit
+   * that padding and blow up past its fixed 16x16 box. */
+  padding: 0;
   background: var(--bg-terminal);
   border: 2px solid var(--line);
   border-radius: var(--radius-sm);
@@ -1233,7 +1244,8 @@ button.icon:active {
 }
 
 .settings-dialog input[type='checkbox']:checked,
-.quick-settings-panel input[type='checkbox']:checked {
+.quick-settings-panel input[type='checkbox']:checked,
+.pokemon-swap-freeze input[type='checkbox']:checked {
   background: var(--gold);
   border-color: var(--gold);
 }
@@ -1241,11 +1253,25 @@ button.icon:active {
 /* Square check — a plain inset block, not a checkmark glyph (spec: "square
  * check", hard edges, no curves). */
 .settings-dialog input[type='checkbox']:checked::after,
-.quick-settings-panel input[type='checkbox']:checked::after {
+.quick-settings-panel input[type='checkbox']:checked::after,
+.pokemon-swap-freeze input[type='checkbox']:checked::after {
   content: '';
   position: absolute;
   inset: 3px;
   background: var(--on-accent);
+}
+
+/* Row layout for the checkbox + its label text — same pattern (and same
+ * `.modal label` specificity fight: a bare `.pokemon-swap-freeze` class
+ * loses to `.modal label`'s element+class selector, so this needs the same
+ * `.modal label.<name>` compound) as `.modal label.new-session-auto-mode`,
+ * just its own class since that one's scoped to NewSessionDialog by name. */
+.modal label.pokemon-swap-freeze {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: var(--font-body-md-size);
 }
 
 .settings-dialog input[type='range'],

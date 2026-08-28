@@ -632,6 +632,13 @@ export function GardenScene(): JSX.Element {
             useStore.getState().updateSession(session.id, { workedMs });
 
             if (sessionWorkspaceId(session) !== activeWorkspaceId) continue;
+            // "keep at this stage — don't evolve" (Phase C follow-up, roster
+            // card's change-pokemon dialog) — `workedMs` above still
+            // accumulated normally, this just withholds the ceremony trigger
+            // the same way the workspace check above does, so unfreezing
+            // resumes on the very next tick rather than needing a catch-up
+            // path of its own.
+            if (session.evolutionFrozen) continue;
             // A battle mid-attack retries next tick — the evolution ceremony
             // waits for the current attack beat to finish, then takes over
             // (it's already exclusive), and the battle resumes after.
