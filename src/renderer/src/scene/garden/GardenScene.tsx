@@ -30,7 +30,7 @@ import { useStore, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
-import { formatToolTarget } from '@/design/toolTargetLabel';
+import { formatBubbleLabel } from '@/design/toolTargetLabel';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -557,7 +557,7 @@ export function GardenScene(): JSX.Element {
             } else if (session.napping) {
               walker.hideBubble();
             } else if (session.status === 'working' && session.tool) {
-              walker.showTool(session.tool, formatToolTarget(session.tool, session.toolTarget) || '');
+              walker.showTool(session.tool, formatBubbleLabel(session.tool, session.toolTarget) || '');
             } else if (session.status === 'working') {
               walker.showTool('', '...');
             } else if (session.status === 'blocked') {

@@ -7,6 +7,15 @@
  * be a single long space-run "token soup" (e.g. `cd <dir> && magick <a long
  * path> -crop ... -format ...`) that defeats plain CSS/word-based wrapping.
  *
+ * `formatToolTarget` below feeds the roster card, which has room for a
+ * compact-but-still-technical rendering (path tails, a command word + arg
+ * tail). `formatBubbleLabel` feeds the garden bubble instead: at garden
+ * scale a raw path/command reads as noise (a `$ sed …src/index.css` tail
+ * told a player nothing useful), so it trades completeness for a short
+ * human phrase — a verb plus the one meaningful fragment (a bare filename,
+ * not a path; a command word, not its flags) — hard-capped well under the
+ * roster card's limits.
+ *
  * Purely a display reformat — never touches session data, and the hook/pty
  * ingestion side (hookRouter.ts, ptyParser.ts) is untouched.
  */
@@ -54,4 +63,65 @@ export function formatToolTarget(tool: string | undefined, target: string | unde
   if (tool === 'Bash') return compactBashCommand(target.trim());
   if (target.includes('/') && !target.includes(' ')) return middleTruncatePath(target);
   return target.length > PLAIN_MAX ? target.slice(0, PLAIN_MAX - 1).trimEnd() + '…' : target;
+}
+
+const BUBBLE_MAX = 24;
+
+function capBubble(text: string): string {
+  return text.length > BUBBLE_MAX ? text.slice(0, BUBBLE_MAX - 1).trimEnd() + '…' : text;
+}
+
+/** `/Users/mav/…/src/renderer/src/index.css` -> `index.css` — the bubble
+ *  phrase wants just the filename, never a path fragment. */
+function lastPathSegment(path: string): string {
+  const trimmed = path.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  return idx === -1 ? trimmed : trimmed.slice(idx + 1);
+}
+
+/** `cd /some/dir && sed -i '' -e 's/a/b/' src/index.css` -> `sed` — drop a
+ *  leading `cd <dir>` segment (per compactBashCommand above), then take the
+ *  first whitespace-delimited word and its own basename (so `/usr/bin/sed`
+ *  still reads as `sed`). */
+function firstBashWord(command: string): string {
+  const withoutCd = command.replace(/^cd\s+\S+\s*(?:&&|;|\||\n)\s*/, '');
+  const rest = (withoutCd || command).trim();
+  const firstToken = rest.split(/\s+/)[0] ?? rest;
+  const word = firstToken.split('/').pop();
+  return word || 'a command';
+}
+
+/** Short game-flavored phrase for the garden speech bubble: verb + the one
+ *  meaningful fragment, lowercase, hard-capped to BUBBLE_MAX chars. Unlike
+ *  `formatToolTarget`, this never shows a path or raw command — see this
+ *  file's header comment. */
+export function formatBubbleLabel(tool: string | undefined, target: string | undefined): string {
+  const t = (target ?? '').trim();
+  switch (tool) {
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'NotebookEdit':
+      return capBubble(t ? `editing ${lastPathSegment(t)}` : 'editing');
+    case 'Read':
+      return capBubble(t ? `reading ${lastPathSegment(t)}` : 'reading');
+    case 'Bash':
+      return capBubble(`running ${t ? firstBashWord(t) : 'a command'}`);
+    case 'Grep':
+    case 'Glob':
+      return capBubble(t ? `searching ${t}` : 'searching');
+    case 'WebSearch':
+      return capBubble(t ? `searching ${t}` : 'browsing');
+    case 'WebFetch':
+      return 'browsing';
+    case 'Task':
+      return 'summoning help';
+    case 'TodoWrite':
+      return 'planning';
+    default: {
+      const toolLabel = tool ? tool.toLowerCase() : 'working';
+      if (!t) return toolLabel;
+      return capBubble(`${toolLabel} ${t.includes('/') ? lastPathSegment(t) : t}`);
+    }
+  }
 }
