@@ -18,6 +18,7 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
 import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/workspaceTypes';
+import type { ArceusSummonConfig } from '../shared/arceus';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -140,6 +141,19 @@ const api = {
     ipcRenderer.invoke('arceus:ensureSystemPrompt'),
   /** Dev-only — see main/index.ts's `config:arceusDevStandin`. */
   getArceusDevStandin: (): Promise<boolean> => ipcRenderer.invoke('config:arceusDevStandin'),
+
+  // ─── Arceus summon-once (Phase 8.9) — arceusSummonConfig.ts ─────────────
+  /** Null if Arceus has never been summoned (or the file was reset) — the
+   *  signal SummonArceusButton uses to decide dialog vs. silent auto-summon. */
+  getArceusSummonConfig: (): Promise<ArceusSummonConfig | null> =>
+    ipcRenderer.invoke('arceus:loadSummonConfig'),
+  /** Written once, after the FIRST successful summon (SummonArceusDialog) —
+   *  never called from the silent auto-summon path itself. */
+  saveArceusSummonConfig: (config: ArceusSummonConfig): Promise<void> =>
+    ipcRenderer.invoke('arceus:saveSummonConfig', config),
+  /** Settings' "reset arceus" action — deletes the saved config, returning
+   *  the app to first-run (setup dialog) behavior. */
+  resetArceusSummonConfig: (): Promise<void> => ipcRenderer.invoke('arceus:resetSummonConfig'),
 
   // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────
   listWorkspaces: (): Promise<WorkspaceSnapshot> => ipcRenderer.invoke('workspaces:list'),

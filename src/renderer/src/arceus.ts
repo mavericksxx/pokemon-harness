@@ -17,7 +17,13 @@
  * through the stand-in.
  */
 import { AGENT_PROVIDERS, type AgentProviderId } from '@shared/agentProvider';
-import { ARCEUS_DEX_ID, ARCEUS_SESSION_ID, ARCEUS_TITLE, buildArceusArgs } from '@shared/arceus';
+import {
+  ARCEUS_DEX_ID,
+  ARCEUS_SESSION_ID,
+  ARCEUS_TITLE,
+  buildArceusArgs,
+  type ArceusSummonConfig
+} from '@shared/arceus';
 import { useStore, type Session } from '@/store/store';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 
@@ -109,4 +115,54 @@ export async function summonArceus(req: SummonArceusRequest): Promise<void> {
 export async function summonArceusDevStandin(req: SummonArceusRequest): Promise<void> {
   const shell = await window.api.getDefaultShell();
   await spawnArceus(shell, [], 'shell', req);
+}
+
+// ─── Summon-once (Phase 8.9) ────────────────────────────────────────────────
+// "arceus should only have to be onboarded the first time" — the ORIGINAL
+// summon (below, from SummonArceusDialog) stays explicit/user-initiated and
+// is the only thing that WRITES agents/arceus/summon.json. Every later
+// launch (main.tsx boot(), and the topbar chip if he's ever not live) reads
+// it back and re-summons him silently: an idle interactive `claude` session
+// consumes no tokens until prompted, so auto-summoning at launch (or on a
+// chip click that finds him gone) is cost-safe — nothing here spends money
+// just by existing.
+export function loadArceusSummonConfig(): Promise<ArceusSummonConfig | null> {
+  return window.api.getArceusSummonConfig();
+}
+
+/** Called once, right after a successful FIRST summon — see
+ *  SummonArceusDialog's submit handler, the only caller. */
+export function saveArceusSummonConfig(config: ArceusSummonConfig): Promise<void> {
+  return window.api.saveArceusSummonConfig(config);
+}
+
+/** Settings' "reset arceus" action — returns the app to first-run behavior
+ *  (does not touch a currently-live Arceus session, if any; only clears the
+ *  saved config so the NEXT time he isn't live, the setup dialog shows
+ *  again instead of a silent auto-summon). */
+export function resetArceusSummonConfig(): Promise<void> {
+  return window.api.resetArceusSummonConfig();
+}
+
+export type AutoSummonOutcome = 'summoned' | 'no-config' | 'failed';
+
+/** Summons Arceus from the saved config, picking real vs. dev-standin the
+ *  same way SummonArceusDialog does. Used both at launch (main.tsx boot(),
+ *  when he isn't among the restored sessions) and from the topbar chip
+ *  (SummonArceusButton, when he's saved-but-not-live). Never throws —
+ *  `'failed'` covers claude missing from PATH, a dead `--resume` AND a
+ *  failed fresh spawn, or any other spawn error; the caller turns that into
+ *  a quiet toast, never a dialog. */
+export async function autoSummonArceus(): Promise<AutoSummonOutcome> {
+  const config = await loadArceusSummonConfig();
+  if (!config) return 'no-config';
+  try {
+    const devStandin = await window.api.getArceusDevStandin();
+    if (devStandin) await summonArceusDevStandin(config);
+    else await summonArceus(config);
+    return 'summoned';
+  } catch (err) {
+    console.error('[arceus] auto-summon failed:', err);
+    return 'failed';
+  }
 }

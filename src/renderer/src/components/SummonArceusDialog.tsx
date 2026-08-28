@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { summonArceus, summonArceusDevStandin } from '@/arceus';
+import { saveArceusSummonConfig, summonArceus, summonArceusDevStandin } from '@/arceus';
 
 interface Props {
   onClose(): void;
@@ -45,6 +45,12 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
       const req = { cwd: cwd.trim(), model: model.trim() || undefined, autoMode };
       if (devStandin) await summonArceusDevStandin(req);
       else await summonArceus(req);
+      // Summon-once (Phase 8.9) — this dialog only ever shows for a genuine
+      // first run (or after a Settings reset), so a successful summon HERE
+      // is exactly the "onboard once" moment: persist it so every later
+      // launch (or chip click if he's not live) auto-summons silently
+      // instead of asking again. Never called from the auto path itself.
+      void saveArceusSummonConfig(req);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

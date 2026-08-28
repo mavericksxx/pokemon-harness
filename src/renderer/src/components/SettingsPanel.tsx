@@ -14,6 +14,7 @@ import {
   TERMINAL_SCROLLBACK_MIN
 } from '@shared/terminalTypes';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
+import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
 import type { ThemeMode } from '@shared/appSettingsTypes';
 import { applyTheme } from '@/design/tokens';
@@ -46,6 +47,7 @@ export function SettingsPanel(): JSX.Element {
   const open = useStore((s) => s.settingsOpen);
   const setOpen = useStore((s) => s.setSettingsOpen);
   const [search, setSearch] = useState('');
+  const [resetArceusOpen, setResetArceusOpen] = useState(false);
   const settings = useAudioStore((s) => s.settings);
   const musicUnavailable = useAudioStore((s) => s.musicUnavailable);
   const nowPlaying = useAudioStore((s) => s.nowPlaying);
@@ -188,6 +190,16 @@ export function SettingsPanel(): JSX.Element {
           <p className="hint">
             Changing this only points future writes at the new folder — nothing already on disk moves.
           </p>
+        </section>
+
+        <section className="settings-section">
+          <h3>Arceus</h3>
+          <p className="hint">
+            Onboarded once — after that he&apos;s auto-summoned on every launch, no setup dialog.
+          </p>
+          <button type="button" onClick={() => setResetArceusOpen(true)}>
+            Reset arceus…
+          </button>
         </section>
 
         <section className="settings-section">
@@ -369,6 +381,7 @@ export function SettingsPanel(): JSX.Element {
           </button>
         </section>
       </aside>
+      {resetArceusOpen && <ResetArceusDialog onClose={() => setResetArceusOpen(false)} />}
     </>
   );
 }

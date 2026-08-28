@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store/store';
 import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
+import { autoSummonArceus } from './arceus';
 import { createTerminal } from './pty/terminalRegistry';
 import {
   initAudio,
@@ -176,6 +177,27 @@ async function boot(): Promise<void> {
       useStore
         .getState()
         .pushToast(`Reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
+    }
+
+    // Summon-once (Phase 8.9) — "arceus already restores across relaunches
+    // when his session survives" (a live `claude --resume` above, present
+    // in `restored` with no `error`); this covers when it DIDN'T: resume
+    // failed and sessionRespawn.ts fell back to a plain shell (marked by
+    // `error` on the restored record — a shell wearing Arceus's face is not
+    // Arceus), or he simply wasn't summoned yet this launch at all. An idle
+    // interactive `claude` session consumes no tokens until prompted, so
+    // auto-summoning him here on every launch is cost-safe — only the
+    // ORIGINAL summon (SummonArceusDialog) ever writes the config this
+    // reads back. Fire-and-forget: never blocks first paint (or the
+    // `render()` below), and a failure becomes a quiet toast, never a
+    // dialog — see arceus.ts's `autoSummonArceus`.
+    const arceusRestoredLive = restored.some((r) => r.session.isArceus && !r.session.error);
+    if (!arceusRestoredLive) {
+      void autoSummonArceus().then((outcome) => {
+        if (outcome === 'failed') {
+          useStore.getState().pushToast("arceus couldn't return — click his chip to re-summon.");
+        }
+      });
     }
   } catch (err) {
     console.error('[boot] crash/reload recovery failed — starting with an empty garden', err);
