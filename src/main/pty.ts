@@ -24,6 +24,13 @@ function hookTmpDir(): string {
   return join(tmpdir(), 'pokemon-harness-hooks');
 }
 
+/** Trailing output kept per session so a renderer crash's reload can repaint
+ *  the visible terminal instead of showing it blank until new output arrives
+ *  — see `getReplay` and index.ts's `sessions:restore`. Rough chars-as-bytes
+ *  bound, not exact UTF-8 accounting: precision doesn't matter for a display
+ *  backfill. */
+const REPLAY_MAX_CHARS = 200_000;
+
 interface PtySession {
   id: string;
   proc: pty.IPty;
@@ -31,6 +38,8 @@ interface PtySession {
   command: string;
   /** Epoch ms of the most recent byte this PTY emitted. */
   lastOutputAt: number;
+  /** Last REPLAY_MAX_CHARS of this PTY's output. */
+  replay: string;
 }
 
 export class PtyManager {
@@ -113,13 +122,15 @@ export class PtyManager {
         proc,
         cwd,
         command: file,
-        lastOutputAt: Date.now()
+        lastOutputAt: Date.now(),
+        replay: ''
       };
       this.sessions.set(opts.id, session);
 
       proc.onData((data) => {
         if (this.sessions.get(opts.id) !== session) return;
         session.lastOutputAt = Date.now();
+        session.replay = (session.replay + data).slice(-REPLAY_MAX_CHARS);
         this.safeSend(`pty:data:${opts.id}`, data);
       });
 
@@ -180,6 +191,13 @@ export class PtyManager {
       pid: s.proc.pid,
       lastOutputAt: s.lastOutputAt
     }));
+  }
+
+  /** This PTY's trailing output (bounded, see REPLAY_MAX_CHARS), for a
+   *  reattaching terminal to repaint before live data resumes. Empty for an
+   *  unknown/dead id — the caller just gets a blank terminal, same as today. */
+  getReplay(id: string): string {
+    return this.sessions.get(id)?.replay ?? '';
   }
 
   /** Bulk-kill for app quit. Closing the pty HUPs the child's process group, so

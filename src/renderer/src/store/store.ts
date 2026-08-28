@@ -1,42 +1,12 @@
 import { create } from 'zustand';
-import type { AgentProviderId } from '@shared/agentProvider';
-import type { SessionStatus, StationKind } from '@shared/types';
+import type { SessionRecord } from '@shared/types';
 
-export interface Session {
-  id: string;
-  title: string;
-  cwd: string;
-  command: string;
-  provider: AgentProviderId;
-  model?: string;
-  status: SessionStatus;
-  /** Last tool the parser saw, e.g. 'Read'. */
-  tool?: string;
-  /** That tool's argument, e.g. a file path. */
-  toolTarget?: string;
-  /** Where the walker should be, derived from `tool`. */
-  station: StationKind;
-  /** Which Pokemon walks for this session right now — its current evolution
-   *  stage. Sessions always hatch at their line's stage 1 and this is mutated
-   *  in place as thresholds are crossed. */
-  pokemon: string;
-  /** Evolution line id (shared by every stage) — uniqueness is per line, not
-   *  per exact species, so a session can't claim a stage of a line another
-   *  session is already walking. */
-  line: string;
-  /** Rolled once at session creation (Phase 5 §1) and kept for the session's
-   *  whole lifetime, through every evolution stage. Not a property of the
-   *  species — of this particular session's Pokemon. */
-  shiny: boolean;
-  /** Accumulated milliseconds spent in `working` status. Idle/blocked/wall-clock
-   *  time does not count. Drives the evolution thresholds in `evolution.ts`. */
-  workedMs: number;
-  /** Selection-ring / UI accent. */
-  accent: number;
-  exitCode?: number;
-  error?: string;
-  createdAt: number;
-}
+/** Field-for-field `SessionRecord` (shared/types.ts) — kept as a local alias
+ *  so call sites here read the same as before the crash-recovery work moved
+ *  the shape to `shared/` (main needs it too, to mirror sessions for a
+ *  post-crash `restoreSessions` — see main/index.ts and
+ *  src/renderer/src/sessions.ts's `startRegistrySync`). */
+export type Session = SessionRecord;
 
 /** Walker tints, cycled per session. */
 const ACCENTS = [0xffd166, 0x8ecae6, 0xff8fa3, 0xb5e48c, 0xc8a2ff, 0xffb27a];
@@ -64,6 +34,14 @@ interface HarnessState {
   takenLines(): string[];
   updateSession(id: string, patch: Partial<Session>): void;
   removeSession(id: string): void;
+  /** Boot-time crash recovery (main/index.ts's `sessions:restore`): replaces
+   *  the session list outright with already-complete records (no defaults to
+   *  fill in, unlike `addSession`), so the drawer and garden pick them
+   *  straight back up. `selectedId` is whatever main last saw selected
+   *  (null if that session didn't come back, or nothing was selected) —
+   *  falls back to the first restored session so a non-empty restore never
+   *  leaves the drawer showing nothing. */
+  restoreSessions(sessions: Session[], selectedId: string | null): void;
   select(id: string | null): void;
   setDrawerOpen(open: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
@@ -110,6 +88,9 @@ export const useStore = create<HarnessState>((set, get) => ({
         selectedId: st.selectedId === id ? (sessions[0]?.id ?? null) : st.selectedId
       };
     }),
+
+  restoreSessions: (sessions, selectedId) =>
+    set({ sessions, selectedId: selectedId ?? sessions[0]?.id ?? null }),
 
   select: (id) => set({ selectedId: id }),
   setDrawerOpen: (open) => set({ drawerOpen: open }),

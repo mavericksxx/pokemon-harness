@@ -1,7 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store/store';
-import { startSession, stopSession } from './sessions';
+import { startSession, stopSession, startRegistrySync } from './sessions';
+import { createTerminal } from './pty/terminalRegistry';
 import {
   initAudio,
   debugSnapshot,
@@ -55,10 +56,60 @@ if (import.meta.env.DEV) {
   };
 }
 
-const root = document.getElementById('root');
-if (!root) throw new Error('#root missing');
+const rootEl = document.getElementById('root');
+if (!rootEl) throw new Error('#root missing');
 
-// Deliberately NOT wrapped in StrictMode: the Pixi application and the PTY
-// subscriptions are real, non-idempotent resources, and StrictMode's dev-only
-// double mount would build two gardens.
-createRoot(root).render(<App />);
+/**
+ * Crash/reload recovery: main's `render-process-gone` handler (main/index.ts)
+ * reloads this page's whole JS context after a renderer crash — this module
+ * re-executes from scratch, same as any other reload (crash-triggered or a
+ * plain dev Cmd+R). Main's own process, and the PTYs it owns, are untouched
+ * either way, and main mirrors the session list on every change
+ * (`startRegistrySync`) specifically so this boot has something to rebuild.
+ *
+ * Runs to completion BEFORE the first render (App is rendered at the end,
+ * not in parallel) so GardenScene and TerminalDrawer never have to react to
+ * sessions/terminals appearing after mount — they're just already there,
+ * exactly like a fresh launch with sessions pre-loaded. The two IPC round-
+ * trips this costs are local and fast; on an ordinary first launch both
+ * resolve to "nothing to restore" almost immediately.
+ *
+ * Terminals are (re)created BEFORE the store is populated: `restoreSessions`
+ * below is what makes TerminalDrawer's effect (keyed on `selectedId`) fire,
+ * and that effect checks `hasTerminal(selectedId)` — it must already be true
+ * by the time that happens.
+ */
+async function boot(): Promise<void> {
+  startRegistrySync();
+
+  const [crashInfo, { sessions: restored, selectedId }] = await Promise.all([
+    window.api.consumeCrashInfo(),
+    window.api.restoreSessions()
+  ]);
+
+  if (restored.length > 0) {
+    for (const { session, replay } of restored) createTerminal(session.id, replay);
+    useStore.getState().restoreSessions(restored.map((r) => r.session), selectedId);
+  }
+
+  if (crashInfo) {
+    const suffix =
+      restored.length > 0
+        ? ` — reconnected ${restored.length} session${restored.length === 1 ? '' : 's'}.`
+        : '.';
+    useStore.getState().pushToast(`Recovered from a renderer crash (${crashInfo.reason})${suffix}`);
+  } else if (restored.length > 0) {
+    useStore
+      .getState()
+      .pushToast(`Reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
+  }
+
+  // Deliberately NOT wrapped in StrictMode: the Pixi application and the PTY
+  // subscriptions are real, non-idempotent resources, and StrictMode's
+  // dev-only double mount would build two gardens.
+  // Non-null: TS doesn't carry the module-scope `if (!rootEl) throw` guard's
+  // narrowing into this nested function; the guard above already ran.
+  createRoot(rootEl!).render(<App />);
+}
+
+void boot();

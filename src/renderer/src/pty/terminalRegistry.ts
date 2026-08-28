@@ -44,8 +44,15 @@ interface Entry {
 
 const entries = new Map<string, Entry>();
 
-/** Create the terminal and start consuming the PTY. Call right after spawn. */
-export function createTerminal(sessionId: string): void {
+/** Create the terminal and start consuming the PTY. Call right after spawn,
+ *  or (`replay`) on boot to re-adopt a session whose PTY survived a renderer
+ *  crash/reload — see main/index.ts's `sessions:restore`. `replay` is written
+ *  AFTER the live PTY listener below is wired, not before: xterm buffers
+ *  writes made before `attach()`'s `term.open()` internally regardless of
+ *  order, but attaching the listener first means any bytes the PTY emits
+ *  between the main-process snapshot (`getReplay`) and this call still land
+ *  in the terminal instead of being lost in the gap. */
+export function createTerminal(sessionId: string, replay?: string): void {
   if (entries.has(sessionId)) return;
 
   const term = new Terminal({
@@ -106,6 +113,8 @@ export function createTerminal(sessionId: string): void {
     offHook,
     resizeObserver: null
   });
+
+  if (replay) term.write(replay);
 }
 
 /** Mount the session's terminal into `parent` and start tracking its size. */

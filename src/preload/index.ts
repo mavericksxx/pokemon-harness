@@ -5,6 +5,9 @@ import type {
   PtyExit,
   PtyInfo,
   PtyResult,
+  RendererCrashInfo,
+  RestoreSnapshot,
+  SessionRecord,
   SpawnPtyOptions,
   SpriteView
 } from '../shared/types';
@@ -42,6 +45,20 @@ const api = {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
+  /** Non-null exactly once, right after a renderer crash's auto-reload — see
+   *  main/index.ts's `render-process-gone` handler. Pulled on boot rather
+   *  than pushed, so there's no race with the renderer subscribing late. */
+  consumeCrashInfo: (): Promise<RendererCrashInfo | null> => ipcRenderer.invoke('app:consumeCrashInfo'),
+
+  /** Mirrors the renderer's whole session list (and current selection) into
+   *  main, so a renderer crash's reload has something to rebuild from.
+   *  Called on every store change — see sessions.ts's `startRegistrySync`. */
+  checkpointSessions: (sessions: SessionRecord[], selectedId: string | null): Promise<void> =>
+    ipcRenderer.invoke('sessions:checkpoint', sessions, selectedId),
+  /** Sessions still alive (their PTY didn't exit) as of the last checkpoint,
+   *  plus the last-selected id — called once on boot to re-adopt them after a
+   *  crash or a plain reload. */
+  restoreSessions: (): Promise<RestoreSnapshot> => ipcRenderer.invoke('sessions:restore'),
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
 

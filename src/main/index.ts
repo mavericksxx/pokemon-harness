@@ -6,7 +6,13 @@ import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache
 import { ensureMusicTrack } from './musicCache';
 import { ensureCry } from './cryCache';
 import { loadAudioSettings, saveAudioSettings } from './audioSettings';
-import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
+import type {
+  LazySpriteMeta,
+  RendererCrashInfo,
+  SessionRecord,
+  SpawnPtyOptions,
+  SpriteView
+} from '../shared/types';
 import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
@@ -21,6 +27,26 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 let mainWindow: BrowserWindow | null = null;
 const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
 const ptyManager = new PtyManager(hookBridge);
+
+/** Set the instant a renderer crash triggers the auto-reload below, cleared
+ *  once the freshly-booted renderer asks for it — see that handler's
+ *  comment for why this is pulled rather than pushed. */
+let pendingCrashInfo: RendererCrashInfo | null = null;
+
+/** Mirror of the renderer's session list — the metadata `ptyManager` doesn't
+ *  itself hold (species, shiny, accumulated work time, provider, title...).
+ *  The renderer pushes its whole list here on every store change
+ *  (`sessions:checkpoint`), so a renderer crash's reload has something to
+ *  rebuild from (`sessions:restore`). Wholesale-replaced rather than
+ *  upserted/deleted piecemeal: the renderer's array is already the source of
+ *  truth for additions/removals, so mirroring it verbatim can't drift. Lives
+ *  only as long as this process — no disk persistence (that's Phase 8.5). */
+let sessionRegistry: SessionRecord[] = [];
+
+/** Last checkpointed `selectedId`, mirrored the same way as sessionRegistry
+ *  — so restore reselects whatever tab was actually open, not just the first
+ *  session. */
+let lastSelectedId: string | null = null;
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -59,6 +85,30 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  // A renderer OOM-kill or fatal GPU/WebGL loss leaves the native chrome (this
+  // window, its title bar) alive but the page a permanent white screen — the
+  // whole garden is drawn by the renderer that just died. Reload instead of
+  // leaving the user stuck. Session PTYs live in `ptyManager`, in this
+  // process, so they're untouched by a renderer crash; the reloaded page's
+  // boot sequence re-adopts them via `sessions:restore` (below), using
+  // `sessionRegistry` for the metadata a bare PTY doesn't carry and
+  // `ptyManager.getReplay` for terminal backfill.
+  //
+  // pendingCrashInfo is polled (`app:consumeCrashInfo`, below) rather than
+  // pushed over a one-shot `did-finish-load` + `send`: `did-finish-load`
+  // fires once the page's own resources are loaded, which is no guarantee
+  // the fresh React tree has mounted and subscribed to a broadcast channel
+  // yet — a push here races that subscription and can drop the toast
+  // silently. A pull the renderer makes once it's actually ready has no such
+  // race.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error(
+      `[main] renderer process gone — reason: ${details.reason}, exitCode: ${details.exitCode}`
+    );
+    pendingCrashInfo = { reason: details.reason, exitCode: details.exitCode };
+    win.webContents.reload();
+  });
+
   const devUrl = process.env['ELECTRON_RENDERER_URL'];
   if (devUrl) void win.loadURL(devUrl);
   else void win.loadFile(join(__dirname, '../renderer/index.html'));
@@ -94,6 +144,41 @@ ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
 ipcMain.handle('pty:kill', (_e, id: string) => ptyManager.kill(id));
 ipcMain.handle('pty:list', () => ptyManager.list());
 ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
+
+// ─── Crash recovery ─────────────────────────────────────────────────────────
+// See the `render-process-gone` handler in createWindow(): the freshly-booted
+// renderer calls this once it's actually mounted, rather than main pushing it
+// over a one-shot event the renderer might not be listening for yet.
+ipcMain.handle('app:consumeCrashInfo', () => {
+  const info = pendingCrashInfo;
+  pendingCrashInfo = null;
+  return info;
+});
+
+// Renderer → main mirror, called on every session-list or selection change
+// (see `startRegistrySync` in src/renderer/src/sessions.ts) — see
+// sessionRegistry's own comment above for why this replaces wholesale rather
+// than upserting.
+ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string | null) => {
+  sessionRegistry = sessions;
+  lastSelectedId = selectedId;
+});
+
+// Boot-time pull, for both a crash-triggered reload and a plain dev Cmd+R:
+// only sessions whose PTY is still actually alive come back — a session
+// whose process had already exited before the reload has nothing live to
+// reattach to, so its tab just doesn't reappear (its checkpoint may still be
+// sitting in sessionRegistry from before the exit; ptyManager.list() is the
+// authority here, not the mirror). Same liveness check for selectedId: no
+// point reselecting a tab that isn't coming back.
+ipcMain.handle('sessions:restore', () => {
+  const liveIds = new Set(ptyManager.list().map((p) => p.id));
+  const sessions = sessionRegistry
+    .filter((s) => liveIds.has(s.id))
+    .map((session) => ({ session, replay: ptyManager.getReplay(session.id) }));
+  const selectedId = lastSelectedId && liveIds.has(lastSelectedId) ? lastSelectedId : null;
+  return { sessions, selectedId };
+});
 
 // ─── Lazy sprite cache (Phase 3 §2) ────────────────────────────────────────
 // Main is the only network and disk actor here: the renderer's CSP has no

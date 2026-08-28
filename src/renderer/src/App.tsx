@@ -7,6 +7,11 @@ import { Toasts } from '@/components/Toasts';
 import { AudioPopover } from '@/components/AudioPopover';
 import { useStore } from '@/store/store';
 
+// Crash/reload recovery (consumeCrashInfo + restoreSessions) runs once in
+// main.tsx, BEFORE this component's first render — not here — so the store
+// already has any re-adopted sessions by the time GardenScene and
+// TerminalDrawer mount. See main.tsx's boot().
+
 export function App(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
   const sessions = useStore((s) => s.sessions);

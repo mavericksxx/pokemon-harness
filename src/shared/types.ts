@@ -73,3 +73,55 @@ export interface CachedSprite {
   png: ArrayBuffer;
   meta: LazySpriteMeta;
 }
+
+/** Why the renderer process just died, per Electron's `render-process-gone`
+ *  (see main/index.ts). Consumed once by the reloaded page's boot sequence
+ *  (`consumeCrashInfo`), so it can toast the recovery instead of the garden
+ *  just silently reappearing empty. */
+export interface RendererCrashInfo {
+  reason: string;
+  exitCode: number;
+}
+
+/** Full session state, mirrored from the renderer's store into main on every
+ *  change (`checkpointSessions`) so a renderer crash's reload has something
+ *  to rebuild from — main already owns the live PTYs (`PtyManager`), this is
+ *  the metadata (species, shiny, accumulated work time...) it can't otherwise
+ *  see. Field-for-field the renderer's own `Session` (store.ts), which is
+ *  typed as an alias of this. */
+export interface SessionRecord {
+  id: string;
+  title: string;
+  cwd: string;
+  command: string;
+  provider: AgentProviderId;
+  model?: string;
+  status: SessionStatus;
+  tool?: string;
+  toolTarget?: string;
+  station: StationKind;
+  pokemon: string;
+  line: string;
+  shiny: boolean;
+  workedMs: number;
+  accent: number;
+  exitCode?: number;
+  error?: string;
+  createdAt: number;
+}
+
+/** One session restored on boot (`restoreSessions`): its last-checkpointed
+ *  state, plus the still-live PTY's trailing output (`PtyManager.getReplay`)
+ *  so the reattached terminal isn't blank until new output arrives. */
+export interface RestoredSession {
+  session: SessionRecord;
+  replay: string;
+}
+
+/** Everything `restoreSessions` hands back on boot. `selectedId` is the last
+ *  checkpointed selection, or null if it wasn't one of the still-live
+ *  sessions (or nothing was selected) — see main/index.ts's `sessions:restore`. */
+export interface RestoreSnapshot {
+  sessions: RestoredSession[];
+  selectedId: string | null;
+}

@@ -86,3 +86,25 @@ export async function stopSession(id: string): Promise<void> {
   disposeTerminal(id);
   useStore.getState().removeSession(id);
 }
+
+/**
+ * Mirror the session list AND current selection into main on every change,
+ * so a renderer crash's reload (or a plain dev Cmd+R) has something to
+ * rebuild from — see main.tsx's boot sequence and main/index.ts's
+ * `sessions:restore`. Call once, at boot.
+ *
+ * Skips the push when neither `sessions` nor `selectedId` changed since the
+ * last checkpoint: zustand's `set` only replaces the top-level keys a
+ * mutation actually touches, so an unrelated change (toasts...) leaves both
+ * in place and would otherwise round-trip them to main for no reason.
+ */
+export function startRegistrySync(): void {
+  let lastSessions: ReturnType<typeof useStore.getState>['sessions'] | null = null;
+  let lastSelectedId: string | null | undefined;
+  useStore.subscribe((state) => {
+    if (state.sessions === lastSessions && state.selectedId === lastSelectedId) return;
+    lastSessions = state.sessions;
+    lastSelectedId = state.selectedId;
+    void window.api.checkpointSessions(state.sessions, state.selectedId);
+  });
+}
