@@ -27,8 +27,8 @@
  * ceremony takeover the same way the old ambient rotation resumed ambient.
  */
 import { Howl, Howler } from 'howler';
-import { BATTLE_TRACK_IDS, type MusicTrackId } from '@shared/audioTypes';
-import { BROWSABLE_TRACK_IDS, MUSIC_CATALOG_BY_ID } from '@shared/musicCatalog';
+import type { MusicTrackId } from '@shared/audioTypes';
+import { BATTLE_CATALOG_IDS, MUSIC_CATALOG_BY_ID, PEACEFUL_CATALOG_IDS } from '@shared/musicCatalog';
 import { useAudioStore } from './audioStore';
 import { sfxUrl, type SfxKey } from './sfxAssets';
 import { sfxKeyForTool, VICTORY_SFX, EVOLUTION_RISER_SFX } from './toolSounds';
@@ -114,14 +114,30 @@ function trackTitle(id: string): string {
 }
 
 /** The pool next/prev, auto-shuffle and prefetch all draw from: the
- *  browsable catalog, scoped to the mini-player's generation filter (falls
- *  back to the full catalog if a filter somehow yields nothing, e.g. a stale
- *  persisted gen id from a regenerated catalog). */
+ *  PEACEFUL (non-battle, see musicClassify.ts) catalog, scoped to the
+ *  mini-player's generation filter (falls back to the full peaceful catalog
+ *  if a filter somehow yields nothing, e.g. a stale persisted gen id from a
+ *  regenerated catalog). This governs automatic selection only — a manual
+ *  pick (search + click, `playerPickTrack`) plays whatever the user chose,
+ *  battle track or not, and isn't routed through this pool at all. */
 function effectivePool(): string[] {
   const gen = useAudioStore.getState().settings.genFilter;
-  if (!gen || gen === 'all') return BROWSABLE_TRACK_IDS as string[];
-  const filtered = BROWSABLE_TRACK_IDS.filter((id) => MUSIC_CATALOG_BY_ID.get(id)?.gen === gen);
-  return filtered.length > 0 ? filtered : (BROWSABLE_TRACK_IDS as string[]);
+  if (!gen || gen === 'all') return PEACEFUL_CATALOG_IDS as string[];
+  const filtered = PEACEFUL_CATALOG_IDS.filter((id) => MUSIC_CATALOG_BY_ID.get(id)?.gen === gen);
+  return filtered.length > 0 ? filtered : (PEACEFUL_CATALOG_IDS as string[]);
+}
+
+/** The battle takeover's pool (see musicClassify.ts): battle tracks of the
+ *  mini-player's currently-selected generation when that yields any, any
+ *  generation otherwise (e.g. a gen filter with few/no battle tracks of its
+ *  own, or 'all'). */
+function battlePool(): string[] {
+  const gen = useAudioStore.getState().settings.genFilter;
+  if (gen && gen !== 'all') {
+    const filtered = BATTLE_CATALOG_IDS.filter((id) => MUSIC_CATALOG_BY_ID.get(id)?.gen === gen);
+    if (filtered.length > 0) return filtered;
+  }
+  return BATTLE_CATALOG_IDS as string[];
 }
 
 function sequentialId(pool: string[], currentId: string | null, delta: number): string {
@@ -316,25 +332,48 @@ function advancePlayer(): void {
 /** Resumes the player's own session — the same track it was on before a
  *  battle/ceremony takeover (if any), or picks a fresh starting point
  *  otherwise (per `settings.playerMode`). Replaces the old ambient
- *  rotation's `startAmbientRotation`. */
+ *  rotation's `startAmbientRotation`.
+ *
+ *  `playerCurrentId` (this session's current/last-manually-picked track) is
+ *  honored even if it falls outside the peaceful pool — the user explicitly
+ *  chose it, and handing the bus back after a takeover isn't "automatic
+ *  selection" (shuffle/auto-advance/initial pick), so the battle-track
+ *  filter doesn't apply here (see effectivePool's doc comment). A
+ *  *persisted* `lastTrackId` from a previous launch IS treated as the
+ *  initial pick, and stays pool-filtered. */
 function resumePlayer(): void {
   currentMusicMode = 'player';
   const pool = effectivePool();
   if (pool.length === 0) return;
   const { settings } = useAudioStore.getState();
-  let id = playerCurrentId ?? settings.lastTrackId;
-  if (!id || !pool.includes(id)) {
+  let id: string | null = playerCurrentId;
+  if (!id) {
+    id = settings.lastTrackId && pool.includes(settings.lastTrackId) ? settings.lastTrackId : null;
+  }
+  if (!id) {
     id = settings.playerMode === 'manual' ? pool[0] : nextAutoId(pool);
   }
   void playCatalogTrack(id);
 }
 
-function startBattleMusic(): void {
+/** Battle takeover ids the app has always shipped with, cached (or trivially
+ *  cacheable) from day one — the last-resort floor `startBattleMusic` falls
+ *  back to if a random pick from the much larger classified battle pool
+ *  fails to fetch (cold cache + offline/slow network). Keeps the takeover
+ *  from going silent just because this pool grew from 2 ids to ~380. */
+const BATTLE_FALLBACK_IDS: readonly MusicTrackId[] = ['battleWild', 'battleTrainer'];
+
+async function startBattleMusic(): Promise<void> {
   cancelPlayerTimer();
   currentMusicMode = 'battle';
-  const id = BATTLE_TRACK_IDS[Math.floor(Math.random() * BATTLE_TRACK_IDS.length)];
-  useAudioStore.getState().setNowPlaying({ id, title: trackTitle(id), mode: 'battle' });
-  void crossfadeToTrack(id, { loop: true });
+  const pool = battlePool();
+  const candidates = [pool[Math.floor(Math.random() * pool.length)], ...BATTLE_FALLBACK_IDS];
+  for (const id of candidates) {
+    if (currentMusicMode !== 'battle') return; // superseded (ceremony/battle-end) while fetching
+    useAudioStore.getState().setNowPlaying({ id, title: trackTitle(id), mode: 'battle' });
+    const ok = await crossfadeToTrack(id, { loop: true });
+    if (ok) return;
+  }
 }
 
 /** Ceremony music (started/ended explicitly by EvolutionCeremony's own calls)
@@ -344,7 +383,7 @@ function recomputeDesiredMode(): void {
   if (ceremonyActiveCount > 0) return; // ceremony owns the bus right now
   const desired: MusicMode = activeBattles.size > 0 ? 'battle' : 'player';
   if (desired === currentMusicMode) return;
-  if (desired === 'battle') startBattleMusic();
+  if (desired === 'battle') void startBattleMusic();
   else resumePlayer();
 }
 

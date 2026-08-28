@@ -1036,7 +1036,7 @@ button.icon:active {
   font-size: 12px;
 }
 
-/* ── Audio controls (used by SettingsPanel; QuickMute is a plain .icon button) ── */
+/* ── Audio controls (used by SettingsPanel and AudioPopover's popover panel) ── */
 .audio-row {
   display: flex;
   align-items: center;
@@ -1109,6 +1109,39 @@ button.icon:active {
 
 .audio-status.audio-error {
   color: var(--danger);
+}
+
+/* ── Audio popover (topbar sound icon — AudioPopover.tsx) ───────────────────
+ * Same anchored-dropdown shape as `.workspace-switcher-menu` (transparent
+ * full-screen catcher for outside-click, `--shadow-hard` for the panel), but
+ * anchored to the RIGHT edge — the trigger sits near the topbar's right end,
+ * so a left-anchored panel would run off-screen. */
+.audio-popover {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.audio-popover-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+.audio-popover-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
 }
 
 /* ── Mini-player ─────────────────────────────────────────────────────────── */
@@ -1619,7 +1652,7 @@ textarea,
 }
 
 /* Tooltip bubble, shown via `data-tip="…"` + `className="tip"` on any
- * element (icon-only buttons — see App.tsx/ViewModeSwitcher/QuickMute/
+ * element (icon-only buttons — see App.tsx/ViewModeSwitcher/AudioPopover/
  * SettingsPanel — where the glyph alone doesn't say what it does). Kept as
  * its own system rather than the native `title` attribute so the delay,
  * position, and styling are consistent and never doubled up with a native

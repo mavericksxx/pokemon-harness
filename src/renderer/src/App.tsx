@@ -9,7 +9,7 @@ import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
-import { QuickMute } from '@/components/QuickMute';
+import { AudioPopover } from '@/components/AudioPopover';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { QuitDialog } from '@/components/QuitDialog';
 import { BootWipe } from '@/components/BootWipe';
@@ -164,7 +164,7 @@ export function App(): JSX.Element {
           sessions
         </button>
         <ViewModeSwitcher />
-        <QuickMute />
+        <AudioPopover />
         <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>

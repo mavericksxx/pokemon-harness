@@ -4,9 +4,11 @@
 /** The app's original curated HGSS OST ids (battle/evolution ceremony music
  *  — see `src/main/musicCache.ts`). Kept as a narrow literal type (rather
  *  than the mini-player's much larger catalog, which is just `string` —
- *  `src/shared/musicCatalog.ts`) because these specific ids are named
- *  directly by `audioEngine.ts`'s battle/ceremony logic. Stable regardless of
- *  the scraped track title/filename, so renaming upstream never breaks the
+ *  `src/shared/musicCatalog.ts`) because the ceremony ids are named directly
+ *  by `audioEngine.ts`'s ceremony logic (the battle ids no longer are — the
+ *  battle takeover now draws from the full classified pool, see
+ *  `musicClassify.ts` / `BATTLE_CATALOG_IDS`). Stable regardless of the
+ *  scraped track title/filename, so renaming upstream never breaks the
  *  cache. */
 export type MusicTrackId =
   | 'route29'
@@ -19,7 +21,6 @@ export type MusicTrackId =
   | 'evolutionCharge'
   | 'evolutionFanfare';
 
-export const BATTLE_TRACK_IDS: readonly MusicTrackId[] = ['battleWild', 'battleTrainer'];
 export const CEREMONY_TRACK_IDS: readonly MusicTrackId[] = ['evolutionCharge', 'evolutionFanfare'];
 
 /** Whether the mini-player's auto-cycle is picking the next track itself, or
