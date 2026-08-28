@@ -596,12 +596,13 @@ button.icon:active {
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
 }
 
-/* The warp-streak burst (warpStreaks.ts) — a single canvas-rasterized
- * radial sprite (chunky pixel rays, never a CSS gradient), animated with
- * nothing but `transform: scale` + `opacity` (ArceusWarp.tsx, every frame
- * during a transition): shrinks toward a point approaching the midpoint
- * flash, then grows back out, so the SAME sprite serves both the converge
- * and diverge halves. */
+/* The warp-streak burst (warpStreaks.ts) — a short sequence of small,
+ * hard-edged canvas-rasterized radial sprites, one per direction (chunky
+ * pixel rays in a fixed flat palette, never a CSS gradient). ArceusWarp.tsx
+ * FRAME-FLIPS `background-image` between them every animation tick — no
+ * `transform: scale` — so every frame maps onto the pane the same fixed
+ * way and stays crisp; only `opacity` (a hard 0/1, not a fade) is set
+ * per-frame alongside it. */
 .garden-warp-streaks {
   position: absolute;
   inset: 0;
@@ -614,15 +615,21 @@ button.icon:active {
   z-index: 1;
 }
 
-/* The midpoint flash — a plain flat fill (no gradient), opacity spiked
- * only right around the swap (ArceusWarp.tsx's `applyStyles`), which is
- * also exactly when `.garden`/`.garden-cosmos` swap visibility: this is
- * what hides that swap from ever being seen. */
+/* The midpoint cover — a blocky Bayer-ordered dissolve (warpStreaks.ts's
+ * `coverFrameUrls`), same frame-flipped `background-image` technique as
+ * the streaks above: flat direction-colored cells fill in fixed order
+ * frame-by-frame rather than a plain white opacity fade, so the "hide the
+ * scene swap" moment reads as a checkerboard wipe. The frame's own alpha
+ * channel carries transparency (an empty frame is fully transparent), so
+ * there's no `opacity` toggling here at all — ArceusWarp.tsx only ever
+ * swaps `background-image`. */
 .garden-warp-flash {
   position: absolute;
   inset: 0;
-  background: #ffffff;
-  opacity: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
   pointer-events: none;
   z-index: 2;
 }
