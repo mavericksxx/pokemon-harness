@@ -14,20 +14,31 @@ const COUNTDOWN_TICK_MS = 30_000;
 
 type GaugeTone = 'normal' | 'warn' | 'danger';
 
+/** Pokémon-style HP-bar thresholds (restyle, user feedback): <50% used still
+ *  reads as healthy (green/'normal'), 50-79% is the caution band (amber/
+ *  'warn'), 80%+ is the danger band (red/'danger') — this also drives the
+ *  topbar chip's own tone (`fallbackTone` below is the ONLY other source of
+ *  chip tone, for when there's no numeric window to grade), so the chip now
+ *  turns amber/red at these same 50/80 points too. */
 function gaugeTone(usedPercent: number): GaugeTone {
-  if (usedPercent >= 90) return 'danger';
-  if (usedPercent >= 75) return 'warn';
+  if (usedPercent >= 80) return 'danger';
+  if (usedPercent >= 50) return 'warn';
   return 'normal';
 }
 
+/** Humanized "resets in" — under 1h → "Xm", under 24h → "Xh Ym", 24h+ →
+ *  "Xd Yh" (user feedback: raw "resets in 93h 26m" / "resets in 416h 57m"
+ *  reads as a bug, not a duration). */
 function formatResetIn(resetsAt: number | null, now: number): string | null {
   if (resetsAt == null) return null;
   const diffMs = resetsAt - now;
   if (diffMs <= 0) return 'resets soon';
   const totalMin = Math.round(diffMs / 60_000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `resets in ${h}h ${m}m` : `resets in ${m}m`;
+  const totalHours = Math.floor(totalMin / 60);
+  if (totalHours < 1) return `resets in ${totalMin}m`;
+  if (totalHours < 24) return `resets in ${totalHours}h ${totalMin % 60}m`;
+  const days = Math.floor(totalHours / 24);
+  return `resets in ${days}d ${totalHours % 24}h`;
 }
 
 function formatAgo(updatedAt: number | undefined, now: number): string {

@@ -14,8 +14,8 @@ export type UsageProviderId = 'claude' | 'codex';
  *  model-scoped promotional window (e.g. "fable"), or (Claude only) a
  *  synthesized spend gauge from `extra_usage`. */
 export interface UsageWindow {
-  /** Short chip/bar label — '5h' | 'wk' | a model/scope name (lowercased,
-   *  e.g. 'sonnet', 'fable') | 'spend'. */
+  /** Short chip/bar label — '5h' | '7d' | '7d <model>' (e.g. '7d sonnet',
+   *  '7d fable') | a bare scope name (lowercased) | 'spend'. */
   label: string;
   /** 0-100, already clamped — every upstream response already reports this
    *  as a percentage (see the research doc's "no scaling" note for Claude;

@@ -17,10 +17,22 @@ import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
 import { showUpdateToast } from '@/updateNotifier';
 import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
+import type { UsageProviderId } from '@shared/usageTypes';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
  *  item 1) — the ones with a verified `autoModeArgs` in agentProvider.ts. */
 const AUTO_MODE_PROVIDERS = PROVIDER_LIST.filter((p) => p.autoModeArgs);
+
+/** The usage-limits panel's own per-provider include/exclude rows (user
+ *  feedback: "let the user pick which providers to include ... i dont wanna
+ *  include codex only claude"). Deliberately its own short list rather than
+ *  reusing `AGENT_PROVIDERS`' labels — those are display-cased ("Claude
+ *  Code"), this section's copy is lowercase to match the rest of this
+ *  panel's own row labels ("show provider usage limits", "keep Mac awake"). */
+const USAGE_PROVIDERS: { id: UsageProviderId; label: string }[] = [
+  { id: 'claude', label: 'claude code' },
+  { id: 'codex', label: 'codex cli' }
+];
 
 /**
  * Left-rail section list for the settings dialog. Order matches the brief
@@ -81,6 +93,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
   const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
+  const setUsageProviderEnabled = useAppSettingsStore((s) => s.setUsageProviderEnabled);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -248,21 +261,38 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
               )}
 
               {activeSection === 'usage' && (
-                <label className="settings-row">
-                  <input
-                    type="checkbox"
-                    checked={appSettings.usageLimitsEnabled}
-                    onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
-                  />
-                  <span className="settings-row-text">
-                    <span className="settings-row-label">show provider usage limits</span>
-                    <span className="settings-row-hint">
-                      reads the credential your CLI already stores to ask its usage endpoint. read-only — never
-                      stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
-                      trigger a one-time macOS permission prompt.
+                <>
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.usageLimitsEnabled}
+                      onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">show provider usage limits</span>
+                      <span className="settings-row-hint">
+                        reads the credential your CLI already stores to ask its usage endpoint. read-only — never
+                        stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
+                        trigger a one-time macOS permission prompt.
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+
+                  <div className={`settings-usage-providers${appSettings.usageLimitsEnabled ? '' : ' is-disabled'}`}>
+                    <p className="settings-row-hint">include in usage metrics</p>
+                    {USAGE_PROVIDERS.map((p) => (
+                      <label key={p.id} className="settings-usage-provider-row">
+                        <input
+                          type="checkbox"
+                          checked={!appSettings.usageExcludedProviders.includes(p.id)}
+                          disabled={!appSettings.usageLimitsEnabled}
+                          onChange={(e) => setUsageProviderEnabled(p.id, e.target.checked)}
+                        />
+                        <span className="settings-row-label">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
               )}
 
               {activeSection === 'harness-home' && (

@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import type { AgentProviderId } from '@shared/agentProvider';
 import { DEFAULT_APP_SETTINGS, MAX_RECENT_FOLDERS, type AppSettings, type ThemeMode } from '@shared/appSettingsTypes';
+import type { UsageProviderId } from '@shared/usageTypes';
 import { applyTheme } from '@/design/tokens';
 import { resolveEffectiveTheme } from '@/design/theme';
 import { applyTerminalTheme } from '@/pty/terminalRegistry';
@@ -33,6 +34,12 @@ setHideClaudeStatusline(v: boolean): void;
    *  is; main's `appSettings:saveSettings` handler is what actually starts/
    *  tears down usageService.ts's polling off this value. */
   setUsageLimitsEnabled(v: boolean): void;
+  /** Per-provider include/exclude for the usage-limits panel (feedback:
+   *  "let the user pick which providers to include"). Same persist-
+   *  immediately pattern as `setUsageLimitsEnabled` above; main's
+   *  `appSettings:saveSettings` handler is what actually reaches
+   *  usageService.ts's `setExcludedProviders` off this value. */
+  setUsageProviderEnabled(provider: UsageProviderId, enabled: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -95,6 +102,18 @@ setHideClaudeStatusline: (v) => {
 
   setUsageLimitsEnabled: (v) => {
     const settings = { ...get().settings, usageLimitsEnabled: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setUsageProviderEnabled: (provider, enabled) => {
+    const current = get().settings.usageExcludedProviders;
+    const usageExcludedProviders = enabled
+      ? current.filter((p) => p !== provider)
+      : current.includes(provider)
+        ? current
+        : [...current, provider];
+    const settings = { ...get().settings, usageExcludedProviders };
     set({ settings });
     persist(settings);
   },

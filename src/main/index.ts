@@ -696,6 +696,11 @@ app.whenReady().then(async () => {
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
 hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
+  // Per-provider include/exclude BEFORE the master toggle: setEnabled(true)
+  // below can trigger an immediate poll, and that poll's `includedProviders`
+  // check needs to already reflect this setting, not the all-included
+  // default it starts with (see usageService.ts's `setExcludedProviders`).
+  usageService.setExcludedProviders(appSettings.usageExcludedProviders);
   usageService.setEnabled(appSettings.usageLimitsEnabled);
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
@@ -850,7 +855,10 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
   // Usage-limits toggle (BACKLOG "next up" item 1) — the ONLY place a save
   // reaches usageService, so flipping it off here is what makes "toggle off
   // = zero credential access" true the instant the user unchecks it, not
-  // just on next launch.
+  // just on next launch. Per-provider exclusion (feedback: "let the user
+  // pick which providers to include") goes first, same ordering rationale as
+  // the boot path above.
+  usageService.setExcludedProviders(settings.usageExcludedProviders);
   usageService.setEnabled(settings.usageLimitsEnabled);
 
   // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
