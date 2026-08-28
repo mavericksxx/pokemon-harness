@@ -6,6 +6,9 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
 - fixed dead whitespace left of the topbar brand in macOS fullscreen: the traffic-light-safe inset now drops to normal content padding once main pushes fullscreen state to the renderer, instead of staying reserved after the traffic lights auto-hide
 - local-only diagnostics: rotated JSONL log at `<harness home>/logs/harness.log` (2MB cap, 3 files kept); captures main uncaughtException/unhandledRejection, render-process-gone, malformed hook payloads, the harmless second-instance EADDRINUSE on the hooks socket, and nonzero pty exits, plus renderer errors (window.onerror/unhandledrejection) forwarded over IPC; invariant counters (battles started/resolved, hook events received/routed/dropped, subagents spawned/materialized/cleaned up) snapshotted every 60s and on quit, with a warn logged when a pair stays diverged too long; Settings gains a "diagnostics" row (app + electron version, logs folder with an open-logs button, errors-this-session count). Nothing here ever leaves the machine.
+- custom application menu (app/Edit/View/Window, standard roles kept — copy/paste in text fields unaffected) so Cmd+0 resets zoom to the app's −0.5 default instead of Chromium's 100%; Cmd+plus/minus still step ±0.5 relative
+- cursor provider detection now tries `cursor-agent` then falls back to `agent` (Cursor has shipped both binary names), using whichever resolves on PATH
+- hid the Arceus "describe the task" dispatch box (it just duplicated the terminal below) — temporary, pending real task-routing ("tell chikorita to do X")
 
 ## v1.1.0 — 2026-08-28
 

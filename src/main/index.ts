@@ -1,4 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerSaveBlocker, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  Notification,
+  powerSaveBlocker,
+  shell
+} from 'electron';
+import type { MenuItemConstructorOptions } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -175,13 +186,113 @@ const NON_MAC_WINDOW_ICON = join(process.cwd(), 'build/icon/icon.png');
  *  click/Cmd- takes). Applied on every `did-finish-load`, not just the first
  *  — that's the same event that fires after `loadApp`'s crash-triggered
  *  reload (see the `render-process-gone` handler below), so one listener
- *  covers both without extra bookkeeping. Cmd+/Cmd- still adjust the level
- *  relatively from here via Electron's default View menu (no custom Menu is
- *  set, so macOS supplies its own with the usual zoomIn/zoomOut/resetZoom
- *  roles); its "Actual Size" (Cmd+0) role resets to Chromium's zoomLevel 0,
- *  not back to this default — overriding that would mean replacing the
- *  whole default application menu for one item, which isn't worth it here. */
+ *  covers both without extra bookkeeping. The View menu's zoom items (see
+ *  `buildApplicationMenu` below) are wired to this same constant, so Cmd+0
+ *  resets to it too instead of Electron's built-in `resetZoom` role, which
+ *  would jump back to Chromium's zoomLevel 0. */
 const DEFAULT_ZOOM_LEVEL = -0.5;
+
+/** Custom application menu (BACKLOG.md's "Cmd+0 reset-zoom" item). With
+ *  no Menu ever set, Electron supplies its own default macOS menu whose View
+ *  submenu's `resetZoom`/`zoomIn`/`zoomOut` roles operate on Chromium's raw
+ *  zoomLevel (0, ±1 steps) — Cmd+0 lands on 100%, not this app's −0.5
+ *  default. Replacing the WHOLE application menu just to fix three items
+ *  means rebuilding the rest of it too, so this clones the default macOS
+ *  structure (app menu, Edit — including the roles that make Cmd+C/Cmd+V
+ *  work in ordinary text inputs, which would otherwise regress — View,
+ *  Window) via Electron's standard `role`s, and only the three zoom items
+ *  get custom `click` handlers. Scoped to just these four menus — the task
+ *  this fixes named app/Edit/View/Window specifically, not a full File or
+ *  Help menu, so those aren't cloned. Cmd+W (normally a File-menu role on
+ *  mac) is kept by giving Window its `close` role instead, rather than
+ *  adding a whole extra top-level menu for one item. Built once and
+ *  installed in `app.whenReady()` below. The zoom `click` handlers close
+ *  over module-level `mainWindow` rather than using the callback's own
+ *  `window` argument — that argument is typed `BaseWindow | undefined`
+ *  (electron.d.ts), which has no `.webContents`, and this app only ever has
+ *  the one window anyway. */
+function buildApplicationMenu(): Menu {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Speech',
+          submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }]
+        }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        {
+          label: 'Actual Size',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => mainWindow?.webContents.setZoomLevel(DEFAULT_ZOOM_LEVEL)
+        },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+Plus',
+          click: () => {
+            const wc = mainWindow?.webContents;
+            if (wc) wc.setZoomLevel(wc.getZoomLevel() + 0.5);
+          }
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          click: () => {
+            const wc = mainWindow?.webContents;
+            if (wc) wc.setZoomLevel(wc.getZoomLevel() - 0.5);
+          }
+        },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'close' },
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+        { type: 'separator' },
+        { role: 'window' }
+      ]
+    }
+  ];
+  return Menu.buildFromTemplate(template);
+}
 
 /** Load (or reload, after a crash) the app's page. A fresh navigation, not
  *  `webContents.reload()`: testing an induced crash (CDP's `Page.crash()`)
@@ -560,6 +671,7 @@ app.whenReady().then(async () => {
   // (the folder is otherwise created lazily on first write) so the Settings
   // panel's "open logs" button isn't a no-op on a fresh install.
   log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
+  Menu.setApplicationMenu(buildApplicationMenu());
   createWindow(resolveWindowBg(appSettings.theme));
   diskRestorePromise = restoreFromDisk();
   app.on('activate', () => {

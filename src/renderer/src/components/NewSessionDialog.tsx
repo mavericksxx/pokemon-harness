@@ -71,6 +71,18 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
       // registry's `defaultCommand` for this preset is a fallback only, used
       // if this IPC round-trip somehow doesn't resolve before submit.
       void window.api.getDefaultShell().then((shell) => setCommand(shell));
+    } else if (id === 'cursor-agent') {
+      // Cursor has shipped its CLI under two different binary names
+      // (`cursor-agent`, and `agent` on some installs) — BACKLOG.md's
+      // "cursor-agent binary name check" item. Prefill with the registry
+      // default first so the field isn't empty while resolving, then swap
+      // to whichever name actually resolves on PATH. Neither found: leaves
+      // the registry default in place, same as before this fix.
+      setCommand(AGENT_PROVIDERS[id].defaultCommand);
+      void (async (): Promise<void> => {
+        if (await window.api.isCommandAvailable('cursor-agent')) return;
+        if (await window.api.isCommandAvailable('agent')) setCommand('agent');
+      })();
     } else {
       setCommand(AGENT_PROVIDERS[id].defaultCommand);
     }
