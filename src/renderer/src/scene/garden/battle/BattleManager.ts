@@ -124,6 +124,15 @@ const CORNER_MARGIN = 3;
  *  anyway — see file header on why this exists at all. Generous: real
  *  subagent work can run for many minutes. */
 const WANDER_SAFETY_MS = 8 * 60 * 1000;
+/** Watchdog for `alert`/`approaching` specifically — the only two wave
+ *  phases NOT bounded purely by dt accumulation (faceoff/looping/ending all
+ *  progress on a fixed clock regardless of anyone's position). If a goTo()
+ *  target turns out unreachable (a bad wanderHome, a map edge case, a
+ *  walker that's stuck for unrelated reasons), the wave would otherwise
+ *  pin at that phase forever — `isBattling` never releases the parent, and
+ *  `tryAdmitRing` (gated on the wave going idle) never runs again, jamming
+ *  every subsequent queued/final-battle subagent behind it too. */
+const WAVE_STUCK_MS = 15_000;
 
 /** One spawned subagent's own battler + where it is in its lifecycle.
  *  `bout` records which skirmish a RING membership belongs to (the wave
@@ -179,6 +188,12 @@ interface ParentBattle {
   pendingTool: string | null;
   pendingCombo: number;
   nextSeq: number;
+  /** Epoch ms the current wave was admitted — the basis for WAVE_STUCK_MS,
+   *  the only phases (`alert`/`approaching`) that can otherwise hang
+   *  forever if a goTo() target turns out unreachable (faceoff/looping/
+   *  ending are all bounded purely by dt accumulation, independent of
+   *  anyone actually arriving anywhere). */
+  waveStartedAt: number;
 }
 
 export interface BattleDeps {
@@ -330,6 +345,16 @@ export class BattleManager {
       }
 
       if (pb.wave === 'idle') this.tryAdmitRing(pb);
+
+      // Watchdog: `alert`/`approaching` are the only phases that wait on
+      // something happening in the world (a poof finishing, a goTo()
+      // actually arriving) rather than a fixed clock — see WAVE_STUCK_MS.
+      if (
+        (pb.wave === 'alert' || pb.wave === 'approaching') &&
+        Date.now() - pb.waveStartedAt >= WAVE_STUCK_MS
+      ) {
+        this.concludeWave(pb);
+      }
 
       switch (pb.wave) {
         case 'alert':
@@ -551,7 +576,8 @@ export class BattleManager {
       parentStandTile: null,
       pendingTool: null,
       pendingCombo: 0,
-      nextSeq: 0
+      nextSeq: 0,
+      waveStartedAt: 0
     };
   }
 
@@ -568,6 +594,7 @@ export class BattleManager {
     pb.waveRing = admitted;
     pb.wave = 'alert';
     pb.waveElapsedMs = 0;
+    pb.waveStartedAt = Date.now();
     pb.waveAttacks = 0;
     pb.alertShown = false;
     pb.currentAttack = null;
@@ -896,7 +923,7 @@ export class BattleManager {
         sub.battler.startPoofOut();
       } else {
         sub.lifecycle = 'wandering';
-        sub.wanderHome = this.pickWanderHome(pb);
+        sub.wanderHome = this.pickWanderHome(pb, sub.battler.tile);
         sub.wanderSince = Date.now();
         sub.wanderTimer = 0;
         sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
@@ -914,9 +941,16 @@ export class BattleManager {
    *  there — the farthest corner from the parent's CURRENT position (picked
    *  fresh per subagent, since the parent may have moved since the last
    *  one), with local jitter/avoidance spreading multiple wanderers out
-   *  instead of stacking on the same tile. Falls back toward the parent
-   *  only in the pathological case where nowhere far is walkable at all. */
-  private pickWanderHome(pb: ParentBattle): { x: number; y: number } {
+   *  instead of stacking on the same tile. `fromTile` (where the battler
+   *  actually is right now, about to `goTo` this) is passed as
+   *  `reachableFrom` — a tile that merely passes `isWalkable` can still sit
+   *  in a disconnected pocket (the far side of a wall/pond), which would
+   *  leave this battler standing frozen forever once it goTo()s there and
+   *  the path silently fails (same reasoning `pickFarSpawnTile` and
+   *  `pickChallengerStandTileFor` already apply). Falls back toward the
+   *  parent only in the pathological case where nowhere far is reachable at
+   *  all. */
+  private pickWanderHome(pb: ParentBattle, fromTile: { x: number; y: number }): { x: number; y: number } {
     const map = this.deps.map;
     const margin = CORNER_MARGIN;
     const corners = [
@@ -935,10 +969,11 @@ export class BattleManager {
 
     for (const corner of corners) {
       const home =
-        findNearbyWalkable(map, corner, 0, 6, claimed) ?? findNearbyWalkable(map, corner, 0, 14, claimed);
+        findNearbyWalkable(map, corner, 0, 6, claimed, fromTile) ??
+        findNearbyWalkable(map, corner, 0, 14, claimed, fromTile);
       if (home) return home;
     }
-    return parentTile; // pathological: nothing walkable anywhere far — stand near the parent instead
+    return parentTile; // pathological: nothing reachable anywhere far — stand near the parent instead
   }
 
   /** Periodic local wander around `sub`'s far-corner home — mirrors
