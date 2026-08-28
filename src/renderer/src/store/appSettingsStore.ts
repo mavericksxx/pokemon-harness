@@ -27,6 +27,7 @@ interface AppSettingsState {
   setTheme(mode: ThemeMode): void;
   setAutoMode(provider: AgentProviderId, enabled: boolean): void;
   setKeepAwake(v: boolean): void;
+  setHideClaudeStatusline(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -77,6 +78,12 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
 
   setKeepAwake: (v) => {
     const settings = { ...get().settings, keepAwake: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setHideClaudeStatusline: (v) => {
+    const settings = { ...get().settings, hideClaudeStatusline: v };
     set({ settings });
     persist(settings);
   },

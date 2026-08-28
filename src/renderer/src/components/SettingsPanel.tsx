@@ -78,6 +78,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setTheme = useAppSettingsStore((s) => s.setTheme);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -353,6 +354,20 @@ export function SettingsPanel(): JSX.Element | null {
                     />
                     <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
                   </div>
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.hideClaudeStatusline}
+                      onChange={(e) => setHideClaudeStatusline(e.target.checked)}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">hide claude statusline</span>
+                      <span className="settings-row-hint">
+                        hides your claude code statusline in pokéharness terminals only — other terminals keep it.
+                        applies to newly started sessions.
+                      </span>
+                    </span>
+                  </label>
                 </>
               )}
 

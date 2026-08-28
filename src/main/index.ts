@@ -664,6 +664,7 @@ app.whenReady().then(async () => {
   costWatcher.start();
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
+  hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
   initDiagnostics(harnessHomeDir);
@@ -807,6 +808,7 @@ ipcMain.handle('appSettings:getSettings', () => loadAppSettings());
 ipcMain.handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
   keepAwakeEnabled = settings.keepAwake;
   syncKeepAwake();
+  hookBridge.setHideStatusline(settings.hideClaudeStatusline);
 
   // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
   // actually changed, and never touches anything at the OLD location (the
