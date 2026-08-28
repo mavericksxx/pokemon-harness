@@ -20,7 +20,7 @@ export function ThemeToggle(): JSX.Element {
 
   return (
     <button
-      className="icon tip"
+      className="topbar-icon-btn tip"
       data-tip={isDark ? 'switch to light mode' : 'switch to dark mode'}
       aria-label={isDark ? 'switch to light mode' : 'switch to dark mode'}
       onClick={() => setTheme(isDark ? 'light' : 'dark')}

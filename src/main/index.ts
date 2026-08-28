@@ -188,25 +188,32 @@ function resolveWindowBg(theme: AppSettings['theme']): string {
 // that hasn't run `node build/icon/gen-icon.mjs` yet.
 const NON_MAC_WINDOW_ICON = join(process.cwd(), 'build/icon/icon.png');
 
-/** Default zoom, one Cmd-minus notch out from Chromium's 1.0 (zoomFactor =
- *  1.2^zoomLevel, so -0.5 ≈ 0.91x — the same step a single "Zoom Out" menu
- *  click/Cmd- takes). Applied on every `did-finish-load`, not just the first
- *  — that's the same event that fires after `loadApp`'s crash-triggered
- *  reload (see the `render-process-gone` handler below), so one listener
- *  covers both without extra bookkeeping. The View menu's zoom items (see
- *  `buildApplicationMenu` below) are wired to this same constant, so Cmd+0
- *  resets to it too instead of Electron's built-in `resetZoom` role, which
- *  would jump back to Chromium's zoomLevel 0. */
-const DEFAULT_ZOOM_LEVEL = -0.5;
+/** Default zoom — Chromium's native 0 (100%). Was -0.5 (zoomFactor ≈0.91,
+ *  one Cmd-minus notch out) as a cheap way to fit ~9% more UI on screen, but
+ *  a discriminating screenshot root-caused that to the brand/modal-heading
+ *  "squash" bug (BACKLOG.md "smaller known items"): Press Start 2P's pixel
+ *  glyphs need integer device pixels, and the 0.91 factor put them on
+ *  fractional ones app-wide. The density that -0.5 gave is now baked into
+ *  the stylesheet's own base type scale instead (index.css's
+ *  `--font-body-md/sm-*` tokens, mirrored in design/tokens.ts's
+ *  `type.bodyMd`/`bodySm`), which never touches Press Start 2P's own
+ *  integer-only sizes. Applied on every `did-finish-load`, not just the
+ *  first — that's the same event that fires after `loadApp`'s crash-
+ *  triggered reload (see the `render-process-gone` handler below), so one
+ *  listener covers both without extra bookkeeping. The View menu's zoom
+ *  items (see `buildApplicationMenu` below) are wired to this same
+ *  constant, so Cmd+0 resets to it too. */
+const DEFAULT_ZOOM_LEVEL = 0;
 
 /** Custom application menu (BACKLOG.md's "Cmd+0 reset-zoom" item). With
  *  no Menu ever set, Electron supplies its own default macOS menu whose View
- *  submenu's `resetZoom`/`zoomIn`/`zoomOut` roles operate on Chromium's raw
- *  zoomLevel (0, ±1 steps) — Cmd+0 lands on 100%, not this app's −0.5
- *  default. Replacing the WHOLE application menu just to fix three items
- *  means rebuilding the rest of it too, so this clones the default macOS
- *  structure (app menu, Edit — including the roles that make Cmd+C/Cmd+V
- *  work in ordinary text inputs, which would otherwise regress — View,
+ *  submenu's `resetZoom`/`zoomIn`/`zoomOut` roles step Chromium's raw
+ *  zoomLevel by whole increments (±1) — coarser than this app's own ±0.5
+ *  step, and not routed through the shared `DEFAULT_ZOOM_LEVEL` constant
+ *  Cmd+0 resets to below. Replacing the WHOLE application menu just to fix
+ *  three items means rebuilding the rest of it too, so this clones the
+ *  default macOS structure (app menu, Edit — including the roles that make
+ *  Cmd+C/Cmd+V work in ordinary text inputs, which would otherwise regress — View,
  *  Window) via Electron's standard `role`s, and only the three zoom items
  *  get custom `click` handlers. Scoped to just these four menus — the task
  *  this fixes named app/Edit/View/Window specifically, not a full File or
@@ -551,8 +558,10 @@ function createWindow(backgroundColor: string): void {
   });
 
   // Default zoom (see DEFAULT_ZOOM_LEVEL above) — re-applied after every
-  // navigation, including the crash/reload path below, since a fresh
-  // navigation resets zoomLevel to 0.
+  // navigation, including the crash/reload path below, for symmetry with
+  // when this constant was non-zero; a fresh navigation already resets
+  // zoomLevel to 0 on its own, so this call is a no-op today but keeps the
+  // guarantee explicit if the default ever changes again.
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomLevel(DEFAULT_ZOOM_LEVEL);
     // Fullscreen-aware topbar inset — see the enter/leave-full-screen

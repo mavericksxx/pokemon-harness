@@ -14,8 +14,11 @@ import { TrashIcon } from '@/components/icons';
  *  chip — click to switch. Rename/delete only need to be reachable for
  *  WHICHEVER garden is active (you rename/delete the one you're looking at,
  *  same as before, just no longer behind a menu to open first) — the active
- *  chip alone grows a rename (✎) and delete affordance; every other chip is
- *  just a plain switch button. Cmd/Ctrl+Shift+1..9 (App.tsx) switches
+ *  chip alone grows a rename (✎) and delete affordance, folded into the
+ *  chip itself and hover/focus-revealed at its right edge (index.css's
+ *  `.garden-chip-action` — topbar overhaul, was two bare floating icons
+ *  beside the chip); every other chip is just a plain switch button.
+ *  Cmd/Ctrl+Shift+1..9 (App.tsx) switches
  *  directly without touching this component at all — the per-chip shortcut
  *  hint moved from a visible label into each chip's tooltip to keep the row
  *  compact. */

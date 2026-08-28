@@ -27,7 +27,7 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     if (!folder.trim()) {
-      setError('choose a folder for this workspace.');
+      setError('choose a folder for this garden.');
       return;
     }
     setBusy(true);
@@ -44,7 +44,7 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>new workspace</h2>
+        <h2>new garden</h2>
 
         <label>
           name <span className="hint">(optional)</span>
@@ -75,7 +75,7 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
               <option key={f} value={f} />
             ))}
           </datalist>
-          <p className="hint">new sessions in this workspace default here — any session can still pick another folder.</p>
+          <p className="hint">new sessions in this garden default here — any session can still pick another folder.</p>
         </label>
 
         {error && <p className="error">{error}</p>}
