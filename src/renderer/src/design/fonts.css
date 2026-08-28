@@ -1,0 +1,42 @@
+/* Self-hosted typography (Phase 8 §2 design-spec replication, section B).
+ *
+ * Three faces, bundled inside the app rather than loaded from
+ * fonts.googleapis.com: this is a local-only Electron app with no guaranteed
+ * network at boot, and a pixel-brand chrome face silently falling back to
+ * generic monospace is exactly the kind of thing that should never depend on
+ * connectivity. See ATTRIBUTION.md for full license text (all three are free
+ * — Press Start 2P and JetBrains Mono under OFL-1.1, Inter under OFL-1.1).
+ *
+ * Latin subsets only. Inter and JetBrains Mono are VARIABLE fonts, so one
+ * file each covers weights 400-700; Press Start 2P only ships weight 400.
+ * ~84KB total. Pattern ported from munder-difflin's fonts.css (MIT-licensed
+ * *pattern*, not the font files themselves — those are separately-licensed
+ * third-party assets, see ATTRIBUTION.md).
+ *
+ * Vite fingerprints and inlines these URLs at build time, so the paths below
+ * are source paths, not runtime ones. */
+
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/press-start-2p-latin-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  /* Variable: one file answers every weight the design tokens ask for. */
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-var.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/jetbrains-mono-latin-var.woff2') format('woff2');
+}

@@ -21,6 +21,16 @@ munder-difflin's office scene (tile renderer, pathfinding, camera, seat pool,
 character sprite, tool bubble) derives from the-office. Our garden scene derives
 from munder-difflin's, so the-office is upstream of it too.
 
+## Bundled fonts
+
+- Press Start 2P, Inter, and JetBrains Mono ship inside the app bundle at
+  `src/renderer/src/assets/fonts/` (latin subsets, woff2). All three are free
+  and OFL-1.1 licensed — full license text and per-file copyright travels
+  with them at `src/renderer/src/assets/fonts/LICENSE.txt`, as the OFL
+  requires. None of the three fonts is otherwise derived from munder-difflin
+  or the-office; the *pattern* of self-hosting them via `fonts.css` is (see
+  the file map below).
+
 ## File map
 
 | File in this repo | Derived from | Nature of the port |
@@ -41,7 +51,8 @@ from munder-difflin's, so the-office is upstream of it too.
 | Pixi init settings in `scene/garden/GardenScene.tsx` | munder-difflin `scene/office/OfficeFloor.tsx` | the pixel-art render settings (`antialias: false`, `roundPixels`, resolution floor of 2, `autoDensity`) |
 | Tiled layer convention (`floor`, `walls`, `furniture-below`, `furniture-above`, `collision`, `spawn-points`, `zones`) | munder-difflin / the-office | convention adopted as-is |
 
-| `src/renderer/src/design/tokens.ts` | munder-difflin `design/tokens.ts` + `DESIGN.md` §3-7 | structure only (color ramp / 4px space scale / type scale / hard-shadow panel language, mirrored onto `:root` as CSS custom properties); values are this app's own dark forest palette, not their cream/violet one, and no pixel display font is ported (renderer CSP has no font-src) |
+| `src/renderer/src/design/tokens.ts` | munder-difflin `design/tokens.ts` + shipped `design/tokens.css` (post-v0.3.4 recalibration) | structure AND values: neutral ground ramp, session accents, status colors, 4px space scale, type scale, hard-shadow panel language, all mirrored onto `:root` as CSS custom properties by `applyTokens()` |
+| `src/renderer/src/design/fonts.css` | munder-difflin `design/fonts.css` | pattern only (three self-hosted `@font-face` rules, latin subsets); the font files themselves are separately-licensed third-party assets, see below |
 
 Written fresh for this project (no upstream): `tools/gen-garden-map.cjs`,
 `tools/build-dex.cjs`,
