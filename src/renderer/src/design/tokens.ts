@@ -86,9 +86,16 @@ export const primaryAccent = gold;
  *  Note: `done` fires on plain PTY exit regardless of `exitCode` (see
  *  terminalRegistry.ts) — a crashed session gets the same green badge as a
  *  clean one. That's a pre-existing status-model gap, not something this
- *  color pass changes; exit-code-aware coloring is out of scope here. */
+ *  color pass changes; exit-code-aware coloring is out of scope here.
+ *
+ *  `starting` is lightened from the spec's literal #6C6C77 (their
+ *  status-idle) to #8C8C97: the WCAG spot-check (see index.css's `.status`
+ *  comment) found the literal value's badge DOT — a small graphical
+ *  indicator, needs >=3.0:1 per WCAG 1.4.11 — measured only 2.38:1 against
+ *  its own 20%-tinted chip background. Same hue, lightened until the dot
+ *  clears the bar with margin (3.39:1). */
 export const status = {
-  starting: '#6C6C77', // their status-idle — "at desk, awaiting"
+  starting: '#8C8C97', // their status-idle, lightened — see comment above
   idle: '#64ACBB', // their status-thinking
   working: '#D8B052', // their status-working
   blocked: '#DF8078', // their status-blocked

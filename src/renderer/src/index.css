@@ -37,12 +37,12 @@
   --status-working: #d8b052;
   --status-blocked: #df8078;
   --status-done: #6fb88b;
-  --status-starting: #6c6c77;
+  --status-starting: #8c8c97; /* spec's literal #6c6c77 lightened — WCAG dot-contrast fix, see .status comment */
   --status-idle-bg: rgba(100, 172, 187, 0.2);
   --status-working-bg: rgba(216, 176, 82, 0.2);
   --status-blocked-bg: rgba(223, 128, 120, 0.2);
   --status-done-bg: rgba(111, 184, 139, 0.2);
-  --status-starting-bg: rgba(108, 108, 119, 0.2);
+  --status-starting-bg: rgba(140, 140, 151, 0.2);
 
   --space-0: 0px;
   --space-1: 4px;
@@ -389,7 +389,14 @@ button.icon:active {
 
 /* Status badge: 8px colored dot + 4px gap + lowercase body-sm text, on a
  * background tinted to the status color at 20% opacity. Sentence case, no
- * tracking — "working"/"needs you"/"done", not "WORKING". */
+ * tracking — "working"/"needs you"/"done", not "WORKING".
+ *
+ * Text stays the neutral primary color (--text) at every status, not the
+ * status hue — only the dot is "colored" per the spec's own badge anatomy.
+ * A status-colored text on its OWN 20%-tinted background is a same-hue
+ * text-on-fill pairing, and for the grey "starting" status that measured
+ * under 2.4:1 (WCAG AA needs 4.5:1 for text this size); neutral text on the
+ * same tinted chips clears 7-9:1 across every status, comfortably. */
 .status {
   display: inline-flex;
   align-items: center;
@@ -398,7 +405,7 @@ button.icon:active {
   font-size: var(--font-body-sm-size);
   line-height: var(--font-body-sm-line);
   padding: 1px 6px 1px 5px;
-  color: var(--muted);
+  color: var(--text);
   background: transparent;
 }
 
@@ -408,28 +415,38 @@ button.icon:active {
   height: 8px;
   flex: none;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--muted);
 }
 
 .status.working {
-  color: var(--status-working);
   background: var(--status-working-bg);
 }
+.status.working::before {
+  background: var(--status-working);
+}
 .status.blocked {
-  color: var(--status-blocked);
   background: var(--status-blocked-bg);
 }
+.status.blocked::before {
+  background: var(--status-blocked);
+}
 .status.done {
-  color: var(--status-done);
   background: var(--status-done-bg);
 }
+.status.done::before {
+  background: var(--status-done);
+}
 .status.idle {
-  color: var(--status-idle);
   background: var(--status-idle-bg);
 }
+.status.idle::before {
+  background: var(--status-idle);
+}
 .status.starting {
-  color: var(--status-starting);
   background: var(--status-starting-bg);
+}
+.status.starting::before {
+  background: var(--status-starting);
 }
 
 .terminal-mount {
