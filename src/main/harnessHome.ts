@@ -27,7 +27,7 @@ export function resolveHarnessHomeDir(settings: Pick<AppSettings, 'harnessHomeDi
   return settings.harnessHomeDir?.trim() || defaultHarnessHomeDir();
 }
 
-const README = `# Pokemon Harness
+const README = `# Pokéharness
 
 This is the harness's town hall — the one folder on disk it keeps for you
 (and for your agents) outside of Electron's own app-data cache.

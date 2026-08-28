@@ -38,6 +38,13 @@ import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } fr
 // default. Must be set before app is ready.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// Ship-cut item 1 (rename): the packaged app's dock/menu identity comes from
+// package.json's `productName` via Info.plist, but `app.getName()` in a DEV
+// run falls back to the ascii npm `name` ("pokeharness") unless overridden
+// here — must run before `app.whenReady()` to reliably affect the dock/menu
+// bar in both dev and packaged builds.
+app.setName('Pokéharness');
+
 let mainWindow: BrowserWindow | null = null;
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
@@ -215,7 +222,7 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
       if (workspace) body += ` (${workspace.name})`;
     }
     try {
-      new Notification({ title: 'pokemon-harness', body }).show();
+      new Notification({ title: 'pokéharness', body }).show();
     } catch {
       /* unsupported/denied on this platform — best-effort, never throw into the IPC handler */
     }
@@ -320,7 +327,7 @@ function createWindow(backgroundColor: string): void {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'Pokemon Harness',
+    title: 'Pokéharness',
     backgroundColor,
     titleBarStyle: 'hiddenInset',
     show: false,

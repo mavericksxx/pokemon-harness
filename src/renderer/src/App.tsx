@@ -118,7 +118,14 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">Pokemon Harness</span>
+        {/* Ship-cut item 1/6: brand mark is lowercase "pokéharness" — the
+            voice's own lowercase convention, extended to the one string
+            that's otherwise exempt from the sweep (design/tokens.ts has the
+            rule). Press Start 2P carries a real 'é' glyph (verified against
+            the bundled woff2's cmap) and it reads fine at this size; if that
+            ever changes, fall back to plain "pokeharness" here only — every
+            other surface (README, notifications, dialogs) keeps the accent. */}
+        <span className="brand">pokéharness</span>
         <WorkspaceSwitcher />
         <SummonArceusButton />
         {!showRosterStrip && (
