@@ -29,10 +29,12 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ## queued phases (logged 2026-08-29 — batch per phase, dispatch after usage limits ships)
 
-### phase A — critical: subagent lifecycle correctness
+### phase A — critical: subagent lifecycle REDESIGN (spec changed by user 2026-08-29, supersedes the v1.1.0 flow)
 
-- subagent's pokemon fainted and left the garden while the real subagent was STILL RUNNING (observed on v1.2.0). It did materialize this time (hardening worked) but died early — suspects: the 8-min `WANDER_SAFETY_MS` fallback expiring on a long-running subagent, or a false-positive opportunistic completion signal. Before coding: pull `~/PokemonHarness/logs/harness.log` for the repro window (battle counters + any `battle-*` entries) to see which path fired. Likely fix shape: raise/remove the wander safety for subagents whose parent session is still actively emitting PreToolUse/PostToolUse hooks (parent activity = proof the wave isn't done), rather than a bigger constant.
-- battles chain back-to-back with no breathing room — a new skirmish started immediately after the previous one ended; add a cooldown between battles (per-avatar and a short global stagger) so consecutive skirmishes read as separate events.
+- new lifecycle, replacing intro-skirmish → wander → final-skirmish: **on spawn, the subagent's pokemon just appears and roams the garden — no intro battle.** When the subagent finishes working, its pokemon walks over to the MAIN agent's (parent session's) pokemon, they battle, and the subagent's pokemon loses and faints. That completion battle is the only battle in the lifecycle.
+- **battle queue with breathing room**: if multiple subagents finish around the same time, queue their completion battles — one battle at a time, then a few seconds of free time before the next begins (this replaces/absorbs the "battles chain back-to-back" complaint; no overlapping or instantly-chained fights).
+- **victory celebration**: after each win, the main pokemon plays a victory/celebration animation ONLY if the sprite set we already pull actually contains one for that species — verify against the real sprite source first; if no such animation exists, skip silently (never fabricate frames or repurpose an unrelated animation).
+- **premature-death bug still applies and is now worse**: on v1.2.0 a subagent's pokemon fainted while the real subagent was still running; under the new design a false "done" triggers a visible walk-up-and-battle, so false positives are more jarring. Before coding, pull `~/PokemonHarness/logs/harness.log` for the repro window (battle counters + `battle-*` entries) to see whether the 8-min `WANDER_SAFETY_MS` fallback or a false completion signal fired. Fix shape: treat the parent session's ongoing hook activity (PreToolUse/PostToolUse still flowing) as proof the wave is alive — a roaming subagent pokemon should not die on a timer while its parent is visibly working; prefer dropping/greatly extending the timer fallback over tuning the constant.
 
 ### phase B — layout/visual bugs
 
