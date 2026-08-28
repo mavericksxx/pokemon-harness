@@ -1,0 +1,289 @@
+import { Container, Graphics } from 'pixi.js';
+import type { TiledMapRenderer } from './TiledMapRenderer';
+import type { Walker } from './Walker';
+import type { SessionStatus } from '@shared/types';
+import { pickBerryEatenLine, pickBerryErrandLine, pickIdleLine } from './gardenLines';
+
+/**
+ * Garden charm (Phase 8 §7): idle Pokemon occasionally wander to a berry
+ * bush and pick a berry (the one implemented "errand" — see this file's
+ * header note below on why watering-style errands didn't get a second,
+ * separate mechanism), occasional in-character speech bubbles, and two
+ * clickable props (a signpost hotspot over the map's existing signpost art,
+ * and a hand-drawn well — this map has no well tile, see stations.ts/
+ * gardenArt.ts). Pure charm: nothing here touches session state, hooks, or
+ * evolution/battle logic — it only reads `Walker`'s existing public surface
+ * (goTo/beginWander/showText/lingerBubble/showFloatingText/tile) and draws
+ * its own decorative Pixi layer.
+ *
+ * Scope note: the brief calls for "idle errands (wander to garden props,
+ * watering-style beats)" AND a separate berry economy where "idle Pokemon
+ * walk over, pick, and carry/eat one." Both are the same shape of behavior
+ * (walk to a prop, pause, small visual beat, resume wandering) — rather than
+ * building two parallel errand systems, the berry-bush walk *is* the one
+ * errand type implemented. See the Phase 8 report for the explicit trim.
+ */
+
+/** Bush/well/signpost anchors — existing wander/signpost spawn points
+ *  (stations.ts), not new map data. See TiledMapRenderer's header on why:
+ *  garden.tmj is generated (tools/gen-garden-map.cjs) and these are
+ *  guaranteed-walkable tiles already reachable by pathfinding. */
+const BUSH_SPAWNS = ['wander-1', 'wander-2'] as const;
+const WELL_SPAWN = 'wander-3';
+const SIGNPOST_SPAWN = 'signpost-1';
+
+const MAX_BERRIES = 3;
+const REGROW_INTERVAL_S = 40;
+/** Give up on a stuck/unreachable errand rather than stranding the walker
+ *  wander-less forever — defensive, should never actually trigger. */
+const ERRAND_TIMEOUT_S = 20;
+/** Chance per eligible 1s tick that an idle, non-busy walker starts a berry
+ *  errand — kept low; this is ambient background charm, not a spectacle. */
+const BERRY_CHANCE = 0.02;
+/** Chance per eligible tick of a speech bubble instead (checked only when
+ *  the berry roll above already missed). */
+const CHATTER_CHANCE = 0.02;
+/** Per-session cooldown range before the NEXT roll is even attempted, so one
+ *  walker doesn't roll dice every single second of its idle life. */
+const COOLDOWN_MIN_S = 8;
+const COOLDOWN_MAX_S = 20;
+
+interface BerryBush {
+  tile: { x: number; y: number };
+  px: number;
+  py: number;
+  berries: number;
+  regrowAt: number; // charm-clock seconds
+  sprite: Graphics;
+}
+
+interface CharmState {
+  cooldownS: number;
+  busy: boolean;
+  bushIndex: number | null;
+  busyElapsedS: number;
+}
+
+export interface GardenCharmOptions {
+  map: TiledMapRenderer;
+  /** Same layer walkers live in (`map.getCharacterContainer()`), so props
+   *  depth-sort against them correctly. */
+  layer: Container;
+  onOpenSessions: () => void;
+  onOpenSettings: () => void;
+}
+
+/** Minimal session shape this module needs — decoupled from the app store's
+ *  full `Session` type on purpose (see file header). */
+export interface CharmSessionLike {
+  id: string;
+  status: SessionStatus;
+}
+
+export class GardenCharm {
+  private map: TiledMapRenderer;
+  private layer: Container;
+  private propsLayer: Container;
+  private bushes: BerryBush[] = [];
+  private clockS = 0;
+  private charmStates = new Map<string, CharmState>();
+
+  constructor(opts: GardenCharmOptions) {
+    this.map = opts.map;
+    this.layer = opts.layer;
+    this.propsLayer = new Container();
+    this.propsLayer.sortableChildren = true;
+    this.layer.addChild(this.propsLayer);
+
+    this.setupBushes();
+    this.setupWell(opts.onOpenSettings);
+    this.setupSignpost(opts.onOpenSessions);
+  }
+
+  private tileToWorld(tile: { x: number; y: number }): { px: number; py: number } {
+    const ts = this.map.tileSize;
+    // Feet-anchored convention Walker itself uses (bottom-center of tile) —
+    // keeps props sitting on the ground the same way a walker standing there
+    // would, not floating at the tile's top-left corner.
+    return { px: tile.x * ts + ts / 2, py: tile.y * ts + ts };
+  }
+
+  private setupBushes(): void {
+    for (const name of BUSH_SPAWNS) {
+      const tile = this.map.getSpawnPoint(name);
+      if (!tile) continue; // map variant without this spawn — skip, not fatal
+      const { px, py } = this.tileToWorld(tile);
+      const sprite = new Graphics();
+      sprite.x = px;
+      sprite.y = py;
+      sprite.zIndex = py;
+      this.propsLayer.addChild(sprite);
+      const bush: BerryBush = { tile, px, py, berries: MAX_BERRIES, regrowAt: 0, sprite };
+      this.redrawBush(bush);
+      this.bushes.push(bush);
+    }
+  }
+
+  private redrawBush(bush: BerryBush): void {
+    const g = bush.sprite;
+    g.clear();
+    // The bush itself: a squat green blob sitting on the ground.
+    g.ellipse(0, -5, 9, 7).fill({ color: 0x3a6b2a });
+    g.ellipse(0, -5, 9, 7).stroke({ width: 1, color: 0x1a3313 });
+    g.alpha = bush.berries > 0 ? 1 : 0.55;
+    // Berries: small red dots, one per remaining berry.
+    const dots: [number, number][] = [
+      [-4, -8],
+      [4, -7],
+      [0, -3]
+    ];
+    for (let i = 0; i < bush.berries; i++) {
+      const [dx, dy] = dots[i];
+      g.circle(dx, dy, 2).fill({ color: 0xe0403a });
+    }
+  }
+
+  private setupWell(onOpenSettings: () => void): void {
+    const tile = this.map.getSpawnPoint(WELL_SPAWN);
+    if (!tile) return;
+    const { px, py } = this.tileToWorld(tile);
+    const well = new Graphics();
+    well.circle(0, -6, 9).fill({ color: 0x9a9a92 });
+    well.circle(0, -6, 9).stroke({ width: 2, color: 0x1a1320 });
+    well.circle(0, -6, 5).fill({ color: 0x14210f });
+    well.rect(-1, -18, 2, 12).fill({ color: 0x6b4a2a }); // rope
+    well.x = px;
+    well.y = py;
+    well.zIndex = py;
+    well.eventMode = 'static';
+    well.cursor = 'pointer';
+    well.hitArea = { contains: (x: number, y: number) => x * x + (y + 6) * (y + 6) <= 12 * 12 };
+    well.on('pointertap', onOpenSettings);
+    this.pulse(well);
+    this.propsLayer.addChild(well);
+  }
+
+  private setupSignpost(onOpenSessions: () => void): void {
+    const tile = this.map.getSpawnPoint(SIGNPOST_SPAWN);
+    if (!tile) return;
+    const { px, py } = this.tileToWorld(tile);
+    // No new art — the map's own signpost/mailbox tile is already drawn
+    // here (see stations.ts). Just an invisible hotspot over it.
+    const hot = new Container();
+    hot.x = px;
+    hot.y = py;
+    hot.zIndex = py + 1;
+    hot.eventMode = 'static';
+    hot.cursor = 'pointer';
+    hot.hitArea = { contains: (x: number, y: number) => x >= -10 && x <= 10 && y >= -28 && y <= 4 };
+    hot.on('pointertap', onOpenSessions);
+    this.propsLayer.addChild(hot);
+  }
+
+  /** Very slow alpha breathe, just enough to read as "this thing is alive
+   *  and clickable" without violating the UI layer's own "no ambient idle
+   *  animation" rule (DESIGN.md §12.2) — that rule is scoped to chrome
+   *  panels, not the game layer, where motion communicates. */
+  private pulse(g: Graphics): void {
+    let t = Math.random() * Math.PI * 2;
+    const tick = (): void => {
+      if (g.destroyed) return;
+      t += 0.02;
+      g.alpha = 0.85 + Math.sin(t) * 0.15;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  private maybeRegrowBushes(): void {
+    for (const bush of this.bushes) {
+      if (bush.berries >= MAX_BERRIES) continue;
+      if (this.clockS < bush.regrowAt) continue;
+      bush.berries += 1;
+      bush.regrowAt = this.clockS + REGROW_INTERVAL_S;
+      this.redrawBush(bush);
+    }
+  }
+
+  private randomCooldown(): number {
+    return COOLDOWN_MIN_S + Math.random() * (COOLDOWN_MAX_S - COOLDOWN_MIN_S);
+  }
+
+  private progressErrand(walker: Walker, cs: CharmState): void {
+    cs.busyElapsedS += 1;
+    const bush = cs.bushIndex !== null ? this.bushes[cs.bushIndex] : undefined;
+    if (!bush) {
+      cs.busy = false;
+      return;
+    }
+    const arrived = walker.tile.x === bush.tile.x && walker.tile.y === bush.tile.y;
+    const timedOut = cs.busyElapsedS >= ERRAND_TIMEOUT_S;
+    if (!arrived && !timedOut) return;
+
+    cs.busy = false;
+    cs.bushIndex = null;
+    walker.beginWander();
+    if (arrived && bush.berries > 0) {
+      bush.berries -= 1;
+      this.redrawBush(bush);
+      walker.showFloatingText('🍓');
+      walker.showText(pickBerryEatenLine());
+      walker.lingerBubble();
+    }
+  }
+
+  /** Called once per second (GardenScene's existing 1Hz flush) with the
+   *  current sessions + their live walkers. Everything here is best-effort:
+   *  a session that vanished mid-errand (killed) just drops its charm state
+   *  along with its walker — nothing to clean up beyond that. */
+  tick(sessions: readonly CharmSessionLike[], walkers: ReadonlyMap<string, Walker>): void {
+    this.clockS += 1;
+    this.maybeRegrowBushes();
+
+    const liveIds = new Set(sessions.map((s) => s.id));
+    for (const id of [...this.charmStates.keys()]) if (!liveIds.has(id)) this.charmStates.delete(id);
+
+    for (const session of sessions) {
+      const walker = walkers.get(session.id);
+      if (!walker) continue;
+      let cs = this.charmStates.get(session.id);
+      if (!cs) {
+        cs = { cooldownS: this.randomCooldown(), busy: false, bushIndex: null, busyElapsedS: 0 };
+        this.charmStates.set(session.id, cs);
+      }
+
+      if (cs.busy) {
+        this.progressErrand(walker, cs);
+        continue;
+      }
+
+      if (session.status !== 'idle') continue; // only idle wanderers get charm beats
+
+      cs.cooldownS -= 1;
+      if (cs.cooldownS > 0) continue;
+      cs.cooldownS = this.randomCooldown();
+
+      const roll = Math.random();
+      if (roll < BERRY_CHANCE) {
+        const candidates = this.bushes
+          .map((b, i) => ({ b, i }))
+          .filter(({ b }) => b.berries > 0);
+        if (candidates.length === 0) continue;
+        const { b: bush, i: index } = candidates[Math.floor(Math.random() * candidates.length)];
+        if (!walker.goTo(bush.tile)) continue; // unreachable this map — skip silently
+        cs.busy = true;
+        cs.bushIndex = index;
+        cs.busyElapsedS = 0;
+        walker.showText(pickBerryErrandLine());
+        walker.lingerBubble();
+      } else if (roll < BERRY_CHANCE + CHATTER_CHANCE) {
+        walker.showText(pickIdleLine());
+        walker.lingerBubble();
+      }
+    }
+  }
+
+  destroy(): void {
+    this.propsLayer.destroy({ children: true });
+  }
+}

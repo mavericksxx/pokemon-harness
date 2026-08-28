@@ -16,6 +16,7 @@ import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { initShinyConfig } from './shiny';
 import { randomAnimatedSpecies, speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
+import { GardenCharm } from './gardenCharm';
 import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
@@ -182,6 +183,17 @@ export function GardenScene(): JSX.Element {
           rt.lastStation = null;
           rt.walker.beginWander();
         }
+      });
+
+      // Phase 8 §7 — garden charm: berry-bush errands, idle chatter, and the
+      // signpost/well clickable props. Same instantiate-here/destroy-in-
+      // cleanup lifecycle as battleManager above, for the same reason (needs
+      // this scene's own map/charLayer).
+      const gardenCharm = new GardenCharm({
+        map,
+        layer: charLayer,
+        onOpenSessions: () => useStore.getState().setSessionsOverviewOpen(true),
+        onOpenSettings: () => useStore.getState().setSettingsOpen(true)
       });
 
       /** Bundled + not-shiny needs no fetch at all; everything else (any
@@ -408,6 +420,13 @@ export function GardenScene(): JSX.Element {
             const crossedStage3 = entry.stage === 2 && workedMs >= cfg.stage3Ms;
             if (crossedStage2 || crossedStage3) triggerEvolve(session, rt);
           }
+
+          // Charm ticks at the same 1Hz cadence — no need for per-frame
+          // precision on ambient errands/chatter.
+          const sessions = useStore.getState().sessions;
+          const walkersById = new Map<string, Walker>();
+          for (const [id, rt] of runtimes) walkersById.set(id, rt.walker);
+          gardenCharm.tick(sessions, walkersById);
         }
 
         const selectedId = useStore.getState().selectedId;
@@ -432,6 +451,7 @@ export function GardenScene(): JSX.Element {
         for (const id of [...runtimes.keys()]) removeWalker(id);
         battleManager.dispose();
         clearBattleFx();
+        gardenCharm.destroy();
         app.destroy(true, { children: true });
       };
     };
