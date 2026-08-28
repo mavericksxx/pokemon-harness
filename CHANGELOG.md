@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## unreleased (v1.1.0 batch)
+## v1.1.0 — 2026-08-28
 
 - long-text overflow fixes: compact tool labels everywhere (bash → `cmd …tail`, paths → `…/parent/file.ext`), roster-card/workspace-button/session-chip truncation, hardened topbar brand inset
 - merged the duplicate terminal view modes into one; three view modes remain
