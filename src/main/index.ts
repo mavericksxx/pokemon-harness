@@ -15,6 +15,7 @@ import { respawnSession } from './sessionRespawn';
 import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureArceusSystemPrompt } from './arceusPrompt';
+import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from './arceusSummonConfig';
 import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
 import { checkForUpdate } from './updateCheck';
 import type {
@@ -31,6 +32,7 @@ import type { AppSettings } from '../shared/appSettingsTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
+import type { ArceusSummonConfig } from '../shared/arceus';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -659,6 +661,15 @@ ipcMain.handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harne
 // everything BUT the real spawn (the cosmos ascent, alpha card, dispatch
 // box, persistence, cross-workspace presence) is then exercisable live.
 ipcMain.handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
+
+// ─── Arceus summon-once (Phase 8.9) ────────────────────────────────────────
+// See arceusSummonConfig.ts's own header — this file's mere existence gates
+// the setup dialog vs. a silent auto-summon on every later launch.
+ipcMain.handle('arceus:loadSummonConfig', () => loadArceusSummonConfig(harnessHomeDir));
+ipcMain.handle('arceus:saveSummonConfig', (_e, config: ArceusSummonConfig) =>
+  saveArceusSummonConfig(harnessHomeDir, config)
+);
+ipcMain.handle('arceus:resetSummonConfig', () => resetArceusSummonConfig(harnessHomeDir));
 
 // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────────
 // Every handler here returns the FULL current snapshot (not just the one

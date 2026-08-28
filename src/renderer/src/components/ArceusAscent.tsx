@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ARCEUS_FORMES, ARCEUS_FORME_HOLD_MS } from '@/scene/garden/arceusFormes';
+import { cloudSprite } from '@/scene/garden/clouds';
 import { loadLazyThumbnail } from '@/scene/garden/lazySprites';
 import { nebulaDataUrl } from '@/scene/garden/nebula';
 
@@ -75,12 +76,14 @@ const STREAKS: readonly { left: number; height: number; opacity: number; delayMs
   { left: 94, height: 70, opacity: 0.4, delayMs: -230, durationMs: 480 }
 ];
 
-/** Fixed, hand-placed cloud-puff seeds — chunky GBA-style flat-shaded
- *  puffs whipping past during rush, foreground (bigger/faster/more opaque)
- *  and background (smaller/slower/fainter) mixed for cheap depth. Static
- *  generated set, not re-randomized per render — same convention as
- *  STREAKS above. Shape itself is the shared `.puff-shape` CSS class
- *  (index.css) — a lumpy rounded blob, not a rectangle. */
+/** Fixed, hand-placed cloud-puff seeds — chunky cumulus-dome-cluster puffs
+ *  (scene/garden/clouds.ts) whipping past during rush, foreground (bigger/
+ *  faster/more opaque) and background (smaller/slower/fainter) mixed for
+ *  cheap depth. Static generated set, not re-randomized per render — same
+ *  convention as STREAKS above. Shape itself is the shared `.puff-shape`
+ *  CSS class (index.css) with a per-puff `background-image` — see the
+ *  `cloudSprite` call below, and `RUSH_SATELLITE_MAX_SIZE` for which of
+ *  these render as a small satellite mini-puff vs. a full hero cluster. */
 const CLOUD_PUFFS: readonly { left: number; size: number; opacity: number; delayMs: number; durationMs: number }[] = [
   { left: 10, size: 46, opacity: 0.5, delayMs: -120, durationMs: 900 },
   { left: 28, size: 30, opacity: 0.3, delayMs: -480, durationMs: 1300 },
@@ -90,6 +93,12 @@ const CLOUD_PUFFS: readonly { left: number; size: number; opacity: number; delay
   { left: 90, size: 32, opacity: 0.32, delayMs: -380, durationMs: 1250 }
 ];
 
+/** Below this size, a rush puff renders as a small 1-2-dome satellite
+ *  mini-puff (cloudSprite's `satellite` flag) rather than a full 3-6-dome
+ *  hero cluster — splits CLOUD_PUFFS' own size range roughly in half (26,
+ *  30, 32 vs. 42, 46, 54), so both read among the six whipping past. */
+const RUSH_SATELLITE_MAX_SIZE = 36;
+
 /** The arrival cover bank (Phase 8.8 §4, reworked per design feedback — a
  *  "sky opening around him," not two doors sliding shut) — many individual
  *  puffs spread across the pane (some starting slightly past 0%/100% so
@@ -98,7 +107,10 @@ const CLOUD_PUFFS: readonly { left: number; size: number; opacity: number; delay
  *  to `left: 50`) clear FIRST; edge puffs clear last — see `applyStyles`'
  *  per-puff stagger, computed from each one's own distance from center
  *  rather than a hand-authored delay, so this array only needs to place
- *  them, not time them. */
+ *  them, not time them. The four smallest (44-52, see
+ *  `COVER_SATELLITE_MAX_SIZE`) sit near the top, beside/above larger
+ *  clusters — small satellite puffs beside hero clouds, per the reference. */
+const COVER_SATELLITE_MAX_SIZE = 56;
 const COVER_PUFFS: readonly { left: number; top: number; size: number; tone: 'light' | 'mid' | 'dim' }[] = [
   { left: 50, top: 42, size: 92, tone: 'light' },
   { left: 38, top: 56, size: 72, tone: 'mid' },
@@ -327,20 +339,24 @@ export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
         ))}
       </div>
       <div className="garden-rush-clouds" ref={cloudsRef} aria-hidden="true">
-        {CLOUD_PUFFS.map((c, i) => (
-          <span
-            key={i}
-            className="puff-shape garden-rush-puff"
-            style={{
-              left: `${c.left}%`,
-              width: `${c.size}px`,
-              height: `${c.size * 0.62}px`,
-              opacity: c.opacity,
-              animationDelay: `${c.delayMs}ms`,
-              animationDuration: `${c.durationMs}ms`
-            }}
-          />
-        ))}
+        {CLOUD_PUFFS.map((c, i) => {
+          const sprite = cloudSprite(c.left * 1000 + c.size, c.size, c.size < RUSH_SATELLITE_MAX_SIZE);
+          return (
+            <span
+              key={i}
+              className="puff-shape garden-rush-puff"
+              style={{
+                left: `${c.left}%`,
+                width: `${c.size}px`,
+                height: `${c.size * sprite.aspect}px`,
+                backgroundImage: `url(${sprite.url})`,
+                opacity: c.opacity,
+                animationDelay: `${c.delayMs}ms`,
+                animationDuration: `${c.durationMs}ms`
+              }}
+            />
+          );
+        })}
       </div>
       <div className="garden-cosmos" ref={cosmosRef} aria-hidden="true">
         <div className="garden-cosmos-nebula" style={{ backgroundImage: `url(${nebulaDataUrl()})` }} />
@@ -369,23 +385,28 @@ export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
           occluding the (already fully loaded) nebula/Arceus underneath,
           not just an opacity trick. */}
       <div className="garden-cloud-cover" aria-hidden="true">
-        {COVER_PUFFS.map((c, i) => (
-          <span
-            key={i}
-            ref={(el) => {
-              coverPuffRefs.current[i] = el;
-            }}
-            className={`puff-shape garden-cloud-cover-puff ${c.tone}`}
-            style={{
-              left: `${c.left}%`,
-              top: `${c.top}%`,
-              width: `${c.size}px`,
-              height: `${c.size * 0.62}px`,
-              marginLeft: `${-c.size / 2}px`,
-              marginTop: `${-(c.size * 0.62) / 2}px`
-            }}
-          />
-        ))}
+        {COVER_PUFFS.map((c, i) => {
+          const sprite = cloudSprite(c.left * 1000 + c.size, c.size, c.size < COVER_SATELLITE_MAX_SIZE);
+          const height = c.size * sprite.aspect;
+          return (
+            <span
+              key={i}
+              ref={(el) => {
+                coverPuffRefs.current[i] = el;
+              }}
+              className={`puff-shape garden-cloud-cover-puff ${c.tone}`}
+              style={{
+                left: `${c.left}%`,
+                top: `${c.top}%`,
+                width: `${c.size}px`,
+                height: `${height}px`,
+                backgroundImage: `url(${sprite.url})`,
+                marginLeft: `${-c.size / 2}px`,
+                marginTop: `${-height / 2}px`
+              }}
+            />
+          );
+        })}
       </div>
     </>
   );

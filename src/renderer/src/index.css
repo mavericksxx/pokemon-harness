@@ -588,24 +588,19 @@ button.icon:active {
 }
 
 /* Puff shape (Phase 8.8 §4, style-matched to a user-supplied cumulus
- * reference — generated procedurally here, never copied/traced from it) —
- * shared by the rush-phase whipping puffs AND the arrival cloud bank. A
- * cluster of rounded domes: the element's own soft, uneven border-radius
- * (an organic blob, not a circle) repeated at several box-shadow offsets
- * builds the "cluster of lumps" silhouette from ONE shape. Two tones only
- * — white body, a single pale violet-grey (tuned toward the cosmos
- * palette) for the underside/inner-lump shading — and NO outline; the
- * silhouette is the white stepping against whatever's behind it. */
+ * reference — generated procedurally, never copied/traced from it; see
+ * scene/garden/clouds.ts) — shared by the rush-phase whipping puffs AND the
+ * arrival cloud bank. Each puff gets its own `background-image` (a small
+ * canvas of overlapping domes rasterized to a data URL) stretched to the
+ * element's own box; `pixelated` is what turns that low-res source into
+ * chunky stair-stepped blocks instead of a smooth curve at this size. Two
+ * tones only, baked into the sprite itself (white body, pale violet-grey
+ * undersides/creases) — no outline. */
 .puff-shape {
   position: absolute;
-  border-radius: 48% 52% 44% 56% / 62% 58% 42% 38%;
-  background: #f4f2fb;
-  box-shadow:
-    0.62em -0.2em 0 -0.06em #f4f2fb,
-    -0.58em -0.12em 0 -0.1em #f4f2fb,
-    0.3em 0.22em 0 -0.08em #d7d2ea,
-    -0.34em 0.2em 0 -0.1em #d7d2ea,
-    0.08em 0.3em 0 -0.04em #e3dff2;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
 }
 
 /* Rush-phase whipping puffs — same "static layout, JS only toggles the

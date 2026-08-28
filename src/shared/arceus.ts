@@ -25,6 +25,20 @@ export const ARCEUS_DEX_ID = 'arceus';
 
 export const ARCEUS_TITLE = 'Arceus';
 
+/** Persisted summon config (Phase 8.9) — `agents/arceus/summon.json` in the
+ *  harness home directory (main/arceusSummonConfig.ts). Same shape as the
+ *  renderer's `SummonArceusRequest` (arceus.ts). Written once, after the
+ *  FIRST successful summon (explicit, user-initiated — see
+ *  SummonArceusDialog), then read back on every later launch to summon him
+ *  again silently, no dialog: "onboard once, he's just there" (Phase 8.9
+ *  spec). Its mere existence on disk is also the signal that gates the setup
+ *  dialog — see SummonArceusButton.tsx. */
+export interface ArceusSummonConfig {
+  cwd: string;
+  model?: string;
+  autoMode: boolean;
+}
+
 /** A session with no home workspace — currently just Arceus, but written
  *  against the field rather than the id so any future global session
  *  works the same way. Every per-workspace filter (roster strip, garden
