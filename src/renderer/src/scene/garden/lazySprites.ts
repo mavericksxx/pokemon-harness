@@ -27,7 +27,7 @@
  * have no back view at all" case — falling back to a normal-palette back
  * would give one walker two palettes depending on facing.
  */
-import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
+import { decompressFrame, decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
 import { Texture } from 'pixi.js';
 import type { CachedSprite, LazySpriteMeta, SpriteView } from '@shared/types';
 import type { FrameSet, PokemonAnimation } from './showdownArt';
@@ -40,9 +40,12 @@ import { loadPixelTexture } from './imageTexture';
  *  sheet hit 10010px, which is exactly the mistake this guards against). */
 const MAX_SHEET_WIDTH = 8192;
 
-/** One in-flight or resolved fetch per (id, view), so a thumbnail request and
- *  a later full pick of the same species never fetch twice, and two callers
- *  racing the same species share one decode. */
+/** One in-flight or resolved fetch per (id, view), so a full pick (walker or
+ *  evolution) of the same species never fetches or decodes its sheet twice,
+ *  and two callers racing the same species share one decode. A picker
+ *  THUMBNAIL preview does not go through this cache — see
+ *  `decodeThumbnailFrame` below — so merely browsing the dex can't fill it
+ *  with species nobody ever picked. */
 const viewCache = new Map<string, Promise<FrameSet | null>>();
 const animationCache = new Map<string, Promise<PokemonAnimation | null>>();
 const thumbnailCache = new Map<string, Promise<string | null>>();
@@ -348,40 +351,110 @@ function makeGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
 
 const thumbnailGate = makeGate(4);
 
-/** A single still frame of a lazy species, as an object URL, for the picker's
+/** Decode ONLY a GIF's first frame — no `coalesceGif`, no `buildSheet`. Frame
+ *  0 has no prior canvas state to composite against, so its own patch drawn
+ *  onto an `lsd.width x lsd.height` canvas at its own (left, top) offset
+ *  already IS the complete first image — the same rule `coalesceGif` applies
+ *  frame-by-frame, with only one frame to apply it to here. `decompressFrame`
+ *  (singular — unlike `decompressFrames`) decodes just that one block, so a
+ *  picker preview never pays to LZW-decompress and canvas-composite the other
+ *  50-180 frames of a species nobody has picked. */
+function decodeGifFirstFrame(gifBytes: ArrayBuffer): HTMLCanvasElement | null {
+  const gif = parseGIF(gifBytes);
+  const firstFrame = gif.frames.find((f): f is Parameters<typeof decompressFrame>[0] => 'image' in f);
+  if (!firstFrame) return null;
+  const decoded = decompressFrame(firstFrame, gif.gct, true);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = gif.lsd.width;
+  canvas.height = gif.lsd.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+
+  const patchCanvas = document.createElement('canvas');
+  patchCanvas.width = decoded.dims.width;
+  patchCanvas.height = decoded.dims.height;
+  patchCanvas
+    .getContext('2d')!
+    .putImageData(new ImageData(new Uint8ClampedArray(decoded.patch), decoded.dims.width, decoded.dims.height), 0, 0);
+  ctx.drawImage(patchCanvas, decoded.dims.left, decoded.dims.top);
+  return canvas;
+}
+
+/** One species' first-frame art, fetched and decoded WITHOUT going through
+ *  `loadView`/`viewCache`/the disk cache — see this file's header for why a
+ *  picker preview must not pay the full-sheet decode. Static species
+ *  (#650-1025) are already a single frame, so reusing `fetchAndDecodeStatic`
+ *  costs nothing extra (it never touches `viewCache` or the disk cache
+ *  either). */
+async function decodeThumbnailFrame(id: string, view: SpriteView, shiny: boolean): Promise<HTMLCanvasElement | null> {
+  if (speciesEntry(id)?.static) {
+    const decoded = await fetchAndDecodeStatic(id, view, shiny);
+    return decoded?.sheet ?? null;
+  }
+  const gifBytes = await window.api.fetchSpriteGif(id, view, shiny);
+  return gifBytes ? decodeGifFirstFrame(gifBytes) : null;
+}
+
+/** `decodeThumbnailFrame`, plus the shiny-specific fallback — same rule as
+ *  `loadFrontWithShinyFallback`, kept separate because the thumbnail path
+ *  must not touch `viewCache`. */
+async function decodeThumbnailFrameWithShinyFallback(id: string, shiny: boolean): Promise<HTMLCanvasElement | null> {
+  const primary = await decodeThumbnailFrame(id, 'front', shiny);
+  if (primary || !shiny) return primary;
+  console.error(`[lazySprites] ${id}: shiny front sprite unavailable — falling back to normal (thumbnail)`);
+  return decodeThumbnailFrame(id, 'front', false);
+}
+
+/** Crop frame 0 out of an already-decoded FrameSet — a real walker's sheet,
+ *  already resident in `viewCache` — into a thumbnail data URL, with no new
+ *  fetch or decode. */
+function cropFrame0(front: FrameSet): string | null {
+  const frame = front.frames[0]?.texture;
+  if (!frame) return null;
+  // Frame 0 is always at the sheet's top-left, whatever row layout the
+  // full sheet wrapped into — its own Texture#frame already knows that.
+  const canvas = document.createElement('canvas');
+  canvas.width = front.frameWidth;
+  canvas.height = front.frameHeight;
+  const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    frame.source.resource as CanvasImageSource,
+    frame.frame.x,
+    frame.frame.y,
+    frame.frame.width,
+    frame.frame.height,
+    0,
+    0,
+    front.frameWidth,
+    front.frameHeight
+  );
+  return canvas.toDataURL('image/png');
+}
+
+/** A single still frame of a lazy species, as a data URL, for the picker's
  *  search results and (`shiny`, Phase 5 §4) a shiny session's face thumbnail.
- *  Cheap: reuses the same decode/cache as the full walker (a hit here means a
- *  later pick needs no further network). Falls back shiny→normal on a 404,
- *  same as loadLazyAnimation. */
+ *  Deliberately does NOT share `loadView`'s cache: a search result page can
+ *  put dozens of species on screen that nobody ends up picking, and decoding
+ *  (and disk-caching) each one's FULL animated sheet just to crop frame 0 out
+ *  of it is what used to balloon memory from picker browsing alone — see this
+ *  file's header. If a full pick has already decoded this species (it's an
+ *  actual walker), this reuses that decode instead of fetching a second time.
+ *  Falls back shiny→normal on a 404, same as loadLazyAnimation. */
 export function loadLazyThumbnail(id: string, shiny = false): Promise<string | null> {
   const key = shiny ? `${id}:shiny` : id;
   const existing = thumbnailCache.get(key);
   if (existing) return existing;
 
   const promise = thumbnailGate(async (): Promise<string | null> => {
-    const front = await loadFrontWithShinyFallback(id, shiny);
-    if (!front) return null;
-    const frame = front.frames[0]?.texture;
-    if (!frame) return null;
-    // Frame 0 is always at the sheet's top-left, whatever row layout the
-    // full sheet wrapped into — its own Texture#frame already knows that.
-    const canvas = document.createElement('canvas');
-    canvas.width = front.frameWidth;
-    canvas.height = front.frameHeight;
-    const ctx = canvas.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(
-      frame.source.resource as CanvasImageSource,
-      frame.frame.x,
-      frame.frame.y,
-      frame.frame.width,
-      frame.frame.height,
-      0,
-      0,
-      front.frameWidth,
-      front.frameHeight
-    );
-    return canvas.toDataURL('image/png');
+    const alreadyDecoded = viewCache.get(`${id}:front:${shiny ? 'shiny' : 'normal'}`);
+    if (alreadyDecoded) {
+      const front = await alreadyDecoded;
+      if (front) return cropFrame0(front);
+    }
+    const canvas = await decodeThumbnailFrameWithShinyFallback(id, shiny);
+    return canvas ? canvas.toDataURL('image/png') : null;
   });
 
   thumbnailCache.set(key, promise);
