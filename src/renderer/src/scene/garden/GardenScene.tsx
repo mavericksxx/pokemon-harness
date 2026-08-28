@@ -19,7 +19,7 @@ import { BattleManager } from './battle/BattleManager';
 import { GardenCharm } from './gardenCharm';
 import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
-import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
+import { clearBattleFx, spawnShinySparkle, spawnSparkleBurst } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
@@ -55,6 +55,13 @@ interface Runtime {
    *  has actually been called (or abandoned) — guards against re-deciding to
    *  evolve on every 1Hz tick while the next stage's art is still loading. */
   evolvePending: boolean;
+  /** The species id currently reflected in this walker's sprite. Kept in
+   *  sync with `session.pokemon` by triggerEvolve's own ceremony swap AND by
+   *  applyManualSwap (the roster card's "change pokemon" action) — the
+   *  latter diffs against THIS, not `session.pokemon` read fresh, so a swap
+   *  is applied exactly once even though `session.pokemon` itself doesn't
+   *  change again until the next swap or evolution. */
+  appliedPokemonId: string;
 }
 
 export function GardenScene(): JSX.Element {
@@ -238,6 +245,14 @@ export function GardenScene(): JSX.Element {
           if (!rt) return;
           rt.lastStation = null;
           rt.walker.beginWander();
+          // A "change pokemon" swap requested mid-battle is deferred by
+          // applyManualSwap (defined below — safe to reference here: this
+          // callback only ever RUNS once a battle actually ends, well after
+          // the whole scene has finished setting up) until the battle is
+          // over; apply it immediately now rather than waiting for the next
+          // incidental store change to trigger applyState.
+          const session = useStore.getState().sessions.find((s) => s.id === parentId);
+          if (session) applyManualSwap(session, rt);
         }
       });
 
@@ -285,17 +300,30 @@ export function GardenScene(): JSX.Element {
        *  shows the actual shiny palette. Fires even if the fetch failed
        *  (still a pokeball): the flag, and therefore the reveal, doesn't
        *  depend on the sprite actually loading. */
-      const upgradeIfLazy = (session: Session, walker: Walker, rt: Runtime): void => {
-        if (!session.shiny && pokemonAnimations.has(session.pokemon)) return;
-        void loadLazyAnimation(session.pokemon, session.shiny).then((anim) => {
+      /** `speciesId`/`shiny` are captured explicitly, not read off `session`
+       *  inside the `.then` — `session` there would be a stale closed-over
+       *  snapshot if the species changed again (another evolve, or a manual
+       *  swap) while this fetch was in flight. The `rt.appliedPokemonId`
+       *  check below is what actually guards against applying a
+       *  now-superseded species' art on top of whatever's current. */
+      const upgradeIfLazy = (
+        session: Session,
+        speciesId: string,
+        shiny: boolean,
+        walker: Walker,
+        rt: Runtime
+      ): void => {
+        if (!shiny && pokemonAnimations.has(speciesId)) return;
+        void loadLazyAnimation(speciesId, shiny).then((anim) => {
           if (runtimes.get(session.id) !== rt) return; // session gone/replaced meanwhile
+          if (rt.appliedPokemonId !== speciesId) return; // superseded by a later evolve/swap meanwhile
           if (anim) {
             walker.setAnimation(anim);
           } else {
-            const label = speciesEntry(session.pokemon)?.name ?? session.pokemon;
+            const label = speciesEntry(speciesId)?.name ?? speciesId;
             useStore.getState().pushToast(`couldn't load ${label}'s sprite — offline or not found.`);
           }
-          if (session.shiny) {
+          if (shiny) {
             spawnShinySparkle(walker.container, -walker.spriteHeight - 8);
             walker.showFloatingText('Shiny!');
           }
@@ -332,10 +360,11 @@ export function GardenScene(): JSX.Element {
           lastToolKey: '',
           status: session.status,
           workAccumMs: 0,
-          evolvePending: false
+          evolvePending: false,
+          appliedPokemonId: session.pokemon
         };
         runtimes.set(session.id, rt);
-        upgradeIfLazy(session, walker, rt);
+        upgradeIfLazy(session, session.pokemon, session.shiny, walker, rt);
         playSpawnCry(session.pokemon); // this session's walker's first spawn (Phase 7)
         return rt;
       };
@@ -366,6 +395,7 @@ export function GardenScene(): JSX.Element {
           }
           const nextLabel = speciesEntry(nextId)?.name ?? nextId;
           rt.walker.evolve(anim, entry.name, nextLabel, nextId, () => {
+            rt.appliedPokemonId = nextId;
             useStore.getState().updateSession(session.id, { pokemon: nextId });
           });
         };
@@ -377,6 +407,26 @@ export function GardenScene(): JSX.Element {
             proceed(anim ?? placeholderAnimation(nextId), !anim);
           });
         }
+      };
+
+      /** Roster card's "change pokemon" action (sessions.ts's
+       *  `swapSessionPokemon` already updated `session.pokemon`/`.line` in
+       *  the store) — brings the walker's SPRITE in line: an instant swap
+       *  (setAnimation, no flash/ceremony — the store's `pokemon` already
+       *  accounts for earned stage, so evolution's own 1Hz threshold check
+       *  won't fire a ceremony for it), a poof, and the new species' cry.
+       *  Skipped while a ceremony or a battle owns this session's walker;
+       *  the caller retries on the next reconcile (applyState fires on
+       *  every store change, and onBattleEnd calls this directly the moment
+       *  a deferred swap becomes safe). */
+      const applyManualSwap = (session: Session, rt: Runtime): void => {
+        if (rt.appliedPokemonId === session.pokemon) return;
+        if (rt.walker.isEvolving || battleManager.isBattling(session.id)) return;
+        rt.appliedPokemonId = session.pokemon;
+        rt.walker.setAnimation(resolveAnimation(session.pokemon, session.shiny));
+        spawnSparkleBurst(rt.walker.container);
+        playSpawnCry(session.pokemon);
+        upgradeIfLazy(session, session.pokemon, session.shiny, rt.walker, rt);
       };
 
       const removeWalker = (id: string): void => {
@@ -467,6 +517,11 @@ export function GardenScene(): JSX.Element {
           // SessionStart. `Walker.setNapping` is idempotent on repeat calls
           // with the same value.
           walker.setNapping(!!session.napping);
+
+          // "Change pokemon" (roster card action) — a no-op unless
+          // session.pokemon has actually changed since this walker last
+          // applied it; see applyManualSwap's own comment.
+          applyManualSwap(session, rt);
 
           // A battling parent owns its own walker's position/facing for the
           // duration (approach/faceoff/attack loop) — the normal station

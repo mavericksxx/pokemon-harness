@@ -1,12 +1,15 @@
+import { useState } from 'react';
 import type { Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
+import { PokemonPicker } from '@/components/PokemonPicker';
 import { toolIcon } from '@/scene/garden/ToolBubble';
 import { speciesEntry } from '@/scene/garden/dexData';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { formatToolTarget } from '@/design/toolTargetLabel';
-import { LoopIcon } from '@/components/icons';
+import { LoopIcon, SwapIcon } from '@/components/icons';
+import { swapSessionPokemon } from '@/sessions';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
  *  status, current tool, an evolution progress hint, and a shiny star.
@@ -36,6 +39,10 @@ function formatTokenCount(n: number): string {
 }
 
 export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Element {
+  // "Change pokemon" (roster card affordance) — not offered for Arceus, who
+  // is fixed. Opens the same full-dex picker NewSessionDialog uses;
+  // picking an option applies immediately (swapSessionPokemon) and closes.
+  const [swapOpen, setSwapOpen] = useState(false);
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
   // Alpha card (Phase 8.8 §5) — distinct treatment for Arceus: an "alpha"
   // tag (the games' own name for him — the ALPHA Pokémon) and his
@@ -66,57 +73,96 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
   const classes = ['roster-card', selected && 'selected', isArceus && 'alpha'].filter(Boolean).join(' ');
 
   return (
-    <button
-      className={classes}
-      // The alpha card's left border is CSS-animated (arceus-ring-cycle) —
-      // an inline style here would win the cascade and freeze it.
-      style={isArceus ? undefined : { borderLeftColor: `#${session.accent.toString(16).padStart(6, '0')}` }}
-      onClick={() => onSelect(session.id)}
-      title={`${session.command} — ${session.cwd}`}
-    >
-      <div className="roster-card-top">
-        <span className="roster-card-face">
-          <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
-          {session.shiny && (
-            <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
-              ★
-            </span>
-          )}
-        </span>
-        <span className="roster-card-id">
-          <span className="roster-card-name">
-            {session.title}
-            {isArceus && <span className="roster-card-alpha-tag">alpha</span>}
+    // Wrapper, not the card `<button>` itself, owns the swap button and its
+    // positioning context — a `<button>` can't nest another `<button>`, and
+    // `.roster-card`'s own hover-lift transform must stay off this element
+    // (a transformed ancestor becomes the containing block for a `position:
+    // fixed` descendant, which would break the swap dialog's backdrop).
+    <div className="roster-card-wrap">
+      <button
+        className={classes}
+        // The alpha card's left border is CSS-animated (arceus-ring-cycle) —
+        // an inline style here would win the cascade and freeze it.
+        style={isArceus ? undefined : { borderLeftColor: `#${session.accent.toString(16).padStart(6, '0')}` }}
+        onClick={() => onSelect(session.id)}
+        title={`${session.command} — ${session.cwd}`}
+      >
+        <div className="roster-card-top">
+          <span className="roster-card-face">
+            <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
+            {session.shiny && (
+              <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
+                ★
+              </span>
+            )}
           </span>
-          <span className="roster-card-provider">{providerLabel}</span>
-        </span>
-        {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
-            `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
-            the label because it's the one that needs the user's eyes. */}
-        <em className={session.napping ? 'status napping' : `status ${session.status}`}>
-          {session.looping ? (
-            <>
-              <LoopIcon className="status-loop-icon" /> looping
-            </>
-          ) : (
-            sessionStatusLabel(session)
-          )}
-        </em>
-      </div>
-
-      {toolText && <div className="roster-card-tool">{toolText}</div>}
-
-      {hint && (
-        <div className="roster-card-evo" title={hint.label}>
-          <div className="roster-card-evo-fill" style={{ width: `${Math.round(hint.pct * 100)}%` }} />
+          <span className="roster-card-id">
+            <span className="roster-card-name">
+              {session.title}
+              {isArceus && <span className="roster-card-alpha-tag">alpha</span>}
+            </span>
+            <span className="roster-card-provider">{providerLabel}</span>
+          </span>
+          {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
+              `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
+              the label because it's the one that needs the user's eyes. */}
+          <em className={session.napping ? 'status napping' : `status ${session.status}`}>
+            {session.looping ? (
+              <>
+                <LoopIcon className="status-loop-icon" /> looping
+              </>
+            ) : (
+              sessionStatusLabel(session)
+            )}
+          </em>
         </div>
+
+        {toolText && <div className="roster-card-tool">{toolText}</div>}
+
+        {hint && (
+          <div className="roster-card-evo" title={hint.label}>
+            <div className="roster-card-evo-fill" style={{ width: `${Math.round(hint.pct * 100)}%` }} />
+          </div>
+        )}
+
+        {cost && (
+          <div className="roster-card-gauge" title={gaugeTip} aria-label={gaugeTip}>
+            <div className="roster-card-gauge-fill" style={{ width: `${Math.round(contextPct * 100)}%` }} />
+          </div>
+        )}
+      </button>
+
+      {!isArceus && (
+        <button
+          type="button"
+          className="roster-card-swap"
+          title="change pokemon"
+          onClick={() => setSwapOpen(true)}
+        >
+          <SwapIcon />
+        </button>
       )}
 
-      {cost && (
-        <div className="roster-card-gauge" title={gaugeTip} aria-label={gaugeTip}>
-          <div className="roster-card-gauge-fill" style={{ width: `${Math.round(contextPct * 100)}%` }} />
+      {swapOpen && (
+        <div className="modal-backdrop" onClick={() => setSwapOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>change pokemon</h2>
+            <PokemonPicker
+              value={session.pokemon}
+              excludeSessionId={session.id}
+              onChange={(id) => {
+                swapSessionPokemon(session.id, id);
+                setSwapOpen(false);
+              }}
+            />
+            <div className="modal-actions">
+              <button type="button" onClick={() => setSwapOpen(false)}>
+                cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </button>
+    </div>
   );
 }
