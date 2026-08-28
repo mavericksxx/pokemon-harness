@@ -10,6 +10,8 @@
  * calls `emitBattleSignal`, and GardenScene's BattleManager is the only
  * subscriber that matters at runtime.
  */
+import { safeLogDiagnostic } from '@/diagnosticsClient';
+import { bumpCounter } from '@/diagnosticsCounters';
 
 export type BattleSignal =
   /** A `Task` tool call started — spawn (or queue) one wild battler. */
@@ -27,7 +29,21 @@ type Listener = (signal: BattleSignal) => void;
 const listeners = new Set<Listener>();
 
 export function emitBattleSignal(signal: BattleSignal): void {
-  for (const l of listeners) l(signal);
+  // Each listener isolated in its own try/catch so one bad listener (e.g.
+  // BattleManager.onSignal/handleSpawn throwing) can't starve the others —
+  // see the forensic writeup on v1.1.0's disappearing subagent-battle spawns.
+  for (const l of listeners) {
+    try {
+      l(signal);
+    } catch (err) {
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle-bus', 'error', 'battle signal listener threw', {
+        signalType: signal.type,
+        parentId: signal.parentId,
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
+    }
+  }
 }
 
 export function onBattleSignal(cb: Listener): () => void {

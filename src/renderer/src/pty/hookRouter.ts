@@ -15,6 +15,7 @@ import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
 import { bumpCounter } from '@/diagnosticsCounters';
+import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { noteToolUse, resetLoopStreak } from './loopDetector';
 
 /** How long a claude session's hooks may go quiet before regex fallback
@@ -93,8 +94,21 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // Emit BEFORE the store update: BattleManager must mark this session as
       // battling before GardenScene's reconcile sees the station change, or
       // the parent's walker briefly starts walking to a station this tick.
+      // Isolated in its own try/catch so a throw anywhere in the battle path
+      // can never abort the `update()` below (see the forensic writeup on
+      // v1.1.0's disappearing subagent-battle spawns).
       if (tool === 'Task') {
-        emitBattleSignal({ type: 'spawn', parentId: sessionId });
+        try {
+          emitBattleSignal({ type: 'spawn', parentId: sessionId });
+        } catch (err) {
+          bumpCounter('battleSignalErrors');
+          safeLogDiagnostic('battle-spawn', 'error', 'emitBattleSignal threw', {
+            sessionId,
+            event: evt.event,
+            tool: evt.tool,
+            error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+          });
+        }
         bumpCounter('subagentsSpawned');
       }
       update({

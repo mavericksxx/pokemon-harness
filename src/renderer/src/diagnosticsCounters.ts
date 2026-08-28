@@ -26,6 +26,7 @@ export interface Counters {
   subagentsSpawned: number;
   subagentsMaterialized: number;
   subagentsCleanedUp: number;
+  battleSignalErrors: number;
 }
 
 const counters: Counters = {
@@ -36,7 +37,8 @@ const counters: Counters = {
   hookEventsDropped: 0,
   subagentsSpawned: 0,
   subagentsMaterialized: 0,
-  subagentsCleanedUp: 0
+  subagentsCleanedUp: 0,
+  battleSignalErrors: 0
 };
 
 export function bumpCounter(key: keyof Counters): void {
