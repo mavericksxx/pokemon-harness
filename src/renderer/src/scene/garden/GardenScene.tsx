@@ -24,6 +24,7 @@ import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 import gardenMapRaw from './maps/garden.tmj?raw';
 import { useStore, type Session } from '@/store/store';
 import type { StationKind } from '@shared/types';
+import { ground, hexToNumber } from '@/design/tokens';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -63,7 +64,10 @@ export function GardenScene(): JSX.Element {
 
     const init = async (): Promise<void> => {
       await app.init({
-        background: 0x16240f,
+        // Chrome ground (design/tokens.ts `ground[0]`), not a separate green —
+        // any letterbox bars inside the canvas (map aspect != pane aspect)
+        // should read as the same neutral ground the mat around it sits on.
+        background: hexToNumber(ground[0]),
         // Pixel-art rendering settings, matching the upstream app's floor.
         antialias: false,
         roundPixels: true,
@@ -464,5 +468,19 @@ export function GardenScene(): JSX.Element {
     };
   }, []);
 
-  return <div className="garden" ref={hostRef} />;
+  // The map is the game screen; this pane is its console shell. `.garden-mat`
+  // is the lifted bezel (margin + border); `.garden` is the Pixi host itself,
+  // sized to the mat's interior so `fitToScreen` centers the map inside it.
+  // `.garden-frame-shadow` is a plain absolutely-positioned sibling of the
+  // canvas (appended imperatively, below) — being positioned, it always
+  // paints above the non-positioned canvas regardless of DOM order, which is
+  // what lets an inset shadow show up ON TOP of the map instead of being
+  // painted underneath it.
+  return (
+    <div className="garden-mat">
+      <div className="garden" ref={hostRef}>
+        <div className="garden-frame-shadow" />
+      </div>
+    </div>
+  );
 }

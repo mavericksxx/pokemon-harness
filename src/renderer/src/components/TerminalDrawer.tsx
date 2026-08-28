@@ -78,7 +78,10 @@ export function TerminalDrawer(): JSX.Element | null {
           <div className="terminal-mount" ref={mountRef} />
         </>
       ) : (
-        <p className="empty">Pick a session to see what's happening.</p>
+        <div className="empty-terminal">
+          <div className="empty-terminal-glyph" aria-hidden="true" />
+          <p className="empty">Pick a session to see what's happening.</p>
+        </div>
       )}
     </aside>
   );

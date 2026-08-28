@@ -141,7 +141,7 @@ body {
   font-family: var(--font-display);
   font-size: var(--font-display-md-size);
   line-height: var(--font-display-md-line);
-  color: var(--accent);
+  color: var(--text);
   white-space: nowrap;
 }
 
@@ -167,8 +167,8 @@ body {
 }
 
 .chip.active {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  border-color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--text-secondary);
 }
 
 /* ── Pokemon faces (a cropped frame of the walk sheet) ───────────────────── */
@@ -310,6 +310,20 @@ button.icon:active {
   min-height: 0;
 }
 
+/* Diorama mat: the garden is the game screen, this is its console shell —
+ * a lifted bezel (panel surface, hairline border, corner clip matching the
+ * modal treatment) matting the bright map on neutral chrome ground, with a
+ * consistent margin on every side instead of an edge-to-edge letterbox. */
+.garden-mat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
 .garden {
   flex: 1;
   min-width: 0;
@@ -319,6 +333,15 @@ button.icon:active {
 
 .garden canvas {
   display: block;
+}
+
+/* Whisper of inset shadow where the bright map settles into the mat — kept
+ * to a small blur radius so it doesn't read as a haze over the pixel art. */
+.garden-frame-shadow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
 }
 
 /* ── terminal drawer ─────────────────────────────────────────────────────── */
@@ -459,6 +482,53 @@ button.icon:active {
 .empty {
   color: var(--muted);
   padding: 16px;
+}
+
+/* Terminal-focus empty state (Phase 8 §2 visual pass) — a quiet, muted
+ * pokeball outline above the existing `.empty` copy so the void reads as
+ * designed rather than blank. Scoped to TerminalDrawer only, not `.empty`
+ * itself, which SessionSidebar/SessionsOverview also use unchanged. */
+.empty-terminal {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.empty-terminal-glyph {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  opacity: 0.5;
+}
+
+.empty-terminal-glyph::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--muted);
+}
+
+.empty-terminal-glyph::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  background: var(--bg-terminal);
 }
 
 /* ── modal ───────────────────────────────────────────────────────────────── */
@@ -709,9 +779,9 @@ button.icon:active {
 }
 
 .view-switcher-btn.active {
-  background: var(--panel);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--text);
 }
 
 /* ── Agent roster cards (Phase 8 §3) ─────────────────────────────────────── */
