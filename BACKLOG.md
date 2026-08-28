@@ -45,9 +45,7 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
   - success criteria: app leaves the "Using Significant Energy" list during normal idle use; garden CPU near-zero when window hidden
 - ties into the existing "load-test 15+ concurrent chatty sessions" item in bigger later — same measurement pass can cover both.
 
-### phase E — feature: focus mode (munder-difflin command center, requested 2026-08-29)
-
-- MD has a per-agent "focus mode": full-window command center for one agent — identity header (avatar, name, status, context %), a big terminal, tabs for other panes, a roster sidebar, and a message QUEUE composer at the bottom (type instructions that queue up and send to the agent). DECIDED (2026-08-29): this is NOT a new fourth view mode — it REPLACES the existing 'terminal' view mode (Cmd+2), upgrading today's plain drawer-maximized terminal into the command center. Same slot in ViewModeSwitcher, same shortcut, same view-mode count (three). Layout: pokemon face + name + species + status + cost/context gauges as the header, the selected session's terminal as the body, the existing bottom roster strip stays as the per-agent switcher (it already shows in 'terminal' mode — no new sidebar needed), and a message composer at the bottom that queues prompts and injects them into the pty when the session goes idle (this composer is the same terminal-injection machinery as arceus routing, next-up item 3 — build focus mode after or together with routing so the injection path is shared, not duplicated). Design pass needed on which MD tabs (monitor/tasks/activity) have pokéharness equivalents worth porting vs. skipping for v1.
+### phase E — focus mode — SHIPPED (2026-08-29, see CHANGELOG unreleased). Follow-up idea kept: which MD tabs (monitor/tasks/activity) deserve pokéharness equivalents someday.
 
 ## smaller known items
 
