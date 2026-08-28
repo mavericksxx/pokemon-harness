@@ -1080,6 +1080,30 @@ button.icon:active {
 
 .quit-dialog-actions {
   justify-content: space-between;
+  align-items: flex-start;
+}
+
+/* Ship-cut item 5: one-line muted sub-text under each quit-dialog button,
+ * explaining that action's consequence at a glance (user confusion,
+ * screenshot-verified) — each button + its caption stacks in its own
+ * column so the three actions stay side by side. */
+.quit-dialog-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.quit-dialog-action button {
+  width: 100%;
+}
+
+.quit-dialog-action-hint {
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .error {

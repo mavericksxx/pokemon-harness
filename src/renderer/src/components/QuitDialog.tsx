@@ -45,18 +45,33 @@ export function QuitDialog(): JSX.Element | null {
           {liveWorkspaceCount > 1 ? ` across ${liveWorkspaceCount} gardens` : ''}
         </p>
         <p className="hint">
-          Running sessions get killed and their in-session conversation state is lost.
+          quitting stops every session where it stands. claude sessions resume next launch
+          (--resume) — only whatever was still mid-response, plus any shell or codex session, is
+          actually gone.
         </p>
         <div className="modal-actions quit-dialog-actions">
-          <button type="button" onClick={keepRunning}>
-            keep them running
-          </button>
-          <button type="button" className="danger" onClick={killAndQuit}>
-            kill it &amp; quit
-          </button>
-          <button type="button" className="primary" onClick={closingTime}>
-            closing time
-          </button>
+          <div className="quit-dialog-action">
+            <button type="button" onClick={keepRunning}>
+              keep them running
+            </button>
+            <span className="hint quit-dialog-action-hint">nothing quits — back to the garden</span>
+          </div>
+          <div className="quit-dialog-action">
+            <button type="button" className="danger" onClick={killAndQuit}>
+              kill it &amp; quit
+            </button>
+            <span className="hint quit-dialog-action-hint">
+              quit now — claude sessions resume next launch, shells don't
+            </span>
+          </div>
+          <div className="quit-dialog-action">
+            <button type="button" className="primary" onClick={closingTime}>
+              closing time
+            </button>
+            <span className="hint quit-dialog-action-hint">
+              sunset ritual: everyone wraps up, then the app quits itself
+            </span>
+          </div>
         </div>
       </div>
     </div>
