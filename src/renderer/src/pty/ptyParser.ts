@@ -20,6 +20,28 @@ import { noteToolUse, resetLoopStreak } from './loopDetector';
 // Tool call lines look like: `● Read SPEC.md`, `● Bash npm test`, `● Edit src/foo.ts`
 const TOOL_RE = /●\s+([A-Za-z][A-Za-z_]*)(?:\s+(.+))?/g;
 
+// codex doesn't use Claude's `● Tool` bullet at all — confirmed live (real
+// codex CLI, gpt-5.6-luna, v0.150.1, four trivial prompts in one scratch-dir
+// session) against three distinct shapes:
+//   `• Ran <command>`                — a direct shell execution
+//   `• Edited <file> (+N -M)`        — a file edit, diff lines follow
+//   `  └ <Verb> <target>`            — under an "Exploring"/"Explored"
+//                                      heading; List (a shell-based listing/
+//                                      search) and Read (a file read) are the
+//                                      two verbs actually observed.
+// Mapped onto this app's EXISTING Claude-tool vocabulary (Bash/Edit/Read)
+// below rather than inventing codex-specific stations/SFX — stationForTool,
+// toolIcon and loopDetector's noteToolUse all already key off those names.
+// Bounded to stop before the next bullet/heading marker (•, ›, └), not just
+// newline: a mid-redraw chunk can glue this line straight onto trailing
+// status chrome with no newline in between (confirmed live — a raw capture
+// swallowed a following " • Working (Ns • esc to interrupt) · ..." footer
+// as part of the "target" text otherwise).
+const CODEX_RAN_RE = /•\s+Ran\s+([^\n•›└]+)/g;
+const CODEX_EDITED_RE = /•\s+Edited\s+([^\n•›└(]+)/g;
+const CODEX_SUBACTION_RE = /└\s+(List|Read)\s+([^\n•›└]+)/g;
+const CODEX_VERB_TO_TOOL: Record<string, string> = { List: 'Bash', Read: 'Read' };
+
 // Subagent-battle regex fallback (Part B) — Claude's transcript prints a Task
 // tool call the same way as any other tool line: `● Task(description)`. There
 // is no equivalent text signal for a subagent's completion, so the fallback
@@ -110,11 +132,35 @@ export function createPtyParser(sessionId: string): PtyParser {
 
       let lastTool: string | null = null;
       let lastArg = '';
+      // Tracks the LATEST match across all four patterns (Claude's bullet
+      // plus codex's three shapes) by position in this chunk, so whichever
+      // provider's convention actually appears wins — a given session only
+      // ever emits one of them, but this keeps the scan provider-agnostic
+      // rather than branching on `session.provider`.
+      let lastMatchIndex = -1;
+      const record = (index: number, tool: string, arg: string): void => {
+        if (index < lastMatchIndex) return;
+        lastMatchIndex = index;
+        lastTool = tool;
+        lastArg = arg.trim();
+      };
 
       TOOL_RE.lastIndex = 0;
       for (let m: RegExpExecArray | null; (m = TOOL_RE.exec(text)) !== null; ) {
-        lastTool = m[1];
-        lastArg = (m[2] ?? '').trim();
+        record(m.index, m[1], m[2] ?? '');
+      }
+      CODEX_RAN_RE.lastIndex = 0;
+      for (let m: RegExpExecArray | null; (m = CODEX_RAN_RE.exec(text)) !== null; ) {
+        record(m.index, 'Bash', m[1]);
+      }
+      CODEX_EDITED_RE.lastIndex = 0;
+      for (let m: RegExpExecArray | null; (m = CODEX_EDITED_RE.exec(text)) !== null; ) {
+        record(m.index, 'Edit', m[1]);
+      }
+      CODEX_SUBACTION_RE.lastIndex = 0;
+      for (let m: RegExpExecArray | null; (m = CODEX_SUBACTION_RE.exec(text)) !== null; ) {
+        const tool = CODEX_VERB_TO_TOOL[m[1]];
+        if (tool) record(m.index, tool, m[2] ?? '');
       }
 
       if (lastTool) {
