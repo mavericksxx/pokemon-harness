@@ -1,6 +1,6 @@
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
-import { TreeIcon } from '@/components/icons';
+import { TreeIcon, TerminalPanelIcon, SessionsIcon } from '@/components/icons';
 
 /** Phase 8 §1 — three layouts, each with a discoverable chrome toggle AND a
  *  Cmd+1..3 shortcut (bound globally in App.tsx). Order here matches the
@@ -13,16 +13,28 @@ import { TreeIcon } from '@/components/icons';
  *  Was four modes/buttons — 'terminalFull' (▣) dropped (user report: read as
  *  a duplicate of 'terminal'/☰, since both hide the garden and give the
  *  terminal the whole body; the only difference was where session-switching
- *  UI lived). 'terminal' is the one kept — see store.ts's ViewMode comment. */
+ *  UI lived). 'terminal' is the one kept — see store.ts's ViewMode comment.
+ *
+ *  Two more icons joined this group in the topbar-consolidation pass (parity
+ *  sweep): the terminal-panel show/hide toggle (was a standalone "hide
+ *  terminal" text button, inconsistent with everything else here being an
+ *  icon toggle) and "all sessions" (was a standalone labeled button floating
+ *  next to this group). Every icon here is icon-only, so every one carries a
+ *  `.tip`/`data-tip` tooltip spelling out what it does in words — this group
+ *  is the one place in the topbar where a glyph alone has to stand in for a
+ *  whole action. */
 const MODES: { mode: ViewMode; label: string; glyph?: string; key: string }[] = [
-  { mode: 'garden', label: 'garden', key: '1' },
-  { mode: 'terminal', label: 'terminal focus', glyph: '☰', key: '2' },
-  { mode: 'gardenFull', label: 'full-screen garden', glyph: '⛶', key: '3' }
+  { mode: 'garden', label: 'garden view', key: '1' },
+  { mode: 'terminal', label: 'terminal view', glyph: '☰', key: '2' },
+  { mode: 'gardenFull', label: 'garden only — no chrome', glyph: '⛶', key: '3' }
 ];
 
 export function ViewModeSwitcher(): JSX.Element {
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
+  const drawerOpen = useStore((s) => s.drawerOpen);
+  const setDrawerOpen = useStore((s) => s.setDrawerOpen);
+  const setSessionsOverviewOpen = useStore((s) => s.setSessionsOverviewOpen);
 
   return (
     <div className="view-switcher" role="group" aria-label="view mode">
@@ -38,6 +50,33 @@ export function ViewModeSwitcher(): JSX.Element {
           {glyph ?? <TreeIcon />}
         </button>
       ))}
+      {/* Only meaningful in 'garden' mode (the drawer is always open in
+          'terminal' and never shown in 'gardenFull' — TerminalDrawer.tsx's
+          own `open` calc) — hidden rather than disabled outside it, same
+          conditional 'garden' mode already gated this on as a standalone
+          button, and a disabled button can't show a `.tip` (no hover/focus
+          on a disabled control), which would leave it unexplained. */}
+      {viewMode === 'garden' && (
+        <button
+          type="button"
+          className={drawerOpen ? 'view-switcher-btn active tip' : 'view-switcher-btn tip'}
+          data-tip="show/hide terminal panel"
+          aria-label="show/hide terminal panel"
+          aria-pressed={drawerOpen}
+          onClick={() => setDrawerOpen(!drawerOpen)}
+        >
+          <TerminalPanelIcon />
+        </button>
+      )}
+      <button
+        type="button"
+        className="view-switcher-btn tip"
+        data-tip="all sessions"
+        aria-label="all sessions"
+        onClick={() => setSessionsOverviewOpen(true)}
+      >
+        <SessionsIcon />
+      </button>
     </div>
   );
 }

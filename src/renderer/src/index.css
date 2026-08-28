@@ -239,126 +239,97 @@ body {
   font-size: 12px;
 }
 
-/* ── Workspace switcher (Phase 8.7) ──────────────────────────────────────── */
-.workspace-switcher {
-  position: relative;
-  -webkit-app-region: no-drag;
+/* Status dot (parity sweep item — Arceus's chip is his one home now that
+ * his roster card is gone): same status-color tokens `.status::before` uses
+ * for the roster-card badge dot, but standalone (no badge background/text —
+ * the word itself lives in the chip's tooltip instead, see
+ * SummonArceusButton.tsx). Only rendered while he's live, so no `.done`
+ * variant — `live` (SummonArceusButton.tsx) is already false once his
+ * session status is 'done', and the dot only renders when `live`. */
+.summon-arceus-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.summon-arceus-dot.working {
+  background: var(--status-working);
+}
+.summon-arceus-dot.blocked {
+  background: var(--status-blocked);
+}
+.summon-arceus-dot.idle {
+  background: var(--status-idle);
+}
+.summon-arceus-dot.starting {
+  background: var(--status-starting);
+}
+.summon-arceus-dot.napping {
+  background: var(--status-idle);
 }
 
-.workspace-switcher-trigger {
-  display: inline-flex;
+/* ── Garden chips (Phase 8.7, inlined into the topbar — parity sweep) ───────
+ * Replaces the old dropdown workspace switcher: every garden is a chip in
+ * the topbar's own flex row instead of a menu behind a click. Same
+ * overflow pattern as `.session-chips` (min-width:0 + flex-shrink so THIS
+ * row scrolls/absorbs a cramped topbar instead of pushing the right-side
+ * controls off) — deliberately NOT `-webkit-app-region: no-drag` on the
+ * container itself (unlike the old `.workspace-switcher`): `.topbar button`
+ * already makes every chip/action button no-drag, and leaving the row's own
+ * background draggable matters more now that it can span up to 55vw. */
+.garden-chips {
+  display: flex;
   align-items: center;
   gap: 4px;
-  white-space: nowrap;
-  max-width: 220px;
-  /* Lets this shrink below its content's natural width (min-width:auto is
-   * the flex-item default) — a topbar flex item with only `max-width` and
-   * no `overflow`/`min-width:0` doesn't actually clip: a long typed
-   * workspace name just grew this button past 220px instead of truncating.
-   * `.workspace-switcher-name` below does the actual ellipsis. */
+  overflow-x: auto;
+  max-width: 55vw;
   min-width: 0;
+  flex-shrink: 1;
 }
 
-.workspace-switcher-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.workspace-switcher-glyph {
-  font-size: 13px;
-  line-height: 1;
-}
-
-.workspace-switcher-caret {
-  font-size: 10px;
-  color: var(--muted);
-}
-
-/* Transparent full-screen click-catcher — closes the menu on any outside
- * click without a portal/ref-tracking dance (same trick `.modal-backdrop`
- * uses, just invisible). */
-.workspace-switcher-catcher {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
-}
-
-.workspace-switcher-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 20;
-  min-width: 240px;
-  max-width: 320px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-hard);
-}
-
-.workspace-row {
-  display: flex;
+.garden-chip {
+  display: inline-flex;
   align-items: center;
   gap: 2px;
-}
-
-.workspace-row.active .workspace-row-name {
-  color: var(--accent-text);
-}
-
-.workspace-row-name {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  text-align: left;
-  border: none;
-  background: none;
-  padding: 5px 6px;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.workspace-row-name:hover {
-  background: var(--panel-2);
-}
-
-.workspace-row-shortcut {
   flex: none;
-  font-size: 10px;
-  color: var(--muted);
 }
 
-.workspace-row-rename {
-  flex: 1;
+.garden-chip-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 0;
-  font-size: var(--font-body-md-size);
 }
 
-.workspace-row-action {
+.garden-chip.active .garden-chip-name {
+  border-color: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--text-secondary);
+  color: var(--text);
+}
+
+.garden-chip-action {
   flex: none;
   font-size: 13px;
   padding: 2px 5px;
 }
 
-.workspace-switcher-new {
-  margin-top: 4px;
-  text-align: left;
+.garden-chip-rename {
+  width: 120px;
+  font-size: var(--font-body-sm-size);
+  -webkit-app-region: no-drag;
+}
+
+.garden-chip-new {
+  flex: none;
+  white-space: nowrap;
   color: var(--muted);
   background: none;
   border: 1px dashed var(--line);
 }
 
-.workspace-switcher-new:hover {
+.garden-chip-new:hover {
   color: var(--text);
   border-color: var(--accent-text);
 }
@@ -1315,10 +1286,10 @@ button.icon:active {
 }
 
 /* ── Audio popover (topbar sound icon — AudioPopover.tsx) ───────────────────
- * Same anchored-dropdown shape as `.workspace-switcher-menu` (transparent
- * full-screen catcher for outside-click, `--shadow-hard` for the panel), but
- * anchored to the RIGHT edge — the trigger sits near the topbar's right end,
- * so a left-anchored panel would run off-screen. */
+ * Anchored-dropdown shape (transparent full-screen catcher for outside-click,
+ * `--shadow-hard` for the panel), anchored to the RIGHT edge — the trigger
+ * sits near the topbar's right end, so a left-anchored panel would run
+ * off-screen. */
 .audio-popover {
   position: relative;
   -webkit-app-region: no-drag;
@@ -1572,36 +1543,6 @@ button.icon:active {
   border-color: var(--accent-text);
   border-left-width: 3px;
   box-shadow: 0 0 0 2px var(--accent-text);
-}
-
-/* Alpha card (Phase 8.8 §5) — Arceus's roster card, pinned first in every
- * workspace's strip (RosterStrip.tsx). "Alpha" per the games' own name for
- * him (the ALPHA Pokémon), not "boss". Deliberately AFTER `.selected` above
- * so `border-left-color` here wins that one shared side even when both
- * classes apply (a selected alpha card keeps its ring/left-width from
- * `.selected`, but the cycling colour, not `--accent`, on the left edge).
- * `--plate-color` is a registered custom property (`@property` /
- * `arceus-ring-cycle` below) rather than a plain `border-left-color`
- * keyframe, so a future second consumer could share the same animation.
- * Its registered `initial-value` (Fire) is what `prefers-reduced-motion`
- * freezes on, since that rule only zeroes animation DURATION, not the
- * property's own value. */
-.roster-card.alpha {
-  border-left-width: 3px;
-  border-left-color: var(--plate-color, #f08030);
-  animation: arceus-ring-cycle 30s linear infinite;
-}
-
-.roster-card-alpha-tag {
-  font-size: 10px;
-  text-transform: lowercase;
-  letter-spacing: 0.02em;
-  color: var(--on-accent);
-  background: var(--gold);
-  padding: 1px 4px;
-  margin-left: 6px;
-  border-radius: var(--radius-sm);
-  vertical-align: middle;
 }
 
 .roster-card-top {
@@ -1998,84 +1939,6 @@ textarea,
   50%,
   100% {
     transform: scale(0.7);
-  }
-}
-
-/* Registered so `--plate-color` is an interpolable, non-inherited color —
- * without this, animating a plain custom property just snaps between
- * keyframe stops instead of smoothly cycling (same trick index.html's own
- * `@property --boot-r` uses for the boot wipe). `initial-value` (Fire) is
- * also what `.roster-card.alpha`'s `var(--plate-color, #f08030)` fallback
- * matches. */
-@property --plate-color {
-  syntax: '<color>';
-  inherits: false;
-  initial-value: #f08030;
-}
-
-/* Arceus's ring cycle (Phase 8.8 §5) — the alpha card's cycling left
- * border. The 17 type-plate colors (every type but Normal, which needs no
- * plate for his own base form — 17 real Judgment plates), smooth linear
- * interpolation, ~30s loop, animating the `--plate-color` custom property
- * `.roster-card.alpha` reads via `var(--plate-color, ...)`. The cosmos
- * view itself has no glow/ring (dropped per design feedback — see
- * ArceusWarp.tsx's forme-cycling comment); the type indicator there is
- * the plate ON HIS SPRITE instead. The last stop repeats the first color
- * so the loop has no visible seam. */
-@keyframes arceus-ring-cycle {
-  0% {
-    --plate-color: #f08030; /* Fire */
-  }
-  5.88% {
-    --plate-color: #6890f0; /* Water */
-  }
-  11.76% {
-    --plate-color: #f8d030; /* Electric */
-  }
-  17.65% {
-    --plate-color: #78c850; /* Grass */
-  }
-  23.53% {
-    --plate-color: #98d8d8; /* Ice */
-  }
-  29.41% {
-    --plate-color: #c03028; /* Fighting */
-  }
-  35.29% {
-    --plate-color: #a040a0; /* Poison */
-  }
-  41.18% {
-    --plate-color: #e0c068; /* Ground */
-  }
-  47.06% {
-    --plate-color: #a890f0; /* Flying */
-  }
-  52.94% {
-    --plate-color: #f85888; /* Psychic */
-  }
-  58.82% {
-    --plate-color: #a8b820; /* Bug */
-  }
-  64.71% {
-    --plate-color: #b8a038; /* Rock */
-  }
-  70.59% {
-    --plate-color: #705898; /* Ghost */
-  }
-  76.47% {
-    --plate-color: #7038f8; /* Dragon */
-  }
-  82.35% {
-    --plate-color: #705848; /* Dark */
-  }
-  88.24% {
-    --plate-color: #b8b8d0; /* Steel */
-  }
-  94.12% {
-    --plate-color: #ee99ac; /* Fairy */
-  }
-  100% {
-    --plate-color: #f08030; /* Fire — loop seam */
   }
 }
 

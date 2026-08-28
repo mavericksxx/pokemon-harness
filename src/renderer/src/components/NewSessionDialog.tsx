@@ -105,7 +105,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>new session</h2>
+        <h2>new agent</h2>
 
         <label>
           agent

@@ -47,15 +47,14 @@ const DIGIT_CODE_RE = /^Digit([1-9])$/;
 export function App(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
   // Legacy topbar chips (Full view modes only, below) — scoped to the
-  // ACTIVE workspace (Phase 8.7), same as the roster strip/overview.
-  const sessions = useActiveWorkspaceSessions();
+  // ACTIVE workspace (Phase 8.7), same as the roster strip/overview. Arceus
+  // is excluded (his topbar chip, SummonArceusButton, is his one home) —
+  // same filter as RosterStrip/SessionsOverview.
+  const sessions = useActiveWorkspaceSessions().filter((s) => !s.isArceus);
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
-  const drawerOpen = useStore((s) => s.drawerOpen);
-  const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
-  const setSessionsOverviewOpen = useStore((s) => s.setSessionsOverviewOpen);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const isFullScreen = useStore((s) => s.isFullScreen);
 
@@ -112,7 +111,7 @@ export function App(): JSX.Element {
   // there.
   const gardenVisible = viewMode === 'garden' || viewMode === 'gardenFull';
   // Bottom roster strip (parity sweep item 5) — 'garden' and 'terminal' only
-  // ('gardenFull' keeps the previous topbar chips + New Session button
+  // ('gardenFull' keeps the previous topbar chips + "+ new agent" button
   // below instead, unchanged: full-bleed garden has no room for a strip
   // without shrinking the thing it's meant to be full-bleed).
   const showRosterStrip = viewMode === 'garden' || viewMode === 'terminal';
@@ -128,12 +127,15 @@ export function App(): JSX.Element {
             ever changes, fall back to plain "pokeharness" here only — every
             other surface (README, notifications, dialogs) keeps the accent. */}
         <span className="brand">pokéharness</span>
-        <WorkspaceSwitcher />
+        {/* Arceus first (Phase 8.8/8.9/parity sweep) — he's global, not
+            scoped to any one garden, so his chip leads the workspace row
+            rather than sitting inside it. */}
         <SummonArceusButton />
+        <WorkspaceSwitcher />
         {!showRosterStrip && (
           <>
             <button className="primary" onClick={() => setDialogOpen(true)}>
-              + new session
+              + new agent
             </button>
             <nav className="session-chips">
               {sessions.map((s) => (
@@ -157,24 +159,22 @@ export function App(): JSX.Element {
           </>
         )}
         <div className="spacer" />
-        {/* Kept unconditionally (deviates from the strip-mode topbar's
-            otherwise-minimal set) — the garden's own signpost prop opens the
-            same overview, but it's unreachable while the garden is hidden
-            ('terminal' mode), so dropping this here would strand the
-            sessions-overview feature in that mode. */}
-        <button title="all sessions" aria-label="all sessions" onClick={() => setSessionsOverviewOpen(true)}>
-          sessions
-        </button>
+        {/* View-mode toggles, terminal-panel visibility, and the sessions
+            overview live together as one icon group now (parity sweep) —
+            see ViewModeSwitcher's own comment for why "all sessions" and the
+            terminal-panel toggle joined it instead of floating separately. */}
         <ViewModeSwitcher />
         <AudioPopover />
         <ThemeToggle />
+<<<<<<< HEAD
         <QuickSettings />
+=======
+        {/* Last control in the topbar, deliberately — nothing sits to its
+            right (parity sweep). */}
+>>>>>>> worktree-agent-adc4c1d27eb6b1341
         <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>
-        {viewMode === 'garden' && (
-          <button onClick={() => setDrawerOpen(!drawerOpen)}>{drawerOpen ? 'hide terminal' : 'show terminal'}</button>
-        )}
       </header>
 
       <main className="body">

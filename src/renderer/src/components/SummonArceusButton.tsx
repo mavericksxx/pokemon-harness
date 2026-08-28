@@ -3,10 +3,18 @@ import { useStore } from '@/store/store';
 import { arceusIsLive, autoSummonArceus, selectArceus } from '@/arceus';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { SummonArceusDialog } from '@/components/SummonArceusDialog';
+import { sessionStatusLabel } from '@/design/sessionLabel';
 
 /** Topbar "summon Arceus" action (Phase 8.8 §1, summon-once behavior added
  *  Phase 8.9) — always visible (Arceus is global, not scoped to whichever
- *  view mode/workspace is showing).
+ *  view mode/workspace is showing). His topbar chip is his ONE home: he no
+ *  longer gets a roster card in the bottom strip/sessions overview (both
+ *  filter him out — see RosterStrip.tsx/SessionsOverview.tsx), so this is
+ *  the only place his status is visible and the only way to select him.
+ *  A small status dot (roster-card vocabulary — idle/working/needs you/
+ *  napping) stands in for the roster card's badge; the word itself lives in
+ *  the lowercase tooltip rather than as visible chip text, keeping the chip
+ *  compact.
  *
  *  Live already: selects him instead of reopening the dialog, so "at most
  *  ONE Arceus" holds at the UI layer too. Not live: this must NEVER reopen
@@ -16,10 +24,8 @@ import { SummonArceusDialog } from '@/components/SummonArceusDialog';
  *  action deletes that file) — `autoSummonArceus`'s `'no-config'` outcome is
  *  exactly that signal. */
 export function SummonArceusButton(): JSX.Element {
-  const live = useStore((s) => {
-    const a = s.sessions.find((x) => x.id === ARCEUS_SESSION_ID);
-    return !!a && a.status !== 'done';
-  });
+  const session = useStore((s) => s.sessions.find((x) => x.id === ARCEUS_SESSION_ID));
+  const live = !!session && session.status !== 'done';
   const selected = useStore((s) => s.selectedId === ARCEUS_SESSION_ID);
   const pushToast = useStore((s) => s.pushToast);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -43,7 +49,7 @@ export function SummonArceusButton(): JSX.Element {
       <button
         type="button"
         className={selected && live ? 'summon-arceus active' : 'summon-arceus'}
-        title={live ? 'select Arceus' : 'summon Arceus'}
+        title={live ? `select arceus — ${sessionStatusLabel(session)}` : 'summon arceus'}
         disabled={summoning}
         onClick={() => void onClick()}
       >
@@ -51,6 +57,12 @@ export function SummonArceusButton(): JSX.Element {
           ✦
         </span>
         {summoning ? 'summoning…' : 'arceus'}
+        {live && (
+          <span
+            className={session.napping ? 'summon-arceus-dot napping' : `summon-arceus-dot ${session.status}`}
+            aria-hidden="true"
+          />
+        )}
       </button>
       {dialogOpen && <SummonArceusDialog onClose={() => setDialogOpen(false)} />}
     </>
