@@ -154,6 +154,15 @@ export interface SessionRecord {
    *  main/index.ts's `restoreFromDisk`), and every per-workspace filter
    *  must widen to include it — see `shared/arceus.ts`'s `isGlobalSession`. */
   isArceus?: boolean;
+  /** "keep at this stage — don't evolve" (Phase C follow-up: change-pokemon
+   *  stage semantics), set from the roster card's change-pokemon dialog.
+   *  `workedMs` keeps accumulating normally either way (battles/bubbles/naps
+   *  are all unaffected) — this only gates GardenScene's 1Hz evolution-
+   *  ceremony check, the same way it already skips a session outside the
+   *  active workspace. Unchecking lets that check fire again on the very
+   *  next tick, same "already earned, just deferred" resume as the
+   *  workspace case. Absent (undefined) means not frozen. */
+  evolutionFrozen?: boolean;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

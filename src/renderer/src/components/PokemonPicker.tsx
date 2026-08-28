@@ -121,9 +121,15 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
             >
               <span className="pokemon-option-face">
                 {noSprite || !shown.has(entry.id) ? (
-                  <i className="pokemon-face loading" aria-hidden />
+                  // No `box` prop here (unlike PokemonFace's own loading
+                  // state) — sized explicitly to match the enlarged 72px
+                  // slot below, since `.pokemon-face` itself carries no
+                  // default width/height.
+                  <i className="pokemon-face loading" style={{ width: 72, height: 72 }} aria-hidden />
                 ) : (
-                  <PokemonFace name={entry.id} />
+                  // Phase C item 3: bigger thumbnail (was the 44px default) —
+                  // `.pokemon-option-face` below is sized to match.
+                  <PokemonFace name={entry.id} box={72} />
                 )}
               </span>
               <span className="pokemon-option-name">{entry.name}</span>

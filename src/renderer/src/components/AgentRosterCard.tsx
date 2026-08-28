@@ -43,6 +43,11 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
   // is fixed. Opens the same full-dex picker NewSessionDialog uses;
   // picking an option applies immediately (swapSessionPokemon) and closes.
   const [swapOpen, setSwapOpen] = useState(false);
+  // "keep at this stage — don't evolve" (Phase C follow-up) — the swap
+  // dialog's own checkbox state; re-synced to session.evolutionFrozen every
+  // time the dialog opens (see the swap button's onClick below), not just on
+  // this component's first mount.
+  const [freezeStage, setFreezeStage] = useState(!!session.evolutionFrozen);
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
   const toolText = session.tool
     ? `${toolIcon(session.tool)} ${formatToolTarget(session.tool, session.toolTarget) || session.tool}`
@@ -90,6 +95,15 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           <span className="roster-card-id">
             <span className="roster-card-name">{session.title}</span>
             <span className="roster-card-provider">{providerLabel}</span>
+            {/* Phase C item 1: `entry.name` lowercased, not the raw dex id —
+                ~42 species (Ho-Oh, Mr. Mime, Flabébé, Tapu Koko...) have a
+                punctuation-stripped id that reads wrong on its own (hooh,
+                mrmime). Reads off `session.pokemon` (same field PokemonFace/
+                evolutionHint above use), so it updates on its own when the
+                session evolves or gets swapped, no extra state. */}
+            <span className="roster-card-species">
+              {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
+            </span>
           </span>
           {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
               `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
@@ -120,24 +134,53 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
         )}
       </button>
 
+      {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
+          find/hit (screenshot complaint) — now a labeled pill hover-revealed
+          at the card's bottom-right, sized like the rest of the app's real
+          controls rather than a tiny overlay glyph. */}
       <button
         type="button"
         className="roster-card-swap"
-        title="change pokemon"
-        onClick={() => setSwapOpen(true)}
+        onClick={() => {
+          // Re-sync every time the dialog opens, not just on mount — the
+          // checkbox below must reflect this session's CURRENT frozen state
+          // even if it was left unchecked on a previous open-then-cancel.
+          setFreezeStage(!!session.evolutionFrozen);
+          setSwapOpen(true);
+        }}
       >
         <SwapIcon />
+        change pokemon
       </button>
 
       {swapOpen && (
         <div className="modal-backdrop" onClick={() => setSwapOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>change pokemon</h2>
+            {/* Phase C follow-up: change-pokemon stage semantics — freezes
+                evolution at whatever species gets picked below. Reachable
+                and reversible through this same dialog (pre-checked to the
+                session's current `evolutionFrozen`, synced on open above).
+                Commits together with the species pick (there's no separate
+                save step) — picking the session's OWN current species below
+                is a valid pick (swapSessionPokemon rebases its clock too),
+                so that's how this applies on its own. */}
+            <label className="pokemon-swap-freeze">
+              <input
+                type="checkbox"
+                checked={freezeStage}
+                onChange={(e) => setFreezeStage(e.target.checked)}
+              />
+              keep at this stage — don't evolve
+            </label>
+            <p className="hint pokemon-note">
+              picking a species below applies it — pick the current one to change just this.
+            </p>
             <PokemonPicker
               value={session.pokemon}
               excludeSessionId={session.id}
               onChange={(id) => {
-                swapSessionPokemon(session.id, id);
+                swapSessionPokemon(session.id, id, freezeStage);
                 setSwapOpen(false);
               }}
             />

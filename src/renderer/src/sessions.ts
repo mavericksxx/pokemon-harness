@@ -6,8 +6,9 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
-import { baseStageOf, speciesEntry, stageForWorkedMs } from '@/scene/garden/dexData';
+import { baseStageOf, speciesEntry } from '@/scene/garden/dexData';
 import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
+import { evolutionConfig } from '@/scene/garden/evolution';
 
 function basename(p: string): string {
   const parts = p.replace(/\/+$/, '').split('/');
@@ -100,22 +101,53 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
 /**
  * Change which Pokemon represents an already-running session (roster card's
  * "change pokemon" action) — the session keeps its identity (id, terminal,
- * status, everything); only `pokemon`/`line` change. Unlike `startSession`,
- * which always normalizes a pick down to its line's base stage (workedMs is
- * always 0 for a brand-new session), this normalizes to whatever stage the
- * session's ALREADY-accumulated workedMs has earned in the new line — see
- * `stageForWorkedMs`. No ceremony plays for the swap itself (GardenScene's
- * `applyManualSwap` just brings the walker's sprite in line with the new
- * `pokemon` the next time it's safe to).
+ * status, everything); `pokemon`/`line`/`workedMs`/`evolutionFrozen` change.
+ *
+ * Phase C follow-up (change-pokemon stage semantics): the session becomes
+ * EXACTLY the species picked — this used to normalize the pick to whatever
+ * stage the session's already-accumulated `workedMs` had earned in the new
+ * line, which meant a max-evolved session (meganium) could never be wound
+ * back to an earlier stage: picking chikorita just gave meganium again.
+ * `workedMs` rebases to the PICKED species' own stage threshold (0 for a
+ * stage-1 pick, `stage2Ms` for stage 2, `stage3Ms` for stage 3) so the
+ * normal evolution cycle restarts cleanly from there instead of the very
+ * next 1Hz tick seeing the old accumulated time and immediately re-evolving
+ * past the species just picked. Picking the currently-shown species still
+ * rebases the clock (acts as "restart the cycle here" — no early-return
+ * short-circuit for an unchanged pick).
+ *
+ * `frozen` persists as `evolutionFrozen` (shared/types.ts) — GardenScene's
+ * 1Hz evolution check skips a frozen session's ceremony, same as it already
+ * skips a session outside the active workspace; `workedMs` itself keeps
+ * accumulating regardless, so unfreezing resumes normally.
+ *
+ * `shiny` is untouched either way. No ceremony plays for the swap itself
+ * (GardenScene's `applyManualSwap` just brings the walker's sprite in line
+ * with the new `pokemon` the next time it's safe to).
  */
-export function swapSessionPokemon(sessionId: string, pickedId: string): void {
+export function swapSessionPokemon(sessionId: string, pickedId: string, frozen: boolean): void {
   const session = useStore.getState().sessions.find((s) => s.id === sessionId);
   if (!session) return;
   const base = baseStageOf(pickedId);
-  const nextId = stageForWorkedMs(pickedId, session.workedMs);
-  if (nextId === session.pokemon) return; // already this species at this stage — nothing to swap
-  useStore.getState().updateSession(sessionId, { pokemon: nextId, line: base.line });
-  const label = speciesEntry(nextId)?.name ?? nextId;
+  const picked = speciesEntry(pickedId);
+  const { stage2Ms, stage3Ms } = evolutionConfig();
+  // Rebases to "just arrived at this stage" — 0 for stage 1, otherwise the
+  // stage's own earned-threshold, so the per-stage duration a manual pick
+  // gets matches organic evolution's (e.g. a stage-2 pick still takes
+  // stage3Ms - stage2Ms of NEW work to reach stage 3, not the full
+  // stage3Ms). Clamped below stage3Ms regardless: POKE_EVOLVE_SECONDS
+  // (evolution.ts) accepts any two positive numbers, and a stage2Ms that
+  // happens to be >= stage3Ms under a malformed override must not leave the
+  // pick already past the stage-3 threshold it was just set to.
+  const workedMs =
+    picked?.stage === 3 ? stage3Ms : picked?.stage === 2 ? Math.min(stage2Ms, Math.max(stage3Ms - 1, 0)) : 0;
+  useStore.getState().updateSession(sessionId, {
+    pokemon: pickedId,
+    line: base.line,
+    workedMs,
+    evolutionFrozen: frozen
+  });
+  const label = picked?.name ?? pickedId;
   useStore.getState().pushToast(`${session.title} is now ${label}.`);
 }
 
