@@ -364,7 +364,8 @@ export function SettingsPanel(): JSX.Element | null {
                       <span className="settings-row-label">hide claude statusline</span>
                       <span className="settings-row-hint">
                         hides your claude code statusline in pokéharness terminals only — other terminals keep it.
-                        applies to newly started sessions.
+                        also hides claude's footer hints (esc to interrupt, ? for shortcuts). applies to newly
+                        started sessions.
                       </span>
                     </span>
                   </label>
