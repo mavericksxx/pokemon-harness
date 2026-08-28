@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import type { WebContents } from 'electron';
 import {
   isKnownHookEvent,
+  normalizeToolName,
   toolTargetFromInput,
   type HookEvent,
   type HookPayload
@@ -224,11 +225,12 @@ export class HookBridge {
     if (!agentId) return {}; // no session to route to — drop silently
     if (!isKnownHookEvent(eventName)) return {};
 
+    const tool = normalizeToolName(p.tool_name);
     const event: HookEvent = {
       agentId,
       event: eventName,
-      tool: p.tool_name,
-      toolTarget: toolTargetFromInput(p.tool_name, p.tool_input),
+      tool,
+      toolTarget: toolTargetFromInput(tool, p.tool_input),
       notificationType: p.notification_type,
       message: p.message,
       source: p.source

@@ -60,6 +60,18 @@ export function isKnownHookEvent(name: string): name is HookEventName {
   return KNOWN_EVENTS.has(name);
 }
 
+/** Claude's hook payloads name the Task tool `Agent` (confirmed live against
+ *  the real CLI — `tool_name: "Agent"` on every Task-tool PreToolUse/
+ *  PostToolUse), while the CLI's own terminal transcript — and this app's
+ *  regex-fallback parser, which scrapes that transcript — prints `Task`.
+ *  Normalized once here, at the hook-ingestion boundary (HookBridge.handle),
+ *  so every downstream consumer (battle spawn/attack gating in hookRouter,
+ *  the tool bubble's icon map, move-SFX lookup, garden station routing) only
+ *  ever sees `Task`, regardless of which path an event took. */
+export function normalizeToolName(name: string | undefined): string | undefined {
+  return name === 'Agent' ? 'Task' : name;
+}
+
 /** Best-effort human-readable target for a tool call, so the garden's tool
  *  bubble reads the same under hooks as it does under the regex parser (e.g.
  *  "Read App.tsx", "$ npm test"). Every field is optional/untyped upstream —
