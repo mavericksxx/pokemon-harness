@@ -115,9 +115,14 @@ console.log('[release] building (npm run dist)…');
 runLoud('npm run dist');
 
 // ---- locate artifacts ----
+// Only accept filenames starting with the exact ASCII build.productName —
+// dist/ can accumulate STALE artifacts from earlier builds (e.g. a leftover
+// é-named zip from before productName was switched to ASCII for AMFI
+// signing — see build/afterSign.cjs), and a naive glob-by-version would
+// happily ship one of those instead of the real, current build.
 if (!existsSync(DIST_DIR)) fail(`expected build output at ${DIST_DIR} — dist step did not produce it.`);
 const artifacts = readdirSync(DIST_DIR)
-  .filter((f) => f.includes(version) && (f.endsWith('.zip') || f.endsWith('.zip.blockmap')))
+  .filter((f) => f.startsWith(PKG.build.productName) && f.includes(version) && (f.endsWith('.zip') || f.endsWith('.zip.blockmap') || f.endsWith('.dmg')))
   .map((f) => join('dist', f));
 
 if (artifacts.length === 0) {

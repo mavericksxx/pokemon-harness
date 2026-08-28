@@ -47,6 +47,12 @@
           "arch": [
             "arm64"
           ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "identity": null,
@@ -54,6 +60,9 @@
       "extendInfo": {
         "CFBundleDisplayName": "Pokéharness"
       }
+    },
+    "dmg": {
+      "sign": false
     },
     "afterSign": "build/afterSign.cjs"
   },
