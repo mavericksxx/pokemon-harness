@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useAudioStore } from '@/audio/audioStore';
-import { playerNext, playerPickTrack, playerPrev, playerTogglePause } from '@/audio/audioEngine';
-import { GEN_LABELS, GEN_ORDER, MUSIC_CATALOG, MUSIC_CATALOG_BY_ID, type MusicGen } from '@shared/musicCatalog';
+import { MiniPlayer } from '@/components/MiniPlayer';
 import { shinyConfig } from '@/scene/garden/shiny';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
@@ -25,21 +24,15 @@ import { showUpdateToast } from '@/updateNotifier';
  *  item 1) — the ones with a verified `autoModeArgs` in agentProvider.ts. */
 const AUTO_MODE_PROVIDERS = PROVIDER_LIST.filter((p) => p.autoModeArgs);
 
-/** Cap on rendered rows in the mini-player's track list — see AudioPopover's
- *  old header comment (this replaces it verbatim, Phase 8 §5). */
-const MAX_LIST_ROWS = 150;
-
-const BROWSABLE = MUSIC_CATALOG.filter((t) => !t.jingle);
-
 /**
  * Phase 8 §5 — the audio popover's full contents moved here: master mute,
- * music on/off + volume + the mini-player, SFX on/off + volume, plus a
- * read-only Config section (shiny odds / evolve-seconds overrides — both are
- * env-only knobs with no UI to change them, but the accessors were already
- * there so a read-only display is cheap). A compact quick-mute button stays
- * in the chrome (QuickMute.tsx); this is the "full player + volumes" surface
- * it opens into.
+ * music on/off + volume + the mini-player (`MiniPlayer.tsx`, shared with the
+ * topbar's own sound-icon popover — `AudioPopover.tsx`), SFX on/off +
+ * volume, plus a read-only Config section (shiny odds / evolve-seconds
+ * overrides — both are env-only knobs with no UI to change them, but the
+ * accessors were already there so a read-only display is cheap).
  *
+
  * Slides in from the right, munder-difflin ConfigDrawer-style (DESIGN.md
  * §7.9) — kept mounted always so the CSS transition actually animates;
  * `.settings-panel` without `.open` sits translated off-screen.
@@ -47,21 +40,14 @@ const BROWSABLE = MUSIC_CATALOG.filter((t) => !t.jingle);
 export function SettingsPanel(): JSX.Element {
   const open = useStore((s) => s.settingsOpen);
   const setOpen = useStore((s) => s.setSettingsOpen);
-  const [search, setSearch] = useState('');
   const [resetArceusOpen, setResetArceusOpen] = useState(false);
   const settings = useAudioStore((s) => s.settings);
   const musicUnavailable = useAudioStore((s) => s.musicUnavailable);
-  const nowPlaying = useAudioStore((s) => s.nowPlaying);
-  const trackLoading = useAudioStore((s) => s.trackLoading);
-  const trackError = useAudioStore((s) => s.trackError);
-  const warmingGen = useAudioStore((s) => s.warmingGen);
-  const warmingProgress = useAudioStore((s) => s.warmingProgress);
   const setMasterMuted = useAudioStore((s) => s.setMasterMuted);
   const setMusicOn = useAudioStore((s) => s.setMusicOn);
   const setMusicVolume = useAudioStore((s) => s.setMusicVolume);
   const setSfxOn = useAudioStore((s) => s.setSfxOn);
   const setSfxVolume = useAudioStore((s) => s.setSfxVolume);
-  const setGenFilter = useAudioStore((s) => s.setGenFilter);
   const terminalSettings = useTerminalSettingsStore((s) => s.settings);
   const setFontSize = useTerminalSettingsStore((s) => s.setFontSize);
   const setScrollback = useTerminalSettingsStore((s) => s.setScrollback);
@@ -122,22 +108,6 @@ export function SettingsPanel(): JSX.Element {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, setOpen]);
-
-  const genFilter = settings.genFilter;
-  const filtered = useMemo(() => {
-    const byGen = genFilter === 'all' ? BROWSABLE : BROWSABLE.filter((t) => t.gen === genFilter);
-    const q = search.trim().toLowerCase();
-    return q ? byGen.filter((t) => t.title.toLowerCase().includes(q)) : byGen;
-  }, [genFilter, search]);
-
-  const nowPlayingGenLabel =
-    nowPlaying.mode === 'player' && nowPlaying.id
-      ? GEN_LABELS[MUSIC_CATALOG_BY_ID.get(nowPlaying.id)?.gen as MusicGen]
-      : nowPlaying.mode === 'battle'
-        ? 'battle'
-        : nowPlaying.mode === 'ceremony'
-          ? 'evolution'
-          : '';
 
   const shiny = shinyConfig();
   const evo = evolutionConfig();
@@ -254,84 +224,7 @@ export function SettingsPanel(): JSX.Element {
           </div>
           {musicUnavailable && <div className="audio-status">unavailable offline</div>}
 
-          {settings.musicOn && (
-            <div className="mini-player" data-testid="mini-player">
-              <div className="mini-player-now">
-                <div className="mini-player-now-title" title={nowPlaying.title || undefined}>
-                  {trackLoading ? 'one sec…' : nowPlaying.title || 'nothing playing'}
-                </div>
-                {!trackLoading && nowPlayingGenLabel && (
-                  <div className="mini-player-now-gen">{nowPlayingGenLabel}</div>
-                )}
-              </div>
-
-              <div className="mini-player-transport">
-                <button className="icon tip" data-tip="previous track" aria-label="previous track" onClick={playerPrev}>
-                  ⏮
-                </button>
-                <button
-                  className="icon tip"
-                  data-tip={settings.musicPaused ? 'play' : 'pause'}
-                  aria-label={settings.musicPaused ? 'play' : 'pause'}
-                  onClick={playerTogglePause}
-                >
-                  {settings.musicPaused ? '▶' : '⏸'}
-                </button>
-                <button className="icon tip" data-tip="next track" aria-label="next track" onClick={playerNext}>
-                  ⏭
-                </button>
-              </div>
-
-              {trackError && <div className="audio-status audio-error">{trackError}</div>}
-              {warmingGen && warmingProgress && (
-                <div className="audio-status">
-                  warming {GEN_LABELS[warmingGen as MusicGen] ?? warmingGen}… {warmingProgress.done}/
-                  {warmingProgress.total}
-                </div>
-              )}
-
-              <select
-                className="mini-player-gen-select"
-                value={genFilter}
-                onChange={(e) => setGenFilter(e.target.value)}
-                aria-label="generation filter"
-              >
-                <option value="all">all gens</option>
-                {GEN_ORDER.map((g) => (
-                  <option key={g} value={g}>
-                    {GEN_LABELS[g]}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="text"
-                className="mini-player-search"
-                placeholder="search songs…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-
-              <div className="mini-player-list">
-                {filtered.length === 0 && <div className="mini-player-list-empty">no matches</div>}
-                {filtered.slice(0, MAX_LIST_ROWS).map((t) => (
-                  <div
-                    key={t.id}
-                    className={'mini-player-list-item' + (t.id === nowPlaying.id ? ' active' : '')}
-                    title={t.title}
-                    onClick={() => playerPickTrack(t.id)}
-                  >
-                    {t.title}
-                  </div>
-                ))}
-                {filtered.length > MAX_LIST_ROWS && (
-                  <div className="mini-player-list-empty">
-                    +{filtered.length - MAX_LIST_ROWS} more — keep typing to narrow
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {settings.musicOn && <MiniPlayer />}
 
           <div className="audio-row">
             <label className="audio-toggle">

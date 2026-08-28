@@ -8,6 +8,7 @@
  * track's bytes on first play using this index's stored track-page URL.
  */
 import raw from './musicCatalog.json';
+import { isBattleTrack } from './musicClassify';
 
 export type MusicGen =
   | 'gen1'
@@ -51,6 +52,20 @@ export const MUSIC_CATALOG_BY_ID: ReadonlyMap<string, CatalogTrack> = new Map(
  *  -- everything except forced-in jingles (see `jingle` above). */
 export const BROWSABLE_TRACK_IDS: readonly string[] = MUSIC_CATALOG.filter((t) => !t.jingle).map(
   (t) => t.id
+);
+
+/** Browsable tracks whose title reads as battle music (`musicClassify.ts`)
+ *  -- the battle/ceremony takeover's pool. Manual picks in the mini-player
+ *  (search, click) are exempt from this split entirely; it only governs
+ *  automatic selection (ambient shuffle/auto-advance, and the takeover). */
+export const BATTLE_CATALOG_IDS: readonly string[] = BROWSABLE_TRACK_IDS.filter((id) =>
+  isBattleTrack(MUSIC_CATALOG_BY_ID.get(id)!.title)
+);
+
+/** Browsable tracks that are NOT battle music -- what the garden's ambient
+ *  shuffle/auto-advance draws from automatically. */
+export const PEACEFUL_CATALOG_IDS: readonly string[] = BROWSABLE_TRACK_IDS.filter(
+  (id) => !isBattleTrack(MUSIC_CATALOG_BY_ID.get(id)!.title)
 );
 
 /** Display order and label for the mini-player's generation filter. */
