@@ -17,7 +17,7 @@ import { initShinyConfig } from './shiny';
 import { randomAnimatedSpecies, speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
 import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
-import { playSpawnCry } from '@/audio/audioEngine';
+import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -123,6 +123,12 @@ export function GardenScene(): JSX.Element {
 
       const patchPool = new SeatPool(STATION_SPAWNS.patch);
       const runtimes = new Map<string, Runtime>();
+
+      // Select-cry (Phase 8 §4): seeded from the CURRENT selection, not null,
+      // so a restore-on-boot (or the initial `applyState()` call right after
+      // `subscribe`, below) never fires a cry/bounce for a selection nobody
+      // just picked — only an actual change after mount does.
+      let lastSelectedId: string | null = useStore.getState().selectedId;
 
       const entrance = map.getSpawnPoint(ENTRANCE_SPAWN) ?? { x: 2, y: 2 };
 
@@ -296,6 +302,22 @@ export function GardenScene(): JSX.Element {
         const { sessions, selectedId } = useStore.getState();
         const live = new Set(sessions.map((s) => s.id));
         for (const id of [...runtimes.keys()]) if (!live.has(id)) removeWalker(id);
+
+        // Select-cry + party-screen hop (Phase 8 §4): ANY path that changes
+        // `selectedId` — a tab, a roster card, the sessions overview, or
+        // clicking the walker itself (Walker's onClick just calls `select`)
+        // — reconciles through here, so this is the single choke point for
+        // both. `playSelectCry` debounces on its own; the null-check means
+        // deselecting plays nothing.
+        if (selectedId !== lastSelectedId) {
+          lastSelectedId = selectedId;
+          if (selectedId) {
+            const session = sessions.find((s) => s.id === selectedId);
+            const rt = runtimes.get(selectedId);
+            if (session) playSelectCry(session.pokemon);
+            rt?.walker.bounce();
+          }
+        }
 
         for (const session of sessions) {
           const rt = runtimes.get(session.id) ?? addWalker(session);

@@ -92,6 +92,15 @@ export class Walker {
   private badgePulse = 0;
   private accentColor: number;
 
+  /** Party-screen-style select hop (Phase 8 §4) — seconds into the hop, or
+   *  null when idle. Offsets the sprite's own sub-container (never otherwise
+   *  repositioned — see WalkerSprite; Walker's own `container` is what
+   *  tracks px/py every tick) so it layers on top of the normal walk bob
+   *  instead of fighting it. */
+  private bounceT: number | null = null;
+  private static readonly BOUNCE_DURATION = 0.32;
+  private static readonly BOUNCE_HEIGHT = 6;
+
   private ceremony: EvolutionCeremony | null = null;
   /** Saved badge/ring visibility while the ceremony hides all UI chrome
    *  (everything but the sprite itself and its floating text) — restored
@@ -201,6 +210,13 @@ export class Walker {
       return;
     }
     this.selectionRing.visible = selected;
+  }
+
+  /** Kick off the select hop (Phase 8 §4) — a single sine arc, restarted from
+   *  0 if already mid-hop rather than queued, so a rapid run of selections
+   *  never stacks up a backlog of hops to play out. */
+  bounce(): void {
+    this.bounceT = 0;
   }
 
   setLabel(label: string): void {
@@ -371,6 +387,16 @@ export class Walker {
     // Above the head, not the feet: these sprites are several tiles tall, and a
     // foot-anchored bubble would sit across the Pokemon's chest.
     this.bubble.setPosition(this.px, this.py - this.sprite.drawnHeight);
+
+    if (this.bounceT !== null) {
+      this.bounceT += dt;
+      const t = Math.min(1, this.bounceT / Walker.BOUNCE_DURATION);
+      this.sprite.container.y = -Math.sin(t * Math.PI) * Walker.BOUNCE_HEIGHT;
+      if (t >= 1) {
+        this.bounceT = null;
+        this.sprite.container.y = 0;
+      }
+    }
   }
 
   private updateWalk(dt: number): void {

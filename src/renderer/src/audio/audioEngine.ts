@@ -553,6 +553,24 @@ export function playSpawnCry(speciesId: string): void {
   void playCry(speciesId);
 }
 
+/** Global debounce for playSelectCry, epoch ms of the last play — see that
+ *  function. Global rather than per-species: clicking through several
+ *  DIFFERENT sessions in quick succession should still only cry once per
+ *  window, not once per session. */
+let lastSelectCryAt = 0;
+const SELECT_CRY_DEBOUNCE_MS = 350;
+
+/** Cry on SELECTING a session — a tab, a roster card, or clicking its
+ *  Pokemon in the garden (Phase 8 §4; the single call site is GardenScene's
+ *  `applyState`, which reconciles every `selectedId` change regardless of
+ *  which UI surface caused it). Debounced so rapid re-selects don't overlap. */
+export function playSelectCry(speciesId: string): void {
+  const now = Date.now();
+  if (now - lastSelectCryAt < SELECT_CRY_DEBOUNCE_MS) return;
+  lastSelectCryAt = now;
+  void playCry(speciesId);
+}
+
 /** Shiny-spawn sound hook — deliberately a no-op. A concurrent phase owns
  *  shiny sprites; this phase does not wire shiny-specific audio. Callers can
  *  wire this up later without any other change here. */
