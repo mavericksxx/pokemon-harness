@@ -10,6 +10,7 @@ import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
+import { UsageChip } from '@/components/UsageChip';
 import { AudioPopover } from '@/components/AudioPopover';
 import { QuickSettings } from '@/components/QuickSettings';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -168,6 +169,7 @@ export function App(): JSX.Element {
             see ViewModeSwitcher's own comment for why "all sessions" and the
             terminal-panel toggle joined it instead of floating separately. */}
         <ViewModeSwitcher />
+        <UsageChip />
         <AudioPopover />
         <ThemeToggle />
         <QuickSettings />

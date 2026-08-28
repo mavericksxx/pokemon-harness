@@ -32,13 +32,20 @@ export interface AppSettings {
    *  Changing this points FUTURE writes at the new folder; it never moves
    *  anything already on disk at the old one. */
   harnessHomeDir: string | null;
-  /** Suppress the user's global `~/.claude/settings.json` `statusLine` inside
+/** Suppress the user's global `~/.claude/settings.json` `statusLine` inside
    *  our embedded terminals only (BACKLOG "next up" item 2). Default OFF —
    *  when off, hookBridge.ts's generated per-session settings file omits the
    *  `statusLine` key entirely, so a claude session inherits the user's own
    *  statusline exactly as it would outside this app. Applies on next
    *  session spawn only; live ptys keep whatever they launched with. */
   hideClaudeStatusline: boolean;
+  /** In-app provider usage-limits panel (BACKLOG "next up" item 1) — opt-in,
+   *  OFF by default. Only while true does main/usageService.ts read the
+   *  CLI's own stored credential and call its usage endpoint; flipping this
+   *  off tears the service down immediately (zero credential access while
+   *  off — see that file's `setEnabled`). Read-only carve-out: never stored,
+   *  refreshed, or sent anywhere but the documented usage endpoint. */
+  usageLimitsEnabled: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -47,5 +54,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   keepAwake: false,
   recentFolders: [],
   harnessHomeDir: null,
-  hideClaudeStatusline: false
+hideClaudeStatusline: false,
+  usageLimitsEnabled: false
 };

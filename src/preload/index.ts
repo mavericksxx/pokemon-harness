@@ -21,6 +21,7 @@ import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/works
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
 import type { DiagnosticsInfo, LogLevel } from '../shared/diagnosticsTypes';
+import type { UsageSnapshot } from '../shared/usageTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -213,7 +214,21 @@ const api = {
    *  Resolves to '' on success, or an OS error string on failure (Electron's
    *  own shell.openPath contract) — not currently surfaced in the UI, same
    *  as every other fire-and-forget button in this panel. */
-  openLogsFolder: (): Promise<string> => ipcRenderer.invoke('diagnostics:openLogs')
+  openLogsFolder: (): Promise<string> => ipcRenderer.invoke('diagnostics:openLogs'),
+
+  // ─── Usage limits (BACKLOG "next up" item 1) — read-only while the
+  // settings toggle is on; see main/usageService.ts's header for the "zero
+  // credential access while off" guarantee. ───────────────────────────────
+  /** Cached read — never triggers a fetch on its own. */
+  getUsageSnapshot: (): Promise<UsageSnapshot> => ipcRenderer.invoke('usage:getSnapshot'),
+  /** Popover-open trigger — throttled main-side to once/min; always resolves
+   *  to the current snapshot, whether or not this call actually refreshed. */
+  refreshUsageNow: (): Promise<UsageSnapshot> => ipcRenderer.invoke('usage:refresh'),
+  onUsageSnapshot: (cb: (snapshot: UsageSnapshot) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, snapshot: UsageSnapshot): void => cb(snapshot);
+    ipcRenderer.on('usage:snapshot', listener);
+    return () => ipcRenderer.removeListener('usage:snapshot', listener);
+  }
 };
 
 export type HarnessApi = typeof api;

@@ -21,6 +21,7 @@ import {
 import { useAudioStore } from './audio/audioStore';
 import { useTerminalSettingsStore } from './terminal/terminalSettingsStore';
 import { useAppSettingsStore } from './store/appSettingsStore';
+import { useUsageStore } from './store/usageStore';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { applyTheme } from './design/tokens';
 import { resolveEffectiveTheme, watchSystemTheme } from './design/theme';
@@ -51,6 +52,12 @@ startUpdateCheckListener();
 // listener is already attached by the time main's did-finish-load push
 // arrives, same rationale as the quit-intercept listener above.
 window.api.onFullscreenChange((isFullScreen) => useStore.getState().setIsFullScreen(isFullScreen));
+
+// In-app provider usage-limits panel (BACKLOG "next up" item 1) — same
+// independent-of-boot()'s-async-work wiring as the fullscreen listener
+// above; main only ever actually PUSHES on this channel while the toggle is
+// on (usageService.ts), so this listener is a no-op cost while it's off.
+window.api.onUsageSnapshot((snapshot) => useUsageStore.getState().hydrate(snapshot));
 
 // Local-only diagnostics (BACKLOG item 1) — error capture + invariant
 // counters, both independent of boot()'s async recovery work, same as the
@@ -158,34 +165,47 @@ async function boot(): Promise<void> {
     // just after.
     const fontsReady = document.fonts.load(`14px "JetBrains Mono"`);
 
-    const [crashInfo, { sessions: restored, selectedId }, diskRestoreInfo, appSettings, harnessHomePath, workspaceSnapshot] =
-      await Promise.all([
-        window.api.getCrashInfo(),
-        window.api.restoreSessions(),
-        // Non-null exactly once, on the launch that respawned disk-persisted
-        // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
-        // a same-process renderer reload; this is a fresh app launch).
-        window.api.getDiskRestoreInfo(),
-        // Parity sweep: theme / auto-permission-mode / keep-awake / recent
-        // folders. Resolved and applied BEFORE the first render (below) so
-        // nothing paints with the dark default for a light-theme user — same
-        // rationale main's own window `backgroundColor` pre-paint fix follows
-        // (main/index.ts's `resolveWindowBg`).
-        window.api.getAppSettings(),
-        // Harness home directory display path (Phase 8.7) — resolved
-        // main-side (needs os.homedir()); see SettingsPanel's "Harness home"
-        // section.
-        window.api.getHarnessHomePath(),
-        // Workspace registry (Phase 8.7) — awaits the SAME disk-restore
-        // promise `restoreSessions` does main-side, so this never races
-        // ahead of `restoreFromDisk` populating it.
-        window.api.listWorkspaces()
-      ]);
+    const [
+      crashInfo,
+      { sessions: restored, selectedId },
+      diskRestoreInfo,
+      appSettings,
+      harnessHomePath,
+      workspaceSnapshot,
+      usageSnapshot
+    ] = await Promise.all([
+      window.api.getCrashInfo(),
+      window.api.restoreSessions(),
+      // Non-null exactly once, on the launch that respawned disk-persisted
+      // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
+      // a same-process renderer reload; this is a fresh app launch).
+      window.api.getDiskRestoreInfo(),
+      // Parity sweep: theme / auto-permission-mode / keep-awake / recent
+      // folders. Resolved and applied BEFORE the first render (below) so
+      // nothing paints with the dark default for a light-theme user — same
+      // rationale main's own window `backgroundColor` pre-paint fix follows
+      // (main/index.ts's `resolveWindowBg`).
+      window.api.getAppSettings(),
+      // Harness home directory display path (Phase 8.7) — resolved
+      // main-side (needs os.homedir()); see SettingsPanel's "Harness home"
+      // section.
+      window.api.getHarnessHomePath(),
+      // Workspace registry (Phase 8.7) — awaits the SAME disk-restore
+      // promise `restoreSessions` does main-side, so this never races
+      // ahead of `restoreFromDisk` populating it.
+      window.api.listWorkspaces(),
+      // Usage limits (BACKLOG "next up" item 1) — a plain cache read (never
+      // triggers a fetch); empty/disabled if the toggle was off at boot, or
+      // just genuinely not polled yet. The `onUsageSnapshot` listener above
+      // keeps this live from here on.
+      window.api.getUsageSnapshot()
+    ]);
     await fontsReady;
 
     useAppSettingsStore.getState().hydrate(appSettings);
     useAppSettingsStore.getState().hydrateHarnessHomePath(harnessHomePath);
     useWorkspaceStore.getState().hydrate(workspaceSnapshot);
+    useUsageStore.getState().hydrate(usageSnapshot);
     const effectiveTheme = resolveEffectiveTheme(appSettings.theme);
     applyTheme(effectiveTheme);
     // Primes the terminal registry's own theme BEFORE the createTerminal

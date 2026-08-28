@@ -16,6 +16,7 @@ import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
 import { CostWatcher } from './costWatcher';
+import { UsageService } from './usageService';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
@@ -113,6 +114,12 @@ function requestQuitConfirmation(): void {
 // `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
 // of any one hook event.
 const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
+// In-app provider usage-limits panel (BACKLOG "next up" item 1) — off until
+// `setEnabled(true)` is called below with the persisted setting; see
+// usageService.ts's own header for the "zero credential access while off"
+// guarantee this constructor call does NOT itself violate (constructing the
+// service performs no I/O).
+const usageService = new UsageService(() => mainWindow?.webContents ?? null);
 const hookBridge = new HookBridge(
   app.getPath('userData'),
   () => mainWindow?.webContents ?? null,
@@ -664,7 +671,8 @@ app.whenReady().then(async () => {
   costWatcher.start();
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
-  hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
+hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
+  usageService.setEnabled(appSettings.usageLimitsEnabled);
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
   initDiagnostics(harnessHomeDir);
@@ -704,6 +712,7 @@ app.on('before-quit', (e) => {
   ptyManager.killAll();
   hookBridge.stop();
   costWatcher.stop();
+  usageService.setEnabled(false);
 });
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
@@ -808,7 +817,12 @@ ipcMain.handle('appSettings:getSettings', () => loadAppSettings());
 ipcMain.handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
   keepAwakeEnabled = settings.keepAwake;
   syncKeepAwake();
-  hookBridge.setHideStatusline(settings.hideClaudeStatusline);
+hookBridge.setHideStatusline(settings.hideClaudeStatusline);
+  // Usage-limits toggle (BACKLOG "next up" item 1) — the ONLY place a save
+  // reaches usageService, so flipping it off here is what makes "toggle off
+  // = zero credential access" true the instant the user unchecks it, not
+  // just on next launch.
+  usageService.setEnabled(settings.usageLimitsEnabled);
 
   // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
   // actually changed, and never touches anything at the OLD location (the
@@ -960,6 +974,14 @@ ipcMain.handle('app:openExternal', (_e, url: string) => shell.openExternal(url))
 // "you're up to date"), since a user who clicked the button is owed an
 // answer, not silence.
 ipcMain.handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
+
+// ─── Usage limits (BACKLOG "next up" item 1) ───────────────────────────────
+// `getSnapshot` is a plain cache read (never triggers a fetch) — the
+// renderer's boot-time hydrate and the toggle's own "off" cleanup both use
+// it. `refresh` is the popover-open trigger, throttled inside the service
+// itself (see usageService.ts's MANUAL_REFRESH_MIN_INTERVAL_MS).
+ipcMain.handle('usage:getSnapshot', () => usageService.getSnapshot());
+ipcMain.handle('usage:refresh', () => usageService.refreshNow());
 
 // ─── Diagnostics (BACKLOG item 1) — local-only, nothing here leaves the
 // machine. ───────────────────────────────────────────────────────────────
