@@ -10,6 +10,7 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 - custom application menu (app/Edit/View/Window, standard roles kept — copy/paste in text fields unaffected) so Cmd+0 resets zoom to the app's −0.5 default instead of Chromium's 100%; Cmd+plus/minus still step ±0.5 relative
 - cursor provider detection now tries `cursor-agent` then falls back to `agent` (Cursor has shipped both binary names), using whichever resolves on PATH
 - hid the Arceus "describe the task" dispatch box (it just duplicated the terminal below) — temporary, pending real task-routing ("tell chikorita to do X")
+- topbar restructure: arceus's chip (now with a status dot) is his one home — his roster card is gone from the bottom strip/sessions overview; gardens (workspaces) moved out of a dropdown into chips inline in the topbar, with a "+ new garden" button and rename/delete on the active chip; the view-mode toggles, terminal-panel show/hide, and "all sessions" are now one icon group with lowercase tooltips, settings moved to the very end of the topbar; "+ new session" is "+ new agent" everywhere
 
 ## v1.1.0 — 2026-08-28
 

@@ -54,21 +54,6 @@ export function TreeIcon(props: IconProps): JSX.Element {
   );
 }
 
-/** New-workspace / "garden" trigger glyph — was U+1F331 SEEDLING. */
-export function SproutIcon(props: IconProps): JSX.Element {
-  return (
-    <PixelIcon {...props}>
-      <rect x="7" y="8" width="2" height="6" />
-      <rect x="5" y="7" width="2" height="1" />
-      <rect x="4" y="6" width="2" height="1" />
-      <rect x="3" y="4" width="2" height="2" />
-      <rect x="9" y="6" width="2" height="1" />
-      <rect x="10" y="5" width="2" height="1" />
-      <rect x="11" y="3" width="2" height="2" />
-    </PixelIcon>
-  );
-}
-
 /** Delete-workspace button — was U+1F5D1 WASTEBASKET. */
 export function TrashIcon(props: IconProps): JSX.Element {
   return (
@@ -167,6 +152,39 @@ export function SunIcon(props: IconProps): JSX.Element {
       <rect x="11" y="3" width="2" height="2" />
       <rect x="3" y="11" width="2" height="2" />
       <rect x="11" y="11" width="2" height="2" />
+    </PixelIcon>
+  );
+}
+
+/** View-mode group's terminal-panel toggle (parity sweep — folded in from a
+ *  plain "show/hide terminal" text button) — an outlined panel with a small
+ *  ">" prompt and cursor line, same "thin rects for edges" technique as
+ *  TrashIcon's outline. */
+export function TerminalPanelIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="2" y="2" width="12" height="1" />
+      <rect x="2" y="13" width="12" height="1" />
+      <rect x="2" y="2" width="1" height="11" />
+      <rect x="13" y="2" width="1" height="11" />
+      <rect x="4" y="6" width="1" height="1" />
+      <rect x="5" y="7" width="1" height="1" />
+      <rect x="4" y="8" width="1" height="1" />
+      <rect x="6" y="9" width="4" height="1" />
+    </PixelIcon>
+  );
+}
+
+/** View-mode group's "all sessions" toggle (parity sweep — folded in from a
+ *  plain "sessions" text button) — a 2x2 grid of cards, the overview's own
+ *  shape in miniature. */
+export function SessionsIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="2" y="2" width="5" height="5" />
+      <rect x="9" y="2" width="5" height="5" />
+      <rect x="2" y="9" width="5" height="5" />
+      <rect x="9" y="9" width="5" height="5" />
     </PixelIcon>
   );
 }

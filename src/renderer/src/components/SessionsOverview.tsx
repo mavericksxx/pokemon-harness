@@ -7,11 +7,12 @@ import { AgentRosterCard } from '@/components/AgentRosterCard';
  *  to terminal-focus so the pick has somewhere to land.
  *
  *  Scoped to the ACTIVE workspace's sessions (Phase 8.7) — same reasoning
- *  as RosterStrip. */
+ *  as RosterStrip. Arceus is excluded here too, same reasoning as RosterStrip
+ *  — his topbar chip is his one home. */
 export function SessionsOverview(): JSX.Element | null {
   const open = useStore((s) => s.sessionsOverviewOpen);
   const setOpen = useStore((s) => s.setSessionsOverviewOpen);
-  const sessions = useActiveWorkspaceSessions();
+  const sessions = useActiveWorkspaceSessions().filter((s) => !s.isArceus);
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
