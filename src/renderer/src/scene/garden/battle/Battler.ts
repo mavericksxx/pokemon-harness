@@ -23,6 +23,12 @@ const POOF_OUT_MS = 220;
 export class Battler {
   readonly container: Container;
   readonly species: DexEntry;
+  /** The tile this battler is assigned to stand at during face-off/battle —
+   *  set by BattleManager once it picks a properly-spaced spot, and read back
+   *  by it to keep other battlers' spots from overlapping. Distinct from
+   *  `tile` (this battler's ACTUAL current tile, from its live px/py) so the
+   *  target survives being read before `goTo` finishes walking there. */
+  standTile: { x: number; y: number } | null = null;
 
   private map: TiledMapRenderer;
   private sprite: WalkerSprite;
@@ -108,13 +114,16 @@ export class Battler {
     spawnMoveText(this.container, text, -this.sprite.drawnHeight - 4);
   }
 
-  /** Turn to face a tile without moving — used once arrived, to look at
-   *  whichever opponent it's about to trade blows with. */
-  faceToward(tile: { x: number; y: number }): void {
-    const cur = this.tile;
-    if (tile.x === cur.x) return; // directly above/below — keep current facing
-    this.facing = tile.x > cur.x ? 'right' : 'left';
-    this.sprite.setFacing(this.facing);
+  /** Fixed battle stance: native/UNMIRRORED front sheet. No direction math —
+   *  gen5ani front art is drawn already facing down-left, and every battler
+   *  is placed in the top/right arc from the parent (see BattleManager's
+   *  pickChallengerStandTile), so unmirrored already points at it. Called
+   *  once face-off begins and every tick through the attack loop
+   *  (idempotent), overriding whatever the approach walk's own
+   *  movement-direction mirroring left it at. */
+  setBattleStance(): void {
+    this.facing = 'left';
+    this.sprite.setFacing('left');
   }
 
   /** Begin the poof-out shrink; `isPoofedOut` goes true once it completes. */

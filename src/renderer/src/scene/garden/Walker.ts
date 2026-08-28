@@ -270,6 +270,16 @@ export class Walker {
     this.sprite.setBackView(useBack);
   }
 
+  /** Force left/right mirroring without moving — used by the battle system so
+   *  the parent visually faces its opponent regardless of which way it last
+   *  walked. A no-op during an evolution ceremony, which owns the sprite's
+   *  transform for its duration. */
+  faceDirection(facing: Facing): void {
+    if (this.ceremony) return;
+    this.facing = facing;
+    this.sprite.setFacing(facing);
+  }
+
   showText(text: string): void {
     this.bubble.showText(text);
   }
