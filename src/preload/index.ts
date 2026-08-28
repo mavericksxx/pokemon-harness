@@ -66,6 +66,10 @@ const api = {
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
 
+  /** Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called after the
+   *  renderer's own walk/wave/toast/audio-fade sequence finishes. */
+  quitApp: (): Promise<void> => ipcRenderer.invoke('app:quit'),
+
   getCachedSprite: (id: string, view: SpriteView, shiny: boolean): Promise<CachedSprite | null> =>
     ipcRenderer.invoke('sprites:getCached', id, view, shiny),
   fetchSpriteGif: (id: string, view: SpriteView, shiny: boolean): Promise<ArrayBuffer | null> =>

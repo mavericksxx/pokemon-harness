@@ -13,6 +13,7 @@ import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
 import { sessionStatusLabel } from '@/design/sessionLabel';
+import { cancelClosingTime, isClosingTimeActive, startClosingTime } from '@/closingTime';
 
 /** Cmd/Ctrl+1..4 → the four Phase 8 §1 view modes, matching ViewModeSwitcher's
  *  order. Bound globally (not per-input) — none of the app's text inputs use
@@ -43,10 +44,26 @@ export function App(): JSX.Element {
 
   // Global Cmd/Ctrl+1..4 (discoverable copy also lives in ViewModeSwitcher's
   // tooltips). Ctrl on top of Cmd so it also works un-remapped on Linux/Win,
-  // even though this app currently only ships for macOS.
+  // even though this app currently only ships for macOS. Also: Cmd/Ctrl+
+  // Shift+Q starts the closing-time ritual (Phase 8.5 Wave B item 2), and a
+  // bare Escape cancels it — checked here, not inside closingTime.ts, so it
+  // only fires while THIS app has focus, same as every other global shortcut
+  // in this effect. SettingsPanel's own Escape handler is neutralized by
+  // startClosingTime() closing that panel up front (see that function's own
+  // comment), so this is the only live Escape handler once a ritual starts.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && isClosingTimeActive()) {
+        e.preventDefault();
+        cancelClosingTime();
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey && e.key.toLowerCase() === 'q') {
+        e.preventDefault();
+        startClosingTime();
+        return;
+      }
       const mode = SHORTCUT_MODES[e.key];
       if (!mode) return;
       e.preventDefault();

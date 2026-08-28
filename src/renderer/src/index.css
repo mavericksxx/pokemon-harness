@@ -315,6 +315,7 @@ button.icon:active {
  * modal treatment) matting the bright map on neutral chrome ground, with a
  * consistent margin on every side instead of an edge-to-edge letterbox. */
 .garden-mat {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -322,6 +323,29 @@ button.icon:active {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
+}
+
+/* Closing-time sunset ritual (Phase 8.5 Wave B item 2) — a warm overlay on
+ * the MAT (covers the letterbox too, unlike a Pixi layer inside `world`
+ * which is in map coordinates and would scale with the camera / sit under
+ * an evolution ceremony's own dim). Opacity-only transition so `.active`
+ * toggling on/off (start/cancel) both animate at the same ~4s rate. */
+.garden-sunset-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(232, 150, 64, 0) 0%,
+    rgba(224, 92, 58, 0.32) 55%,
+    rgba(107, 41, 61, 0.52) 100%
+  );
+  transition: opacity 4000ms linear;
+}
+
+.garden-sunset-overlay.active {
+  opacity: 1;
 }
 
 .garden {

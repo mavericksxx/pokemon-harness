@@ -6,6 +6,7 @@ import { GEN_LABELS, GEN_ORDER, MUSIC_CATALOG, MUSIC_CATALOG_BY_ID, type MusicGe
 import { shinyConfig } from '@/scene/garden/shiny';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
+import { startClosingTime } from '@/closingTime';
 import {
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
@@ -260,6 +261,16 @@ export function SettingsPanel(): JSX.Element {
             <dt>Evolve to stage 3</dt>
             <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
           </dl>
+        </section>
+
+        <section className="settings-section">
+          <h3>Closing time</h3>
+          <p className="hint">
+            Every session's Pokémon heads for the garden gate and waves out, then the app quits. Esc cancels.
+          </p>
+          <button type="button" onClick={() => startClosingTime()}>
+            Wrap up &amp; quit <span className="hint">⌘⇧Q</span>
+          </button>
         </section>
       </aside>
     </>

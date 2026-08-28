@@ -354,6 +354,13 @@ ipcMain.handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: st
   costWatcher.registerSession(agentId, transcriptPath)
 );
 
+// ─── App lifecycle ──────────────────────────────────────────────────────────
+// Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called once the
+// renderer's own walk/wave/toast/audio-fade sequence finishes (see
+// src/renderer/src/closingTime.ts). `before-quit` (above) already kills
+// every PTY and stops the hook/cost-watcher servers.
+ipcMain.handle('app:quit', () => app.quit());
+
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:chooseFolder', async () => {
   const win = mainWindow;
