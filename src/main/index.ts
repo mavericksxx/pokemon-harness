@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
-import { ensureMusicTrack } from './musicCache';
+import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
 import { loadAudioSettings, saveAudioSettings } from './audioSettings';
 import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
-import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
+import type { AudioSettings } from '../shared/audioTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -120,8 +120,15 @@ ipcMain.handle(
 // existed in this app to follow instead).
 ipcMain.handle('audio:getSettings', () => loadAudioSettings());
 ipcMain.handle('audio:saveSettings', (_e, settings: AudioSettings) => saveAudioSettings(settings));
-ipcMain.handle('audio:ensureTrack', (_e, id: MusicTrackId) => ensureMusicTrack(id));
+// `id` is any mini-player catalog id (musicCatalog.ts), not just the 9
+// original curated MusicTrackIds — see musicCache.ts's header.
+ipcMain.handle('audio:ensureTrack', (_e, id: string) => ensureMusicTrack(id));
 ipcMain.handle('audio:ensureCry', (_e, id: string) => ensureCry(id));
+// Background catalog-warm (mini-player generation filter) — see
+// musicCache.ts's single-flight coordination.
+ipcMain.handle('audio:prefetchTrack', (_e, id: string) => prefetchTrack(id));
+ipcMain.handle('audio:cancelPrefetch', () => cancelPrefetch());
+ipcMain.handle('audio:cacheStatus', () => getCacheStatus());
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 // The renderer is sandboxed and cannot reliably read process.env itself; main
