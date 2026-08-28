@@ -24,6 +24,19 @@ export const HANDLE_PX = 6;
  *  double-click on the handle resets to. */
 export const DEFAULT_GARDEN_SPLIT = 0.54;
 
+/** Dispatched on `window` by GardenSplitHandle.tsx the instant a drag ends
+ *  (pointerup/pointercancel, or an early unmount mid-drag) — after
+ *  `body.is-splitting` comes off. GardenScene.tsx and terminalRegistry.ts
+ *  both skip their own real resize work (`renderer.resize` / xterm's
+ *  `fit.fit()` + `resizePty`) for the whole drag — letting the drawer's
+ *  CSS width change freely instead of reacting to every rAF-throttled tick
+ *  is what stops the Pixi canvas from flickering and the two
+ *  ResizeObservers from firing (and cascading into "loop completed with
+ *  undelivered notifications" warnings) dozens of times a second — and both
+ *  listen for this event to do the one real resize/fit the drag actually
+ *  needs, once, after it settles. */
+export const GARDEN_SPLIT_DRAG_END_EVENT = 'poke:garden-split-dragend';
+
 /** The terminal drawer's CSS `width` for a given `ratio` (garden's fraction
  *  of the row): a `clamp()` between the two floors above, preferring the
  *  ratio's own percentage in between. Expressing it this way (rather than a

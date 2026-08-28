@@ -28,6 +28,7 @@ import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import gardenMapRaw from './maps/garden.tmj?raw';
 import { useStore, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
+import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
 import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
@@ -167,6 +168,18 @@ export function GardenScene(): JSX.Element {
       // change, so calling this redundantly (e.g. the initial rAF pass
       // landing on a size the observer already applied) is harmless.
       const syncCanvasToHost = (): void => {
+        // While the garden/terminal split is being dragged (`body.is-splitting`,
+        // toggled by GardenSplitHandle.tsx), the ResizeObserver below still
+        // fires on every rAF-throttled width change the drag produces.
+        // `renderer.resize()` sets the canvas's drawing-buffer width/height
+        // attributes, which the spec defines as clearing the bitmap — Pixi
+        // doesn't re-render synchronously inside resize(), so that frame
+        // paints blank and the next real frame lands a tick later. At drag
+        // cadence that's a blank canvas most frames: the flicker. Skip the
+        // real resize during the drag — the CSS in index.css stretches the
+        // canvas to the container instead — and let the drag-end listener
+        // below do one real resize the instant the drag ends.
+        if (document.body.classList.contains('is-splitting')) return;
         const w = host.clientWidth;
         const h = host.clientHeight;
         if (w < 2 || h < 2) return;
@@ -661,8 +674,24 @@ export function GardenScene(): JSX.Element {
       const ro = new ResizeObserver(syncCanvasToHost);
       ro.observe(host);
 
+      // Fires the one real resize `syncCanvasToHost` skipped for the whole
+      // drag, the instant GardenSplitHandle.tsx's stopDragging reports the
+      // drag over. rAF-deferred: that event fires right after
+      // `setGardenSplit(..., true)` commits the final drawer width, but
+      // React's own re-render/layout from that commit isn't guaranteed to
+      // have landed yet — one frame later it's settled either way. If the
+      // drag's last rAF tick already left the layout at its final size (the
+      // common case), this is the only resize call the whole drag produces.
+      const onSplitDragEnd = (): void => {
+        requestAnimationFrame(() => {
+          if (!destroyed) syncCanvasToHost();
+        });
+      };
+      window.addEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
+
       cleanup = (): void => {
         ro.disconnect();
+        window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
         unsubscribe();
         unsubscribeWorkspace();
         offRitual();
