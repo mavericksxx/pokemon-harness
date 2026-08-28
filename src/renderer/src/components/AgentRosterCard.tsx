@@ -4,7 +4,7 @@ import { toolIcon } from '@/scene/garden/ToolBubble';
 import { speciesEntry } from '@/scene/garden/dexData';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
-import { statusLabel } from '@/design/statusLabel';
+import { sessionStatusLabel } from '@/design/sessionLabel';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
  *  status, current tool, an evolution progress hint, and a shiny star.
@@ -58,7 +58,9 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           <span className="roster-card-name">{session.title}</span>
           <span className="roster-card-provider">{providerLabel}</span>
         </span>
-        <em className={`status ${session.status}`}>{statusLabel(session.status)}</em>
+        <em className={session.napping ? 'status napping' : `status ${session.status}`}>
+          {sessionStatusLabel(session)}
+        </em>
       </div>
 
       {toolText && <div className="roster-card-tool">{toolText}</div>}

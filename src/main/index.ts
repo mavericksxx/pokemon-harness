@@ -6,6 +6,7 @@ import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
 import { loadAudioSettings, saveAudioSettings } from './audioSettings';
+import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import type {
   LazySpriteMeta,
   RendererCrashInfo,
@@ -15,6 +16,7 @@ import type {
   SpriteView
 } from '../shared/types';
 import type { AudioSettings } from '../shared/audioTypes';
+import type { TerminalSettings } from '../shared/terminalTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -318,6 +320,15 @@ ipcMain.handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? 
 // Phase 5 §1: POKE_SHINY_ODDS overrides the 1-in-N shiny roll (e.g. "1" =
 // always shiny, for demos/tests).
 ipcMain.handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
+// Phase 8.5 Wave B item 3 §3 — the "plain shell" provider's actual command:
+// the user's own interactive shell, which only main can read off $SHELL.
+ipcMain.handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
+
+// ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
+ipcMain.handle('terminal:getSettings', () => loadTerminalSettings());
+ipcMain.handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
+  saveTerminalSettings(settings)
+);
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:chooseFolder', async () => {

@@ -12,7 +12,7 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
-import { statusLabel } from '@/design/statusLabel';
+import { sessionStatusLabel } from '@/design/sessionLabel';
 
 /** Cmd/Ctrl+1..4 → the four Phase 8 §1 view modes, matching ViewModeSwitcher's
  *  order. Bound globally (not per-input) — none of the app's text inputs use
@@ -85,7 +85,7 @@ export function App(): JSX.Element {
                 </span>
               )}
               {s.title}
-              <em className={`status ${s.status}`}>{statusLabel(s.status)}</em>
+              <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
             </button>
           ))}
         </nav>

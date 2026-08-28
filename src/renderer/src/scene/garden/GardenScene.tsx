@@ -342,12 +342,19 @@ export function GardenScene(): JSX.Element {
           walker.setSelected(session.id === selectedId);
           walker.setLabel(session.title);
           walker.setStatus(session.status);
+          // Napping (Phase 8.5 Wave B items 3/4) — plain-shell idle 30s+, or a
+          // claude session between PreCompact and its post-compact
+          // SessionStart. `Walker.setNapping` is idempotent on repeat calls
+          // with the same value.
+          walker.setNapping(!!session.napping);
 
           // A battling parent owns its own walker's position/facing for the
           // duration (approach/faceoff/attack loop) — the normal station
           // reconcile stands down until BattleManager hands it back via
-          // onBattleEnd, which resets lastStation so this picks up again.
-          if (!battleManager.isBattling(session.id)) {
+          // onBattleEnd, which resets lastStation so this picks up again. A
+          // napping walker owns its own position the same way — it stays
+          // parked until it wakes.
+          if (!battleManager.isBattling(session.id) && !walker.isNapping) {
             const station: StationKind =
               session.status === 'blocked'
                 ? BLOCKED_STATION
@@ -367,10 +374,12 @@ export function GardenScene(): JSX.Element {
             }
           }
 
-          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}`;
+          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}|${!!session.napping}`;
           if (toolKey !== rt.lastToolKey) {
             rt.lastToolKey = toolKey;
-            if (session.status === 'working' && session.tool) {
+            if (session.napping) {
+              walker.hideBubble();
+            } else if (session.status === 'working' && session.tool) {
               walker.showTool(session.tool, session.toolTarget ?? '');
             } else if (session.status === 'working') {
               walker.showTool('', '...');

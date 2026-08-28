@@ -5,6 +5,13 @@ import { playerNext, playerPickTrack, playerPrev, playerTogglePause } from '@/au
 import { GEN_LABELS, GEN_ORDER, MUSIC_CATALOG, MUSIC_CATALOG_BY_ID, type MusicGen } from '@shared/musicCatalog';
 import { shinyConfig } from '@/scene/garden/shiny';
 import { evolutionConfig } from '@/scene/garden/evolution';
+import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
+import {
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  TERMINAL_SCROLLBACK_MAX,
+  TERMINAL_SCROLLBACK_MIN
+} from '@shared/terminalTypes';
 
 /** Cap on rendered rows in the mini-player's track list — see AudioPopover's
  *  old header comment (this replaces it verbatim, Phase 8 §5). */
@@ -42,6 +49,9 @@ export function SettingsPanel(): JSX.Element {
   const setSfxOn = useAudioStore((s) => s.setSfxOn);
   const setSfxVolume = useAudioStore((s) => s.setSfxVolume);
   const setGenFilter = useAudioStore((s) => s.setGenFilter);
+  const terminalSettings = useTerminalSettingsStore((s) => s.settings);
+  const setFontSize = useTerminalSettingsStore((s) => s.setFontSize);
+  const setScrollback = useTerminalSettingsStore((s) => s.setScrollback);
 
   // Esc closes, matching the sessions overview / new-session modals.
   useEffect(() => {
@@ -204,6 +214,36 @@ export function SettingsPanel(): JSX.Element {
               onChange={(e) => setSfxVolume(Number(e.target.value))}
               disabled={!settings.sfxOn}
             />
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>Terminal</h3>
+          <div className="audio-row">
+            <span>Font size</span>
+            <input
+              type="range"
+              min={TERMINAL_FONT_SIZE_MIN}
+              max={TERMINAL_FONT_SIZE_MAX}
+              step={1}
+              value={terminalSettings.fontSize}
+              onChange={(e) => setFontSize(Number(e.target.value))}
+              aria-label="Terminal font size"
+            />
+            <span className="hint">{terminalSettings.fontSize}px</span>
+          </div>
+          <div className="audio-row">
+            <span>Scrollback</span>
+            <input
+              type="range"
+              min={TERMINAL_SCROLLBACK_MIN}
+              max={TERMINAL_SCROLLBACK_MAX}
+              step={1000}
+              value={terminalSettings.scrollback}
+              onChange={(e) => setScrollback(Number(e.target.value))}
+              aria-label="Terminal scrollback depth"
+            />
+            <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
           </div>
         </section>
 

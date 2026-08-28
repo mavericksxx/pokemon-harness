@@ -471,12 +471,49 @@ button.icon:active {
 .status.starting::before {
   background: var(--status-starting);
 }
+/* Napping (Phase 8.5 Wave B items 3/4) — additive to `session.napping`, not a
+ * `SessionStatus` value (see that field's own comment) — borrows the idle
+ * hue, same as a resting session reads elsewhere in this badge set. */
+.status.napping {
+  background: var(--status-idle-bg);
+}
+.status.napping::before {
+  background: var(--status-idle);
+}
+
+/* Wraps `.terminal-mount` so the find bar (item 3 §1) can position itself
+ * absolutely over the terminal without affecting its flex sizing. */
+.terminal-mount-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
 
 .terminal-mount {
   flex: 1;
   min-height: 0;
   padding: 4px;
   background: var(--bg-terminal);
+}
+
+.terminal-find-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-hard);
+}
+
+.terminal-find-bar input {
+  width: 180px;
+  font-size: var(--font-body-sm-size);
 }
 
 .empty {

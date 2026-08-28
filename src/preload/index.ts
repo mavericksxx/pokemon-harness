@@ -13,6 +13,7 @@ import type {
 } from '../shared/types';
 import type { HookEvent } from '../shared/hookEvents';
 import type { AudioSettings } from '../shared/audioTypes';
+import type { TerminalSettings } from '../shared/terminalTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -78,6 +79,11 @@ const api = {
 
   getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds'),
   getShinyOddsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:shinyOdds'),
+  getDefaultShell: (): Promise<string> => ipcRenderer.invoke('config:defaultShell'),
+
+  getTerminalSettings: (): Promise<TerminalSettings> => ipcRenderer.invoke('terminal:getSettings'),
+  saveTerminalSettings: (settings: TerminalSettings): Promise<void> =>
+    ipcRenderer.invoke('terminal:saveSettings', settings),
 
   getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),
   saveAudioSettings: (settings: AudioSettings): Promise<void> =>

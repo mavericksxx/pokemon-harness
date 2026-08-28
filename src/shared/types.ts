@@ -108,6 +108,13 @@ export interface SessionRecord {
   exitCode?: number;
   error?: string;
   createdAt: number;
+  /** True while this session's walker is napping — a plain-shell session
+   *  quiet for 30s+ (Phase 8.5 Wave B item 3), or a claude session between a
+   *  PreCompact hook and its post-compact SessionStart (item 4). Additive to
+   *  `SessionStatus` on purpose, not a new status value: the visible label
+   *  swaps to "napping" while `status` itself is left alone (see
+   *  `design/sessionLabel.ts`). */
+  napping?: boolean;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

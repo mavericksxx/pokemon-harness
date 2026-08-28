@@ -10,7 +10,7 @@
  * already logged in via that CLI's own login flow.
  */
 
-export type AgentProviderId = 'claude' | 'codex' | 'cursor-agent';
+export type AgentProviderId = 'claude' | 'codex' | 'cursor-agent' | 'shell';
 
 export interface AgentProviderPreset {
   id: AgentProviderId;
@@ -46,6 +46,17 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderPreset> = {
     defaultCommand: 'cursor-agent',
     modelFlag: '--model',
     supportsModel: true
+  },
+  // Item 3 §3 (Phase 8.5 Wave B) — no agent CLI at all, just the user's own
+  // shell. `defaultCommand` here is a fallback only: NewSessionDialog fills
+  // the real command from `config:defaultShell` ($SHELL), since the actual
+  // shell binary can't be known at this shared, dependency-free module's
+  // scope. No hooks (pty.ts only wires them for 'claude'), no model field.
+  shell: {
+    id: 'shell',
+    label: 'Plain Shell',
+    defaultCommand: '/bin/zsh',
+    supportsModel: false
   }
 };
 
