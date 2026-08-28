@@ -73,6 +73,7 @@ interface Entry {
   offData: () => void;
   offExit: () => void;
   offHook: () => void;
+  offCost: () => void;
   resizeObserver: ResizeObserver | null;
 }
 
@@ -169,6 +170,15 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
   // first hook fires. See hookRouter.ts.
   const offHook = window.api.onHookEvent(sessionId, (evt) => handleHookEvent(sessionId, evt));
 
+  // Phase 8.5 Wave B item 1 — same no-op-for-non-claude shape as offHook
+  // above: main only ever registers a transcript (and therefore only ever
+  // emits on this channel) for a claude-provider session, or a session a
+  // test explicitly pointed at a synthetic transcript via
+  // `registerCostTestPath`.
+  const offCost = window.api.onCostUpdate(sessionId, (update) => {
+    useStore.getState().updateSession(sessionId, { cost: update });
+  });
+
   entries.set(sessionId, {
     id: sessionId,
     term,
@@ -181,6 +191,7 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     offData,
     offExit,
     offHook,
+    offCost,
     resizeObserver: null
   });
 
@@ -254,6 +265,7 @@ export function disposeTerminal(sessionId: string): void {
   e.offData();
   e.offExit();
   e.offHook();
+  e.offCost();
   e.parser?.dispose();
   e.term.dispose();
   entries.delete(sessionId);

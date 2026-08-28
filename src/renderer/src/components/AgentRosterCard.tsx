@@ -27,6 +27,12 @@ function evolutionHint(session: Session): { pct: number; label: string } | undef
   return { pct: Math.min(1, session.workedMs / threshold), label: 'next evolution' };
 }
 
+/** "~41k" — the cost gauge's compact token count. Under 1000 shown verbatim
+ *  (no point abbreviating a 3-digit number). */
+function formatTokenCount(n: number): string {
+  return n >= 1000 ? `~${Math.round(n / 1000)}k` : `${n}`;
+}
+
 export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Element {
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
   const toolText = session.tool
@@ -37,6 +43,14 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
         ? 'working…'
         : '';
   const hint = evolutionHint(session);
+  // Cost & context HUD (Phase 8.5 Wave B item 1) — undefined for a
+  // non-claude session (or a claude session whose transcript hasn't been
+  // parsed yet), which is the gauge's own "don't render" signal.
+  const cost = session.cost;
+  const contextPct = cost ? Math.min(1, cost.contextTokens / cost.contextWindow) : 0;
+  const gaugeTip = cost
+    ? `${formatTokenCount(cost.contextTokens)} / ${formatTokenCount(cost.contextWindow)} context (approx.) · $${cost.costUsd.toFixed(2)}`
+    : '';
 
   return (
     <button
@@ -68,6 +82,12 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
       {hint && (
         <div className="roster-card-evo" title={hint.label}>
           <div className="roster-card-evo-fill" style={{ width: `${Math.round(hint.pct * 100)}%` }} />
+        </div>
+      )}
+
+      {cost && (
+        <div className="roster-card-gauge" title={gaugeTip} aria-label={gaugeTip}>
+          <div className="roster-card-gauge-fill" style={{ width: `${Math.round(contextPct * 100)}%` }} />
         </div>
       )}
     </button>

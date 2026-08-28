@@ -1,5 +1,6 @@
 /** Types shared between main, preload and renderer. Dependency-free. */
 import type { AgentProviderId } from './agentProvider';
+import type { SessionCostUpdate } from './costTypes';
 
 export interface SpawnPtyOptions {
   id: string;
@@ -115,6 +116,12 @@ export interface SessionRecord {
    *  swaps to "napping" while `status` itself is left alone (see
    *  `design/sessionLabel.ts`). */
   napping?: boolean;
+  /** Cost & context HUD (Phase 8.5 Wave B item 1) — undefined until the main
+   *  process's CostWatcher has parsed at least one transcript line for this
+   *  session (claude-provider sessions only; see costWatcher.ts). Absence is
+   *  the gauge's own "don't render" signal — no separate provider check
+   *  needed in AgentRosterCard. */
+  cost?: SessionCostUpdate;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

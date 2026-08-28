@@ -836,6 +836,7 @@ button.icon:active {
 }
 
 .roster-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -920,6 +921,26 @@ button.icon:active {
 .roster-card-evo-fill {
   height: 100%;
   background: var(--accent);
+}
+
+/* Cost & context HUD (Phase 8.5 Wave B item 1) — a thin gauge flush along the
+ * card's own bottom edge, distinct from the evo-progress bar above (which
+ * sits inline in the card's padded flow). Tooltip (title attr) carries the
+ * "~41k / 200k context (approx.) · $0.38" figures. */
+.roster-card-gauge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.roster-card-gauge-fill {
+  height: 100%;
+  background: var(--muted);
+  transition: width 400ms steps(2, end);
 }
 
 /* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */

@@ -14,6 +14,7 @@ import type {
 import type { HookEvent } from '../shared/hookEvents';
 import type { AudioSettings } from '../shared/audioTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
+import type { SessionCostUpdate } from '../shared/costTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -84,6 +85,16 @@ const api = {
   getTerminalSettings: (): Promise<TerminalSettings> => ipcRenderer.invoke('terminal:getSettings'),
   saveTerminalSettings: (settings: TerminalSettings): Promise<void> =>
     ipcRenderer.invoke('terminal:saveSettings', settings),
+
+  onCostUpdate: (id: string, cb: (update: SessionCostUpdate) => void): (() => void) => {
+    const channel = `cost:update:${id}`;
+    const listener = (_e: IpcRendererEvent, update: SessionCostUpdate): void => cb(update);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
+  /** Test-only — see main/index.ts's `cost:registerTestPath` handler. */
+  registerCostTestPath: (agentId: string, transcriptPath: string): Promise<void> =>
+    ipcRenderer.invoke('cost:registerTestPath', agentId, transcriptPath),
 
   getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),
   saveAudioSettings: (settings: AudioSettings): Promise<void> =>

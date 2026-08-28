@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electr
 import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
+import { CostWatcher } from './costWatcher';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
@@ -28,7 +29,15 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
-const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
+// Phase 8.5 Wave B item 1 — registered off every hook payload's own
+// `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
+// of any one hook event.
+const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
+const hookBridge = new HookBridge(
+  app.getPath('userData'),
+  () => mainWindow?.webContents ?? null,
+  (agentId, transcriptPath) => costWatcher.onHookPayload(agentId, transcriptPath)
+);
 const ptyManager = new PtyManager(hookBridge);
 
 /** Load (or reload, after a crash) the app's page. A fresh navigation, not
@@ -219,6 +228,7 @@ app.whenReady().then(() => {
   // first spawn (and before any manual shim verification) ever happens.
   hookBridge.ensureFiles();
   hookBridge.start();
+  costWatcher.start();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -233,6 +243,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   ptyManager.killAll();
   hookBridge.stop();
+  costWatcher.stop();
 });
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
@@ -241,7 +252,10 @@ ipcMain.handle('pty:write', (_e, id: string, data: string) => ptyManager.write(i
 ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
   ptyManager.resize(id, cols, rows)
 );
-ipcMain.handle('pty:kill', (_e, id: string) => ptyManager.kill(id));
+ipcMain.handle('pty:kill', (_e, id: string) => {
+  costWatcher.unregisterSession(id);
+  return ptyManager.kill(id);
+});
 ipcMain.handle('pty:list', () => ptyManager.list());
 ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
 
@@ -328,6 +342,16 @@ ipcMain.handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
 ipcMain.handle('terminal:getSettings', () => loadTerminalSettings());
 ipcMain.handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
   saveTerminalSettings(settings)
+);
+
+// ─── Cost & context HUD (Phase 8.5 Wave B item 1) ──────────────────────────
+// Test-only escape hatch: registers a session id against an arbitrary
+// transcript path, bypassing the real hook payload entirely — this app is
+// never allowed to spawn a real `claude` for testing (see hookRouter.ts), so
+// verifying the watcher means pointing it at a synthetic transcript from a
+// plain bash session instead.
+ipcMain.handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: string) =>
+  costWatcher.registerSession(agentId, transcriptPath)
 );
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────

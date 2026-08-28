@@ -40,6 +40,12 @@ export interface HookPayload {
   notification_type?: string;
   message?: string;
   source?: string;
+  /** Absolute path to this session's own transcript .jsonl — present on the
+   *  CLI's real hook payloads (confirmed via the installed binary). Phase
+   *  8.5 Wave B item 1's cost/context HUD reads it via HookBridge's
+   *  `onRawPayload` constructor param rather than reconstructing the
+   *  munged-cwd transcript directory name itself. */
+  transcript_path?: string;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */
