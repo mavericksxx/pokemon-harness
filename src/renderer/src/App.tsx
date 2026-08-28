@@ -54,6 +54,10 @@ export function App(): JSX.Element {
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const viewMode = useStore((s) => s.viewMode);
+  // Still needed here for the split handle's mount condition — the terminal
+  // panel TOGGLE moved into ViewModeSwitcher, but the divider only exists
+  // when the drawer is actually showing.
+  const drawerOpen = useStore((s) => s.drawerOpen);
   const setViewMode = useStore((s) => s.setViewMode);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const isFullScreen = useStore((s) => s.isFullScreen);
@@ -166,12 +170,9 @@ export function App(): JSX.Element {
         <ViewModeSwitcher />
         <AudioPopover />
         <ThemeToggle />
-<<<<<<< HEAD
         <QuickSettings />
-=======
         {/* Last control in the topbar, deliberately — nothing sits to its
             right (parity sweep). */}
->>>>>>> worktree-agent-adc4c1d27eb6b1341
         <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>
