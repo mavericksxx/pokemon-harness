@@ -870,30 +870,55 @@ button.icon:active {
   background: var(--bg-terminal);
 }
 
-/* ── focus mode (BACKLOG phase E) ────────────────────────────────────────── */
-/* Identity header (FocusHeader.tsx) — one compact row above the terminal in
- * 'terminal' view mode: face, title/species/provider, status badge, cost
- * gauge. Same anatomy as a roster card's own top row (AgentRosterCard.tsx),
- * just laid out flat instead of stacked, since there's no card body below it
- * here. */
+/* ── focus mode (BACKLOG phase E; restyled per the Munder Difflin inspo) ──── */
+/* Identity header (FocusHeader.tsx) — one command-center row above the
+ * terminal in 'terminal' view mode: a bordered avatar tile, title (large
+ * pixel caps) with the status chip riding beside it, and a muted
+ * species/provider subtitle underneath. Same fields/telemetry as a roster
+ * card's own top row (AgentRosterCard.tsx) — presentation only. */
 .focus-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 8px 12px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--line);
+}
+
+/* Bordered avatar tile — plain CSS on the existing face wrapper (unchanged
+ * markup, shiny badge included), no JSX restructure needed. */
+.focus-header-face {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: var(--panel);
+  border: 1px solid var(--line);
 }
 
 .focus-header-id {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
 
+.focus-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .focus-header-title {
-  font-size: var(--font-body-md-size);
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-display-lg-size);
+  line-height: var(--font-display-lg-line);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -922,14 +947,24 @@ button.icon:active {
 
 /* Queue composer (FocusComposer.tsx) — bottom bar of the command center.
  * Sits in the same slot ArceusDispatchBox occupies when Arceus is selected
- * (FocusView.tsx never renders both). */
+ * (FocusView.tsx never renders both). Restyled per the MD inspo: a
+ * pixel-caps "queue" label above a tall multiline textarea, send button
+ * right-aligned below it — send/queue submit logic is unchanged
+ * (FocusComposer.tsx), this is layout only. */
 .focus-composer {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 8px 10px;
   background: var(--panel-2);
   border-top: 1px solid var(--line);
+}
+
+.focus-composer-label {
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
+  color: var(--muted);
 }
 
 .focus-composer-queue {
@@ -953,18 +988,17 @@ button.icon:active {
   text-overflow: ellipsis;
 }
 
-.focus-composer-row {
-  display: flex;
-  gap: 6px;
-}
-
-.focus-composer-row textarea {
-  flex: 1;
+.focus-composer textarea {
   resize: none;
-  min-height: 30px;
-  max-height: 84px;
+  min-height: 84px;
+  max-height: 160px;
   background: var(--bg-terminal);
   font: inherit;
+}
+
+.focus-composer-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* Status badge: 8px colored dot + 4px gap + lowercase body-sm text, on a
@@ -1053,6 +1087,85 @@ button.icon:active {
 }
 .status.napping::before {
   background: var(--status-idle);
+}
+
+/* Framed terminal panel (Munder Difflin restyle) — wraps `.terminal-mount-
+ * wrap` in every view mode (see FocusView.tsx's comment on why this wrapper
+ * must always be present, never conditionally mounted). Visually inert by
+ * default so 'garden'/'gardenFull' render exactly as before; `.terminal-
+ * panel-focus` ('terminal' view mode only) adds the actual frame. */
+.terminal-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-panel-focus {
+  margin: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+/* The panel's own mini header — live indicator + font-size stepper. Always
+ * rendered (FocusTerminalHead.tsx); hidden via CSS outside 'terminal' view
+ * mode rather than a JSX conditional, same reasoning as the panel itself. */
+.terminal-panel-head {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--font-body-sm-size);
+}
+
+.terminal-panel-focus .terminal-panel-head {
+  display: flex;
+}
+
+.terminal-panel-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-panel-live-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--status-working);
+}
+
+.terminal-panel-fontstep {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.terminal-panel-fontstep-btn {
+  padding: 1px 7px;
+  font-size: var(--font-body-sm-size);
+  line-height: var(--font-body-sm-line);
+}
+
+.terminal-panel-fontstep-value {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--font-body-sm-size);
+  white-space: nowrap;
 }
 
 /* Wraps `.terminal-mount` so the find bar (item 3 §1) can position itself
@@ -1926,6 +2039,53 @@ button.icon:active {
 .roster-strip-new:hover {
   color: var(--text);
   border-color: var(--accent-text);
+}
+
+/* ── Focus-mode left sidebar (Munder Difflin restyle, FocusSidebar.tsx) ─────
+ * 'terminal' view mode's own vertical roster — replaces the bottom strip for
+ * that mode only; RosterStrip.tsx/`.roster-strip` above is unchanged and
+ * still serves 'garden'. Fixed width, full height, bordered panel per the
+ * inspo; "+ add agent" pinned at the top instead of the strip's end. */
+.focus-sidebar {
+  flex: none;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.focus-sidebar-new {
+  flex: none;
+  padding: 10px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+}
+
+.focus-sidebar-new:hover {
+  color: var(--text);
+  border-color: var(--accent-text);
+}
+
+.focus-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Undoes `.roster-strip`'s `align-items: stretch` (which the shared
+ * `.roster-card`/`.roster-card-wrap` height:100% rules exist for) — a
+ * vertical list wants each row sized to its own content instead of
+ * equal-heighted against the tallest row. Scoped to this sidebar only, so
+ * the horizontal strip's stretch behavior is untouched. */
+.focus-sidebar .roster-card-wrap,
+.focus-sidebar .roster-card {
+  height: auto;
 }
 
 .roster-card {

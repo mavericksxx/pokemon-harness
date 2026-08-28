@@ -17,7 +17,14 @@ interface Props {
  *  telemetry, per the decided spec) — CostGauge.tsx and the `.status` badge
  *  markup are shared with that card rather than re-derived here. Renders for
  *  Arceus too (his session record has every field this needs); only
- *  FocusComposer hides for him — see FocusView.tsx. */
+ *  FocusComposer hides for him — see FocusView.tsx.
+ *
+ *  Munder Difflin restyle (backlog item): same fields/data as before, laid
+ *  out to match the inspo's command-center header — a bordered avatar tile,
+ *  the title in large pixel caps with the status chip riding next to it on
+ *  the same line, and the species/provider line demoted to a muted subtitle
+ *  underneath. `.focus-header-face` (unchanged class/markup, including the
+ *  shiny badge) just grows a bordered square via CSS now — see index.css. */
 export function FocusHeader({ session }: Props): JSX.Element {
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
   const species = (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
@@ -33,20 +40,22 @@ export function FocusHeader({ session }: Props): JSX.Element {
         )}
       </span>
       <span className="focus-header-id">
-        <span className="focus-header-title">{session.title}</span>
+        <span className="focus-header-title-row">
+          <span className="focus-header-title">{session.title}</span>
+          <em className={session.napping ? 'status napping' : `status ${session.status}`}>
+            {session.looping ? (
+              <>
+                <LoopIcon className="status-loop-icon" /> looping
+              </>
+            ) : (
+              sessionStatusLabel(session)
+            )}
+          </em>
+        </span>
         <span className="focus-header-meta">
           {species} · {providerLabel}
         </span>
       </span>
-      <em className={session.napping ? 'status napping' : `status ${session.status}`}>
-        {session.looping ? (
-          <>
-            <LoopIcon className="status-loop-icon" /> looping
-          </>
-        ) : (
-          sessionStatusLabel(session)
-        )}
-      </em>
       {session.cost && <CostGauge cost={session.cost} className="focus-header-gauge" />}
     </div>
   );

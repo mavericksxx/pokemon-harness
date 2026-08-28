@@ -3,6 +3,7 @@ import type { Session, ViewMode } from '@/store/store';
 import { ArceusDispatchBox } from '@/components/ArceusDispatchBox';
 import { FocusHeader } from '@/components/FocusHeader';
 import { FocusComposer } from '@/components/FocusComposer';
+import { FocusTerminalHead } from '@/components/FocusTerminalHead';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
 import { stopSession } from '@/sessions';
 import { sessionStatusLabel } from '@/design/sessionLabel';
@@ -32,6 +33,13 @@ interface Props {
  * CHILDREN branching on `viewMode`, keeps the mount point's identity — and
  * every session's scrollback (held entirely in terminalRegistry.ts, outside
  * React) — untouched by a mode switch.
+ *
+ * Munder Difflin restyle (backlog item): the terminal now sits inside a
+ * framed `.terminal-panel` with its own mini header (FocusTerminalHead —
+ * live indicator + font-size stepper). That wrapper and its head are BOTH
+ * unconditional too, same reasoning as above — only their className/content
+ * vary with `focus`, never their presence in the tree, so the `mountRef` div
+ * they wrap never sees a different ancestor shape across a viewMode toggle.
  *
  * 'terminal' view mode (BACKLOG phase E) is the per-agent command center:
  * FocusHeader above the terminal, FocusComposer (or Arceus's own dispatch
@@ -76,9 +84,12 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
           the composer's own slot — see the trailing block. */}
       {!focus && session.isArceus && <ArceusDispatchBox sessionId={session.id} />}
 
-      <div className="terminal-mount-wrap">
-        <div className="terminal-mount" ref={mountRef} />
-        {findOpen && <TerminalFindBar sessionId={session.id} onClose={onCloseFind} />}
+      <div className={focus ? 'terminal-panel terminal-panel-focus' : 'terminal-panel'}>
+        <FocusTerminalHead label={session.title} />
+        <div className="terminal-mount-wrap">
+          <div className="terminal-mount" ref={mountRef} />
+          {findOpen && <TerminalFindBar sessionId={session.id} onClose={onCloseFind} />}
+        </div>
       </div>
 
       {focus &&

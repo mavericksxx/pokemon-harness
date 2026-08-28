@@ -4,6 +4,7 @@ import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
 import { GardenSplitHandle } from '@/components/GardenSplitHandle';
 import { RosterStrip } from '@/components/RosterStrip';
+import { FocusSidebar } from '@/components/FocusSidebar';
 import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
@@ -114,11 +115,17 @@ export function App(): JSX.Element {
   // participates in `.body-row`'s flex layout as if this wrapper weren't
   // there.
   const gardenVisible = viewMode === 'garden' || viewMode === 'gardenFull';
-  // Bottom roster strip (parity sweep item 5) — 'garden' and 'terminal' only
-  // ('gardenFull' keeps the previous topbar chips + "+ new agent" button
-  // below instead, unchanged: full-bleed garden has no room for a strip
-  // without shrinking the thing it's meant to be full-bleed).
-  const showRosterStrip = viewMode === 'garden' || viewMode === 'terminal';
+  // Bottom roster strip (parity sweep item 5) — 'garden' only now. 'terminal'
+  // got its own left sidebar instead (Munder Difflin restyle, FocusSidebar,
+  // rendered in body-row below); 'gardenFull' keeps the previous topbar
+  // chips + "+ new agent" button, unchanged: full-bleed garden has no room
+  // for a strip without shrinking the thing it's meant to be full-bleed.
+  const showRosterStrip = viewMode === 'garden';
+  const showFocusSidebar = viewMode === 'terminal';
+  // Topbar chips are hidden whenever a view mode has its own roster UI —
+  // unchanged semantics from before the sidebar split ('garden' and
+  // 'terminal' both had this, via the single `showRosterStrip` flag above).
+  const hideTopbarChips = viewMode === 'garden' || viewMode === 'terminal';
 
   return (
     <div className={`app${isFullScreen ? ' is-fullscreen' : ''}`}>
@@ -136,7 +143,7 @@ export function App(): JSX.Element {
             rather than sitting inside it. */}
         <SummonArceusButton />
         <WorkspaceSwitcher />
-        {!showRosterStrip && (
+        {!hideTopbarChips && (
           <>
             <button className="primary" onClick={() => setDialogOpen(true)}>
               + new agent
@@ -195,6 +202,7 @@ export function App(): JSX.Element {
               gardenSplit.ts for the persisted ratio/clamps and index.css's
               "garden/terminal split divider" block for its styling. */}
           {viewMode === 'garden' && drawerOpen && <GardenSplitHandle />}
+          {showFocusSidebar && <FocusSidebar onNewSession={() => setDialogOpen(true)} />}
           <TerminalDrawer />
         </div>
         {showRosterStrip && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
