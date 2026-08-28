@@ -154,9 +154,16 @@ body {
 
 .session-chips {
   display: flex;
+  align-items: center;
   gap: 6px;
   overflow-x: auto;
   max-width: 55vw;
+  /* Lets this shrink below its content's natural width (the flex default
+   * is content-sized) so IT scrolls/absorbs a cramped topbar instead of
+   * the whole row overflowing — same fix as the "+ New Session" nowrap
+   * above (Phase 8.8 chrome fix). */
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .chip {
@@ -388,6 +395,13 @@ button {
   border-radius: var(--radius-md);
   padding: 4px 10px;
   cursor: pointer;
+  /* A button's own label never wraps — every label in this app is a
+   * short, deliberately one-line imperative ("+ New Session", "Hide
+   * terminal"...); a cramped flex row should shrink or scroll around a
+   * button, not break its text onto a second line (Phase 8.8 chrome fix —
+   * "+ New Session" wrapping in the topbar once the summon-Arceus chip
+   * joined the row at 1280px). */
+  white-space: nowrap;
 }
 
 button:hover {
@@ -573,6 +587,86 @@ button.icon:active {
   }
 }
 
+/* Puff shape (Phase 8.8 §4, style-matched to a user-supplied cumulus
+ * reference — generated procedurally here, never copied/traced from it) —
+ * shared by the rush-phase whipping puffs AND the arrival cloud bank. A
+ * cluster of rounded domes: the element's own soft, uneven border-radius
+ * (an organic blob, not a circle) repeated at several box-shadow offsets
+ * builds the "cluster of lumps" silhouette from ONE shape. Two tones only
+ * — white body, a single pale violet-grey (tuned toward the cosmos
+ * palette) for the underside/inner-lump shading — and NO outline; the
+ * silhouette is the white stepping against whatever's behind it. */
+.puff-shape {
+  position: absolute;
+  border-radius: 48% 52% 44% 56% / 62% 58% 42% 38%;
+  background: #f4f2fb;
+  box-shadow:
+    0.62em -0.2em 0 -0.06em #f4f2fb,
+    -0.58em -0.12em 0 -0.1em #f4f2fb,
+    0.3em 0.22em 0 -0.08em #d7d2ea,
+    -0.34em 0.2em 0 -0.1em #d7d2ea,
+    0.08em 0.3em 0 -0.04em #e3dff2;
+}
+
+/* Rush-phase whipping puffs — same "static layout, JS only toggles the
+ * layer's opacity" shape as `.garden-rush` above; each puff's OWN fall
+ * motion is a perpetual (always-running, cheap) CSS animation. */
+.garden-rush-clouds {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.garden-rush-puff {
+  top: -160px;
+  animation-name: puff-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* Same fixed-px-travel reasoning as streak-fall — clouds are bigger/slower
+ * but travel the same real distance. */
+@keyframes puff-fall {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(1550px);
+  }
+}
+
+/* The arrival reveal (Phase 8.8 §4, reworked per design feedback — "sky
+ * opening around him," not two panels sliding shut). Many individual
+ * puffs (COVER_PUFFS, ArceusAscent.tsx) covering the pane as one bank;
+ * each is positioned here as a fixed seat (left%/top%, centered via
+ * negative margin) and gets its OWN opacity/transform every frame from
+ * `applyStyles`'s per-puff center-out stagger — nothing here times the
+ * reveal itself. Sits ABOVE `.garden-cosmos` in the DOM (later = on top),
+ * genuinely occluding the (already fully loaded) nebula/Arceus
+ * underneath, not an opacity trick. */
+.garden-cloud-cover {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Depth tones (COVER_PUFFS' `tone`) — further-back puffs read dimmer/
+ * cooler, same "layered depth" idea as the rush-phase foreground/
+ * background puff mix. Only `filter` here, never `opacity` — that's owned
+ * entirely by the per-frame JS (ArceusAscent.tsx), which would win the
+ * cascade anyway (inline style over stylesheet) but this keeps the two
+ * concerns from ever looking like they're fighting. */
+.garden-cloud-cover-puff.dim {
+  filter: brightness(0.9);
+}
+.garden-cloud-cover-puff.mid {
+  filter: brightness(0.96);
+}
+
 /* Home is the cosmos, above the garden. Same dark indigo in both themes,
  * deliberately (space is dark either way) — see the Phase 8.8 report. */
 .garden-cosmos {
@@ -606,8 +700,11 @@ button.icon:active {
 .garden-cosmos-figure {
   position: relative;
   z-index: 1;
-  width: 96px;
-  height: 96px;
+  /* ~1.8x the original 96px (Phase 8.8 polish — "he's the god, give him
+   * more presence"). nebula.ts's CLEAR_RADIUS keeps calm space behind him
+   * at this size too. */
+  width: 172px;
+  height: 172px;
   animation: arceus-bob 2600ms ease-in-out infinite;
 }
 

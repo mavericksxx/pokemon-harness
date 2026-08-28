@@ -11,15 +11,22 @@ interface Props {
   ascended: boolean;
 }
 
-const ASCEND_MS = 1200;
-const DESCEND_MS = 800;
+const ASCEND_MS = 1400;
+const DESCEND_MS = 950;
 /** Phase boundaries as fractions of the full 0..1 progress range — same
  *  proportions used for both directions (only the total duration differs
  *  between ascend/descend; see this file's header for why that's an
  *  acceptable simplification over two fully independent curves). Liftoff
- *  ~250ms, rush ~650ms, arrival ~300ms of the 1200ms ascent. */
+ *  ~250ms, rush ~550ms, arrival ~600ms of the 1400ms ascent — arrival is
+ *  the cloud-cover-then-part reveal (COVER_HOLD_END/below), not a plain
+ *  fade, so it needs more room than the original 300ms. */
 const LIFTOFF_END = 250 / ASCEND_MS;
-const RUSH_END = (250 + 650) / ASCEND_MS;
+const RUSH_END = (250 + 550) / ASCEND_MS;
+/** The cloud cover fades in over the last stretch of rush, holds briefly
+ *  once fully ascended, then PARTS (slides apart) over the remainder —
+ *  see `applyStyles`. ~130ms hold + ~400ms part, both scaled by whichever
+ *  direction's total duration is currently in effect (ascend vs descend). */
+const COVER_HOLD_END = RUSH_END + 130 / ASCEND_MS;
 
 function clamp01(t: number): number {
   return Math.max(0, Math.min(1, t));
@@ -68,6 +75,48 @@ const STREAKS: readonly { left: number; height: number; opacity: number; delayMs
   { left: 94, height: 70, opacity: 0.4, delayMs: -230, durationMs: 480 }
 ];
 
+/** Fixed, hand-placed cloud-puff seeds — chunky GBA-style flat-shaded
+ *  puffs whipping past during rush, foreground (bigger/faster/more opaque)
+ *  and background (smaller/slower/fainter) mixed for cheap depth. Static
+ *  generated set, not re-randomized per render — same convention as
+ *  STREAKS above. Shape itself is the shared `.puff-shape` CSS class
+ *  (index.css) — a lumpy rounded blob, not a rectangle. */
+const CLOUD_PUFFS: readonly { left: number; size: number; opacity: number; delayMs: number; durationMs: number }[] = [
+  { left: 10, size: 46, opacity: 0.5, delayMs: -120, durationMs: 900 },
+  { left: 28, size: 30, opacity: 0.3, delayMs: -480, durationMs: 1300 },
+  { left: 46, size: 54, opacity: 0.55, delayMs: -280, durationMs: 850 },
+  { left: 63, size: 26, opacity: 0.28, delayMs: -650, durationMs: 1400 },
+  { left: 78, size: 42, opacity: 0.45, delayMs: -60, durationMs: 950 },
+  { left: 90, size: 32, opacity: 0.32, delayMs: -380, durationMs: 1250 }
+];
+
+/** The arrival cover bank (Phase 8.8 §4, reworked per design feedback — a
+ *  "sky opening around him," not two doors sliding shut) — many individual
+ *  puffs spread across the pane (some starting slightly past 0%/100% so
+ *  the bank still reads as unbroken before it clears), each with its own
+ *  size/vertical seat/shade tone. Left near the horizontal CENTER (close
+ *  to `left: 50`) clear FIRST; edge puffs clear last — see `applyStyles`'
+ *  per-puff stagger, computed from each one's own distance from center
+ *  rather than a hand-authored delay, so this array only needs to place
+ *  them, not time them. */
+const COVER_PUFFS: readonly { left: number; top: number; size: number; tone: 'light' | 'mid' | 'dim' }[] = [
+  { left: 50, top: 42, size: 92, tone: 'light' },
+  { left: 38, top: 56, size: 72, tone: 'mid' },
+  { left: 63, top: 58, size: 76, tone: 'mid' },
+  { left: 27, top: 34, size: 60, tone: 'dim' },
+  { left: 74, top: 36, size: 64, tone: 'dim' },
+  { left: 17, top: 60, size: 66, tone: 'mid' },
+  { left: 83, top: 62, size: 68, tone: 'mid' },
+  { left: 7, top: 42, size: 56, tone: 'light' },
+  { left: 93, top: 45, size: 58, tone: 'light' },
+  { left: 44, top: 20, size: 50, tone: 'dim' },
+  { left: 57, top: 23, size: 52, tone: 'dim' },
+  { left: 14, top: 18, size: 44, tone: 'mid' },
+  { left: 86, top: 20, size: 46, tone: 'mid' },
+  { left: -3, top: 50, size: 62, tone: 'light' },
+  { left: 103, top: 50, size: 62, tone: 'light' }
+];
+
 /**
  * The cosmos ascent (Phase 8.8 §4) — a three-phase vertical launch: liftoff
  * (the garden drops away, accelerating), rush (a sky transit with pixel
@@ -87,7 +136,11 @@ const STREAKS: readonly { left: number; height: number; opacity: number; delayMs
  */
 export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
   const rushRef = useRef<HTMLDivElement>(null);
+  const cloudsRef = useRef<HTMLDivElement>(null);
   const cosmosRef = useRef<HTMLDivElement>(null);
+  // One ref per COVER_PUFFS entry, same index — populated via callback
+  // refs in the JSX below.
+  const coverPuffRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const progressRef = useRef(0);
   const rafRef = useRef<number | null>(null);
   const reducedMotionRef = useRef(false);
@@ -175,8 +228,9 @@ export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
     const applyStyles = (p: number): void => {
       const host = hostRef.current;
       const rush = rushRef.current;
+      const clouds = cloudsRef.current;
       const cosmos = cosmosRef.current;
-      if (!host || !rush || !cosmos) return;
+      if (!host || !rush || !clouds || !cosmos) return;
 
       const liftoffT = easeInCubic(clamp01(p / LIFTOFF_END));
       host.style.transform = `translateY(${lerp(0, 100, liftoffT)}%) scale(${lerp(1, 0.92, liftoffT)})`;
@@ -187,9 +241,46 @@ export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
       rush.style.opacity = String(rushOpacity);
       rush.style.background = skyColorAt(clamp01(p / RUSH_END));
 
-      const arrivalT = easeOutCubic(clamp01((p - RUSH_END) / (1 - RUSH_END)));
-      cosmos.style.opacity = String(arrivalT);
-      cosmos.style.transform = `translateY(${lerp(8, 0, arrivalT)}%)`;
+      // Cloud puffs: density peaks mid-rush, thins as the sky nears indigo
+      // (clouds don't belong in space — gone before the cover/nebula show).
+      const cloudPeak = clamp01(p / (RUSH_END * 0.55));
+      const cloudFade = clamp01((p - RUSH_END * 0.75) / (RUSH_END * 0.25));
+      clouds.style.opacity = String(Math.min(cloudPeak, 1 - cloudFade));
+
+      // Nebula + Arceus are fully rendered and ready WELL before the cover
+      // parts (see this file's header — no placeholder ever visible behind
+      // it): opacity reaches 1 almost immediately after rush ends, long
+      // before COVER_HOLD_END.
+      const cosmosReadyT = clamp01((p - RUSH_END) / (RUSH_END * 0.14));
+      cosmos.style.opacity = String(cosmosReadyT);
+
+      // The cloud-cover reveal — the arrival beat itself, replacing a plain
+      // fade-in: the bank fades to fully opaque right at the tail of rush,
+      // holds briefly once ascended, then CLEARS. "Clears" is per-puff, not
+      // a shared transform — see the loop below.
+      const coverInT = easeOutCubic(clamp01((p - (RUSH_END - 0.04)) / (COVER_HOLD_END - (RUSH_END - 0.04))));
+      const partT = clamp01((p - COVER_HOLD_END) / (1 - COVER_HOLD_END));
+      const bankOpacity = p <= COVER_HOLD_END ? coverInT : 1;
+
+      // Sky opens from the MIDDLE outward: each puff's own distance from
+      // horizontal center sets how much of `partT` it waits out before it
+      // starts clearing — center puffs (dist~0) start immediately, edge
+      // puffs (dist~1) wait out up to STAGGER_SPAN of the window — so nT
+      // puffs are, unlike a shared transform, never in lockstep. Each
+      // clears by fading out while drifting toward ITS OWN side and
+      // shrinking slightly, reading as dissolving into sky rather than
+      // sliding off like a panel.
+      const STAGGER_SPAN = 0.62;
+      for (let i = 0; i < COVER_PUFFS.length; i++) {
+        const el = coverPuffRefs.current[i];
+        if (!el) continue;
+        const puff = COVER_PUFFS[i];
+        const dist = clamp01(Math.abs(puff.left - 50) / 53);
+        const side = puff.left >= 50 ? 1 : -1;
+        const localT = easeInCubic(clamp01((partT - dist * STAGGER_SPAN) / (1 - dist * STAGGER_SPAN)));
+        el.style.opacity = String(bankOpacity * (1 - localT));
+        el.style.transform = `translate(${side * lerp(0, 46, localT)}px, ${lerp(0, -14, localT)}px) scale(${lerp(1, 0.72, localT)})`;
+      }
     };
 
     const target = ascended ? 1 : 0;
@@ -235,6 +326,22 @@ export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
           />
         ))}
       </div>
+      <div className="garden-rush-clouds" ref={cloudsRef} aria-hidden="true">
+        {CLOUD_PUFFS.map((c, i) => (
+          <span
+            key={i}
+            className="puff-shape garden-rush-puff"
+            style={{
+              left: `${c.left}%`,
+              width: `${c.size}px`,
+              height: `${c.size * 0.62}px`,
+              opacity: c.opacity,
+              animationDelay: `${c.delayMs}ms`,
+              animationDuration: `${c.durationMs}ms`
+            }}
+          />
+        ))}
+      </div>
       <div className="garden-cosmos" ref={cosmosRef} aria-hidden="true">
         <div className="garden-cosmos-nebula" style={{ backgroundImage: `url(${nebulaDataUrl()})` }} />
         <div className="garden-cosmos-figure">
@@ -253,6 +360,32 @@ export function ArceusAscent({ hostRef, ascended }: Props): JSX.Element {
             />
           ))}
         </div>
+      </div>
+      {/* The arrival reveal (Phase 8.8 §4 revision) — a bank of individual
+          puffs covering the cosmos fully, holding briefly, then clearing
+          from the middle outward (per-puff stagger in `applyStyles`, not a
+          shared transform — see this file's header). Sits ABOVE
+          `.garden-cosmos` in the DOM (later = on top), so it's genuinely
+          occluding the (already fully loaded) nebula/Arceus underneath,
+          not just an opacity trick. */}
+      <div className="garden-cloud-cover" aria-hidden="true">
+        {COVER_PUFFS.map((c, i) => (
+          <span
+            key={i}
+            ref={(el) => {
+              coverPuffRefs.current[i] = el;
+            }}
+            className={`puff-shape garden-cloud-cover-puff ${c.tone}`}
+            style={{
+              left: `${c.left}%`,
+              top: `${c.top}%`,
+              width: `${c.size}px`,
+              height: `${c.size * 0.62}px`,
+              marginLeft: `${-c.size / 2}px`,
+              marginTop: `${-(c.size * 0.62) / 2}px`
+            }}
+          />
+        ))}
       </div>
     </>
   );

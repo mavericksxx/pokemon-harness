@@ -1,11 +1,11 @@
 /**
  * The cosmos backdrop's nebula texture (Phase 8.8 §4, final revision) — a
  * dense diagonal galaxy band (warm orange/salmon core, near-black dust-lane
- * clumps, violet haze, deep-indigo corners) with heavy ordered (Bayer)
- * dithering and a scattered multicolor starfield, style-matched to a user-
- * supplied stock reference — generated PROCEDURALLY from scratch here
- * (noise + a Bayer threshold + fixed-seed placements), never by copying,
- * tracing, or embedding any part of that reference image.
+ * clumps, violet haze, deep-indigo corners) with heavy irregular dithering
+ * and a scattered multicolor starfield, style-matched to a user-supplied
+ * stock reference — generated PROCEDURALLY from scratch here (value noise +
+ * a stochastic/Bayer dither blend + fixed-seed placements), never by
+ * copying, tracing, or embedding any part of that reference image.
  *
  * Generated ONCE at module load as a small (low-res) canvas, exported as a
  * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) stretches
@@ -14,10 +14,12 @@
  * `Math.random()`) so the backdrop is the SAME every time this module
  * loads, not reshuffled on every launch.
  *
- * The band's peak brightness is placed off-center (see `bandProfile`),
- * deliberately away from (0.5, 0.5) where Arceus's sprite floats
+ * The band's peak brightness is placed off-center (see `BAND_A`/`BAND_B`/
+ * `PEAK_T`), deliberately away from (0.5, 0.5) where Arceus's sprite floats
  * (`.garden-cosmos` centers its figure) — the reference's hottest core
- * would otherwise sit directly behind him.
+ * would otherwise sit directly behind him — and `CLEAR_RADIUS` backs that
+ * up with an explicit calm blend right around center, regardless of where
+ * the band math lands.
  */
 
 const WIDTH = 128;
@@ -61,6 +63,11 @@ const C_HAZE: [number, number, number] = [110, 70, 130];
 const C_CORE: [number, number, number] = [214, 120, 90];
 const C_CORE_BRIGHT: [number, number, number] = [244, 176, 128];
 const C_DUST: [number, number, number] = [14, 9, 16];
+/** A calm, neutral mid-tone — what the small clear zone directly behind
+ *  Arceus blends toward, regardless of what the band math would otherwise
+ *  put there (a belt-and-braces guarantee, on top of the band's own
+ *  off-center placement — see CLEAR_RADIUS below). */
+const C_CLEAR: [number, number, number] = [44, 32, 70];
 
 /** Band centerline (fractions of W/H), run corner-to-corner OFF the canvas
  *  on both ends so it reads as a band crossing an implied larger frame, not
@@ -82,6 +89,11 @@ const BAND_WIDTH = 0.055;
  *  itself before giving way to flat indigo — a wider multiple of
  *  BAND_WIDTH than the core's own falloff. */
 const HAZE_WIDTH_MULT = 4.5;
+/** Explicit clear zone around canvas CENTER (fraction of the diagonal) —
+ *  guarantees calm space directly behind Arceus regardless of where the
+ *  band math lands, rather than relying solely on the band's own
+ *  off-center placement. */
+const CLEAR_RADIUS = 0.11;
 
 function generateNebulaDataUrl(): string {
   const canvas = document.createElement('canvas');
@@ -166,14 +178,26 @@ function generateNebulaDataUrl(): string {
         rgb = lerpRgb(rgb, C_DUST, dustAmt * 0.85);
       }
 
-      // Heavy ordered dithering — quantize the local brightness against a
-      // Bayer4 threshold so adjacent bands read as halftone-ish stipple
-      // rather than a smooth gradient. Applied as a small per-pixel
-      // luminance nudge up/down rather than a hard 2-color quantization,
-      // which keeps the wide color ramp above while still reading as
-      // dithered once scaled up blocky.
+      // Explicit clear zone directly behind Arceus (canvas center) — see
+      // CLEAR_RADIUS's own comment.
+      const distToCenter = Math.hypot(x - WIDTH / 2, y - HEIGHT / 2) / diag;
+      if (distToCenter < CLEAR_RADIUS) {
+        rgb = lerpRgb(rgb, C_CLEAR, (1 - distToCenter / CLEAR_RADIUS) * 0.65);
+      }
+
+      // Heavy dithering, deliberately IRREGULAR — a plain per-pixel Bayer4
+      // threshold at this canvas' low resolution reads, once scaled up
+      // blocky, as a perfectly uniform checkerboard (a transparency-grid
+      // artifact, not grain). Two things break that up: a coarse 2x2-block
+      // stochastic hash for cluster-scale variation, layered under a much
+      // fainter Bayer4 component for fine texture — "blue-noise-ish" rather
+      // than one repeating tile.
+      const blockX = Math.floor(x / 2);
+      const blockY = Math.floor(y / 2);
+      const blockHash = Math.sin(blockX * 12.9898 + blockY * 78.233 + 4.1) * 43758.5453;
+      const blockRand = blockHash - Math.floor(blockHash);
       const bayer = BAYER4[y % 4][x % 4];
-      const ditherAmt = (bayer - 0.5) * 26;
+      const ditherAmt = (blockRand - 0.5) * 20 + (bayer - 0.5) * 8;
       rgb = [
         clamp01((rgb[0] + ditherAmt) / 255) * 255,
         clamp01((rgb[1] + ditherAmt) / 255) * 255,
