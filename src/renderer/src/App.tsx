@@ -4,6 +4,7 @@ import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
+import { AudioPopover } from '@/components/AudioPopover';
 import { useStore } from '@/store/store';
 
 export function App(): JSX.Element {
@@ -41,6 +42,7 @@ export function App(): JSX.Element {
           ))}
         </nav>
         <div className="spacer" />
+        <AudioPopover />
         <button onClick={() => setDrawerOpen(!drawerOpen)}>
           {drawerOpen ? 'Hide terminal' : 'Show terminal'}
         </button>

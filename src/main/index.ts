@@ -3,7 +3,20 @@ import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
+import { ensureMusicTrack } from './musicCache';
+import { ensureCry } from './cryCache';
+import { loadAudioSettings, saveAudioSettings } from './audioSettings';
 import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
+import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
+
+// Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
+// session's walker first spawns — before the user has clicked anything.
+// Chromium suspends a page's AudioContext until a user gesture by default,
+// which would silently drop that first sound. This is a local, single-
+// purpose desktop app (no arbitrary untrusted autoplaying web content), so
+// lifting the gesture requirement is a deliberate choice, not an overlooked
+// default. Must be set before app is ready.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
 const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
@@ -98,6 +111,17 @@ ipcMain.handle(
   (_e, id: string, view: SpriteView, shiny: boolean, png: ArrayBuffer, meta: LazySpriteMeta) =>
     saveCachedSprite(id, view, shiny, png, meta)
 );
+
+// ─── Audio (Phase 7) ────────────────────────────────────────────────────────
+// Same rationale as the sprite cache above: the renderer's CSP has no
+// connect-src beyond self, so main is the only actor that can reach khinsider
+// or Showdown's cry endpoint; it also owns the userData disk cache and the
+// settings JSON (see audioSettings.ts — no other persistence precedent
+// existed in this app to follow instead).
+ipcMain.handle('audio:getSettings', () => loadAudioSettings());
+ipcMain.handle('audio:saveSettings', (_e, settings: AudioSettings) => saveAudioSettings(settings));
+ipcMain.handle('audio:ensureTrack', (_e, id: MusicTrackId) => ensureMusicTrack(id));
+ipcMain.handle('audio:ensureCry', (_e, id: string) => ensureCry(id));
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 // The renderer is sandboxed and cannot reliably read process.env itself; main

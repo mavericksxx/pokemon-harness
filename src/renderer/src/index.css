@@ -376,6 +376,59 @@ button.icon {
   font-size: 12px;
 }
 
+/* ── Audio popover ───────────────────────────────────────────────────────── */
+.audio-popover-wrap {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.audio-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  font-size: 12px;
+}
+
+.audio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-row-master {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.audio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 52px;
+  cursor: pointer;
+}
+
+.audio-row input[type='range'] {
+  flex: 1;
+}
+
+.audio-status {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: -4px;
+}
+
 /* ── Toasts ──────────────────────────────────────────────────────────────── */
 .toasts {
   position: fixed;
