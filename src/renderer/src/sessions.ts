@@ -6,7 +6,7 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
-import { baseStageOf } from '@/scene/garden/dexData';
+import { baseStageOf, speciesEntry, stageForWorkedMs } from '@/scene/garden/dexData';
 import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
 
 function basename(p: string): string {
@@ -95,6 +95,28 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     if (sessionAdded) useStore.getState().removeSession(id);
     throw err instanceof Error ? err : new Error(String(err));
   }
+}
+
+/**
+ * Change which Pokemon represents an already-running session (roster card's
+ * "change pokemon" action) — the session keeps its identity (id, terminal,
+ * status, everything); only `pokemon`/`line` change. Unlike `startSession`,
+ * which always normalizes a pick down to its line's base stage (workedMs is
+ * always 0 for a brand-new session), this normalizes to whatever stage the
+ * session's ALREADY-accumulated workedMs has earned in the new line — see
+ * `stageForWorkedMs`. No ceremony plays for the swap itself (GardenScene's
+ * `applyManualSwap` just brings the walker's sprite in line with the new
+ * `pokemon` the next time it's safe to).
+ */
+export function swapSessionPokemon(sessionId: string, pickedId: string): void {
+  const session = useStore.getState().sessions.find((s) => s.id === sessionId);
+  if (!session) return;
+  const base = baseStageOf(pickedId);
+  const nextId = stageForWorkedMs(pickedId, session.workedMs);
+  if (nextId === session.pokemon) return; // already this species at this stage — nothing to swap
+  useStore.getState().updateSession(sessionId, { pokemon: nextId, line: base.line });
+  const label = speciesEntry(nextId)?.name ?? nextId;
+  useStore.getState().pushToast(`${session.title} is now ${label}.`);
 }
 
 export async function stopSession(id: string): Promise<void> {

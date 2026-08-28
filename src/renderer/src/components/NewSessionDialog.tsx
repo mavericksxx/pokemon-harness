@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId } from '@shared/agentProvider';
 import { startSession } from '@/sessions';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
-import { pickFreeLine, POKEMON_ROSTER } from '@/scene/garden/showdownArt';
-import { baseStageOf, chainLabel, searchDex, speciesEntry, type DexEntry } from '@/scene/garden/dexData';
-import { PokemonFace } from './PokemonFace';
+import { pickFreeLine } from '@/scene/garden/showdownArt';
+import { baseStageOf, chainLabel, speciesEntry } from '@/scene/garden/dexData';
+import { PokemonPicker } from './PokemonPicker';
 
 interface Props {
   onClose(): void;
@@ -17,15 +17,6 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const takenLines = new Set(sessions.map((s) => s.line));
   // Random default, chosen once on open from whichever bundled line is free.
   const [pokemon, setPokemon] = useState(() => pickFreeLine([...takenLines]).name);
-  const [query, setQuery] = useState('');
-  // Debounced: every intermediate keystroke's result set would otherwise mount
-  // a PokemonFace per unbundled result, each firing a real GIF fetch — typing
-  // "gengar" would fetch every species matching "g", "ge", "gen"... on the way.
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedQuery(query), 200);
-    return () => window.clearTimeout(t);
-  }, [query]);
   const [provider, setProvider] = useState<AgentProviderId>(DEFAULT_PROVIDER);
   // Prefilled from the ACTIVE workspace's primary folder (Phase 8.7) — still
   // freely editable; this is a starting point, not a constraint (a session's
@@ -43,13 +34,6 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   // THIS provider, editable per session from here.
   const [autoMode, setAutoMode] = useState(() => appSettings.autoModeByProvider[DEFAULT_PROVIDER] ?? false);
   const recentFolders = useAppSettingsStore((s) => s.settings.recentFolders);
-
-  // Empty query: the bundled 42 need no network and cover most of the fun
-  // evolution lines already, so they stay the default listing. Non-empty:
-  // type-ahead over the full ~1025-species dex by name or dex number.
-  const results: DexEntry[] = debouncedQuery.trim()
-    ? searchDex(debouncedQuery, 30)
-    : POKEMON_ROSTER.map((p) => speciesEntry(p.name)).filter((e): e is DexEntry => !!e);
 
   const chosen = speciesEntry(pokemon);
   const base = baseStageOf(pokemon);
@@ -194,58 +178,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
 
         <label>
           pokemon <span className="hint">(one per evolution line)</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="search all 1025 by name or dex number…"
-            spellCheck={false}
-          />
-          <div className="pokemon-picker">
-            {results.map((entry) => {
-              const entryBase = baseStageOf(entry.id);
-              const isTaken = takenLines.has(entryBase.line);
-              // The picker doesn't show a shiny sprite for a taken option
-              // (disabled options render grayscaled — see .pokemon-option:
-              // disabled — so the palette difference wouldn't even show);
-              // it just flags that the line currently out in the garden
-              // happens to be shiny.
-              const takenByShiny = isTaken && sessions.some((s) => s.line === entryBase.line && s.shiny);
-              // hasSprite: false means the builder's coverage sweep confirmed
-              // the Smogon Sprite Project has no art for this species (Phase
-              // 6 §2) — grey it out rather than let a pick fail at fetch time.
-              const noSprite = entry.hasSprite === false;
-              const disabled = isTaken || noSprite;
-              const optionTitle = noSprite
-                ? `no sprite available for ${entry.name}`
-                : isTaken
-                  ? `${entry.name}'s line is already in the garden`
-                  : entry.name;
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  className={entry.id === pokemon ? 'pokemon-option chosen' : 'pokemon-option'}
-                  disabled={disabled}
-                  title={optionTitle}
-                  onClick={() => setPokemon(entry.id)}
-                >
-                  {noSprite ? (
-                    <i className="pokemon-face loading" aria-hidden />
-                  ) : (
-                    <PokemonFace name={entry.id} />
-                  )}
-                  <span>{entry.name}</span>
-                  {takenByShiny && (
-                    <span className="shiny-badge" title="a shiny is out in the garden" aria-label="shiny">
-                      ★
-                    </span>
-                  )}
-                  {entry.static && <em className="pokemon-static-tag">static sprite</em>}
-                </button>
-              );
-            })}
-            {debouncedQuery.trim() && results.length === 0 && <p className="hint">no match.</p>}
-          </div>
+          <PokemonPicker value={pokemon} onChange={setPokemon} />
           <p className="hint pokemon-note">{note}</p>
         </label>
 

@@ -392,6 +392,37 @@ body {
   font-size: 9px;
   color: var(--muted);
   background: var(--bg-terminal);
+  /* Fixed card size (picker grid-alignment fix): a bundled sprite's own
+   * height varies with its sheet's frame aspect ratio, and names vary in
+   * length — without a fixed height + clip here, cards in the same grid row
+   * render at uneven heights with names floating at different offsets.
+   * `.pokemon-option-face`/`.pokemon-option-name` below give the sprite and
+   * label their own fixed-size slots within this. */
+  height: 78px;
+  overflow: hidden;
+}
+
+/* Sprite slot: fixed box, sprite centered/clipped within it regardless of
+ * the source sheet's own aspect ratio (`PokemonFace` sizes bundled sprites
+ * by their real frame dimensions, not a fixed square). */
+.pokemon-option-face {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+}
+
+/* Label slot: one line, ellipsized rather than wrapping into a second line
+ * (which would push the card past its fixed height above). */
+.pokemon-option-name {
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 
 .pokemon-option.chosen {
@@ -1448,7 +1479,7 @@ button.icon:active {
   border-top: 1px solid var(--line);
 }
 
-.roster-strip .roster-card {
+.roster-strip .roster-card-wrap {
   width: 220px;
   flex: none;
 }
@@ -1480,6 +1511,12 @@ button.icon:active {
   border-left: 3px solid var(--line);
   border-radius: var(--radius-md);
   width: 100%;
+  /* Fills `.roster-card-wrap`, which now carries the strip's own
+   * `align-items: stretch` height (see `.roster-card-wrap` below) — without
+   * this the card (a plain block child, not itself a stretched flex item)
+   * would size to its own content instead of the strip's full row height,
+   * same as before the wrapper was introduced. */
+  height: 100%;
   transform: translateY(0);
   transition:
     transform 90ms steps(2, end),
@@ -1630,6 +1667,65 @@ button.icon:active {
   height: 100%;
   background: var(--muted);
   transition: width 400ms steps(2, end);
+}
+
+/* ── Roster card "change pokemon" swap action (added: update-session-pokemon) ──
+ * `.roster-card-wrap` is the roster card's new outer element — `.roster-card`
+ * itself is a <button> and can't nest another <button>, so the swap button
+ * is a sibling, absolutely positioned against this wrapper. Deliberately no
+ * `transform` here (unlike `.roster-card:hover` below): a transformed
+ * ancestor becomes the containing block for a `position: fixed` descendant,
+ * which would break the swap dialog's `.modal-backdrop`. */
+.roster-card-wrap {
+  position: relative;
+  /* `.roster-strip` stretches its flex children to the row's full height
+   * (`align-items: stretch`) — this wrap is now that child instead of
+   * `.roster-card` itself, so it needs the explicit height too (a plain div
+   * isn't a flex item of anything that would otherwise size it); `.roster-card`
+   * above fills THIS in turn via its own `height: 100%`. */
+  height: 100%;
+}
+
+.roster-card-swap {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition:
+    opacity 90ms steps(2, end),
+    transform 90ms steps(2, end);
+}
+
+/* Hover OR keyboard focus reveals it — hover alone would leave it
+ * unreachable from the keyboard. Hovering the icon itself still counts as
+ * hovering the wrap (it contains both), so this also covers the icon's own
+ * :hover once revealed. */
+.roster-card-wrap:hover .roster-card-swap,
+.roster-card-swap:focus-visible {
+  opacity: 1;
+}
+
+/* Keeps the icon moving in sync with `.roster-card`'s own hover-lift
+ * (translateY(-1px), below) — without this the card visually lifts out from
+ * under a statically-positioned icon, a 1px jitter right where the pointer
+ * crosses onto the icon's own hit area. */
+.roster-card-wrap:hover .roster-card-swap {
+  transform: translateY(-1px);
+}
+
+.roster-card-swap:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 /* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */

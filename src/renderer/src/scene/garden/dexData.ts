@@ -18,6 +18,7 @@ import linesRaw from '@assets/dex/lines.json';
 import type { Locomotion } from './showdownArt';
 import { BUNDLED_BY_NAME } from './showdownArt';
 import { ARCEUS_DEX_ID } from '@shared/arceus';
+import { evolutionConfig } from './evolution';
 
 export interface DexEntry {
   id: string;
@@ -136,4 +137,33 @@ export function randomAnimatedSpecies(candidateIds: readonly string[]): string |
   const eligible = candidateIds.filter((id) => !DEX[id]?.static && id !== ARCEUS_DEX_ID);
   if (eligible.length === 0) return undefined;
   return eligible[Math.floor(Math.random() * eligible.length)];
+}
+
+/**
+ * Resolves a manually-picked species to the one a session's accumulated
+ * `workedMs` has actually earned in THAT LINE — used when swapping an
+ * existing session's Pokemon (unlike a brand-new session, whose `workedMs`
+ * is always 0 and so always hatches at base stage; see sessions.ts).
+ *
+ * If the picked entry's own stage already matches the earned stage, the
+ * exact pick is honored as-is (searching for and clicking "Vaporeon" gives
+ * you Vaporeon, not a re-rolled branch). Otherwise this walks forward from
+ * the picked species' line's base, one threshold at a time, via the same
+ * `randomAnimatedSpecies` draw `triggerEvolve` uses (GardenScene.tsx) — so a
+ * branching line (Eevee) resolves the same way organic evolution would.
+ */
+export function stageForWorkedMs(pickedId: string, workedMs: number): string {
+  const { stage2Ms, stage3Ms } = evolutionConfig();
+  const earnedStage = workedMs >= stage3Ms ? 3 : workedMs >= stage2Ms ? 2 : 1;
+  const picked = DEX[pickedId];
+  if (picked && picked.stage === earnedStage) return pickedId;
+
+  let current = baseStageOf(pickedId);
+  for (const threshold of [stage2Ms, stage3Ms]) {
+    if (workedMs < threshold || current.evolvesTo.length === 0) break;
+    const nextId = randomAnimatedSpecies(current.evolvesTo);
+    if (!nextId) break;
+    current = DEX[nextId] ?? current;
+  }
+  return current.id;
 }

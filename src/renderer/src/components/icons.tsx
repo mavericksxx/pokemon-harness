@@ -101,6 +101,20 @@ export function LoopIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Roster card's "change pokemon" affordance — two opposing arrows, the
+ *  standard exchange/swap silhouette, distinct from LoopIcon's single
+ *  broken-ring "repeat" shape above. */
+export function SwapIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="2" y="3" width="8" height="2" />
+      <polygon points="10,2 14,4 10,6" />
+      <rect x="6" y="9" width="8" height="2" />
+      <polygon points="6,8 2,10 6,12" />
+    </PixelIcon>
+  );
+}
+
 /** Quick-mute chrome control's three states — were U+1F507/1F509/1F50A
  *  (muted/low/high speaker). Shared cone shape; the sound-wave arcs are the
  *  only difference between states. */
