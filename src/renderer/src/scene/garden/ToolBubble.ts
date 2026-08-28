@@ -1,15 +1,17 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { ground, ink, hexToNumber } from '@/design/tokens';
 
-// Speech bubble shown above a walker: "<icon> <target>" (e.g. "> App.tsx").
+// Speech bubble shown above a walker: "<icon> <label>" (e.g. "> editing App.tsx").
 // Ported from munder-difflin (src/renderer/src/scene/office/ToolBubble.ts),
 // itself ported from shahar061/the-office (office/characters/ToolBubble.ts).
 //
-// Recolored to the chrome neutral+ink system (design spec §5): these bubbles
-// now also carry idle-chatter lines (gardenLines.ts), not just tool actions,
-// so they read as part of the UI's text system rather than garden-only set
-// dressing — the old dark-green/light-green pairing was a leftover from
-// before that widened scope.
+// Redesigned (garden bubble pass) as a miniature Game Boy-style dialogue box
+// — hard 2px pixel border, opaque parchment fill, a blocky pixel step-tail
+// pointing down at the walker's head — replacing the old plain dark rounded
+// rect. Colors are fixed Pixi-native hex, not sourced from design/tokens:
+// per that module's own header note the garden canvas draws from its own
+// art rather than the app-chrome theme, and a static parchment/ink pair
+// reads consistently against both grass and path tiles regardless of which
+// chrome theme is active.
 
 const TOOL_ICONS: Record<string, string> = {
   Read: '<',
@@ -28,22 +30,39 @@ const TOOL_ICONS: Record<string, string> = {
 const DEFAULT_ICON = '*';
 
 const PADDING_X = 6;
-const PADDING_Y = 3;
-const CORNER_RADIUS = 2; // spec: 0 everywhere, 2px max for corner clips
-const MAX_WIDTH = 140;
-const BG_COLOR = hexToNumber(ground[100]); // panel fill, not the app ground
-const BG_ALPHA = 0.95;
-const BORDER_COLOR = hexToNumber(ground[300]); // the border hairline token
-const TEXT_COLOR = ink[900];
+const PADDING_Y = 4;
+const BORDER_WIDTH = 2;
+const FILL_COLOR = 0xf4ecd3; // parchment — Game Boy dialogue-box paper
+const BORDER_COLOR = 0x2b2320; // near-black warm charcoal, not flat pure black
+const TEXT_COLOR = 0x2b2320;
 const FONT_SIZE = 12;
 const RENDER_SCALE = 0.5; // render at 2x, scale down for crispness
-const OFFSET_Y = -34;
-const FADE_IN_DURATION = 0.15;
+const MAX_WIDTH = 140;
+const WRAP_WIDTH = MAX_WIDTH / RENDER_SCALE - PADDING_X * 2;
+const MAX_CHARS = 120;
+
+// Blocky 2-step pixel tail under the box, tapering 8px -> 4px wide over 4px
+// of drop — a "staircase" point rather than a smooth triangle, to stay on
+// the hard pixel grid the rest of the box uses.
+const TAIL_STEP_H = 2;
+const TAIL_OUTER_HALF_W = 4;
+const TAIL_INNER_HALF_W = 2;
+const TAIL_HEIGHT = TAIL_STEP_H * 2;
+
+// Small consistent gap between the tail tip and the sprite's head — the
+// caller (Walker.ts) already passes a `py` that sits at the top of the
+// sprite's head (feet position minus the sprite's own drawnHeight, which
+// itself folds in that species' scale), so this is the ONLY altitude this
+// bubble adds — no per-species tuning needed here.
+const GAP = 6;
+
+// Stepped pop-in: one snap from a half-size frame to full size, not a
+// smooth tween — reads as a game-ish "blip" rather than an eased grow.
+const POP_SCALE_START = 0.55;
+const POP_DURATION = 0.08; // ~2 frames @60fps
 const FADE_OUT_DURATION = 0.3;
 const LINGER_DURATION = 2.0;
 const DOTS_CYCLE_SPEED = 0.5;
-const WRAP_WIDTH = MAX_WIDTH / RENDER_SCALE - PADDING_X * 2;
-const MAX_CHARS = 120;
 
 type BubbleState = 'hidden' | 'fading-in' | 'visible' | 'lingering' | 'fading-out';
 
@@ -132,9 +151,12 @@ export class ToolBubble {
       this.state = 'fading-in';
       this.fadeElapsed = 0;
       this.container.visible = true;
+      this.container.alpha = 1;
+      this.inner.scale.set(RENDER_SCALE * POP_SCALE_START);
     } else {
       this.state = 'visible';
       this.container.alpha = 1;
+      this.inner.scale.set(RENDER_SCALE);
     }
     this.lingerElapsed = 0;
   }
@@ -145,13 +167,16 @@ export class ToolBubble {
     this.lingerElapsed = 0;
   }
 
+  /** `px, py`: the sprite's top-of-head world position — the caller already
+   *  subtracts the sprite's own drawnHeight (which folds in that species'
+   *  scale), so a small fixed GAP is all this needs regardless of how tall
+   *  or short the species sprite is. */
   setPosition(px: number, py: number): void {
-    const halfBubble = (this.bgW * RENDER_SCALE) / 2;
     // Round: the walker glides at sub-pixel steps every frame, and a bubble on
     // fractional coordinates resamples its half-scaled text differently each
     // frame — visible as shimmering while it walks.
-    this.container.x = Math.round(px - halfBubble);
-    this.container.y = Math.round(py + OFFSET_Y - this.bgH * RENDER_SCALE);
+    this.container.x = Math.round(px);
+    this.container.y = Math.round(py - GAP);
   }
 
   hide(): void {
@@ -179,9 +204,10 @@ export class ToolBubble {
     switch (this.state) {
       case 'fading-in': {
         this.fadeElapsed += dt;
-        const t = Math.min(this.fadeElapsed / FADE_IN_DURATION, 1);
-        this.container.alpha = t;
-        if (t >= 1) this.state = 'visible';
+        if (this.fadeElapsed >= POP_DURATION / 2) {
+          this.inner.scale.set(RENDER_SCALE);
+        }
+        if (this.fadeElapsed >= POP_DURATION) this.state = 'visible';
         break;
       }
       case 'lingering': {
@@ -207,12 +233,44 @@ export class ToolBubble {
   }
 
   private redrawBg(): void {
-    this.bgW = this.label.width + PADDING_X * 2;
-    this.bgH = this.label.height + PADDING_Y * 2;
+    // Snap to a 4px/2px grid (not just the nearest integer): the pivot below
+    // sits at (bgW/2, bgH+TAIL_HEIGHT) in inner's *unscaled* space, and inner
+    // renders at RENDER_SCALE (0.5) — so bgW must land on a multiple of 4 and
+    // bgH on a multiple of 2 (TAIL_HEIGHT already is) for that pivot point,
+    // and the text/border pixels around it, to fall on whole device pixels
+    // rather than resampling soft.
+    this.bgW = Math.ceil((this.label.width + PADDING_X * 2) / 4) * 4;
+    this.bgH = Math.ceil((this.label.height + PADDING_Y * 2) / 2) * 2;
+
+    // Pivot on the tail tip (bottom-center, below the box+tail) so both the
+    // fixed screen position (setPosition) and the pop-in scale animation
+    // (update) anchor at the point nearest the walker's head, not the box's
+    // top-left corner.
+    this.inner.pivot.set(this.bgW / 2, this.bgH + TAIL_HEIGHT);
+
     this.bg.clear();
-    this.bg.roundRect(0, 0, this.bgW, this.bgH, CORNER_RADIUS);
-    this.bg.fill({ color: BG_COLOR, alpha: BG_ALPHA });
-    this.bg.roundRect(0, 0, this.bgW, this.bgH, CORNER_RADIUS);
-    this.bg.stroke({ width: 1, color: BORDER_COLOR, alpha: BG_ALPHA });
+    this.bg.rect(0, 0, this.bgW, this.bgH);
+    this.bg.fill(FILL_COLOR);
+    this.bg.rect(0, 0, this.bgW, this.bgH);
+    this.bg.stroke({ width: BORDER_WIDTH, color: BORDER_COLOR });
+
+    const cx = this.bgW / 2;
+    const y0 = this.bgH;
+    const y1 = y0 + TAIL_STEP_H;
+    const y2 = y1 + TAIL_STEP_H;
+    const tailPoints = [
+      cx - TAIL_OUTER_HALF_W, y0,
+      cx - TAIL_OUTER_HALF_W, y1,
+      cx - TAIL_INNER_HALF_W, y1,
+      cx - TAIL_INNER_HALF_W, y2,
+      cx + TAIL_INNER_HALF_W, y2,
+      cx + TAIL_INNER_HALF_W, y1,
+      cx + TAIL_OUTER_HALF_W, y1,
+      cx + TAIL_OUTER_HALF_W, y0
+    ];
+    this.bg.poly(tailPoints);
+    this.bg.fill(FILL_COLOR);
+    this.bg.poly(tailPoints);
+    this.bg.stroke({ width: BORDER_WIDTH, color: BORDER_COLOR });
   }
 }
