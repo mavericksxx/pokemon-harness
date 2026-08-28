@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { NewWorkspaceDialog } from '@/components/NewWorkspaceDialog';
 import { DeleteWorkspaceDialog } from '@/components/DeleteWorkspaceDialog';
+import { isGlobalSession } from '@shared/arceus';
 import type { WorkspaceRecord } from '@shared/workspaceTypes';
 
 /** Compact workspace switcher (Phase 8.7) — current workspace name in the
@@ -51,10 +52,14 @@ export function WorkspaceSwitcher(): JSX.Element {
    *  live (`status !== 'done'`) — matches the definition SettingsPanel's
    *  own keep-awake "N sessions live" hint already uses. Main re-checks
    *  this authoritatively (ptyManager) before actually deleting. */
+  // Arceus (Phase 8.8) is excluded from both counts: he doesn't "belong" to
+  // whatever workspace his absent workspaceId would otherwise default to,
+  // so his liveness must never block (or his death never enable) deleting
+  // the workspace that default happens to resolve to.
   const liveCount = (workspaceId: string): number =>
-    sessions.filter((s) => sessionWorkspaceId(s) === workspaceId && s.status !== 'done').length;
+    sessions.filter((s) => !isGlobalSession(s) && sessionWorkspaceId(s) === workspaceId && s.status !== 'done').length;
   const deadCount = (workspaceId: string): number =>
-    sessions.filter((s) => sessionWorkspaceId(s) === workspaceId && s.status === 'done').length;
+    sessions.filter((s) => !isGlobalSession(s) && sessionWorkspaceId(s) === workspaceId && s.status === 'done').length;
 
   return (
     <div className="workspace-switcher">

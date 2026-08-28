@@ -6,12 +6,15 @@
 import { useMemo } from 'react';
 import { useStore, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
+import { isGlobalSession } from '@shared/arceus';
 
 export function useActiveWorkspaceSessions(): Session[] {
   const sessions = useStore((s) => s.sessions);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   return useMemo(
-    () => sessions.filter((s) => sessionWorkspaceId(s) === activeWorkspaceId),
+    // Arceus (Phase 8.8) is global — every workspace's scoped list includes
+    // him regardless of `activeWorkspaceId`.
+    () => sessions.filter((s) => isGlobalSession(s) || sessionWorkspaceId(s) === activeWorkspaceId),
     [sessions, activeWorkspaceId]
   );
 }

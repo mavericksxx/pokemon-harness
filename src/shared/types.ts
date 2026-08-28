@@ -148,6 +148,12 @@ export interface SessionRecord {
    *  (main's `restoreFromDisk`) and never changes after — there's no "move
    *  session to another workspace" feature this phase. */
   workspaceId?: string;
+  /** True for exactly one session, Arceus (Phase 8.8) — the global
+   *  orchestrator. Belongs to no workspace (its `workspaceId` stays absent,
+   *  never resolved to the default like an ordinary pre-8.7 record — see
+   *  main/index.ts's `restoreFromDisk`), and every per-workspace filter
+   *  must widen to include it — see `shared/arceus.ts`'s `isGlobalSession`. */
+  isArceus?: boolean;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

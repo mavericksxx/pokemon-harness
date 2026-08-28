@@ -13,6 +13,7 @@
  */
 import { create } from 'zustand';
 import { useStore, type Session } from '@/store/store';
+import { isGlobalSession } from '@shared/arceus';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '@shared/workspaceTypes';
 
 /** A session's workspace, defaulting the implicit id for a pre-8.7 record
@@ -47,8 +48,14 @@ interface WorkspaceState {
  *  wrongly suppress a blocked/done ping for it — see main/index.ts's
  *  `notifyStatusTransitions`. */
 function syncSelectionToWorkspace(activeWorkspaceId: string): void {
-  const sessions = useStore.getState().sessions.filter((s) => sessionWorkspaceId(s) === activeWorkspaceId);
-  useStore.getState().select(sessions[0]?.id ?? null);
+  const state = useStore.getState();
+  const current = state.sessions.find((s) => s.id === state.selectedId);
+  // A global session (Arceus, Phase 8.8) is visible in every workspace, so a
+  // switch must never knock the selection off him — that would silently
+  // deselect him (and drop the Hall of Origin backdrop) on every switch.
+  if (current && isGlobalSession(current)) return;
+  const sessions = state.sessions.filter((s) => sessionWorkspaceId(s) === activeWorkspaceId);
+  state.select(sessions[0]?.id ?? null);
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({

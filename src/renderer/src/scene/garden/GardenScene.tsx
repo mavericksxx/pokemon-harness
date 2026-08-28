@@ -26,6 +26,7 @@ import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 import gardenMapRaw from './maps/garden.tmj?raw';
 import { useStore, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
+import { isGlobalSession } from '@shared/arceus';
 import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 
@@ -402,7 +403,7 @@ export function GardenScene(): JSX.Element {
           // before the early-continue below so a battle that's mid-fight
           // when its workspace goes inactive is hidden on the very next
           // reconcile, not left showing until something else changes it.
-          const inActiveWorkspace = sessionWorkspaceId(session) === activeWorkspaceId;
+          const inActiveWorkspace = isGlobalSession(session) || sessionWorkspaceId(session) === activeWorkspaceId;
           walker.container.visible = inActiveWorkspace;
           walker.bubbleContainer.visible = inActiveWorkspace;
           battleManager.setVisible(session.id, inActiveWorkspace);

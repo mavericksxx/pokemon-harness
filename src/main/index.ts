@@ -13,6 +13,7 @@ import { loadPersistedSessions, SessionPersistence } from './sessionPersistence'
 import { respawnSession } from './sessionRespawn';
 import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
+import { ensureArceusSystemPrompt } from './arceusPrompt';
 import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
 import type {
   DiskRestoreInfo,
@@ -204,7 +205,9 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
     if (was === undefined || was === session.status) continue;
     if (!NOTIFY_STATUSES.has(session.status)) continue;
     const sessionWorkspaceId = session.workspaceId ?? DEFAULT_WORKSPACE_ID;
-    const inActiveWorkspace = sessionWorkspaceId === workspaceRegistry.activeWorkspaceId;
+    // Arceus (Phase 8.8) is global — visible in every workspace, so he's
+    // never "in another garden" the way a scoped session can be.
+    const inActiveWorkspace = session.isArceus || sessionWorkspaceId === workspaceRegistry.activeWorkspaceId;
     if (focused && inActiveWorkspace && selectedId === session.id) continue;
     let body = session.status === 'blocked' ? `${session.title} needs your input` : `${session.title} finished`;
     if (!inActiveWorkspace) {
@@ -280,7 +283,10 @@ async function restoreFromDisk(): Promise<DiskRestoreInfo> {
     // this migrates for free instead of leaving the field undefined forever.
     restored.push({
       ...record,
-      workspaceId: resolveSessionWorkspaceId(record.workspaceId),
+      // Arceus (Phase 8.8) belongs to no workspace — restoring him must
+      // NOT stamp a concrete id the way an ordinary pre-8.7 record does;
+      // that would silently un-global him on the very next relaunch.
+      workspaceId: record.isArceus ? undefined : resolveSessionWorkspaceId(record.workspaceId),
       tool: undefined,
       toolTarget: undefined,
       looping: false,
@@ -591,6 +597,21 @@ ipcMain.handle('appSettings:saveSettings', async (_e, settings: AppSettings) => 
 // only main can resolve that default (needs os.homedir()).
 ipcMain.handle('harnessHome:getResolvedPath', () => harnessHomeDir);
 
+// ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────────
+// Ensures agents/arceus/SYSTEM.md exists (seeding it from the template on
+// first call only) and returns its CURRENT contents — called fresh on every
+// summon, never cached here or renderer-side, so an edit to the file takes
+// effect on the very next summon. See arceusPrompt.ts.
+ipcMain.handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harnessHomeDir));
+// Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds
+// above): this app must never spawn a REAL claude session for its own
+// testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
+// real `claude --append-system-prompt ...` spawn for a plain shell tagged
+// `isArceus` (see the renderer's arceus.ts `summonArceusDevStandin`) —
+// everything BUT the real spawn (aura, Hall of Origin, boss card, dispatch
+// box, persistence, cross-workspace presence) is then exercisable live.
+ipcMain.handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
+
 // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────────
 // Every handler here returns the FULL current snapshot (not just the one
 // field that changed) so the renderer always hydrates from one authoritative
@@ -647,8 +668,12 @@ ipcMain.handle('workspaces:delete', (_e, id: string) => {
   // — the renderer is expected to only ever offer delete once its own view
   // agrees there's nothing live left, but this is the actual guard.
   const liveIds = new Set(ptyManager.list().map((p) => p.id));
+  // Arceus (Phase 8.8) is excluded from both checks below: he isn't really
+  // "in" whatever workspace his absent workspaceId would otherwise default
+  // to, so his liveness must never block a workspace delete, and he must
+  // never be dropped as if he were that workspace's orphaned session.
   const hasLiveSession = sessionRegistry.some(
-    (s) => (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === id && liveIds.has(s.id)
+    (s) => !s.isArceus && (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === id && liveIds.has(s.id)
   );
   if (hasLiveSession) {
     return { ok: false, error: 'This workspace still has running sessions.', ...workspaceRegistry };
@@ -657,7 +682,7 @@ ipcMain.handle('workspaces:delete', (_e, id: string) => {
   // Drop this workspace's persisted-dead sessions (finished-but-still-listed
   // records) along with it, so deleting a workspace never leaves an orphaned
   // entry with a workspaceId nothing in the registry owns anymore.
-  sessionRegistry = sessionRegistry.filter((s) => (s.workspaceId ?? DEFAULT_WORKSPACE_ID) !== id);
+  sessionRegistry = sessionRegistry.filter((s) => s.isArceus || (s.workspaceId ?? DEFAULT_WORKSPACE_ID) !== id);
   sessionPersistence.schedule({ sessions: sessionRegistry, lastSelectedId });
 
   const workspaces = workspaceRegistry.workspaces.filter((w) => w.id !== id);

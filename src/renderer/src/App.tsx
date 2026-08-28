@@ -6,6 +6,7 @@ import { RosterStrip } from '@/components/RosterStrip';
 import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
+import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { QuickMute } from '@/components/QuickMute';
@@ -119,6 +120,7 @@ export function App(): JSX.Element {
       <header className="topbar">
         <span className="brand">Pokemon Harness</span>
         <WorkspaceSwitcher />
+        <SummonArceusButton />
         {!showRosterStrip && (
           <>
             <button className="primary" onClick={() => setDialogOpen(true)}>

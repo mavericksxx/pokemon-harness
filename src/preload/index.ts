@@ -133,6 +133,14 @@ const api = {
   // ─── Harness home directory (Phase 8.7) ────────────────────────────────
   getHarnessHomePath: (): Promise<string> => ipcRenderer.invoke('harnessHome:getResolvedPath'),
 
+  // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────
+  /** Ensures agents/arceus/SYSTEM.md exists and returns its current
+   *  contents + path — call fresh at every summon, never cache the result. */
+  ensureArceusSystemPrompt: (): Promise<{ path: string; prompt: string }> =>
+    ipcRenderer.invoke('arceus:ensureSystemPrompt'),
+  /** Dev-only — see main/index.ts's `config:arceusDevStandin`. */
+  getArceusDevStandin: (): Promise<boolean> => ipcRenderer.invoke('config:arceusDevStandin'),
+
   // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────
   listWorkspaces: (): Promise<WorkspaceSnapshot> => ipcRenderer.invoke('workspaces:list'),
   createWorkspace: (name: string, primaryFolder: string): Promise<WorkspaceMutationResult> =>
