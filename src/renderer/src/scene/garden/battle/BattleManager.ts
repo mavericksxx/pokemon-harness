@@ -368,7 +368,7 @@ export class BattleManager {
 
     if (shiny) {
       spawnShinySparkle(battler.container, -battler.drawnHeight - 8);
-      battler.showMoveText('✨ Shiny!');
+      battler.showMoveText('Shiny!');
     }
 
     // A shiny pick always needs the lazy fetch too (see resolveAnimation),

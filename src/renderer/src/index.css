@@ -845,6 +845,16 @@ button.icon:active {
   white-space: nowrap;
 }
 
+/* Ship-cut item 7 (emoji purge): the looping badge's LoopIcon sits inline
+ * with the status dot (::before) and the "looping" text, all flex children
+ * of `.status` already — just needs to not blow up to the SVG's default
+ * 1em-at-16px and to sit on the same baseline as the text next to it. */
+.status-loop-icon {
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+
 .status::before {
   content: '';
   width: 8px;

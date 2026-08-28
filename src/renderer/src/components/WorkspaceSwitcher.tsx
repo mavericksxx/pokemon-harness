@@ -5,6 +5,7 @@ import { NewWorkspaceDialog } from '@/components/NewWorkspaceDialog';
 import { DeleteWorkspaceDialog } from '@/components/DeleteWorkspaceDialog';
 import { isGlobalSession } from '@shared/arceus';
 import type { WorkspaceRecord } from '@shared/workspaceTypes';
+import { SproutIcon, TrashIcon } from '@/components/icons';
 
 /** Compact workspace switcher (Phase 8.7) — current workspace name in the
  *  topbar (the session chips it used to hold moved to the bottom roster
@@ -71,7 +72,7 @@ export function WorkspaceSwitcher(): JSX.Element {
         aria-haspopup="menu"
       >
         <span className="workspace-switcher-glyph" aria-hidden="true">
-          🌱
+          <SproutIcon />
         </span>
         {active?.name ?? 'garden'}
         <span className="workspace-switcher-caret" aria-hidden="true">
@@ -138,7 +139,7 @@ export function WorkspaceSwitcher(): JSX.Element {
                     disabled={!canDelete}
                     onClick={() => setDeleteTarget(w)}
                   >
-                    🗑
+                    <TrashIcon />
                   </button>
                 </div>
               );

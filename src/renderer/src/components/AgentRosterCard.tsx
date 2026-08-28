@@ -5,6 +5,7 @@ import { speciesEntry } from '@/scene/garden/dexData';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
+import { LoopIcon } from '@/components/icons';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
  *  status, current tool, an evolution progress hint, and a shiny star.
@@ -92,7 +93,13 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
             `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
             the label because it's the one that needs the user's eyes. */}
         <em className={session.napping ? 'status napping' : `status ${session.status}`}>
-          {session.looping ? '💫 looping' : sessionStatusLabel(session)}
+          {session.looping ? (
+            <>
+              <LoopIcon className="status-loop-icon" /> looping
+            </>
+          ) : (
+            sessionStatusLabel(session)
+          )}
         </em>
       </div>
 

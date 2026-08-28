@@ -243,7 +243,7 @@ export class GardenCharm {
     if (arrived && bush.berries > 0) {
       bush.berries -= 1;
       this.redrawBush(bush);
-      walker.showFloatingText('🍓');
+      walker.showFloatingText('berry!');
       walker.showText(pickBerryEatenLine());
       walker.lingerBubble();
     }

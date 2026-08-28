@@ -94,7 +94,7 @@ export class ClosingRitual {
         } else if (state.phase === 'walking') {
           const t = walker.tile;
           if (t.x === this.entranceTile.x && t.y === this.entranceTile.y) {
-            walker.showFloatingText('👋');
+            walker.showFloatingText('bye!');
             walker.bounce();
             state.phase = 'waved';
           }

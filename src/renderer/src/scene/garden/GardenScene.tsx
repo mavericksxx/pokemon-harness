@@ -277,7 +277,7 @@ export function GardenScene(): JSX.Element {
       /** Bundled + not-shiny needs no fetch at all; everything else (any
        *  lazy species, OR a shiny pick even of a bundled species — Phase 5
        *  §2) resolves in place once loadLazyAnimation returns. A shiny
-       *  session's reveal sparkle + "✨ Shiny!" text fires here, at the
+       *  session's reveal sparkle + "Shiny!" text fires here, at the
        *  moment its REAL sprite lands — not at addWalker time, when it's
        *  still a pokeball placeholder — so the screenshot-worthy reveal
        *  shows the actual shiny palette. Fires even if the fetch failed
@@ -295,7 +295,7 @@ export function GardenScene(): JSX.Element {
           }
           if (session.shiny) {
             spawnShinySparkle(walker.container, -walker.spriteHeight - 8);
-            walker.showFloatingText('✨ Shiny!');
+            walker.showFloatingText('Shiny!');
           }
         });
       };
@@ -458,7 +458,7 @@ export function GardenScene(): JSX.Element {
           // loopDetector.ts's header) — reusing the existing name label for
           // its glyph, rather than adding a new pixi visual, keeps this off
           // the styling surface.
-          walker.setLabel(session.looping ? `${session.title} 💫` : session.title);
+          walker.setLabel(session.looping ? `${session.title} (looping)` : session.title);
           walker.setStatus(session.status);
           // Napping (Phase 8.5 Wave B items 3/4) — plain-shell idle 30s+, or a
           // claude session between PreCompact and its post-compact
@@ -496,7 +496,7 @@ export function GardenScene(): JSX.Element {
           if (toolKey !== rt.lastToolKey) {
             rt.lastToolKey = toolKey;
             if (session.looping) {
-              walker.showText('looping 💫');
+              walker.showText('looping');
             } else if (session.napping) {
               walker.hideBubble();
             } else if (session.status === 'working' && session.tool) {
