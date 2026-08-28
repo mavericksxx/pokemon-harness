@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## unreleased
+## v1.2.0 — 2026-08-29
 
 - garden tool bubble redesigned as a miniature Game Boy-style dialogue box (hard 2px pixel border, opaque parchment fill, blocky pixel step-tail, stepped pop-in instead of a smooth fade) and repositioned to sit a small consistent gap above each sprite's own head — was floating a fixed distance above every species regardless of height, and tall sprites like Meganium could clip it; bubble content also reworked from raw truncated paths/commands (`$ sed …nderer/src/index.css`) into short human phrases (`editing index.css`, `running sed`, `searching TODO`, `summoning help`) via a new bubble-specific label formatter, hard-capped to 24 chars — the roster card keeps its existing compact path/command form
 - draggable divider between the garden and terminal drawer in 'garden' view mode (pointer-events drag, rAF-throttled; garden min 380px / terminal min 420px via CSS `clamp()` so a window resize re-applies both for free; double-click resets to the default split; ratio persists across launches, same `localStorage` pattern as `viewMode`)
