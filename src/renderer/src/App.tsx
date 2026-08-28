@@ -11,6 +11,7 @@ import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { AudioPopover } from '@/components/AudioPopover';
+import { QuickSettings } from '@/components/QuickSettings';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { QuitDialog } from '@/components/QuitDialog';
@@ -167,6 +168,7 @@ export function App(): JSX.Element {
         <ViewModeSwitcher />
         <AudioPopover />
         <ThemeToggle />
+        <QuickSettings />
         <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>

@@ -185,6 +185,23 @@ export function SunIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Quick-settings topbar trigger — three horizontal sliders at staggered
+ *  offsets, the standard "quick settings" silhouette, drawn hard-edged to
+ *  match the rest of this file rather than pulled in as a generic icon
+ *  font glyph. */
+export function SlidersIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="1" y="2" width="14" height="1" />
+      <rect x="9" y="1" width="2" height="3" />
+      <rect x="1" y="7" width="14" height="1" />
+      <rect x="4" y="6" width="2" height="3" />
+      <rect x="1" y="12" width="14" height="1" />
+      <rect x="10" y="11" width="2" height="3" />
+    </PixelIcon>
+  );
+}
+
 /** Topbar theme toggle's "switch to light mode" state — a crescent, drawn as
  *  one filled blob with a second, offset blob's cells left out (rather than
  *  painted over) to cut the sliver. */
