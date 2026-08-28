@@ -9,6 +9,7 @@ import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { QuickMute } from '@/components/QuickMute';
 import { SettingsPanel } from '@/components/SettingsPanel';
+import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
 
@@ -113,6 +114,7 @@ export function App(): JSX.Element {
       <SessionsOverview />
       <SettingsPanel />
       <Toasts />
+      <BootWipe />
     </div>
   );
 }
