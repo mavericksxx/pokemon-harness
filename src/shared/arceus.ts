@@ -54,24 +54,76 @@ export function isGlobalSession(session: Pick<SessionRecord, 'isArceus'>): boole
  * exercised from a plain script, never a real spawn (this app must never
  * launch a real `claude` for its own testing).
  *
- * `claude --help` text: `--append-system-prompt <prompt>` — "Append a
- * system prompt to the default system prompt" — takes the prompt INLINE,
- * not a file path. The only other sighting, `--append-system-prompt[-file]`
- * inside `--bare`'s own description, is a parenthetical mention, not a
- * documented option of its own — not gambled on. So `systemPrompt` here is
- * always the FULL TEXT of agents/arceus/SYSTEM.md, read fresh by the caller
- * at every summon (main process; see main/arceusPrompt.ts) and passed
- * through verbatim — never cached in this module.
+ * BACKLOG "next up" item 3: no longer carries `--append-system-prompt` —
+ * Arceus now spawns PLAIN and gets his persona typed as the first prompt
+ * once his session is ready (see the renderer's arceus.ts `summonArceus`,
+ * which waits on the SessionStart hook). This spawns exactly like an
+ * ordinary claude session (buildProviderArgs + autoMode's own args); the
+ * only reason this wrapper still exists rather than calling
+ * buildProviderArgs directly is so a future Arceus-only arg has one place
+ * to land.
  */
-export function buildArceusArgs(model: string | undefined, autoMode: boolean, systemPrompt: string): string[] {
+export function buildArceusArgs(model: string | undefined, autoMode: boolean): string[] {
   const autoArgs = autoMode ? (AGENT_PROVIDERS.claude.autoModeArgs ?? []) : [];
-  return ['--append-system-prompt', systemPrompt, ...buildProviderArgs('claude', model), ...autoArgs];
+  return [...buildProviderArgs('claude', model), ...autoArgs];
 }
 
-/** Verbatim, user-approved draft (Phase 8.8 spec) — written to
- *  agents/arceus/SYSTEM.md on first summon ONLY (main/arceusPrompt.ts never
- *  overwrites an existing file), so the user can retune Arceus by editing
- *  that file directly. This constant is the seed, not a live source: once
- *  the file exists, its on-disk contents are what every summon reads. */
+/** Verbatim, user-approved draft (Phase 8.8 spec, extended for BACKLOG "next
+ *  up" item 3) — written to agents/arceus/SYSTEM.md on first summon ONLY
+ *  (main/arceusPrompt.ts never overwrites an existing file), so the user can
+ *  retune Arceus by editing that file directly. This constant is the seed,
+ *  not a live source: once the file exists, its on-disk contents are what
+ *  every summon reads, and are typed in as the FIRST PROMPT (not a system
+ *  prompt anymore — see buildArceusArgs above) once his session is ready. */
 export const ARCEUS_SYSTEM_PROMPT_TEMPLATE = `You are Arceus, the orchestrator of this garden. You speak briefly and calmly — a benevolent creator who delegates rather than micromanages, with light Pokémon flavor and zero hamminess. Duties: triage what the user asks for, break it into tasks, assign work to the other agents in the garden, watch their progress, and surface only what genuinely needs the user's attention. When asked what's happening, give a short plain-language status of who's doing what. You do not implement things yourself unless directly asked. Keep every reply short.
+
+Below this message is a snapshot of who's in the garden right now, across every workspace — session title, pokémon species, provider, and status. It will go stale as sessions come and go; whenever the user assigns you a task through the dispatch box, the app automatically prepends a fresh one-line \`[roster: ...]\` tag to what you receive — trust that tag over this initial snapshot, and don't treat it as something to reply to.
+
+When — and ONLY when — the user explicitly asks you to relay, assign, or hand off a task to a specific named agent, end your reply with exactly one line per assignment, in this exact form:
+@@relay agent="<session title or pokémon species>" message="<the instruction, in your own words>"
+Use the agent's session title when you know it; its pokémon species name works too if that's what the user said and it's unambiguous. If the message needs a literal " or \\, escape it as \\" or \\\\. Never emit an @@relay line unprompted, speculatively, or to yourself — only in direct response to the user asking you to relay something. After emitting it, confirm in plain language what you relayed and to whom.
 `;
+
+// ─── Roster formatting (BACKLOG "next up" item 3 §2) ───────────────────────
+// Pure/dependency-free, shared between the first-prompt delivery (renderer's
+// arceus.ts, once per fresh summon) and the dispatch box's per-message
+// roster tag (ArceusDispatchBox.tsx, every send) — same per-entry shape,
+// two different join styles. Deliberately takes the app's own SessionStatus
+// verbatim rather than the UI's "needs you" relabel (design/statusLabel.ts,
+// renderer-only): Arceus is a text reader, not the roster card, and shared/
+// stays dependency-free (no renderer imports).
+
+export interface ArceusRosterEntry {
+  title: string;
+  pokemon: string;
+  provider: string;
+  status: string;
+}
+
+function rosterEntryLine(e: ArceusRosterEntry): string {
+  return `${e.title} (${e.pokemon}, ${e.provider}) — ${e.status}`;
+}
+
+/** Multi-line block for the first prompt — one line per session. Callers
+ *  pass every session across every workspace, Arceus's own entry already
+ *  excluded (he isn't part of his own roster). */
+export function formatRosterBlock(entries: ArceusRosterEntry[]): string {
+  if (entries.length === 0) return 'garden roster: (no other sessions yet)';
+  return ['garden roster:', ...entries.map((e) => `- ${rosterEntryLine(e)}`)].join('\n');
+}
+
+/** Single-line, compact form — the tag the dispatch box prepends to every
+ *  message it sends into Arceus's pty (item 2's "app prepends a fresh
+ *  roster line" mechanism, chosen over a separate change-triggered watcher
+ *  as the simpler, less chatty option). Deliberately terser than
+ *  formatRosterBlock since this rides along on every single dispatch. */
+export function formatRosterLine(entries: ArceusRosterEntry[]): string {
+  if (entries.length === 0) return '[roster: none]';
+  return `[roster: ${entries.map(rosterEntryLine).join('; ')}]`;
+}
+
+/** The full first-prompt text (persona + roster snapshot) typed into
+ *  Arceus's pty once his session is ready — see arceus.ts's `summonArceus`. */
+export function buildArceusFirstPrompt(personaText: string, roster: ArceusRosterEntry[]): string {
+  return `${personaText.trim()}\n\n${formatRosterBlock(roster)}`;
+}

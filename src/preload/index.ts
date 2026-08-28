@@ -157,6 +157,16 @@ const api = {
   /** Settings' "reset arceus" action — deletes the saved config, returning
    *  the app to first-run (setup dialog) behavior. */
   resetArceusSummonConfig: (): Promise<void> => ipcRenderer.invoke('arceus:resetSummonConfig'),
+  /** BACKLOG "next up" item 3 — main's `arceusRelay.ts` watches Arceus's own
+   *  transcript for a relay directive and resolves it against the live
+   *  session list; this fires only when a directive's named agent doesn't
+   *  resolve to anyone, so the renderer can toast it (main has no toast
+   *  surface of its own). */
+  onArceusRelayUnresolved: (cb: (name: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, name: string): void => cb(name);
+    ipcRenderer.on('arceus:relayUnresolved', listener);
+    return () => ipcRenderer.removeListener('arceus:relayUnresolved', listener);
+  },
 
   // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────
   listWorkspaces: (): Promise<WorkspaceSnapshot> => ipcRenderer.invoke('workspaces:list'),
