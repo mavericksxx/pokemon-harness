@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '@/store/store';
-import { DEFAULT_GARDEN_SPLIT, GARDEN_MIN_PX, HANDLE_PX, TERMINAL_MIN_PX } from '@/gardenSplit';
+import {
+  DEFAULT_GARDEN_SPLIT,
+  GARDEN_MIN_PX,
+  GARDEN_SPLIT_DRAG_END_EVENT,
+  HANDLE_PX,
+  TERMINAL_MIN_PX
+} from '@/gardenSplit';
 
 /** Draggable divider between the garden and the terminal drawer, mounted by
  *  App.tsx between them in `.body-row` only in 'garden' view mode with the
@@ -69,6 +75,10 @@ export function GardenSplitHandle(): JSX.Element {
       rafRef.current = null;
     }
     if (persistRatio && movedRef.current) setGardenSplit(ratioFor(latestXRef.current), true);
+    // GardenScene.tsx and terminalRegistry.ts both sat out this drag's own
+    // resize work (see GARDEN_SPLIT_DRAG_END_EVENT's comment) — this is
+    // their cue to do the one real resize/fit it actually needs.
+    window.dispatchEvent(new Event(GARDEN_SPLIT_DRAG_END_EVENT));
   };
 
   // Belt-and-braces: if this unmounts mid-drag (e.g. a keyboard shortcut

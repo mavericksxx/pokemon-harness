@@ -1998,6 +1998,17 @@ body.is-splitting canvas {
   pointer-events: none;
 }
 
+/* GardenScene.tsx skips `renderer.resize()` for the whole drag (it clears
+ * the WebGL drawing buffer for a frame each call, which is the flicker) —
+ * this is what fills `.garden`'s box in the meantime: `!important` beats
+ * Pixi's own inline `style.width/height` (autoDensity), so the canvas
+ * stretches to the live container size via CSS alone until the one real
+ * resize on drag-end snaps it back to an undistorted aspect. */
+body.is-splitting .garden canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* ── Quick settings (topbar popover — QuickSettings.tsx) ─────────────────────
  * Self-contained block, kept together and appended at the end of the file on
  * purpose: a concurrent topbar restructure is moving the settings gear (and

@@ -23,6 +23,7 @@ import { resetLoopStreak } from './loopDetector';
 import { useStore } from '@/store/store';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter } from '@/diagnosticsCounters';
+import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
 import {
   accentLight,
   dangerLight,
@@ -133,6 +134,10 @@ interface Entry {
   offHook: () => void;
   offCost: () => void;
   resizeObserver: ResizeObserver | null;
+  /** Set exactly while attached (alongside `resizeObserver`) — removed on
+   *  detach. See the `GARDEN_SPLIT_DRAG_END_EVENT` listener in
+   *  attachTerminal for what it's for. */
+  offDragEnd: (() => void) | null;
 }
 
 const entries = new Map<string, Entry>();
@@ -270,7 +275,8 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     offExit,
     offHook,
     offCost,
-    resizeObserver: null
+    resizeObserver: null,
+    offDragEnd: null
   });
 
   if (replay) term.write(replay);
@@ -300,7 +306,19 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
     }
   }
 
+  // While the garden/terminal split is being dragged (`body.is-splitting`,
+  // toggled by GardenSplitHandle.tsx), `parent`'s width changes on every
+  // rAF-throttled tick the drag produces, firing this ResizeObserver at the
+  // same cadence. `fit.fit()` reflows xterm's own DOM/WebGL layers, and
+  // `resizePty` IPCs a SIGWINCH to the live CLI — sat together, running
+  // both dozens of times a second is enough to fire Chromium's own
+  // "ResizeObserver loop completed with undelivered notifications"
+  // warnings, on top of making a full-screen TUI redraw for no reason. Skip
+  // both for the whole drag — CSS reflow alone keeps the terminal's DOM
+  // filling `parent`, just with a stale cell grid until the drag ends — and
+  // let the drag-end listener below do one real fit the instant it does.
   const doFit = (): void => {
+    if (document.body.classList.contains('is-splitting')) return;
     try {
       e.fit.fit();
       void window.api.resizePty(sessionId, e.term.cols, e.term.rows);
@@ -312,6 +330,11 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
 
   e.resizeObserver = new ResizeObserver(doFit);
   e.resizeObserver.observe(parent);
+  const onSplitDragEnd = (): void => {
+    requestAnimationFrame(doFit);
+  };
+  window.addEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
+  e.offDragEnd = () => window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
 }
 
 /** Unmount from the DOM and give the WebGL context back. Scrollback is kept. */
@@ -320,6 +343,8 @@ export function detachTerminal(sessionId: string): void {
   if (!e) return;
   e.resizeObserver?.disconnect();
   e.resizeObserver = null;
+  e.offDragEnd?.();
+  e.offDragEnd = null;
   if (e.webgl) {
     try {
       e.webgl.dispose();
