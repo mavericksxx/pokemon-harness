@@ -10,6 +10,7 @@ import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { QuickMute } from '@/components/QuickMute';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { QuitDialog } from '@/components/QuitDialog';
 import { BootWipe } from '@/components/BootWipe';
@@ -163,6 +164,7 @@ export function App(): JSX.Element {
         </button>
         <ViewModeSwitcher />
         <QuickMute />
+        <ThemeToggle />
         <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>

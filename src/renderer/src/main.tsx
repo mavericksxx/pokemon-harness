@@ -3,7 +3,7 @@ import { App } from './App';
 import { useStore } from './store/store';
 import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
 import { autoSummonArceus } from './arceus';
-import { createTerminal } from './pty/terminalRegistry';
+import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
 import {
   initAudio,
   debugSnapshot,
@@ -157,7 +157,13 @@ async function boot(): Promise<void> {
     useAppSettingsStore.getState().hydrate(appSettings);
     useAppSettingsStore.getState().hydrateHarnessHomePath(harnessHomePath);
     useWorkspaceStore.getState().hydrate(workspaceSnapshot);
-    applyTheme(resolveEffectiveTheme(appSettings.theme));
+    const effectiveTheme = resolveEffectiveTheme(appSettings.theme);
+    applyTheme(effectiveTheme);
+    // Primes the terminal registry's own theme BEFORE the createTerminal
+    // calls below, so a restored session's terminal is constructed with the
+    // right theme from the start instead of the dark default it'd otherwise
+    // pick up (terminalRegistry.ts's `currentTheme` module var).
+    applyTerminalTheme(effectiveTheme);
     // Only matters while the setting is 'system' (the watcher itself checks
     // this on every OS appearance change) — started unconditionally so a
     // later in-session switch TO 'system' is covered without a restart.

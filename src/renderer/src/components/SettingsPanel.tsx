@@ -16,9 +16,6 @@ import {
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
-import type { ThemeMode } from '@shared/appSettingsTypes';
-import { applyTheme } from '@/design/tokens';
-import { resolveEffectiveTheme } from '@/design/theme';
 import { showUpdateToast } from '@/updateNotifier';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
@@ -101,11 +98,6 @@ export function SettingsPanel(): JSX.Element {
     }
   };
 
-  const onTheme = (mode: ThemeMode): void => {
-    setTheme(mode);
-    applyTheme(resolveEffectiveTheme(mode));
-  };
-
   // Harness home directory (Phase 8.7) — folder picker + the currently
   // resolved path, plus a way back to the default.
   const pickHarnessHome = async (): Promise<void> => {
@@ -162,7 +154,7 @@ export function SettingsPanel(): JSX.Element {
                   type="radio"
                   name="theme"
                   checked={appSettings.theme === mode}
-                  onChange={() => onTheme(mode)}
+                  onChange={() => setTheme(mode)}
                 />
                 {mode}
               </label>
