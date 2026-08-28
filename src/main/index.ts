@@ -16,6 +16,7 @@ import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
 import { CostWatcher } from './costWatcher';
+import { ArceusRelayWatcher } from './arceusRelay';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
@@ -113,10 +114,23 @@ function requestQuitConfirmation(): void {
 // `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
 // of any one hook event.
 const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
+// BACKLOG "next up" item 3 — watches Arceus's own transcript (registered off
+// the same onRawPayload hook chained below) for a relay directive and types
+// it into the named session's pty. Constructed before `ptyManager` so its
+// constructor can close over `ptyManager.write` by reference — see the
+// arrow function below, evaluated lazily on first call, not at this line.
+const arceusRelay = new ArceusRelayWatcher(
+  (id, data) => ptyManager.write(id, data),
+  () => sessionRegistry,
+  () => mainWindow?.webContents ?? null
+);
 const hookBridge = new HookBridge(
   app.getPath('userData'),
   () => mainWindow?.webContents ?? null,
-  (agentId, transcriptPath) => costWatcher.onHookPayload(agentId, transcriptPath)
+  (agentId, transcriptPath) => {
+    costWatcher.onHookPayload(agentId, transcriptPath);
+    arceusRelay.onHookPayload(agentId, transcriptPath);
+  }
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
@@ -662,6 +676,7 @@ app.whenReady().then(async () => {
   hookBridge.ensureFiles();
   hookBridge.start();
   costWatcher.start();
+  arceusRelay.start();
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
   hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
@@ -704,6 +719,7 @@ app.on('before-quit', (e) => {
   ptyManager.killAll();
   hookBridge.stop();
   costWatcher.stop();
+  arceusRelay.stop();
 });
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
@@ -735,6 +751,10 @@ ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId
   sessionRegistry = sessions;
   lastSelectedId = selectedId;
   sessionPersistence.schedule({ sessions, lastSelectedId: selectedId });
+  // BACKLOG "next up" item 3 — flushes any relay Arceus queued for a target
+  // that's now idle (or drops it if that target closed/finished in the
+  // meantime). Cheap no-op when nothing is queued.
+  arceusRelay.onSessionsChecked(sessions);
 });
 
 // Boot-time pull, for both a crash-triggered reload and a plain dev Cmd+R:
@@ -845,10 +865,11 @@ ipcMain.handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harne
 // Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds
 // above): this app must never spawn a REAL claude session for its own
 // testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
-// real `claude --append-system-prompt ...` spawn for a plain shell tagged
-// `isArceus` (see the renderer's arceus.ts `summonArceusDevStandin`) —
-// everything BUT the real spawn (the cosmos ascent, alpha card, dispatch
-// box, persistence, cross-workspace presence) is then exercisable live.
+// real `claude` spawn (persona typed as his first prompt once ready — see
+// shared/arceus.ts) for a plain shell tagged `isArceus` (see the renderer's
+// arceus.ts `summonArceusDevStandin`) — everything BUT the real spawn (the
+// cosmos ascent, alpha card, dispatch box, persistence, cross-workspace
+// presence) is then exercisable live.
 ipcMain.handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
 
 // ─── Arceus summon-once (Phase 8.9) ────────────────────────────────────────

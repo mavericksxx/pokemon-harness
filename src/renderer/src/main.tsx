@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store/store';
 import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
-import { autoSummonArceus } from './arceus';
+import { autoSummonArceus, startArceusRelayToasts } from './arceus';
 import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
 import {
   initAudio,
@@ -148,6 +148,7 @@ async function boot(): Promise<void> {
   try {
     startRegistrySync();
     startCompletionToasts();
+    startArceusRelayToasts();
 
     // xterm measures glyph width once at `term.open()` and never re-measures
     // on a later font swap, so JetBrains Mono must be ready before any
