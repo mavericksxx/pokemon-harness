@@ -19,11 +19,40 @@ export interface Toast {
   text: string;
 }
 
+/** One of the four Phase 8 §1 layouts:
+ *   'garden'       — current layout: garden fills the body, terminal drawer
+ *                     toggles as a side panel (`drawerOpen`).
+ *   'terminal'     — munder-difflin's layout: a left sidebar of agent roster
+ *                     cards, terminal owning the rest. Garden stays mounted
+ *                     (simulation keeps running) but hidden.
+ *   'gardenFull'   — garden fills the whole body, no terminal.
+ *   'terminalFull' — terminal fills the whole body, no sidebar, no garden. */
+export type ViewMode = 'garden' | 'terminal' | 'gardenFull' | 'terminalFull';
+
+const VIEW_MODE_STORAGE_KEY = 'poke:viewMode';
+const VALID_VIEW_MODES: readonly ViewMode[] = ['garden', 'terminal', 'gardenFull', 'terminalFull'];
+
+/** Best-effort read of the last view mode — localStorage can throw (private
+ *  browsing/disabled storage); default to the pre-Phase-8 layout on failure. */
+function loadViewMode(): ViewMode {
+  try {
+    const v = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (v && (VALID_VIEW_MODES as string[]).includes(v)) return v as ViewMode;
+  } catch {
+    /* ignore */
+  }
+  return 'garden';
+}
+
 interface HarnessState {
   sessions: Session[];
   selectedId: string | null;
   drawerOpen: boolean;
   toasts: Toast[];
+  viewMode: ViewMode;
+  /** Sessions-overview grid (Phase 8 §3) — a topbar button and (Phase 8 §7)
+   *  the garden's signpost prop both open it. */
+  sessionsOverviewOpen: boolean;
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>
@@ -44,6 +73,10 @@ interface HarnessState {
   restoreSessions(sessions: Session[], selectedId: string | null): void;
   select(id: string | null): void;
   setDrawerOpen(open: boolean): void;
+  /** Switches the Phase 8 §1 layout and persists it (survives relaunch and
+   *  the crash-recovery reload). */
+  setViewMode(mode: ViewMode): void;
+  setSessionsOverviewOpen(open: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. */
   pushToast(text: string): void;
@@ -55,6 +88,8 @@ export const useStore = create<HarnessState>((set, get) => ({
   selectedId: null,
   drawerOpen: true,
   toasts: [],
+  viewMode: loadViewMode(),
+  sessionsOverviewOpen: false,
 
   addSession: (s) => {
     const session: Session = {
@@ -94,6 +129,15 @@ export const useStore = create<HarnessState>((set, get) => ({
 
   select: (id) => set({ selectedId: id }),
   setDrawerOpen: (open) => set({ drawerOpen: open }),
+  setViewMode: (mode) => {
+    try {
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      /* ignore — mode still applies for this session */
+    }
+    set({ viewMode: mode });
+  },
+  setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
 
   pushToast: (text) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

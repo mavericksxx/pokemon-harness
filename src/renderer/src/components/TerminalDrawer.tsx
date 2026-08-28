@@ -8,10 +8,21 @@ import { stopSession } from '@/sessions';
 export function TerminalDrawer(): JSX.Element | null {
   const sessions = useStore((s) => s.sessions);
   const selectedId = useStore((s) => s.selectedId);
-  const open = useStore((s) => s.drawerOpen);
+  const drawerOpenPref = useStore((s) => s.drawerOpen);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const select = useStore((s) => s.select);
+  const viewMode = useStore((s) => s.viewMode);
   const mountRef = useRef<HTMLDivElement>(null);
+
+  // Phase 8 §1: 'terminal'/'terminalFull' always show the terminal (it IS the
+  // view); 'gardenFull' never does; 'garden' keeps the old manual toggle.
+  const open =
+    viewMode === 'terminal' || viewMode === 'terminalFull' || (viewMode === 'garden' && drawerOpenPref);
+  // Full-bleed in the two terminal-owning modes — no side-panel width cap.
+  const wide = viewMode !== 'garden';
+  // The sidebar (terminal-focus mode) already offers session switching; the
+  // drawer's own tab strip would just duplicate it.
+  const showTabs = viewMode !== 'terminal';
 
   useEffect(() => {
     const el = mountRef.current;
@@ -28,24 +39,28 @@ export function TerminalDrawer(): JSX.Element | null {
   const session = sessions.find((s) => s.id === selectedId);
 
   return (
-    <aside className="drawer">
-      <header className="drawer-head">
-        <div className="drawer-tabs">
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              className={s.id === selectedId ? 'tab active' : 'tab'}
-              onClick={() => select(s.id)}
-              style={{ borderBottomColor: `#${s.accent.toString(16).padStart(6, '0')}` }}
-            >
-              {s.title}
+    <aside className={wide ? 'drawer drawer-wide' : 'drawer'}>
+      {showTabs && (
+        <header className="drawer-head">
+          <div className="drawer-tabs">
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                className={s.id === selectedId ? 'tab active' : 'tab'}
+                onClick={() => select(s.id)}
+                style={{ borderBottomColor: `#${s.accent.toString(16).padStart(6, '0')}` }}
+              >
+                {s.title}
+              </button>
+            ))}
+          </div>
+          {viewMode === 'garden' && (
+            <button className="icon" title="Hide terminal" onClick={() => setDrawerOpen(false)}>
+              ×
             </button>
-          ))}
-        </div>
-        <button className="icon" title="Hide terminal" onClick={() => setDrawerOpen(false)}>
-          ×
-        </button>
-      </header>
+          )}
+        </header>
+      )}
 
       {session ? (
         <>

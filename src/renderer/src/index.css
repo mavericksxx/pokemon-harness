@@ -289,6 +289,15 @@ button.icon:active {
   min-height: 0;
 }
 
+/* Terminal-owning view modes (Phase 8 §1): the drawer fills the body instead
+ * of sharing it with the garden. */
+.drawer-wide {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  border-left: none;
+}
+
 .drawer-head {
   display: flex;
   align-items: stretch;
@@ -619,4 +628,131 @@ button.icon:active {
 
 .drawer-error {
   padding: 6px 10px;
+}
+
+/* ── View mode switcher (Phase 8 §1) ─────────────────────────────────────── */
+.view-switcher {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.view-switcher-btn {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  font-size: 13px;
+  line-height: 1;
+  background: none;
+}
+
+.view-switcher-btn.active {
+  background: var(--panel);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Agent roster cards (Phase 8 §3) ─────────────────────────────────────── */
+.roster-sidebar {
+  width: 260px;
+  min-width: 220px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.roster-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius-md);
+  width: 100%;
+}
+
+.roster-card.selected {
+  border-color: var(--accent);
+  border-left-width: 3px;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.roster-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.roster-card-face {
+  position: relative;
+  flex: none;
+}
+
+.roster-card-shiny {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+}
+
+.roster-card-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.roster-card-name {
+  font-size: var(--font-body-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster-card-provider {
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+}
+
+.roster-card-tool {
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster-card-evo {
+  height: 3px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.roster-card-evo-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+/* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */
+.sessions-overview {
+  width: 640px;
+}
+
+.sessions-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
 }
