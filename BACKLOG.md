@@ -63,7 +63,7 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 ## smaller known items
 
 - "needs you" over-triggers: the CLI's idle waiting-for-input notification maps to the same badge as real permission prompts — split them (permission/questions → "needs you", plain turn-ended → "idle")
-- brand "pokéharness" text reads squashed (unresolved): é glyph + CSS ruled out; two live hypotheses — the −0.5 zoom breaking Press Start 2P's pixel grid app-wide, or the topbar's `-webkit-app-region: drag` region's Electron text-rendering quirk. Discriminating test: screenshot brand + a modal h2 in one frame; if both look off it's the zoom (not `.brand`'s fault)
+- brand "pokéharness" squash ROOT CAUSE CONFIRMED (2026-08-29, discriminating screenshot): the settings dialog's "appearance" heading shows the same soft/squashed rendering as the brand — so it's the −0.5 default zoom (factor ≈0.91) breaking Press Start 2P's integer pixel grid app-wide; the drag-region hypothesis is dead. Fix assigned to the wave-2 topbar agent: stop using Chromium zoom for density — default zoomLevel back to 0, bake the ~9% density the user prefers into the CSS instead, keep every Press Start 2P size at integer px so pixel glyphs render crisp; Cmd+0 resets to the new default, Cmd+plus/minus keep stepping.
 - "new workspace"/"delete workspace" dialog copy still says workspace under the new "+ new garden" vocabulary — align to "garden"
 - invisible-subagent root cause still unconfirmed: the spawn chain is hardened + logged; on next repro check `~/PokemonHarness/logs/harness.log` for `battle-bus`/`hook-router` errors and fix the named throw
 
