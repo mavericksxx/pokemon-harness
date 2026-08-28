@@ -455,31 +455,7 @@ button.icon:active {
   font-size: 12px;
 }
 
-/* ── Audio popover ───────────────────────────────────────────────────────── */
-.audio-popover-wrap {
-  position: relative;
-  -webkit-app-region: no-drag;
-}
-
-.audio-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 260px;
-  max-height: 80vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-hard);
-  z-index: 1000;
-  font-size: 12px;
-}
-
+/* ── Audio controls (used by SettingsPanel; QuickMute is a plain .icon button) ── */
 .audio-row {
   display: flex;
   align-items: center;
@@ -755,4 +731,89 @@ button.icon:active {
   gap: 8px;
   max-height: 60vh;
   overflow-y: auto;
+}
+
+/* ── Settings panel (Phase 8 §5) ─────────────────────────────────────────── */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 900;
+}
+
+/* munder-difflin ConfigDrawer motion (DESIGN.md §7.9/§12.1): 200ms snap, no
+ * easing curve beyond a simple ease-out. Kept permanently mounted (App.tsx)
+ * so this transition actually plays instead of popping in/out with display. */
+.settings-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-hard);
+  transform: translateX(100%);
+  transition: transform 200ms ease-out;
+  z-index: 950;
+}
+
+.settings-panel.open {
+  transform: translateX(0);
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-section h3 {
+  margin: 0;
+  font-size: var(--font-label-size);
+  line-height: var(--font-label-line);
+  letter-spacing: var(--font-label-tracking);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.settings-config-note {
+  font-size: var(--font-body-sm-size);
+  margin: 0;
+}
+
+.settings-config-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: var(--font-body-sm-size);
+}
+
+.settings-config-list dt {
+  color: var(--muted);
+}
+
+.settings-config-list dd {
+  margin: 0;
+  text-align: right;
 }

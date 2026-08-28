@@ -1,24 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useStore } from '@/store/store';
 import { useAudioStore } from '@/audio/audioStore';
 import { playerNext, playerPickTrack, playerPrev, playerTogglePause } from '@/audio/audioEngine';
 import { GEN_LABELS, GEN_ORDER, MUSIC_CATALOG, MUSIC_CATALOG_BY_ID, type MusicGen } from '@shared/musicCatalog';
+import { shinyConfig } from '@/scene/garden/shiny';
+import { evolutionConfig } from '@/scene/garden/evolution';
 
-/** Cap on rendered rows in the mini-player's track list — the full catalog is
- *  1377 tracks; nothing needs all of them as DOM nodes at once, just enough
- *  that "type to narrow" always works before hitting the cap. */
+/** Cap on rendered rows in the mini-player's track list — see AudioPopover's
+ *  old header comment (this replaces it verbatim, Phase 8 §5). */
 const MAX_LIST_ROWS = 150;
 
 const BROWSABLE = MUSIC_CATALOG.filter((t) => !t.jingle);
 
-/** Speaker icon + popover (Phase 7, mini-player expansion): master mute,
- *  music on/off + volume, SFX on/off + volume, and the mini-player (now
- *  playing, prev/pause/next, a searchable/gen-filterable track list).
- *  Talks only to `audioStore`'s setters and `audioEngine.ts`'s exported
- *  transport functions; never touches Howler directly. */
-export function AudioPopover(): JSX.Element {
-  const [open, setOpen] = useState(false);
+/**
+ * Phase 8 §5 — the audio popover's full contents moved here: master mute,
+ * music on/off + volume + the mini-player, SFX on/off + volume, plus a
+ * read-only Config section (shiny odds / evolve-seconds overrides — both are
+ * env-only knobs with no UI to change them, but the accessors were already
+ * there so a read-only display is cheap). A compact quick-mute button stays
+ * in the chrome (QuickMute.tsx); this is the "full player + volumes" surface
+ * it opens into.
+ *
+ * Slides in from the right, munder-difflin ConfigDrawer-style (DESIGN.md
+ * §7.9) — kept mounted always so the CSS transition actually animates;
+ * `.settings-panel` without `.open` sits translated off-screen.
+ */
+export function SettingsPanel(): JSX.Element {
+  const open = useStore((s) => s.settingsOpen);
+  const setOpen = useStore((s) => s.setSettingsOpen);
   const [search, setSearch] = useState('');
-  const wrapRef = useRef<HTMLDivElement>(null);
   const settings = useAudioStore((s) => s.settings);
   const musicUnavailable = useAudioStore((s) => s.musicUnavailable);
   const nowPlaying = useAudioStore((s) => s.nowPlaying);
@@ -33,14 +43,15 @@ export function AudioPopover(): JSX.Element {
   const setSfxVolume = useAudioStore((s) => s.setSfxVolume);
   const setGenFilter = useAudioStore((s) => s.setGenFilter);
 
+  // Esc closes, matching the sessions overview / new-session modals.
   useEffect(() => {
     if (!open) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [open]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, setOpen]);
 
   const genFilter = settings.genFilter;
   const filtered = useMemo(() => {
@@ -49,7 +60,6 @@ export function AudioPopover(): JSX.Element {
     return q ? byGen.filter((t) => t.title.toLowerCase().includes(q)) : byGen;
   }, [genFilter, search]);
 
-  const icon = settings.masterMuted ? '🔇' : settings.musicOn || settings.sfxOn ? '🔊' : '🔈';
   const nowPlayingGenLabel =
     nowPlaying.mode === 'player' && nowPlaying.id
       ? GEN_LABELS[MUSIC_CATALOG_BY_ID.get(nowPlaying.id)?.gen as MusicGen]
@@ -59,18 +69,22 @@ export function AudioPopover(): JSX.Element {
           ? 'Evolution'
           : '';
 
+  const shiny = shinyConfig();
+  const evo = evolutionConfig();
+
   return (
-    <div className="audio-popover-wrap" ref={wrapRef}>
-      <button
-        className="icon"
-        title="Sound settings"
-        aria-label="Sound settings"
-        onClick={() => setOpen((v) => !v)}
-      >
-        {icon}
-      </button>
-      {open && (
-        <div className="audio-popover" data-testid="audio-popover">
+    <>
+      {open && <div className="settings-backdrop" onClick={() => setOpen(false)} />}
+      <aside className={open ? 'settings-panel open' : 'settings-panel'} aria-hidden={!open}>
+        <header className="settings-head">
+          <h2>Settings</h2>
+          <button className="icon" title="Close" aria-label="Close settings" onClick={() => setOpen(false)}>
+            ×
+          </button>
+        </header>
+
+        <section className="settings-section">
+          <h3>Sound</h3>
           <label className="audio-row audio-row-master">
             <input
               type="checkbox"
@@ -191,8 +205,23 @@ export function AudioPopover(): JSX.Element {
               disabled={!settings.sfxOn}
             />
           </div>
-        </div>
-      )}
-    </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>Config</h3>
+          <p className="hint settings-config-note">
+            Env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
+          </p>
+          <dl className="settings-config-list">
+            <dt>Shiny odds</dt>
+            <dd>1 in {shiny.odds}</dd>
+            <dt>Evolve to stage 2</dt>
+            <dd>{Math.round(evo.stage2Ms / 1000)}s worked</dd>
+            <dt>Evolve to stage 3</dt>
+            <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
+          </dl>
+        </section>
+      </aside>
+    </>
   );
 }

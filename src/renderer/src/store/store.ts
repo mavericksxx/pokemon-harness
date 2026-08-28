@@ -53,6 +53,9 @@ interface HarnessState {
   /** Sessions-overview grid (Phase 8 §3) — a topbar button and (Phase 8 §7)
    *  the garden's signpost prop both open it. */
   sessionsOverviewOpen: boolean;
+  /** Settings panel (Phase 8 §5) — a topbar gear button and (Phase 8 §7)
+   *  the garden's well prop both open it. */
+  settingsOpen: boolean;
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>
@@ -77,6 +80,7 @@ interface HarnessState {
    *  the crash-recovery reload). */
   setViewMode(mode: ViewMode): void;
   setSessionsOverviewOpen(open: boolean): void;
+  setSettingsOpen(open: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. */
   pushToast(text: string): void;
@@ -90,6 +94,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   toasts: [],
   viewMode: loadViewMode(),
   sessionsOverviewOpen: false,
+  settingsOpen: false,
 
   addSession: (s) => {
     const session: Session = {
@@ -138,6 +143,7 @@ export const useStore = create<HarnessState>((set, get) => ({
     set({ viewMode: mode });
   },
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
+  setSettingsOpen: (open) => set({ settingsOpen: open }),
 
   pushToast: (text) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

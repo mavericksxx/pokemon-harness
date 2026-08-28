@@ -7,7 +7,8 @@ import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
-import { AudioPopover } from '@/components/AudioPopover';
+import { QuickMute } from '@/components/QuickMute';
+import { SettingsPanel } from '@/components/SettingsPanel';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
 
@@ -36,6 +37,7 @@ export function App(): JSX.Element {
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
   const setSessionsOverviewOpen = useStore((s) => s.setSessionsOverviewOpen);
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen);
 
   // Global Cmd/Ctrl+1..4 (discoverable copy also lives in ViewModeSwitcher's
   // tooltips). Ctrl on top of Cmd so it also works un-remapped on Linux/Win,
@@ -90,7 +92,10 @@ export function App(): JSX.Element {
           Sessions
         </button>
         <ViewModeSwitcher />
-        <AudioPopover />
+        <QuickMute />
+        <button title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+          ⚙
+        </button>
         {viewMode === 'garden' && (
           <button onClick={() => setDrawerOpen(!drawerOpen)}>{drawerOpen ? 'Hide terminal' : 'Show terminal'}</button>
         )}
@@ -106,6 +111,7 @@ export function App(): JSX.Element {
 
       {dialogOpen && <NewSessionDialog onClose={() => setDialogOpen(false)} />}
       <SessionsOverview />
+      <SettingsPanel />
       <Toasts />
     </div>
   );
