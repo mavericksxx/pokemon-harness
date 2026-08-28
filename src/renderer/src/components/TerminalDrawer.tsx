@@ -2,10 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
-import { stopSession } from '@/sessions';
-import { sessionStatusLabel } from '@/design/sessionLabel';
-import { TerminalFindBar } from '@/components/TerminalFindBar';
-import { ArceusDispatchBox } from '@/components/ArceusDispatchBox';
+import { FocusView } from '@/components/FocusView';
 import { terminalWidthCss } from '@/gardenSplit';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
@@ -101,35 +98,19 @@ export function TerminalDrawer(): JSX.Element | null {
         </header>
       )}
 
-      {session ? (
-        <>
-          <div className="drawer-meta">
-            <span className={session.napping ? 'status napping' : `status ${session.status}`}>
-              {sessionStatusLabel(session)}
-            </span>
-            <span className="path" title={session.cwd}>
-              {session.cwd}
-            </span>
-            <button className="danger" onClick={() => void stopSession(session.id)}>
-              kill
-            </button>
-          </div>
-          {session.error && <p className="error drawer-error">{session.error}</p>}
-          {/* BACKLOG "next up" item 3 — re-enabled: it's now the assignment
-              entry, prepending a fresh roster tag to whatever the user types
-              (ArceusDispatchBox.tsx) so Arceus can resolve/relay by name. */}
-          {session.isArceus && <ArceusDispatchBox sessionId={session.id} />}
-          <div className="terminal-mount-wrap">
-            <div className="terminal-mount" ref={mountRef} />
-            {findOpen && <TerminalFindBar sessionId={session.id} onClose={() => setFindOpen(false)} />}
-          </div>
-        </>
-      ) : (
-        <div className="empty-terminal">
-          <div className="empty-terminal-glyph" aria-hidden="true" />
-          <p className="empty">pick a session to see what's happening.</p>
-        </div>
-      )}
+      {/* FocusView.tsx owns everything below the tabs header for EVERY view
+          mode (BACKLOG phase E) — see its own header for why TerminalDrawer
+          must always render exactly this one component, never switch
+          between two, so the `mountRef` div it renders keeps its identity
+          (and therefore every session's terminal/scrollback) across a
+          viewMode toggle. */}
+      <FocusView
+        session={session}
+        viewMode={viewMode}
+        mountRef={mountRef}
+        findOpen={findOpen}
+        onCloseFind={() => setFindOpen(false)}
+      />
     </aside>
   );
 }

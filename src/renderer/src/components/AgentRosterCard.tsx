@@ -9,6 +9,7 @@ import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { formatToolTarget } from '@/design/toolTargetLabel';
 import { LoopIcon, SwapIcon } from '@/components/icons';
+import { CostGauge } from '@/components/CostGauge';
 import { swapSessionPokemon } from '@/sessions';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
@@ -30,12 +31,6 @@ function evolutionHint(session: Session): { pct: number; label: string } | undef
   const threshold = entry.stage === 1 ? stage2Ms : entry.stage === 2 ? stage3Ms : undefined;
   if (!threshold) return undefined;
   return { pct: Math.min(1, session.workedMs / threshold), label: 'next evolution' };
-}
-
-/** "~41k" — the cost gauge's compact token count. Under 1000 shown verbatim
- *  (no point abbreviating a 3-digit number). */
-function formatTokenCount(n: number): string {
-  return n >= 1000 ? `~${Math.round(n / 1000)}k` : `${n}`;
 }
 
 export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Element {
@@ -61,10 +56,6 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
   // non-claude session (or a claude session whose transcript hasn't been
   // parsed yet), which is the gauge's own "don't render" signal.
   const cost = session.cost;
-  const contextPct = cost ? Math.min(1, cost.contextTokens / cost.contextWindow) : 0;
-  const gaugeTip = cost
-    ? `${formatTokenCount(cost.contextTokens)} / ${formatTokenCount(cost.contextWindow)} context (approx.) · $${cost.costUsd.toFixed(2)}`
-    : '';
 
   const classes = ['roster-card', selected && 'selected'].filter(Boolean).join(' ');
 
@@ -127,11 +118,7 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           </div>
         )}
 
-        {cost && (
-          <div className="roster-card-gauge" title={gaugeTip} aria-label={gaugeTip}>
-            <div className="roster-card-gauge-fill" style={{ width: `${Math.round(contextPct * 100)}%` }} />
-          </div>
-        )}
+        {cost && <CostGauge cost={cost} />}
       </button>
 
       {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
