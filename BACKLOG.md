@@ -41,16 +41,22 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 - quick settings (sliders icon) sitting directly beside settings (gear) is confusing and the two are misaligned. PROPOSED: merge — drop the sliders icon; the single gear at the far right opens the quick-settings popover, whose existing "all settings…" row opens the full dialog. One entry point, no duplication.
 - tool dialogue box overlaps the status dot / "!" above the sprite's head (screenshot-confirmed on meganium) — bubble must offset above or hide while a status indicator/battle alert occupies that zone (gate on `battleManager.isBattling` for the battle case).
 - press-and-hold on a garden chip paints a white bar/ghost strip across the topbar under the chip row (video-confirmed) — looks like a native drag ghost or text-selection artifact on the held element; suppress with `user-select: none` + `-webkit-user-drag: none` on topbar controls and verify no draggable ancestor.
+- make the topbar slightly taller (user request, 2026-08-29) so the "pokéharness" brand has breathing room and reads less squashed — do together with the icon-alignment item above; note the separate unresolved brand-squash glyph mystery in smaller items still stands (taller bar is a mitigation, not the root-cause fix).
 
 ### phase C — ux polish
 
 - roster card shows session name + provider but not the species — add the pokemon's name (e.g. "meganium") to the card.
 - "change pokemon" affordance on the roster card is too small to notice/hit — make it a proper visible action on the card.
+- pokemon picker dialog reads small against the rest of the app (screenshot-confirmed) — enlarge the modal itself and make the individual species cards bigger so sprites/names are easier to see (applies to both new-session and change-pokemon uses of PokemonPicker).
 - active garden chip's rename/delete are bare floating pencil/trash icons beside the chip — fold them into the chip (hover-reveal inside it, or a small menu on the active chip) so the topbar reads cleaner.
 
 ### phase D — feature: mega evolution
 
 - megas are absent from the picker (they're battle forms, not dex entries — sprite sets do include mega forms). Design a mega mechanic rather than listing them as species; candidate triggers: sustained heavy work (temporary mega while a session runs hot), during battles, or a manual "mega evolve" action on the roster card for species that have a mega. Needs a design decision before build.
+
+### phase E — feature: focus mode (munder-difflin command center, requested 2026-08-29)
+
+- MD has a per-agent "focus mode": full-window command center for one agent — identity header (avatar, name, status, context %), a big terminal, tabs for other panes, a roster sidebar, and a message QUEUE composer at the bottom (type instructions that queue up and send to the agent). Pokéharness has no equivalent — the closest is the 'terminal' view mode (Cmd+2), which is a plain drawer-maximized terminal with no per-agent framing. Build a focus view per session: entry via a "focus" action on the roster card / double-click; full-window layout with pokemon face + name + species + status + cost/context gauges as the header, the session's terminal as the body, and a message composer at the bottom that queues prompts and injects them into the pty when the session goes idle (this composer is the same terminal-injection machinery as arceus routing, next-up item 3 — build focus mode after or together with routing so the injection path is shared, not duplicated). Sidebar roster strip for one-click switching between focused agents. Design pass needed on which MD tabs (monitor/tasks/activity) have pokéharness equivalents worth porting vs. skipping for v1.
 
 ## smaller known items
 
