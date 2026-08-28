@@ -45,10 +45,12 @@ const api = {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
-  /** Non-null exactly once, right after a renderer crash's auto-reload — see
-   *  main/index.ts's `render-process-gone` handler. Pulled on boot rather
-   *  than pushed, so there's no race with the renderer subscribing late. */
-  consumeCrashInfo: (): Promise<RendererCrashInfo | null> => ipcRenderer.invoke('app:consumeCrashInfo'),
+  /** Non-null for a while after a renderer crash's auto-reload — see
+   *  main/index.ts's `render-process-gone` handler and `pendingCrashInfo`'s
+   *  own comment for why this is a plain (not destructive) read. Pulled on
+   *  boot rather than pushed, so there's no race with the renderer
+   *  subscribing late. */
+  getCrashInfo: (): Promise<RendererCrashInfo | null> => ipcRenderer.invoke('app:getCrashInfo'),
 
   /** Mirrors the renderer's whole session list (and current selection) into
    *  main, so a renderer crash's reload has something to rebuild from.

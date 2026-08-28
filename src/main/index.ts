@@ -28,10 +28,49 @@ let mainWindow: BrowserWindow | null = null;
 const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
 const ptyManager = new PtyManager(hookBridge);
 
-/** Set the instant a renderer crash triggers the auto-reload below, cleared
- *  once the freshly-booted renderer asks for it — see that handler's
- *  comment for why this is pulled rather than pushed. */
+/** Load (or reload, after a crash) the app's page. A fresh navigation, not
+ *  `webContents.reload()`: testing an induced crash (CDP's `Page.crash()`)
+ *  showed `reload()` occasionally leave the window with no renderer process
+ *  at all and no further navigation possible — `reload()` re-runs the
+ *  existing history entry, which a crash may have left in a state Electron
+ *  can't recover from. `loadURL`/`loadFile` starts a navigation from
+ *  scratch, the same call the window's very first paint already uses. */
+function loadApp(win: BrowserWindow): void {
+  const devUrl = process.env['ELECTRON_RENDERER_URL'];
+  if (devUrl) void win.loadURL(devUrl);
+  else void win.loadFile(join(__dirname, '../renderer/index.html'));
+}
+
+/** Crash-loop bound for the `render-process-gone` auto-reload below: give up
+ *  after this many crashes inside CRASH_WINDOW_MS rather than reloading
+ *  forever into a renderer that dies on every boot. Deliberately generous:
+ *  live testing (CDP's `Page.crash()`) showed a single crash can fire this
+ *  event more than once, and a single `loadApp` call doesn't always bring a
+ *  renderer back — the handler below calls it again for every firing rather
+ *  than de-duplicating, so this budget needs headroom for that, not just for
+ *  distinct crashes. */
+const MAX_CRASHES_PER_WINDOW = 8;
+const CRASH_WINDOW_MS = 30_000;
+/** How long `pendingCrashInfo` stays available to `getCrashInfo` after a
+ *  crash — see that field's own comment for why this is a TTL rather than
+ *  cleared on first read. */
+const PENDING_CRASH_INFO_TTL_MS = 8_000;
+
+/** The most recent crash, available to `app:getCrashInfo` for
+ *  PENDING_CRASH_INFO_TTL_MS after it's set, then auto-cleared — NOT cleared
+ *  on first read. A single crash can make `render-process-gone` fire more
+ *  than once and can need more than one `loadApp` call to actually recover
+ *  (both seen live via CDP's `Page.crash()`), which means more than one page
+ *  load can happen for the same crash — an early one that gets superseded
+ *  before it finishes booting, then the one that actually sticks. A
+ *  clear-on-read design has the early, superseded boot consume this before
+ *  the surviving one ever sees it, silently dropping the toast (sessions
+ *  still restore fine either way — they come from `sessionRegistry`, which
+ *  nothing here touches). The TTL trades a moment of duplicate-toast risk on
+ *  a rapid repeat crash (out of scope: a REAL repeat crash of a stable app is
+ *  not a rapid back-to-back event) for the surviving boot reliably seeing it. */
 let pendingCrashInfo: RendererCrashInfo | null = null;
+let pendingCrashInfoTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Mirror of the renderer's session list — the metadata `ptyManager` doesn't
  *  itself hold (species, shiny, accumulated work time, provider, title...).
@@ -94,24 +133,47 @@ function createWindow(): void {
   // `sessionRegistry` for the metadata a bare PTY doesn't carry and
   // `ptyManager.getReplay` for terminal backfill.
   //
-  // pendingCrashInfo is polled (`app:consumeCrashInfo`, below) rather than
+  // pendingCrashInfo is polled (`app:getCrashInfo`, below) rather than
   // pushed over a one-shot `did-finish-load` + `send`: `did-finish-load`
   // fires once the page's own resources are loaded, which is no guarantee
   // the fresh React tree has mounted and subscribed to a broadcast channel
   // yet — a push here races that subscription and can drop the toast
   // silently. A pull the renderer makes once it's actually ready has no such
   // race.
+  //
+  // Deliberately does NOT try to de-duplicate or suppress rapid repeat
+  // firings of this event before calling `loadApp` again: testing showed a
+  // single crash can fire `render-process-gone` more than once, AND that a
+  // single `loadApp` call after a crash doesn't always bring a renderer back
+  // — a guard that skipped the second firing (tried first) reliably left the
+  // window with no renderer process and no further navigation possible, i.e.
+  // exactly the stuck state this handler exists to recover from. Calling
+  // `loadApp` again for every firing is what's actually reliable in testing;
+  // `crashTimestamps` is the only protection against a genuine crash loop.
+  let crashTimestamps: number[] = [];
   win.webContents.on('render-process-gone', (_event, details) => {
     console.error(
       `[main] renderer process gone — reason: ${details.reason}, exitCode: ${details.exitCode}`
     );
+
+    const now = Date.now();
+    crashTimestamps = crashTimestamps.filter((t) => now - t < CRASH_WINDOW_MS);
+    crashTimestamps.push(now);
+    if (crashTimestamps.length > MAX_CRASHES_PER_WINDOW) {
+      console.error('[main] renderer crash-looping — giving up on auto-reload');
+      return;
+    }
+
     pendingCrashInfo = { reason: details.reason, exitCode: details.exitCode };
-    win.webContents.reload();
+    if (pendingCrashInfoTimer) clearTimeout(pendingCrashInfoTimer);
+    pendingCrashInfoTimer = setTimeout(() => {
+      pendingCrashInfo = null;
+    }, PENDING_CRASH_INFO_TTL_MS);
+
+    loadApp(win);
   });
 
-  const devUrl = process.env['ELECTRON_RENDERER_URL'];
-  if (devUrl) void win.loadURL(devUrl);
-  else void win.loadFile(join(__dirname, '../renderer/index.html'));
+  loadApp(win);
 }
 
 app.whenReady().then(() => {
@@ -148,12 +210,9 @@ ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAva
 // ─── Crash recovery ─────────────────────────────────────────────────────────
 // See the `render-process-gone` handler in createWindow(): the freshly-booted
 // renderer calls this once it's actually mounted, rather than main pushing it
-// over a one-shot event the renderer might not be listening for yet.
-ipcMain.handle('app:consumeCrashInfo', () => {
-  const info = pendingCrashInfo;
-  pendingCrashInfo = null;
-  return info;
-});
+// over a one-shot event the renderer might not be listening for yet. A plain
+// read, not a destructive one — see pendingCrashInfo's own comment for why.
+ipcMain.handle('app:getCrashInfo', () => pendingCrashInfo);
 
 // Renderer → main mirror, called on every session-list or selection change
 // (see `startRegistrySync` in src/renderer/src/sessions.ts) — see

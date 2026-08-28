@@ -382,11 +382,13 @@ function decodeGifFirstFrame(gifBytes: ArrayBuffer): HTMLCanvasElement | null {
 }
 
 /** One species' first-frame art, fetched and decoded WITHOUT going through
- *  `loadView`/`viewCache`/the disk cache — see this file's header for why a
- *  picker preview must not pay the full-sheet decode. Static species
- *  (#650-1025) are already a single frame, so reusing `fetchAndDecodeStatic`
- *  costs nothing extra (it never touches `viewCache` or the disk cache
- *  either). */
+ *  `loadView`/`viewCache`/the disk cache: a picker preview can put dozens of
+ *  species on screen that nobody ends up picking, so it must not pay for the
+ *  full-sheet decode `loadView` does for an actual walker (see
+ *  `decodeGifFirstFrame` above, and `loadLazyThumbnail` below). Static
+ *  species (#650-1025) are already a single frame, so reusing
+ *  `fetchAndDecodeStatic` costs nothing extra (it never touches `viewCache`
+ *  or the disk cache either). */
 async function decodeThumbnailFrame(id: string, view: SpriteView, shiny: boolean): Promise<HTMLCanvasElement | null> {
   if (speciesEntry(id)?.static) {
     const decoded = await fetchAndDecodeStatic(id, view, shiny);

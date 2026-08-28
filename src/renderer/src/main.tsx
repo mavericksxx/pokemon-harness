@@ -80,36 +80,45 @@ if (!rootEl) throw new Error('#root missing');
  * by the time that happens.
  */
 async function boot(): Promise<void> {
-  startRegistrySync();
+  // Recovery is best-effort: if either IPC call rejects, or restoring a
+  // session throws, the user must still get a working (if empty) garden
+  // rather than the render() below never happening at all — which would
+  // recreate the exact permanently-blank-page failure this whole feature
+  // exists to fix. render() is unconditional, in `finally`, below.
+  try {
+    startRegistrySync();
 
-  const [crashInfo, { sessions: restored, selectedId }] = await Promise.all([
-    window.api.consumeCrashInfo(),
-    window.api.restoreSessions()
-  ]);
+    const [crashInfo, { sessions: restored, selectedId }] = await Promise.all([
+      window.api.getCrashInfo(),
+      window.api.restoreSessions()
+    ]);
 
-  if (restored.length > 0) {
-    for (const { session, replay } of restored) createTerminal(session.id, replay);
-    useStore.getState().restoreSessions(restored.map((r) => r.session), selectedId);
+    if (restored.length > 0) {
+      for (const { session, replay } of restored) createTerminal(session.id, replay);
+      useStore.getState().restoreSessions(restored.map((r) => r.session), selectedId);
+    }
+
+    if (crashInfo) {
+      const suffix =
+        restored.length > 0
+          ? ` — reconnected ${restored.length} session${restored.length === 1 ? '' : 's'}.`
+          : '.';
+      useStore.getState().pushToast(`Recovered from a renderer crash (${crashInfo.reason})${suffix}`);
+    } else if (restored.length > 0) {
+      useStore
+        .getState()
+        .pushToast(`Reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
+    }
+  } catch (err) {
+    console.error('[boot] crash/reload recovery failed — starting with an empty garden', err);
+  } finally {
+    // Deliberately NOT wrapped in StrictMode: the Pixi application and the
+    // PTY subscriptions are real, non-idempotent resources, and StrictMode's
+    // dev-only double mount would build two gardens.
+    // Non-null: TS doesn't carry the module-scope `if (!rootEl) throw`
+    // guard's narrowing into this nested function; the guard above already ran.
+    createRoot(rootEl!).render(<App />);
   }
-
-  if (crashInfo) {
-    const suffix =
-      restored.length > 0
-        ? ` — reconnected ${restored.length} session${restored.length === 1 ? '' : 's'}.`
-        : '.';
-    useStore.getState().pushToast(`Recovered from a renderer crash (${crashInfo.reason})${suffix}`);
-  } else if (restored.length > 0) {
-    useStore
-      .getState()
-      .pushToast(`Reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
-  }
-
-  // Deliberately NOT wrapped in StrictMode: the Pixi application and the PTY
-  // subscriptions are real, non-idempotent resources, and StrictMode's
-  // dev-only double mount would build two gardens.
-  // Non-null: TS doesn't carry the module-scope `if (!rootEl) throw` guard's
-  // narrowing into this nested function; the guard above already ran.
-  createRoot(rootEl!).render(<App />);
 }
 
 void boot();
