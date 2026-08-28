@@ -28,7 +28,7 @@ export interface Toast {
  *  users reported the two view-switcher buttons as duplicates. 'terminal'
  *  is the one that survived — its bottom roster strip is the same
  *  session-switching UI 'garden' mode already uses, instead of
- *  'terminalFull''s topbar chips + drawer tab strip):
+ *  'terminalFull's topbar chips + drawer tab strip):
  *   'garden'     — garden fills the body, terminal drawer toggles as a side
  *                  panel (`drawerOpen`).
  *   'terminal'   — munder-difflin's layout: a bottom roster strip of agent

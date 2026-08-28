@@ -1083,44 +1083,138 @@ button.icon:active {
   cursor: pointer;
 }
 
-/* Auto-mode / keep-awake toggle rows (parity sweep items 1/4) — checkbox +
- * label text on one row, the "off: ..." sub-line wrapping full-width below
- * it, indented to align under the label text. Same shape as `.audio-row
- * .audio-row-master` but as one class (these aren't paired with a volume
- * slider, so there's no need for the two-class split that row uses). */
-.settings-auto-row {
+/* Toggle row (settings redesign, item 3): checkbox + a terse label with its
+ * explanation as a smaller muted second line, instead of one long sentence-
+ * case run-on. Used by the automation section's rows below; the sound
+ * section's single-word toggles (mute all / music / sfx) don't need the
+ * two-line shape and keep their existing `.audio-row`/`.audio-toggle`
+ * layout — they just pick up the pixel checkbox skin further down. */
+.settings-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 8px;
   padding-bottom: 8px;
   margin-bottom: 8px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
 
-.settings-auto-row:last-child {
+.settings-row:last-child {
   border-bottom: none;
   margin-bottom: 0;
+  padding-bottom: 0;
 }
 
-.settings-auto-row .hint {
-  flex-basis: 100%;
-  margin-left: 20px;
-}
-
-/* ── Theme picker (parity sweep item 3) ──────────────────────────────────── */
-.theme-picker {
+.settings-row-text {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  /* Nudges the text baseline down to align with the 16px checkbox's visual
+   * center rather than its top edge. */
+  padding-top: 1px;
 }
 
-.theme-picker-option {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.settings-row-label {
+  font-size: var(--font-body-md-size);
+  color: var(--text);
+}
+
+.settings-row-hint {
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+}
+
+/* ── Segmented control (settings redesign, item 3) — theme picker ───────── */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.segmented-btn {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 12px;
+  font-size: var(--font-body-sm-size);
+  line-height: 1;
+  background: none;
+}
+
+.segmented-btn.active {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+/* ── Pixel-styled form controls (settings redesign, item 3) — the native
+ * checkbox/radio/range clashed with the rest of the chrome (0-2px radius,
+ * hard 2px borders, gold accent when active); scoped to `.settings-panel`
+ * only, not app-wide — NewSessionDialog/SummonArceusDialog keep their
+ * native checkboxes unchanged, out of this item's scope. Keyboard focus
+ * ring comes from the existing app-wide `:focus-visible` rule further down
+ * this file — `appearance: none` drops the native ring but not that one,
+ * since outline is a normal painted property, untouched by `appearance`. */
+.settings-panel input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  background: var(--bg-terminal);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  text-transform: capitalize;
+}
+
+.settings-panel input[type='checkbox']:checked {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+/* Square check — a plain inset block, not a checkmark glyph (spec: "square
+ * check", hard edges, no curves). */
+.settings-panel input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: var(--on-accent);
+}
+
+.settings-panel input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 1;
+  height: 4px;
+  margin: 0;
+  background: var(--line);
+  cursor: pointer;
+}
+
+.settings-panel input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--line);
+}
+
+.settings-panel input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 16px;
+  margin-top: -6px; /* centers the 16px-tall thumb on the 4px track */
+  background: var(--gold);
+  border: 2px solid var(--line);
+  cursor: pointer;
+}
+
+.settings-panel input[type='range']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .audio-toggle {
