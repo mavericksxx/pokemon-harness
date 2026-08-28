@@ -12,7 +12,7 @@ import type {
   SpriteView
 } from '../shared/types';
 import type { HookEvent } from '../shared/hookEvents';
-import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
+import type { AudioSettings } from '../shared/audioTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -82,9 +82,16 @@ const api = {
   getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),
   saveAudioSettings: (settings: AudioSettings): Promise<void> =>
     ipcRenderer.invoke('audio:saveSettings', settings),
-  ensureMusicTrack: (id: MusicTrackId): Promise<ArrayBuffer | null> =>
+  // `id` is any mini-player catalog id (musicCatalog.ts) — includes the 9
+  // original curated MusicTrackIds, which are part of that same id space.
+  ensureMusicTrack: (id: string): Promise<ArrayBuffer | null> =>
     ipcRenderer.invoke('audio:ensureTrack', id),
-  ensureCry: (id: string): Promise<ArrayBuffer | null> => ipcRenderer.invoke('audio:ensureCry', id)
+  ensureCry: (id: string): Promise<ArrayBuffer | null> => ipcRenderer.invoke('audio:ensureCry', id),
+  prefetchMusicTrack: (id: string): Promise<'cached' | 'ok' | 'busy' | 'failed'> =>
+    ipcRenderer.invoke('audio:prefetchTrack', id),
+  cancelMusicPrefetch: (): Promise<void> => ipcRenderer.invoke('audio:cancelPrefetch'),
+  getMusicCacheStatus: (): Promise<{ bytes: number; cap: number; headroom: number }> =>
+    ipcRenderer.invoke('audio:cacheStatus')
 };
 
 export type HarnessApi = typeof api;
