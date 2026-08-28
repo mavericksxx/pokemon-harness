@@ -12,7 +12,7 @@
  * addon is attached only to the terminal that is actually on screen, and torn
  * down on detach.
  */
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search';
@@ -21,7 +21,18 @@ import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
 import { resetLoopStreak } from './loopDetector';
 import { useStore } from '@/store/store';
-import { ground, ink, primaryAccent, type as textType } from '@/design/tokens';
+import {
+  accentLight,
+  dangerLight,
+  ground,
+  groundLight,
+  ink,
+  inkLight,
+  primaryAccent,
+  primaryAccentLight,
+  type as textType,
+  type EffectiveTheme
+} from '@/design/tokens';
 import type { AgentProviderId } from '@shared/agentProvider';
 import { DEFAULT_TERMINAL_SETTINGS, type TerminalSettings } from '@shared/terminalTypes';
 
@@ -50,12 +61,56 @@ const SHELL_NAP_CHECK_MS = 5_000;
 // properties applyTokens() sets; tokens.ts is the non-CSS consumer path for
 // exactly this (see that file's own header, and munder-difflin's tokens.ts,
 // which states the same rationale for its Pixi.js consumers).
-const THEME = {
+//
+// Dark theme is unchanged from before light-mode terminal theming existed —
+// no ANSI palette entries, xterm's own defaults (already tuned for a dark
+// background) are what every session has always rendered with.
+const DARK_THEME: ITheme = {
   background: ground[0],
   foreground: ink[900],
   cursor: primaryAccent,
   selectionBackground: ground[200]
 };
+
+// Light theme (theme settings addendum) — xterm has no ANSI-16 default that
+// works on a light background (several of its defaults are near-invisible
+// on cream), so every slot below is explicit. Reuses the light accent ramp
+// from tokens.ts wherever a hue already exists there; `cyan` has no
+// dedicated token (tokens.ts's accent set doesn't have one) so it's hand-
+// picked for legibility against `groundLight.terminal`, same as `yellow`
+// (goldLight's own contrast caveat, documented in tokens.ts, rules it out
+// as ANSI text on this background).
+const LIGHT_THEME: ITheme = {
+  background: groundLight.terminal,
+  foreground: inkLight[900],
+  cursor: primaryAccentLight,
+  cursorAccent: groundLight.terminal,
+  // `groundLight[200]` (a light cream tint) reads as nearly invisible
+  // against `groundLight.terminal` — `disabled` carries real contrast.
+  selectionBackground: groundLight.disabled,
+  black: inkLight[900],
+  red: dangerLight,
+  green: accentLight.mint,
+  yellow: '#9C7A1E',
+  blue: accentLight.sky,
+  magenta: accentLight.lilac,
+  cyan: '#2F7480',
+  white: inkLight[700],
+  brightBlack: inkLight[500],
+  brightRed: accentLight.coral,
+  brightGreen: accentLight.mint,
+  brightYellow: '#9C7A1E',
+  brightBlue: accentLight.sky,
+  brightMagenta: accentLight.lilac,
+  brightCyan: '#2F7480',
+  brightWhite: inkLight[900]
+};
+
+/** Theme applied to every terminal — new (via `createTerminal`) and already-
+ *  mounted (via `applyTerminalTheme` below). Defaults dark, matching the
+ *  app's own pre-first-paint dark default (main.tsx's `applyTheme('dark')`
+ *  call, before the persisted setting resolves). */
+let currentTheme: ITheme = DARK_THEME;
 
 interface Entry {
   id: string;
@@ -125,7 +180,7 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     cursorBlink: true,
     allowProposedApi: true,
     scrollback: currentSettings.scrollback,
-    theme: THEME
+    theme: currentTheme
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -306,6 +361,22 @@ export function clearSearch(sessionId: string): void {
  *  therefore the PTY's own idea of the terminal size — stay in sync with the
  *  new glyph metrics. Also banks `settings` as the default for any terminal
  *  created after this call. */
+/** Apply the light/dark terminal theme to every live terminal (new AND
+ *  already-mounted), live — theme settings addendum: switching themes must
+ *  recolor open terminals, not just ones created afterward. Also banks the
+ *  theme as the default for any terminal created after this call (mirrors
+ *  `applyTerminalSettings` below). A terminal with the WebGL renderer
+ *  attached can keep stale glyph colors in its texture atlas after a plain
+ *  `options.theme` assignment until its next paint — `term.refresh()` forces
+ *  that repaint immediately instead of waiting on the next PTY byte. */
+export function applyTerminalTheme(mode: EffectiveTheme): void {
+  currentTheme = mode === 'light' ? LIGHT_THEME : DARK_THEME;
+  for (const e of entries.values()) {
+    e.term.options.theme = currentTheme;
+    if (e.term.rows > 0) e.term.refresh(0, e.term.rows - 1);
+  }
+}
+
 export function applyTerminalSettings(settings: TerminalSettings): void {
   currentSettings = settings;
   for (const e of entries.values()) {

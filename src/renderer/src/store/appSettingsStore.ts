@@ -9,6 +9,9 @@
 import { create } from 'zustand';
 import type { AgentProviderId } from '@shared/agentProvider';
 import { DEFAULT_APP_SETTINGS, MAX_RECENT_FOLDERS, type AppSettings, type ThemeMode } from '@shared/appSettingsTypes';
+import { applyTheme } from '@/design/tokens';
+import { resolveEffectiveTheme } from '@/design/theme';
+import { applyTerminalTheme } from '@/pty/terminalRegistry';
 
 interface AppSettingsState {
   settings: AppSettings;
@@ -53,6 +56,14 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
     const settings = { ...get().settings, theme: mode };
     set({ settings });
     persist(settings);
+    // Applied here (not left to each caller) so every setTheme call site —
+    // the settings panel's picker, the topbar quick toggle — recolors the
+    // chrome AND every open terminal live, with one place owning that
+    // pairing. Same pattern terminalSettingsStore.ts's own setters use for
+    // applyTerminalSettings.
+    const effective = resolveEffectiveTheme(mode);
+    applyTheme(effective);
+    applyTerminalTheme(effective);
   },
 
   setAutoMode: (provider, enabled) => {

@@ -151,3 +151,44 @@ export function SpeakerHighIcon(props: IconProps): JSX.Element {
     </PixelIcon>
   );
 }
+
+/** Topbar theme toggle's "switch to dark mode" state — a square disc (this
+ *  app draws no circles anywhere; hard-edged rects match the rest of the
+ *  chrome) with eight short rays. */
+export function SunIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="5" y="5" width="6" height="6" />
+      <rect x="7" y="1" width="2" height="2" />
+      <rect x="7" y="13" width="2" height="2" />
+      <rect x="1" y="7" width="2" height="2" />
+      <rect x="13" y="7" width="2" height="2" />
+      <rect x="3" y="3" width="2" height="2" />
+      <rect x="11" y="3" width="2" height="2" />
+      <rect x="3" y="11" width="2" height="2" />
+      <rect x="11" y="11" width="2" height="2" />
+    </PixelIcon>
+  );
+}
+
+/** Topbar theme toggle's "switch to light mode" state — a crescent, drawn as
+ *  one filled blob with a second, offset blob's cells left out (rather than
+ *  painted over) to cut the sliver. */
+export function MoonIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="6" y="2" width="3" height="1" />
+      <rect x="5" y="3" width="3" height="1" />
+      <rect x="4" y="4" width="3" height="1" />
+      <rect x="4" y="5" width="3" height="1" />
+      <rect x="3" y="6" width="3" height="1" />
+      <rect x="3" y="7" width="3" height="1" />
+      <rect x="3" y="8" width="4" height="1" />
+      <rect x="3" y="9" width="4" height="1" />
+      <rect x="4" y="10" width="4" height="1" />
+      <rect x="4" y="11" width="5" height="1" />
+      <rect x="5" y="12" width="4" height="1" />
+      <rect x="6" y="13" width="4" height="1" />
+    </PixelIcon>
+  );
+}

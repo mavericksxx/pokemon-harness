@@ -5,6 +5,7 @@ import { speciesEntry } from '@/scene/garden/dexData';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
+import { formatToolTarget } from '@/design/toolTargetLabel';
 import { LoopIcon } from '@/components/icons';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
@@ -46,7 +47,7 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
   // apply the same as anyone's.
   const isArceus = !!session.isArceus;
   const toolText = session.tool
-    ? `${toolIcon(session.tool)} ${session.toolTarget || session.tool}`
+    ? `${toolIcon(session.tool)} ${formatToolTarget(session.tool, session.toolTarget) || session.tool}`
     : session.status === 'blocked'
       ? 'waiting on you'
       : session.status === 'working'

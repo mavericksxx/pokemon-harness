@@ -139,6 +139,19 @@ function resolveWindowBg(theme: AppSettings['theme']): string {
 // that hasn't run `node build/icon/gen-icon.mjs` yet.
 const NON_MAC_WINDOW_ICON = join(process.cwd(), 'build/icon/icon.png');
 
+/** Default zoom, one Cmd-minus notch out from Chromium's 1.0 (zoomFactor =
+ *  1.2^zoomLevel, so -0.5 ≈ 0.91x — the same step a single "Zoom Out" menu
+ *  click/Cmd- takes). Applied on every `did-finish-load`, not just the first
+ *  — that's the same event that fires after `loadApp`'s crash-triggered
+ *  reload (see the `render-process-gone` handler below), so one listener
+ *  covers both without extra bookkeeping. Cmd+/Cmd- still adjust the level
+ *  relatively from here via Electron's default View menu (no custom Menu is
+ *  set, so macOS supplies its own with the usual zoomIn/zoomOut/resetZoom
+ *  roles); its "Actual Size" (Cmd+0) role resets to Chromium's zoomLevel 0,
+ *  not back to this default — overriding that would mean replacing the
+ *  whole default application menu for one item, which isn't worth it here. */
+const DEFAULT_ZOOM_LEVEL = -0.5;
+
 /** Load (or reload, after a crash) the app's page. A fresh navigation, not
  *  `webContents.reload()`: testing an induced crash (CDP's `Page.crash()`)
  *  showed `reload()` occasionally leave the window with no renderer process
@@ -386,6 +399,13 @@ function createWindow(backgroundColor: string): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // Default zoom (see DEFAULT_ZOOM_LEVEL above) — re-applied after every
+  // navigation, including the crash/reload path below, since a fresh
+  // navigation resets zoomLevel to 0.
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setZoomLevel(DEFAULT_ZOOM_LEVEL);
   });
 
   // A renderer OOM-kill or fatal GPU/WebGL loss leaves the native chrome (this

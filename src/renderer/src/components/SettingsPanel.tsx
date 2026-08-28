@@ -15,9 +15,6 @@ import {
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
-import type { ThemeMode } from '@shared/appSettingsTypes';
-import { applyTheme } from '@/design/tokens';
-import { resolveEffectiveTheme } from '@/design/theme';
 import { showUpdateToast } from '@/updateNotifier';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
@@ -87,11 +84,6 @@ export function SettingsPanel(): JSX.Element {
     }
   };
 
-  const onTheme = (mode: ThemeMode): void => {
-    setTheme(mode);
-    applyTheme(resolveEffectiveTheme(mode));
-  };
-
   // Harness home directory (Phase 8.7) — folder picker + the currently
   // resolved path, plus a way back to the default.
   const pickHarnessHome = async (): Promise<void> => {
@@ -125,42 +117,47 @@ export function SettingsPanel(): JSX.Element {
 
         <section className="settings-section">
           <h3>appearance</h3>
-          <div className="theme-picker" role="radiogroup" aria-label="theme">
+          <div className="segmented" role="group" aria-label="theme">
             {(['system', 'light', 'dark'] as const).map((mode) => (
-              <label key={mode} className="theme-picker-option">
-                <input
-                  type="radio"
-                  name="theme"
-                  checked={appSettings.theme === mode}
-                  onChange={() => onTheme(mode)}
-                />
+              <button
+                key={mode}
+                type="button"
+                className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
+                aria-pressed={appSettings.theme === mode}
+                onClick={() => setTheme(mode)}
+              >
                 {mode}
-              </label>
+              </button>
             ))}
           </div>
         </section>
 
         <section className="settings-section">
           <h3>automation</h3>
-          {AUTO_MODE_PROVIDERS.map((p) => (
-            <label key={p.id} className="settings-auto-row">
-              <input
-                type="checkbox"
-                checked={appSettings.autoModeByProvider[p.id] ?? false}
-                onChange={(e) => setAutoMode(p.id, e.target.checked)}
-              />
-              {p.label} — auto mode: agents act without asking first
-              <span className="hint">off: agents pause for your approval in the terminal</span>
-            </label>
-          ))}
+          {AUTO_MODE_PROVIDERS.map((p) => {
+            const on = appSettings.autoModeByProvider[p.id] ?? false;
+            return (
+              <label key={p.id} className="settings-row">
+                <input type="checkbox" checked={on} onChange={(e) => setAutoMode(p.id, e.target.checked)} />
+                <span className="settings-row-text">
+                  <span className="settings-row-label">{p.label} auto mode</span>
+                  <span className="settings-row-hint">
+                    {on ? 'agents act without asking first' : 'agents pause for your approval in the terminal'}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
 
-          <label className="settings-auto-row">
+          <label className="settings-row">
             <input type="checkbox" checked={appSettings.keepAwake} onChange={(e) => setKeepAwake(e.target.checked)} />
-            keep my Mac awake while sessions run
-            <span className="hint">
-              {appSettings.keepAwake && liveSessionCount > 0
-                ? `keeping your mac awake — ${liveSessionCount} session${liveSessionCount === 1 ? '' : 's'} live`
-                : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
+            <span className="settings-row-text">
+              <span className="settings-row-label">keep Mac awake</span>
+              <span className="settings-row-hint">
+                {appSettings.keepAwake && liveSessionCount > 0
+                  ? `keeping your mac awake — ${liveSessionCount} session${liveSessionCount === 1 ? '' : 's'} live`
+                  : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
+              </span>
             </span>
           </label>
         </section>
