@@ -32,17 +32,19 @@ function clamp01(t: number): number {
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
-function easeInCubic(t: number): number {
-  return t * t * t;
-}
 
 /** Streak sprite scale at the very start/end (spread wide, mostly invisible
  *  since opacity is ~0 there) vs. at the p=0.5 flash (converged to a point). */
 const STREAK_EDGE_SCALE = 1.6;
 const STREAK_CENTER_SCALE = 0.22;
-/** Flash half-width in progress units — how far from p=0.5 the flash is
- *  still visible at all; keeps it "brief" rather than a slow fade. */
-const FLASH_HALF = 0.1;
+/** Flash timing, in progress units from p=0.5. Full cover holds out to
+ *  FLASH_FULL on each side (a plateau, not a single-frame peak) — needed
+ *  because rAF steps by ~dt/WARP_MS per frame (≈0.023 at 60fps, more on a
+ *  hitch) and will almost never land exactly on 0.5, so a sharp tent peak
+ *  would leave the actual swap frame under 1.0 opacity and let the scene
+ *  swap show through. Fully gone by FLASH_EDGE. */
+const FLASH_FULL = 0.06;
+const FLASH_EDGE = 0.13;
 
 /**
  * The Arceus warp (replaces the old vertical "ascent" — ArceusAscent.tsx,
@@ -157,15 +159,21 @@ export function ArceusWarp({ hostRef, ascended }: Props): JSX.Element {
 
       // Streak burst: converges to a point approaching p=0.5, then diverges
       // back out — one symmetric curve keyed off distance from center, so
-      // both halves are the same shape run in opposite directions.
+      // both halves are the same shape run in opposite directions. Linear,
+      // deliberately: an ease-in here front-loads nearly all the scale
+      // motion into the first frames and leaves the rest a static dot —
+      // linear spreads the "converging streaks" read across the whole
+      // window (the flash still covers the exact swap moment either way).
       const distFromCenter = clamp01(Math.abs(p - 0.5) / 0.5);
-      const streakScale = lerp(STREAK_CENTER_SCALE, STREAK_EDGE_SCALE, easeInCubic(distFromCenter));
+      const streakScale = lerp(STREAK_CENTER_SCALE, STREAK_EDGE_SCALE, distFromCenter);
       streaks.style.transform = `scale(${streakScale})`;
       streaks.style.opacity = String(Math.sin(clamp01(p) * Math.PI));
 
-      // Brief flash right at the swap point — narrow enough to read as a
-      // flash, not a fade.
-      flash.style.opacity = String(clamp01(1 - Math.abs(p - 0.5) / FLASH_HALF));
+      // Brief flash right at the swap point — a plateau at full cover (see
+      // FLASH_FULL/FLASH_EDGE) so the swap itself always lands under an
+      // opaque flash, not just near one.
+      const flashDist = Math.abs(p - 0.5);
+      flash.style.opacity = String(clamp01((FLASH_EDGE - flashDist) / (FLASH_EDGE - FLASH_FULL)));
     };
 
     const direction: WarpDirection = ascended ? 'up' : 'down';
