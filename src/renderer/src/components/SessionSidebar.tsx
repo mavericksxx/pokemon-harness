@@ -12,7 +12,7 @@ export function SessionSidebar(): JSX.Element {
   return (
     <aside className="roster-sidebar">
       {sessions.length === 0 ? (
-        <p className="empty">No sessions yet.</p>
+        <p className="empty">No sessions yet — start one from the topbar.</p>
       ) : (
         sessions.map((s) => (
           <AgentRosterCard key={s.id} session={s} selected={s.id === selectedId} onSelect={select} />

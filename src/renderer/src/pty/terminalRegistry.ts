@@ -19,7 +19,17 @@ import '@xterm/xterm/css/xterm.css';
 import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
 import { useStore } from '@/store/store';
-import { ground, ink, primaryAccent } from '@/design/tokens';
+import { ground, ink, primaryAccent, type as textType } from '@/design/tokens';
+
+// Terminal type: JetBrains Mono at the spec's mono-md step (14/20 — see
+// design/tokens.ts). xterm's own `fontFamily`/`fontSize`/`lineHeight` are a
+// plain constructor option object, not CSS, so they can't read the
+// `--font-mono-*` custom properties applyTokens() sets — same rationale
+// tokens.ts's own header gives for THEME below. `lineHeight` here is a
+// multiplier of `fontSize`, not px, hence the division.
+const TERMINAL_FONT_FAMILY = `"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace`;
+const TERMINAL_FONT_SIZE = textType.monoMd.size;
+const TERMINAL_LINE_HEIGHT = textType.monoMd.line / textType.monoMd.size;
 
 // Pulled from design/tokens.ts (Phase 8 §2) rather than hardcoded — xterm's
 // theme is a plain JS object, not CSS, so it can't read the :root custom
@@ -62,9 +72,9 @@ export function createTerminal(sessionId: string, replay?: string): void {
   if (entries.has(sessionId)) return;
 
   const term = new Terminal({
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    fontSize: 12,
-    lineHeight: 1.2,
+    fontFamily: TERMINAL_FONT_FAMILY,
+    fontSize: TERMINAL_FONT_SIZE,
+    lineHeight: TERMINAL_LINE_HEIGHT,
     cursorBlink: true,
     allowProposedApi: true,
     scrollback: 5000,

@@ -20,9 +20,9 @@ export function ViewModeSwitcher(): JSX.Element {
       {MODES.map(({ mode, label, glyph, key }) => (
         <button
           key={mode}
-          className={mode === viewMode ? 'view-switcher-btn active' : 'view-switcher-btn'}
+          className={mode === viewMode ? 'view-switcher-btn active tip' : 'view-switcher-btn tip'}
           onClick={() => setViewMode(mode)}
-          title={`${label} (⌘${key})`}
+          data-tip={`${label} (⌘${key})`}
           aria-label={label}
           aria-pressed={mode === viewMode}
         >

@@ -1,26 +1,27 @@
-/* Design tokens (Phase 8 §2) — values here mirror design/tokens.ts, which
- * stamps the same custom properties onto :root at boot (applyTokens(), called
- * from main.tsx before the first render). This block is the fallback/default
- * so the sheet never resolves to an unset var even for a single frame;
- * tokens.ts is the single source of truth for the actual values — change
- * both together. Structure (ramp/space/type/shadow language) is ported from
- * munder-difflin's design system (MIT, see ATTRIBUTION.md).
- *
- * PROVISIONAL PALETTE — see tokens.ts's header. Values below are captured
- * verbatim from munder-difflin's own tokens.css dark theme, not invented; a
- * precise replication spec supersedes them when it lands. Every chrome color
- * must go through a var here — a raw `#hex` anywhere else in this file is a
- * value the eventual spec-driven edit won't reach. */
+@import './design/fonts.css';
+
+/* Design tokens (Phase 8 §2, finalized per user-approved design spec) —
+ * values here mirror design/tokens.ts, which stamps the same custom
+ * properties onto :root at boot (applyTokens(), called from main.tsx before
+ * the first render). This block is the fallback/default so the sheet never
+ * resolves to an unset var even for a single frame; tokens.ts is the single
+ * source of truth for the actual values — change both together. Values are
+ * munder-difflin's own shipped tokens.css dark theme (MIT, see
+ * ATTRIBUTION.md) — every chrome color routes through a var here; a raw
+ * `#hex` anywhere else in this file is a value this spec pass didn't reach. */
 :root {
   --bg: #17171b;
   --panel: #1d1d22;
   --panel-2: #26262c;
+  --bg-terminal: #1a1a1f;
+  --disabled: #313139;
   --line: #787684;
   --text: #dedbd6;
   --text-secondary: #b3b0ac;
   --muted: #96919f;
   --muted-dim: #3e3d46;
-  --accent: #6fb3c4; /* provisional: their system has no single primary accent; spec will settle this */
+  --accent: #e8b740; /* brand gold — "yellow Pokedex shell" */
+  --gold: #e8b740;
   --danger: #e08c82;
   --danger-border: #3b2724;
   --shiny: #cfaa57;
@@ -35,8 +36,13 @@
   --status-idle: #64acbb;
   --status-working: #d8b052;
   --status-blocked: #df8078;
-  --status-done: #6c6a76;
-  --status-starting: #6f6c77;
+  --status-done: #6fb88b;
+  --status-starting: #6c6c77;
+  --status-idle-bg: rgba(100, 172, 187, 0.2);
+  --status-working-bg: rgba(216, 176, 82, 0.2);
+  --status-blocked-bg: rgba(223, 128, 120, 0.2);
+  --status-done-bg: rgba(111, 184, 139, 0.2);
+  --status-starting-bg: rgba(108, 108, 119, 0.2);
 
   --space-0: 0px;
   --space-1: 4px;
@@ -48,29 +54,42 @@
   --space-7: 48px;
   --space-8: 64px;
 
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
+  /* 0 everywhere; 2px max for modals/corner clips — sharp reads as game UI. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 2px;
 
-  /* Hard offset, no blur — munder-difflin DESIGN.md §6.4. */
+  /* Hard offset, no blur — modals/toasts/dragging only, never static panels. */
   --shadow-hard: 4px 4px 0 rgba(0, 0, 0, 0.45);
 
-  --font-display-size: 13px;
-  --font-display-line: 18px;
-  --font-display-weight: 600;
-  --font-display-tracking: 0.04em;
-  --font-label-size: 10px;
-  --font-label-line: 12px;
-  --font-label-tracking: 0.06em;
-  --font-body-size: 13px;
-  --font-body-line: 18px;
-  --font-body-sm-size: 11px;
-  --font-body-sm-line: 15px;
-  --font-mono-size: 12px;
-  --font-mono-line: 17px;
+  /* Press Start 2P is CHROME-ONLY (titlebar, section/modal headers) — never
+   * terminal content, never body text. */
+  --font-display: 'Press Start 2P', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  font-family: ui-sans-serif, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 13px;
+  /* Type scale, px int only. No tracking anywhere (0) — a tracked Press
+   * Start 2P breaks its own pixel grid. */
+  --font-display-sm-size: 8px;
+  --font-display-sm-line: 12px;
+  --font-display-md-size: 12px;
+  --font-display-md-line: 20px;
+  --font-display-lg-size: 16px;
+  --font-display-lg-line: 24px;
+  --font-body-lg-size: 16px;
+  --font-body-lg-line: 24px;
+  --font-body-md-size: 14px;
+  --font-body-md-line: 20px;
+  --font-body-sm-size: 13px;
+  --font-body-sm-line: 18px;
+  --font-mono-md-size: 14px;
+  --font-mono-md-line: 20px;
+  --font-mono-sm-size: 13px;
+  --font-mono-sm-line: 18px;
+
+  font-family: var(--font-ui);
+  font-size: var(--font-body-md-size);
+  line-height: var(--font-body-md-line);
   color-scheme: dark;
 }
 
@@ -89,6 +108,10 @@ body {
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  /* Faint warm scanline grain — pure CSS, no image. Hardcoded rgba per the
+   * design spec (not tokenized: this is a fixed texture, not a themeable
+   * surface color). */
+  background-image: repeating-linear-gradient(45deg, rgba(232, 217, 160, 0.2) 0 1px, transparent 1px 6px);
 }
 
 .app {
@@ -115,11 +138,11 @@ body {
 }
 
 .brand {
-  font-size: var(--font-display-size);
-  line-height: var(--font-display-line);
-  font-weight: var(--font-display-weight);
-  letter-spacing: var(--font-display-tracking);
+  font-family: var(--font-display);
+  font-size: var(--font-display-md-size);
+  line-height: var(--font-display-md-line);
   color: var(--accent);
+  white-space: nowrap;
 }
 
 .spacer {
@@ -182,7 +205,7 @@ body {
   padding: 4px 2px;
   font-size: 9px;
   color: var(--muted);
-  background: var(--bg);
+  background: var(--bg-terminal);
 }
 
 .pokemon-option.chosen {
@@ -206,16 +229,9 @@ body {
 .pokemon-static-tag {
   font-style: normal;
   font-size: 7px;
-  letter-spacing: 0.02em;
   color: var(--muted);
   opacity: 0.75;
   line-height: 1;
-}
-
-.chip em {
-  font-style: normal;
-  font-size: 10px;
-  color: var(--muted);
 }
 
 /* Shiny badge (Phase 5 §4): the session chip and the picker's taken display
@@ -246,10 +262,24 @@ button:active {
   transform: translate(1px, 1px);
 }
 
-/* Provisional fill: their own PixelButton spec (light-theme "Primary: fill =
- * ink-900, text = cream-50") doesn't have a stated dark-mode equivalent —
- * using --accent as the fill with --bg text is a placeholder pending the
- * spec, not a considered design choice. */
+button:disabled {
+  background: var(--disabled);
+  border-color: var(--disabled);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+button:disabled:hover {
+  border-color: var(--disabled);
+}
+
+button:disabled:active {
+  transform: none;
+}
+
+/* Primary fill: dark text (--bg) on the brand-gold accent — gold is a light,
+ * saturated surface in this dark theme, so dark text is the readable pairing
+ * (munder-difflin's own --cth-on-accent uses the same logic). */
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -347,6 +377,7 @@ button.icon:active {
 }
 
 .drawer-meta .path {
+  font-family: var(--font-mono);
   color: var(--muted);
   flex: 1;
   overflow: hidden;
@@ -356,34 +387,56 @@ button.icon:active {
   text-align: left;
 }
 
+/* Status badge: 8px colored dot + 4px gap + lowercase body-sm text, on a
+ * background tinted to the status color at 20% opacity. Sentence case, no
+ * tracking — "working"/"needs you"/"done", not "WORKING". */
 .status {
-  text-transform: uppercase;
-  font-size: var(--font-label-size);
-  line-height: var(--font-label-line);
-  letter-spacing: var(--font-label-tracking);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-style: normal;
+  font-size: var(--font-body-sm-size);
+  line-height: var(--font-body-sm-line);
+  padding: 1px 6px 1px 5px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .status.working {
   color: var(--status-working);
+  background: var(--status-working-bg);
 }
 .status.blocked {
   color: var(--status-blocked);
+  background: var(--status-blocked-bg);
 }
 .status.done {
   color: var(--status-done);
+  background: var(--status-done-bg);
 }
 .status.idle {
   color: var(--status-idle);
+  background: var(--status-idle-bg);
 }
 .status.starting {
   color: var(--status-starting);
+  background: var(--status-starting-bg);
 }
 
 .terminal-mount {
   flex: 1;
   min-height: 0;
   padding: 4px;
-  background: var(--bg);
+  background: var(--bg-terminal);
 }
 
 .empty {
@@ -416,23 +469,25 @@ button.icon:active {
 
 .modal h2 {
   margin: 0;
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: var(--font-display-md-size);
+  line-height: var(--font-display-md-line);
 }
 
 .modal label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--font-body-sm-size);
   color: var(--muted);
 }
 
 .modal input,
 .modal select {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-body-md-size);
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-terminal);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 5px 8px;
@@ -523,8 +578,6 @@ button.icon:active {
 .mini-player-now-gen {
   color: var(--muted);
   font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .mini-player-transport {
@@ -544,7 +597,7 @@ button.icon:active {
   font: inherit;
   font-size: 11px;
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-terminal);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 4px 6px;
@@ -554,7 +607,7 @@ button.icon:active {
   font: inherit;
   font-size: 12px;
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-terminal);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 5px 8px;
@@ -565,7 +618,7 @@ button.icon:active {
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg);
+  background: var(--bg-terminal);
 }
 
 .mini-player-list-item {
@@ -669,12 +722,24 @@ button.icon:active {
   border-left: 3px solid var(--line);
   border-radius: var(--radius-md);
   width: 100%;
+  transform: translateY(0);
+  transition:
+    transform 90ms steps(2, end),
+    border-color 90ms steps(2, end);
 }
 
+.roster-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--text-secondary);
+}
+
+/* Selected ring sits OUTSIDE the border (spec: "2px ink ring outside
+ * border"), not inset — an inset ring on a 1px border reads as a double
+ * line, an outside ring reads as a distinct selection state. */
 .roster-card.selected {
   border-color: var(--accent);
   border-left-width: 3px;
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .roster-card-top {
@@ -702,7 +767,7 @@ button.icon:active {
 }
 
 .roster-card-name {
-  font-size: var(--font-body-size);
+  font-size: var(--font-body-md-size);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -773,7 +838,7 @@ button.icon:active {
   border-left: 1px solid var(--line);
   box-shadow: var(--shadow-hard);
   transform: translateX(100%);
-  transition: transform 200ms ease-out;
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
   z-index: 950;
 }
 
@@ -789,7 +854,9 @@ button.icon:active {
 
 .settings-head h2 {
   margin: 0;
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-size: var(--font-display-md-size);
+  line-height: var(--font-display-md-line);
 }
 
 .settings-section {
@@ -802,10 +869,9 @@ button.icon:active {
 
 .settings-section h3 {
   margin: 0;
-  font-size: var(--font-label-size);
-  line-height: var(--font-label-line);
-  letter-spacing: var(--font-label-tracking);
-  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
   color: var(--muted);
 }
 
@@ -829,4 +895,105 @@ button.icon:active {
 .settings-config-list dd {
   margin: 0;
   text-align: right;
+}
+
+/* Focus ring — instant, 2px outline at +2px offset (design spec §E). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Personality details (design spec §F) ────────────────────────────────── */
+
+/* Chunky pixel-feel scrollbars — munder-difflin global.css. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--muted-dim);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text);
+}
+
+/* Custom I-beam text cursor on inputs — a light outline + dark core reads on
+ * this app's dark surfaces everywhere the OS's own text cursor (which can
+ * render near-invisible on some platform/scheme combinations) would not.
+ * Data-URI colors are hardcoded hex (can't reference CSS custom properties
+ * inside a url()) but match --text/--bg. */
+input,
+textarea,
+[contenteditable='true'] {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='17' height='18'><g fill='none' stroke='%23dedbd6' stroke-width='4' stroke-linecap='round'><path d='M5 2.5h7M8.5 3v12M5 15.5h7'/></g><g fill='none' stroke='%2317171b' stroke-width='1.6' stroke-linecap='round'><path d='M5 2.5h7M8.5 3v12M5 15.5h7'/></g></svg>")
+    8 9,
+    text;
+}
+
+/* Tooltip bubble, shown via `data-tip="…"` + `className="tip"` on any
+ * element (icon-only buttons — see App.tsx/ViewModeSwitcher/QuickMute/
+ * SettingsPanel — where the glyph alone doesn't say what it does). Kept as
+ * its own system rather than the native `title` attribute so the delay,
+ * position, and styling are consistent and never doubled up with a native
+ * tooltip (the two are mutually exclusive per element: pick one). z-index
+ * above every other layer (toasts top out at 1000) — a tooltip that can be
+ * occluded by a toast defeats the point of showing one. */
+.tip {
+  position: relative;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  white-space: nowrap;
+  padding: 3px 7px 2px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--bg);
+  background: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease-out 400ms;
+  z-index: 1100;
+}
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1;
+}
+
+/* Keyframes — pixel-style: step-based, no easing. Signature micro-motion for
+ * anything that blinks/pulses in place (2-state, 500-1200ms). */
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes pulse {
+  0%,
+  49% {
+    transform: scale(1);
+  }
+  50%,
+  100% {
+    transform: scale(0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
 }

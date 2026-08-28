@@ -4,24 +4,16 @@
  * itself is untouched (Phase 8 §2): Pixi draws the world from its own art,
  * not from these.
  *
- * PROVISIONAL PALETTE. The color values below were an initial pass that
- * kept this app's pre-existing dark-GREEN identity (index.css's old
- * `:root` block) and only ported munder-difflin's *structure* (ramp shape,
- * space scale, type scale, panel border+shadow language). User feedback on
- * that pass: it doesn't look/feel like the munder-difflin inspiration, and
- * the green background specifically has to go — Pokemon flavor belongs in
- * CONTENT (sprites, accents, copy), not the chrome's background palette.
- *
- * This revision replaces every chrome color with values captured verbatim
- * from munder-difflin's own `design/tokens.css`, dark-theme block (MIT, see
- * ATTRIBUTION.md) — their real neutral ramp + accent hues, not invented
- * ones. It is STILL provisional: a dedicated research pass is producing an
- * exact replication spec (hexes/type/spacing/radii/motion) from their repo
- * + site, which supersedes this once it lands. Everything chrome-colored
- * routes through the CSS custom properties `applyTokens()` sets below (and
- * index.css's matching fallback block) specifically so that swap is a
- * token-file edit, not a re-skin — grep for a raw `#` in index.css before
- * adding new chrome CSS; if you find one, it isn't wired to this file yet.
+ * FINAL PALETTE — user-approved 2026-08-28 design-spec replication of
+ * munder-difflin's shipped `design/tokens.css` (dark theme, post-v0.3.4
+ * recalibration; MIT, see ATTRIBUTION.md). This supersedes the earlier
+ * provisional pass: the neutral ground/ink ramp and the six session accents
+ * were already captured verbatim and needed no change; the deltas are the
+ * primary accent (was a placeholder `sky` pick — now their brand gold),
+ * two new surface tones (terminal/input fill, disabled fill), two status
+ * hexes that had drifted from spec, sharpened radii, and a full type-scale
+ * rebuild for the three-font stack (Press Start 2P / Inter / JetBrains
+ * Mono — see fonts.css).
  *
  * Mirrored onto `:root` as CSS custom properties by `applyTokens()` (called
  * once from `main.tsx` at boot) so existing class-based CSS in `index.css`
@@ -38,11 +30,19 @@ export const ground = {
   0: '#17171B', // cream-50 (dark) — app background, garden letterbox
   100: '#1D1D22', // cream-100 (dark) — panel fill (titlebar, drawer, popovers)
   200: '#26262C', // cream-200 (dark) — raised/inset fill (chips, inputs, list rows)
-  300: '#787684' // ink-300 (dark) — hairline borders (NOT ink-100; see comment above)
+  300: '#787684', // ink-300 (dark) — hairline borders (NOT ink-100; see comment above)
+  /** Terminal + real-input fill — spec-added, distinct from the app ground:
+   *  `.terminal-mount`, form inputs and pickers sat on `ground[0]` before,
+   *  which is meant for the letterbox behind the garden, not a control's own
+   *  surface. Deliberately darker than `ground[100]`/`ground[200]` (chrome). */
+  terminal: '#1A1A1F',
+  /** Disabled control fill — spec-added; not yet consumed anywhere before
+   *  this pass (see `button:disabled` below). */
+  disabled: '#313139'
 } as const;
 
 /** Text ramp — munder-difflin `--cth-ink-*` dark theme. `900` primary text,
- *  `700` secondary, `500` tertiary/muted, `100` the quietest divider tone
+ *  `700` secondary, `500` tertiary/muted, `300` the quietest divider tone
  *  (their comment: "meant to recede," 1.4-1.7:1 contrast — not for text). */
 export const ink = {
   900: '#DEDBD6',
@@ -53,10 +53,8 @@ export const ink = {
 
 /** munder-difflin's six agent accents, dark-theme values — DESIGN.md §3.3.
  *  Distinct from `store.ts`'s `ACCENTS` (the Pixi walker-tint set, garden-
- *  side, untouched): these are for CHROME that wants a named hue (currently
- *  none of index.css's rules consume them directly — kept available for
- *  roster-card/tab accenting once the spec settles whether chrome should
- *  echo a session's tint at all). */
+ *  side, untouched): these are for CHROME that wants a named hue (roster-
+ *  card accent bars, session tabs). */
 export const accent = {
   coral: '#E08C82',
   mint: '#74C096',
@@ -66,20 +64,35 @@ export const accent = {
   peach: '#DFA57F'
 } as const;
 
-/** The app's primary accent (buttons, focus rings, brand mark). Provisional:
- *  munder-difflin's own system has no single "primary" — each agent gets one
- *  of the six accents above. `sky` is a placeholder pick pending the spec. */
-export const primaryAccent = accent.sky;
+/** Brand gold — "yellow Pokédex shell." The app's ONE primary accent
+ *  (buttons, focus rings, brand mark, active states). Distinct from the six
+ *  session accents above and from `shiny` below (different hue family,
+ *  same calm luminance band) — three near-identical yellows exist in this
+ *  palette on purpose (gold=brand, lemon=session #4, shiny=Pokemon-specific
+ *  star badge); keep them visually distinguishable in context, not merged. */
+export const gold = '#E8B740';
 
-/** Status semantics — munder-difflin `--cth-status-*` dark theme (DESIGN.md
- *  §3.4), mapped onto this app's five `SessionStatus` values by closest
- *  meaning (their set has more granularity than this app uses). */
+/** The app's primary accent. Was `accent.sky` (a placeholder pending the
+ *  spec); now the user-approved brand gold. */
+export const primaryAccent = gold;
+
+/** Status semantics — munder-difflin `--cth-status-*` dark theme, mapped
+ *  onto this app's five `SessionStatus` values by closest meaning (their set
+ *  has more granularity than this app uses): `starting` borrows their idle
+ *  grey, `idle` borrows their thinking blue (this app's old sky "breathing"
+ *  idle), `done` is their status-success green (NOT their status-ghost grey
+ *  — "done", not "success", per copy, but the color is the success one).
+ *
+ *  Note: `done` fires on plain PTY exit regardless of `exitCode` (see
+ *  terminalRegistry.ts) — a crashed session gets the same green badge as a
+ *  clean one. That's a pre-existing status-model gap, not something this
+ *  color pass changes; exit-code-aware coloring is out of scope here. */
 export const status = {
-  starting: '#6F6C77', // their status-idle — "at desk, awaiting"
-  idle: '#64ACBB', // their status-thinking — closest to this app's old sky "breathing" idle
+  starting: '#6C6C77', // their status-idle — "at desk, awaiting"
+  idle: '#64ACBB', // their status-thinking
   working: '#D8B052', // their status-working
   blocked: '#DF8078', // their status-blocked
-  done: '#6C6A76' // their status-ghost — "pane closed, fading out"
+  done: '#6FB88B' // their status-success
 } as const;
 
 export const danger = accent.coral;
@@ -87,10 +100,9 @@ export const danger = accent.coral;
  *  dark-theme value (a muted coral-brown), not a hand-picked dark red. */
 export const dangerBorder = '#3B2724';
 
-/** Gold used only for the shiny-Pokemon star badge — was accidentally the
- *  same literal hex as the old status-blocked color pre-Phase-8 (coincidence
- *  in the original file, not a deliberate shared token). Split out properly
- *  now that both route through named tokens. */
+/** Gold used only for the shiny-Pokemon star badge — a different named token
+ *  from `gold` above (the brand accent) even though both sit in the same
+ *  warm-yellow family; keep them distinguishable in context. */
 export const shiny = accent.lemon;
 
 /** 4px base grid. */
@@ -106,29 +118,56 @@ export const space = {
   8: 64
 } as const;
 
-/** Type scale, px. This app never switched fonts (system sans throughout),
- *  so this only fixes sizes/line-heights/weights into named steps. */
-export const type = {
-  display: { size: 13, line: 18, weight: 600, tracking: '0.04em' }, // brand mark, section titles
-  label: { size: 10, line: 12, weight: 600, tracking: '0.06em' }, // status/uppercase chips
-  body: { size: 13, line: 18, weight: 400, tracking: '0' },
-  bodySm: { size: 11, line: 15, weight: 400, tracking: '0' },
-  mono: { size: 12, line: 17, weight: 400, tracking: '0' }
+/** Font stacks. Press Start 2P is CHROME-ONLY (titlebar, section/modal
+ *  headers) — never terminal content, never body text (fonts.css bundles
+ *  all three; see that file's header for why they're self-hosted). */
+export const font = {
+  display: `'Press Start 2P', ui-monospace, SFMono-Regular, Menlo, monospace`,
+  ui: `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`,
+  mono: `'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace`
 } as const;
 
-/** Chunkier, less-rounded than the old ad hoc 6/8/10px radii — a step toward
- *  munder-difflin's "no floaty border-radius" without going all the way to
- *  0 (this app's inputs/lists still want a little softness at this size). */
+/** Type scale, px int only. Press Start 2P renders ONLY at the three display
+ *  sizes (8/12/16 — its pixel grid breaks at anything else); Inter/JetBrains
+ *  Mono are otherwise unconstrained but these are this app's chosen steps.
+ *  No per-step letter-spacing or weight: tracking is 0 everywhere (a tracked
+ *  Press Start 2P breaks its own pixel grid) and weight is 400 nearly
+ *  everywhere — emphasis comes from color, not bold. */
+export const type = {
+  displaySm: { size: 8, line: 12 },
+  displayMd: { size: 12, line: 20 },
+  displayLg: { size: 16, line: 24 },
+  bodyLg: { size: 16, line: 24 },
+  bodyMd: { size: 14, line: 20 }, // was 13/18
+  bodySm: { size: 13, line: 18 }, // was 11/15
+  monoMd: { size: 14, line: 20 },
+  monoSm: { size: 13, line: 18 }
+} as const;
+
+/** Border radius — spec: 0 everywhere, 2px max for modals/corner clips
+ *  (was 3/4/6). `lg` is consumed by exactly one rule (`.modal`); everything
+ *  else routes through `sm`/`md`, both now 0. */
 export const radius = {
-  sm: 3,
-  md: 4,
-  lg: 6
+  sm: 0,
+  md: 0,
+  lg: 2
 } as const;
 
 /** Hard offset shadow, no blur — DESIGN.md §6.4, their dark-theme value
- *  ("reads as depth, not void"). Replaces the old blurred
- *  `0 6px 18px rgba(...)` on popovers/modals/toasts. */
+ *  ("reads as depth, not void"). Modals/toasts/dragging only, never static
+ *  panels. */
 export const shadowHard = '4px 4px 0 rgba(0, 0, 0, 0.45)';
+
+/** Hex → `rgba(r, g, b, alpha)`, for status badge fills (20% opacity of the
+ *  status color, per spec's badge anatomy) — computed here rather than
+ *  hand-picked so the fill always tracks the status hex above. */
+function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 /** Convert the token modules above into a flat CSS custom-property map and
  *  stamp it onto `document.documentElement`, so `index.css`'s existing
@@ -139,12 +178,15 @@ export function applyTokens(): void {
   root.setProperty('--bg', ground[0]);
   root.setProperty('--panel', ground[100]);
   root.setProperty('--panel-2', ground[200]);
+  root.setProperty('--bg-terminal', ground.terminal);
+  root.setProperty('--disabled', ground.disabled);
   root.setProperty('--line', ground[300]);
   root.setProperty('--text', ink[900]);
   root.setProperty('--text-secondary', ink[700]);
   root.setProperty('--muted', ink[500]);
   root.setProperty('--muted-dim', ink[300]);
   root.setProperty('--accent', primaryAccent);
+  root.setProperty('--gold', gold);
   root.setProperty('--danger', danger);
   root.setProperty('--danger-border', dangerBorder);
   root.setProperty('--shiny', shiny);
@@ -161,6 +203,11 @@ export function applyTokens(): void {
   root.setProperty('--status-blocked', status.blocked);
   root.setProperty('--status-done', status.done);
   root.setProperty('--status-starting', status.starting);
+  root.setProperty('--status-idle-bg', hexToRgba(status.idle, 0.2));
+  root.setProperty('--status-working-bg', hexToRgba(status.working, 0.2));
+  root.setProperty('--status-blocked-bg', hexToRgba(status.blocked, 0.2));
+  root.setProperty('--status-done-bg', hexToRgba(status.done, 0.2));
+  root.setProperty('--status-starting-bg', hexToRgba(status.starting, 0.2));
 
   for (const [k, v] of Object.entries(space)) root.setProperty(`--space-${k}`, `${v}px`);
 
@@ -170,19 +217,26 @@ export function applyTokens(): void {
 
   root.setProperty('--shadow-hard', shadowHard);
 
-  root.setProperty('--font-display-size', `${type.display.size}px`);
-  root.setProperty('--font-display-line', `${type.display.line}px`);
-  root.setProperty('--font-display-weight', `${type.display.weight}`);
-  root.setProperty('--font-display-tracking', type.display.tracking);
-  root.setProperty('--font-label-size', `${type.label.size}px`);
-  root.setProperty('--font-label-line', `${type.label.line}px`);
-  root.setProperty('--font-label-tracking', type.label.tracking);
-  root.setProperty('--font-body-size', `${type.body.size}px`);
-  root.setProperty('--font-body-line', `${type.body.line}px`);
+  root.setProperty('--font-display', font.display);
+  root.setProperty('--font-ui', font.ui);
+  root.setProperty('--font-mono', font.mono);
+
+  root.setProperty('--font-display-sm-size', `${type.displaySm.size}px`);
+  root.setProperty('--font-display-sm-line', `${type.displaySm.line}px`);
+  root.setProperty('--font-display-md-size', `${type.displayMd.size}px`);
+  root.setProperty('--font-display-md-line', `${type.displayMd.line}px`);
+  root.setProperty('--font-display-lg-size', `${type.displayLg.size}px`);
+  root.setProperty('--font-display-lg-line', `${type.displayLg.line}px`);
+  root.setProperty('--font-body-lg-size', `${type.bodyLg.size}px`);
+  root.setProperty('--font-body-lg-line', `${type.bodyLg.line}px`);
+  root.setProperty('--font-body-md-size', `${type.bodyMd.size}px`);
+  root.setProperty('--font-body-md-line', `${type.bodyMd.line}px`);
   root.setProperty('--font-body-sm-size', `${type.bodySm.size}px`);
   root.setProperty('--font-body-sm-line', `${type.bodySm.line}px`);
-  root.setProperty('--font-mono-size', `${type.mono.size}px`);
-  root.setProperty('--font-mono-line', `${type.mono.line}px`);
+  root.setProperty('--font-mono-md-size', `${type.monoMd.size}px`);
+  root.setProperty('--font-mono-md-line', `${type.monoMd.line}px`);
+  root.setProperty('--font-mono-sm-size', `${type.monoSm.size}px`);
+  root.setProperty('--font-mono-sm-line', `${type.monoSm.line}px`);
 }
 
 /** Hex → 0xRRGGBB, for the handful of chrome call sites (roster card accent

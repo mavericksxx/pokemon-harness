@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '@/store/store';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { stopSession } from '@/sessions';
+import { statusLabel } from '@/design/statusLabel';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget). */
@@ -55,7 +56,7 @@ export function TerminalDrawer(): JSX.Element | null {
             ))}
           </div>
           {viewMode === 'garden' && (
-            <button className="icon" title="Hide terminal" onClick={() => setDrawerOpen(false)}>
+            <button className="icon tip" data-tip="Hide terminal" onClick={() => setDrawerOpen(false)}>
               ×
             </button>
           )}
@@ -65,7 +66,7 @@ export function TerminalDrawer(): JSX.Element | null {
       {session ? (
         <>
           <div className="drawer-meta">
-            <span className={`status ${session.status}`}>{session.status}</span>
+            <span className={`status ${session.status}`}>{statusLabel(session.status)}</span>
             <span className="path" title={session.cwd}>
               {session.cwd}
             </span>
@@ -77,7 +78,7 @@ export function TerminalDrawer(): JSX.Element | null {
           <div className="terminal-mount" ref={mountRef} />
         </>
       ) : (
-        <p className="empty">No session selected.</p>
+        <p className="empty">Pick a session to see what's happening.</p>
       )}
     </aside>
   );

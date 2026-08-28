@@ -78,7 +78,7 @@ export function SettingsPanel(): JSX.Element {
       <aside className={open ? 'settings-panel open' : 'settings-panel'} aria-hidden={!open}>
         <header className="settings-head">
           <h2>Settings</h2>
-          <button className="icon" title="Close" aria-label="Close settings" onClick={() => setOpen(false)}>
+          <button className="icon tip" data-tip="Close" aria-label="Close settings" onClick={() => setOpen(false)}>
             ×
           </button>
         </header>
@@ -115,7 +115,7 @@ export function SettingsPanel(): JSX.Element {
             <div className="mini-player" data-testid="mini-player">
               <div className="mini-player-now">
                 <div className="mini-player-now-title" title={nowPlaying.title || undefined}>
-                  {trackLoading ? 'Loading…' : nowPlaying.title || 'Nothing playing'}
+                  {trackLoading ? 'One sec…' : nowPlaying.title || 'Nothing playing'}
                 </div>
                 {!trackLoading && nowPlayingGenLabel && (
                   <div className="mini-player-now-gen">{nowPlayingGenLabel}</div>
@@ -123,18 +123,18 @@ export function SettingsPanel(): JSX.Element {
               </div>
 
               <div className="mini-player-transport">
-                <button className="icon" title="Previous track" aria-label="Previous track" onClick={playerPrev}>
+                <button className="icon tip" data-tip="Previous track" aria-label="Previous track" onClick={playerPrev}>
                   ⏮
                 </button>
                 <button
-                  className="icon"
-                  title={settings.musicPaused ? 'Play' : 'Pause'}
+                  className="icon tip"
+                  data-tip={settings.musicPaused ? 'Play' : 'Pause'}
                   aria-label={settings.musicPaused ? 'Play' : 'Pause'}
                   onClick={playerTogglePause}
                 >
                   {settings.musicPaused ? '▶' : '⏸'}
                 </button>
-                <button className="icon" title="Next track" aria-label="Next track" onClick={playerNext}>
+                <button className="icon tip" data-tip="Next track" aria-label="Next track" onClick={playerNext}>
                   ⏭
                 </button>
               </div>

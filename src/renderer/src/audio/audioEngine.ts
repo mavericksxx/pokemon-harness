@@ -265,7 +265,7 @@ async function playCatalogTrack(id: string): Promise<void> {
   if (currentMusicMode !== 'player') {
     // Superseded by a battle/ceremony takeover while this fetch was in
     // flight — that path owns nowPlaying now, but trackLoading is cleared
-    // unconditionally above so the label doesn't get stuck on "Loading…".
+    // unconditionally above so the label doesn't get stuck on "One sec…".
     return;
   }
 

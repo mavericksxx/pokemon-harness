@@ -95,10 +95,20 @@ async function boot(): Promise<void> {
     startRegistrySync();
     startCompletionToasts();
 
+    // xterm measures glyph width once at `term.open()` and never re-measures
+    // on a later font swap, so JetBrains Mono must be ready before any
+    // restored session's terminal can attach (TerminalDrawer's effect, which
+    // fires right after this function's `render()` below). Bundled locally
+    // (fonts.css) — resolves near-instantly, but "near-instant" is still not
+    // "before". Fired in parallel with the IPC round-trips below, awaited
+    // just after.
+    const fontsReady = document.fonts.load(`14px "JetBrains Mono"`);
+
     const [crashInfo, { sessions: restored, selectedId }] = await Promise.all([
       window.api.getCrashInfo(),
       window.api.restoreSessions()
     ]);
+    await fontsReady;
 
     if (restored.length > 0) {
       for (const { session, replay } of restored) createTerminal(session.id, replay);

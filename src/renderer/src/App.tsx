@@ -12,6 +12,7 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
+import { statusLabel } from '@/design/statusLabel';
 
 /** Cmd/Ctrl+1..4 → the four Phase 8 §1 view modes, matching ViewModeSwitcher's
  *  order. Bound globally (not per-input) — none of the app's text inputs use
@@ -65,7 +66,7 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">pokemon-harness</span>
+        <span className="brand">Pokemon Harness</span>
         <button className="primary" onClick={() => setDialogOpen(true)}>
           + New Session
         </button>
@@ -84,7 +85,7 @@ export function App(): JSX.Element {
                 </span>
               )}
               {s.title}
-              <em className={`status ${s.status}`}>{s.status}</em>
+              <em className={`status ${s.status}`}>{statusLabel(s.status)}</em>
             </button>
           ))}
         </nav>
@@ -94,7 +95,7 @@ export function App(): JSX.Element {
         </button>
         <ViewModeSwitcher />
         <QuickMute />
-        <button title="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        <button className="tip" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>
         {viewMode === 'garden' && (
