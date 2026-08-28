@@ -32,6 +32,13 @@ export interface AppSettings {
    *  Changing this points FUTURE writes at the new folder; it never moves
    *  anything already on disk at the old one. */
   harnessHomeDir: string | null;
+  /** In-app provider usage-limits panel (BACKLOG "next up" item 1) — opt-in,
+   *  OFF by default. Only while true does main/usageService.ts read the
+   *  CLI's own stored credential and call its usage endpoint; flipping this
+   *  off tears the service down immediately (zero credential access while
+   *  off — see that file's `setEnabled`). Read-only carve-out: never stored,
+   *  refreshed, or sent anywhere but the documented usage endpoint. */
+  usageLimitsEnabled: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -39,5 +46,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoModeByProvider: {},
   keepAwake: false,
   recentFolders: [],
-  harnessHomeDir: null
+  harnessHomeDir: null,
+  usageLimitsEnabled: false
 };

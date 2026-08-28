@@ -220,6 +220,23 @@ export function SessionsIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Usage-limits topbar chip (BACKLOG "next up" item 1) — a small gauge/
+ *  battery pictogram (outlined cell + a partial fill + a nub), the standard
+ *  "level meter" silhouette, matching the roster card's own HP-style bars
+ *  this panel's popover draws. */
+export function GaugeIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="2" y="5" width="11" height="1" />
+      <rect x="2" y="10" width="11" height="1" />
+      <rect x="2" y="5" width="1" height="6" />
+      <rect x="12" y="5" width="1" height="6" />
+      <rect x="13" y="7" width="2" height="2" />
+      <rect x="4" y="7" width="5" height="2" />
+    </PixelIcon>
+  );
+}
+
 /** Topbar theme toggle's "switch to light mode" state — a crescent, drawn as
  *  one filled blob with a second, offset blob's cells left out (rather than
  *  painted over) to cut the sliver. */

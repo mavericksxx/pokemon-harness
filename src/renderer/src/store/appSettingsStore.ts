@@ -27,6 +27,11 @@ interface AppSettingsState {
   setTheme(mode: ThemeMode): void;
   setAutoMode(provider: AgentProviderId, enabled: boolean): void;
   setKeepAwake(v: boolean): void;
+  /** In-app provider usage-limits panel (BACKLOG "next up" item 1) — opt-in
+   *  toggle, off by default. Persisted the same way every other field here
+   *  is; main's `appSettings:saveSettings` handler is what actually starts/
+   *  tears down usageService.ts's polling off this value. */
+  setUsageLimitsEnabled(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -77,6 +82,12 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
 
   setKeepAwake: (v) => {
     const settings = { ...get().settings, keepAwake: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setUsageLimitsEnabled: (v) => {
+    const settings = { ...get().settings, usageLimitsEnabled: v };
     set({ settings });
     persist(settings);
   },

@@ -34,6 +34,7 @@ const AUTO_MODE_PROVIDERS = PROVIDER_LIST.filter((p) => p.autoModeArgs);
 const SECTIONS = [
   { id: 'appearance', label: 'appearance' },
   { id: 'automation', label: 'automation' },
+  { id: 'usage', label: 'usage' },
   { id: 'harness-home', label: 'harness home' },
   { id: 'arceus', label: 'arceus' },
   { id: 'sound', label: 'sound' },
@@ -78,6 +79,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setTheme = useAppSettingsStore((s) => s.setTheme);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -242,6 +244,24 @@ export function SettingsPanel(): JSX.Element | null {
                     </span>
                   </label>
                 </>
+              )}
+
+              {activeSection === 'usage' && (
+                <label className="settings-row">
+                  <input
+                    type="checkbox"
+                    checked={appSettings.usageLimitsEnabled}
+                    onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
+                  />
+                  <span className="settings-row-text">
+                    <span className="settings-row-label">show provider usage limits</span>
+                    <span className="settings-row-hint">
+                      reads the credential your CLI already stores to ask its usage endpoint. read-only — never
+                      stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
+                      trigger a one-time macOS permission prompt.
+                    </span>
+                  </span>
+                </label>
               )}
 
               {activeSection === 'harness-home' && (

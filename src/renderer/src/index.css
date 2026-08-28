@@ -1318,6 +1318,174 @@ button.icon:active {
   box-shadow: var(--shadow-hard);
 }
 
+/* ── Usage-limits chip + "trainer card" popover (BACKLOG "next up" item 1,
+ * UsageChip.tsx) ─────────────────────────────────────────────────────────
+ * Same anchored-popover shape as `.audio-popover` above (transparent
+ * full-screen catcher, right-anchored panel, `--shadow-hard`) — this block
+ * only adds what's NEW: the chip's own icon+text layout and tone colors,
+ * and the popover's provider sections / pixel HP-style bars. */
+.usage-popover {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.usage-popover-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+.usage-popover-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+}
+
+.usage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: var(--font-body-sm-size);
+  color: var(--gold);
+  background: none;
+  border: 1px solid transparent;
+}
+
+.usage-chip-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-chip--warn {
+  color: var(--status-working);
+}
+
+.usage-chip--danger {
+  color: var(--status-blocked);
+}
+
+.usage-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usage-provider + .usage-provider {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.usage-provider-head {
+  font-size: var(--font-body-sm-size);
+  color: var(--text);
+}
+
+.usage-window {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.usage-window-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+}
+
+.usage-window-label {
+  text-transform: lowercase;
+}
+
+.usage-window-pct {
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  color: var(--text);
+}
+
+/* Pixel HP-style bar — hard edges, 0-2px radius, charcoal ground fill,
+ * matching `.roster-card-gauge` (AgentRosterCard.tsx) but taller: this is
+ * the panel's own focal gauge, not a thin accent flush against a card edge. */
+.usage-bar {
+  height: 8px;
+  background: var(--bg-terminal);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.usage-bar-fill {
+  height: 100%;
+  background: var(--gold);
+  transition: width 400ms steps(2, end);
+}
+
+.usage-bar-fill--warn {
+  background: var(--status-working);
+}
+
+.usage-bar-fill--danger {
+  background: var(--status-blocked);
+}
+
+.usage-window-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Distinct, actionable per-provider error states (CodexBar parity) — never
+ * one generic message. 'unauthorized' (a locally-valid token the endpoint
+ * itself rejected) gets the same red/danger tone the rest of the chrome
+ * uses for a blocked state; 'expired' (never even attempted — see
+ * usageService.ts) is a milder amber "needs you" tone; a plain fetch/schema
+ * error is muted, matching the task spec's own "muted row" for it;
+ * 'stale' (a 429 gate showing last-known-good data) is muted + italic, a
+ * quiet freshness caveat rather than an error. */
+.usage-row-message {
+  margin: 0;
+  font-size: var(--font-body-sm-size);
+}
+
+.usage-row-message--muted {
+  color: var(--muted);
+}
+
+.usage-row-message--warn {
+  color: var(--status-working);
+}
+
+.usage-row-message--danger {
+  color: var(--status-blocked);
+}
+
+.usage-row-message--stale {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.usage-cost-strip {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+}
+
 /* ── Mini-player ─────────────────────────────────────────────────────────── */
 .mini-player {
   display: flex;
