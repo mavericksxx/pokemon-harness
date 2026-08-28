@@ -35,15 +35,25 @@ import {
 
 /** Env var the shim reads to find the UDS to dial. */
 export const HOOK_SOCK_ENV = 'POKE_HOOK_SOCK';
-/** Env var the shim stamps onto every payload as `agent_id`. */
+/** Env var the shim stamps onto every payload as `harness_agent_id`. */
 export const AGENT_ID_ENV = 'AGENT_ID';
 
 const SHIM_FILENAME = 'cth-hook.cjs';
 
-/** The generated shim script. Deliberately dumb: read stdin, add agent_id
- *  from env, forward to the socket, print whatever comes back (Claude expects
- *  hook stdout to be either empty or a JSON hookSpecificOutput blob), exit.
- *  Never blocks longer than a few seconds even if the app is gone. */
+/** The generated shim script. Deliberately dumb: read stdin, add
+ *  harness_agent_id from env, forward to the socket, print whatever comes
+ *  back (Claude expects hook stdout to be either empty or a JSON
+ *  hookSpecificOutput blob), exit. Never blocks longer than a few seconds
+ *  even if the app is gone.
+ *
+ *  Stamped field is `harness_agent_id`, NOT `agent_id`: confirmed via a live
+ *  claude session that Claude Code's own hook payloads for a subagent's
+ *  (Task tool) tool calls and its SubagentStop already carry a top-level
+ *  `agent_id` (+ `agent_type`) identifying the CLI's *internal* subagent —
+ *  unrelated to this app's session id. Stamping into `agent_id` collided
+ *  with that and misrouted every subagent-scoped event to a channel the
+ *  renderer never subscribes to (see HookBridge.handle below). Always
+ *  overwritten, never guarded — this field name is ours alone. */
 const HOOK_SHIM = `#!/usr/bin/env node
 'use strict';
 const net = require('net');
@@ -53,7 +63,7 @@ process.stdin.on('data', (d) => { data += d; });
 process.stdin.on('end', () => {
   let payload = {};
   try { payload = JSON.parse(data || '{}'); } catch (_) {}
-  if (!payload.agent_id) payload.agent_id = process.env.${AGENT_ID_ENV} || null;
+  payload.harness_agent_id = process.env.${AGENT_ID_ENV} || null;
   const sock = process.env.${HOOK_SOCK_ENV};
   if (!sock) { process.exit(0); }
   let resp = '';
@@ -209,7 +219,7 @@ export class HookBridge {
   }
 
   private handle(p: HookPayload): unknown {
-    const agentId = p.agent_id ?? undefined;
+    const agentId = p.harness_agent_id ?? undefined;
     const eventName = p.hook_event_name ?? 'Unknown';
     if (!agentId) return {}; // no session to route to — drop silently
     if (!isKnownHookEvent(eventName)) return {};

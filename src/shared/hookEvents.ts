@@ -18,10 +18,15 @@ export type HookEventName =
   | 'SubagentStop';
 
 /** Raw JSON the generated shim forwards over the socket — one line, Claude's
- *  own hook payload shape plus the `agent_id` the shim stamps from env. */
+ *  own hook payload shape plus the `harness_agent_id` the shim stamps from
+ *  env. Deliberately not named `agent_id`: Claude's own hook payloads for a
+ *  subagent's (Task tool) tool calls and SubagentStop already carry a
+ *  top-level `agent_id` (+ `agent_type`) identifying its *internal* subagent,
+ *  unrelated to this app's session id — confirmed live, and it collided when
+ *  the shim used that same key. */
 export interface HookPayload {
   hook_event_name?: string;
-  agent_id?: string | null;
+  harness_agent_id?: string | null;
   session_id?: string;
   tool_name?: string;
   tool_input?: unknown;
