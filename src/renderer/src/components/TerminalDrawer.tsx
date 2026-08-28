@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
+import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { stopSession } from '@/sessions';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
- *  mounted at a time — see terminalRegistry for why (WebGL context budget). */
+ *  mounted at a time — see terminalRegistry for why (WebGL context budget).
+ *
+ *  The tab strip (`.drawer-tabs`) is scoped to the ACTIVE workspace's
+ *  sessions (Phase 8.7); the currently-open terminal itself is looked up
+ *  against the FULL session list below (`allSessions`) rather than the
+ *  scoped one, so a `selectedId` that's momentarily out of sync with the
+ *  active workspace (there shouldn't be one — the workspace switch itself
+ *  re-points selection — but this is the cheap belt-and-braces read) still
+ *  resolves instead of silently rendering the empty state. */
 export function TerminalDrawer(): JSX.Element | null {
-  const sessions = useStore((s) => s.sessions);
+  const allSessions = useStore((s) => s.sessions);
+  const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const drawerOpenPref = useStore((s) => s.drawerOpen);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
@@ -58,7 +68,7 @@ export function TerminalDrawer(): JSX.Element | null {
 
   if (!open) return null;
 
-  const session = sessions.find((s) => s.id === selectedId);
+  const session = allSessions.find((s) => s.id === selectedId);
 
   return (
     <aside className={wide ? 'drawer drawer-wide' : 'drawer'}>

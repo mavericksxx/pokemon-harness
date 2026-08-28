@@ -174,6 +174,117 @@ body {
   box-shadow: inset 0 0 0 1px var(--text-secondary);
 }
 
+/* ── Workspace switcher (Phase 8.7) ──────────────────────────────────────── */
+.workspace-switcher {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.workspace-switcher-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.workspace-switcher-caret {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* Transparent full-screen click-catcher — closes the menu on any outside
+ * click without a portal/ref-tracking dance (same trick `.modal-backdrop`
+ * uses, just invisible). */
+.workspace-switcher-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+.workspace-switcher-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+}
+
+.workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.workspace-row.active .workspace-row-name {
+  color: var(--accent);
+}
+
+.workspace-row-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 5px 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-row-name:hover {
+  background: var(--panel-2);
+}
+
+.workspace-row-shortcut {
+  flex: none;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.workspace-row-rename {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-body-md-size);
+}
+
+.workspace-row-action {
+  flex: none;
+  font-size: 13px;
+  padding: 2px 5px;
+}
+
+.workspace-switcher-new {
+  margin-top: 4px;
+  text-align: left;
+  color: var(--muted);
+  background: none;
+  border: 1px dashed var(--line);
+}
+
+.workspace-switcher-new:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
 /* ── Pokemon faces (a cropped frame of the walk sheet) ───────────────────── */
 .pokemon-face {
   display: inline-block;
@@ -1208,6 +1319,24 @@ button.icon:active {
 .settings-config-list dd {
   margin: 0;
   text-align: right;
+}
+
+/* ── Harness home directory (Phase 8.7) ──────────────────────────────────── */
+.harness-home-row {
+  display: flex;
+  gap: 6px;
+}
+
+.harness-home-row input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+  background: var(--bg-terminal);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 5px 8px;
 }
 
 /* Focus ring — instant, 2px outline at +2px offset (design spec §E). */

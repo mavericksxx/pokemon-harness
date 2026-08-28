@@ -25,6 +25,7 @@ import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
 import { useStore, type Session } from '@/store/store';
+import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 
@@ -347,9 +348,24 @@ export function GardenScene(): JSX.Element {
       };
 
       /** Reconcile walkers with the session list — the single place the store
-       *  drives the garden. */
+       *  drives the garden.
+       *
+       *  Workspaces (Phase 8.7): `runtimes` stays keyed off the FULL,
+       *  cross-workspace session list on purpose — a session's walker is
+       *  only ever created on first appearance and destroyed on actual
+       *  removal, never on a workspace switch (spec: "keep switch cost low
+       *  by letting Runtime/walker objects for inactive workspaces persist
+       *  off-stage rather than being destroyed/rebuilt each switch"). Only
+       *  visibility (this loop) and evolution-triggering (the ticker's 1Hz
+       *  block, below) are scoped to the active workspace; everything else
+       *  — status/tool reconcile, station targeting — is skipped outright
+       *  for a hidden session (nothing to gain by pathing an invisible
+       *  walker) and picks back up on the very next reconcile once its
+       *  workspace becomes active again (this function is also subscribed
+       *  to the workspace store, below, so a switch itself triggers one). */
       const applyState = (): void => {
         const { sessions, selectedId } = useStore.getState();
+        const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
         const live = new Set(sessions.map((s) => s.id));
         for (const id of [...runtimes.keys()]) if (!live.has(id)) removeWalker(id);
 
@@ -372,7 +388,26 @@ export function GardenScene(): JSX.Element {
         for (const session of sessions) {
           const rt = runtimes.get(session.id) ?? addWalker(session);
           const { walker } = rt;
+          // Kept in sync regardless of workspace visibility (below) — the
+          // ticker's 1Hz workedMs accumulator (`rt.status === 'working'`)
+          // reads this, and background sessions keep "working" the same as
+          // a foreground one (Phase 8.7: work — and hence evolution
+          // progress — doesn't pause just because you switched gardens).
           rt.status = session.status;
+
+          // Workspace visibility (Phase 8.7) — a session's walker AND its
+          // battle visuals (BattleManager.setVisible; see that method's own
+          // comment for why it's a separate call, not automatic) go dark
+          // together the moment its workspace isn't the active one. Applied
+          // before the early-continue below so a battle that's mid-fight
+          // when its workspace goes inactive is hidden on the very next
+          // reconcile, not left showing until something else changes it.
+          const inActiveWorkspace = sessionWorkspaceId(session) === activeWorkspaceId;
+          walker.container.visible = inActiveWorkspace;
+          walker.bubbleContainer.visible = inActiveWorkspace;
+          battleManager.setVisible(session.id, inActiveWorkspace);
+          if (!inActiveWorkspace) continue;
+
           walker.setSelected(session.id === selectedId);
           // Phase 8.5 #3: `looping` is a flag orthogonal to `status` (see
           // loopDetector.ts's header) — reusing the existing name label for
@@ -433,6 +468,13 @@ export function GardenScene(): JSX.Element {
       };
 
       const unsubscribe = useStore.subscribe(applyState);
+      // Workspace switches (Phase 8.7) don't touch the session store at all
+      // — subscribing here too is what makes a switch itself re-run the
+      // visibility pass (and the full per-session reconcile for whichever
+      // workspace just became active, catching it up on anything that
+      // changed while it was hidden) instead of waiting for the next
+      // unrelated session-store change.
+      const unsubscribeWorkspace = useWorkspaceStore.subscribe(applyState);
       applyState();
 
       // Evolution's threshold check needs accumulated working-ms, which only
@@ -457,6 +499,17 @@ export function GardenScene(): JSX.Element {
         if (flushAccum >= 1) {
           flushAccum = 0;
           const cfg = evolutionConfig();
+          // Workspaces (Phase 8.7): workedMs keeps accumulating for EVERY
+          // session regardless of workspace (below) — a background session
+          // is still doing real work. Only the CEREMONY (triggerEvolve) is
+          // gated on the active workspace: it reparents the walker into the
+          // shared evolutionCeremonyLayer and lights the shared dim/flash
+          // layers, which aren't workspace-scoped, so starting one for a
+          // hidden session would flash the ACTIVE garden. Deferring is
+          // free — `workedMs` stays past the threshold, so this same check
+          // fires it on the very next 1Hz tick after the workspace becomes
+          // active again, no separate "catch up" path needed.
+          const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
           for (const session of useStore.getState().sessions) {
             const rt = runtimes.get(session.id);
             if (!rt || rt.workAccumMs <= 0) continue;
@@ -464,6 +517,7 @@ export function GardenScene(): JSX.Element {
             rt.workAccumMs = 0;
             useStore.getState().updateSession(session.id, { workedMs });
 
+            if (sessionWorkspaceId(session) !== activeWorkspaceId) continue;
             // A battle mid-attack retries next tick — the evolution ceremony
             // waits for the current attack beat to finish, then takes over
             // (it's already exclusive), and the battle resumes after.
@@ -502,6 +556,7 @@ export function GardenScene(): JSX.Element {
       cleanup = (): void => {
         ro.disconnect();
         unsubscribe();
+        unsubscribeWorkspace();
         offRitual();
         for (const id of [...runtimes.keys()]) removeWalker(id);
         battleManager.dispose();

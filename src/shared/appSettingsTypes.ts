@@ -25,11 +25,19 @@ export interface AppSettings {
   /** Most-recently-used working directories, newest first, deduped, capped
    *  at MAX_RECENT_FOLDERS (item 6). */
   recentFolders: string[];
+  /** Harness home directory override (Phase 8.7) — the user-visible folder
+   *  holding `workspaces.json` and `agents/` (see main/harnessHome.ts). Null
+   *  means "use the default" (`~/PokemonHarness`) — only main can resolve
+   *  that (needs `os.homedir()`), so the default itself isn't stored here.
+   *  Changing this points FUTURE writes at the new folder; it never moves
+   *  anything already on disk at the old one. */
+  harnessHomeDir: string | null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'system',
   autoModeByProvider: {},
   keepAwake: false,
-  recentFolders: []
+  recentFolders: [],
+  harnessHomeDir: null
 };

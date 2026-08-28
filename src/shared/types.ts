@@ -141,6 +141,13 @@ export interface SessionRecord {
    *  the gauge's own "don't render" signal — no separate provider check
    *  needed in AgentRosterCard. */
   cost?: SessionCostUpdate;
+  /** Which workspace (shared/workspaceTypes.ts) this session belongs to
+   *  (Phase 8.7) — additive and optional so pre-8.7 persisted sessions
+   *  migrate for free: absent means the implicit `DEFAULT_WORKSPACE_ID`.
+   *  Stamped once at creation (renderer's `startSession`) or restore
+   *  (main's `restoreFromDisk`) and never changes after — there's no "move
+   *  session to another workspace" feature this phase. */
+  workspaceId?: string;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

@@ -17,6 +17,7 @@ import type { AudioSettings } from '../shared/audioTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
+import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/workspaceTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -124,8 +125,24 @@ const api = {
   // ─── General app settings (parity sweep: theme, auto-permission mode,
   // keep-awake, recent folders) — same get/save shape as audio settings above.
   getAppSettings: (): Promise<AppSettings> => ipcRenderer.invoke('appSettings:getSettings'),
-  saveAppSettings: (settings: AppSettings): Promise<void> =>
+  /** Resolves to the (possibly just-changed) harness home directory — see
+   *  main/index.ts's `appSettings:saveSettings` handler and harnessHome.ts. */
+  saveAppSettings: (settings: AppSettings): Promise<string> =>
     ipcRenderer.invoke('appSettings:saveSettings', settings),
+
+  // ─── Harness home directory (Phase 8.7) ────────────────────────────────
+  getHarnessHomePath: (): Promise<string> => ipcRenderer.invoke('harnessHome:getResolvedPath'),
+
+  // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────
+  listWorkspaces: (): Promise<WorkspaceSnapshot> => ipcRenderer.invoke('workspaces:list'),
+  createWorkspace: (name: string, primaryFolder: string): Promise<WorkspaceMutationResult> =>
+    ipcRenderer.invoke('workspaces:create', name, primaryFolder),
+  renameWorkspace: (id: string, name: string): Promise<WorkspaceMutationResult> =>
+    ipcRenderer.invoke('workspaces:rename', id, name),
+  setActiveWorkspace: (id: string): Promise<WorkspaceMutationResult> =>
+    ipcRenderer.invoke('workspaces:setActive', id),
+  deleteWorkspace: (id: string): Promise<WorkspaceMutationResult> =>
+    ipcRenderer.invoke('workspaces:delete', id),
 
   // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────
   /** Fires when main prevented a close/quit because sessions are still live

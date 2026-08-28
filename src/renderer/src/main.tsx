@@ -20,6 +20,7 @@ import {
 import { useAudioStore } from './audio/audioStore';
 import { useTerminalSettingsStore } from './terminal/terminalSettingsStore';
 import { useAppSettingsStore } from './store/appSettingsStore';
+import { useWorkspaceStore } from './store/workspaceStore';
 import { applyTheme } from './design/tokens';
 import { resolveEffectiveTheme, watchSystemTheme } from './design/theme';
 import { startQuitInterceptListener } from './closingTime';
@@ -122,23 +123,34 @@ async function boot(): Promise<void> {
     // just after.
     const fontsReady = document.fonts.load(`14px "JetBrains Mono"`);
 
-    const [crashInfo, { sessions: restored, selectedId }, diskRestoreInfo, appSettings] = await Promise.all([
-      window.api.getCrashInfo(),
-      window.api.restoreSessions(),
-      // Non-null exactly once, on the launch that respawned disk-persisted
-      // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
-      // a same-process renderer reload; this is a fresh app launch).
-      window.api.getDiskRestoreInfo(),
-      // Parity sweep: theme / auto-permission-mode / keep-awake / recent
-      // folders. Resolved and applied BEFORE the first render (below) so
-      // nothing paints with the dark default for a light-theme user — same
-      // rationale main's own window `backgroundColor` pre-paint fix follows
-      // (main/index.ts's `resolveWindowBg`).
-      window.api.getAppSettings()
-    ]);
+    const [crashInfo, { sessions: restored, selectedId }, diskRestoreInfo, appSettings, harnessHomePath, workspaceSnapshot] =
+      await Promise.all([
+        window.api.getCrashInfo(),
+        window.api.restoreSessions(),
+        // Non-null exactly once, on the launch that respawned disk-persisted
+        // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
+        // a same-process renderer reload; this is a fresh app launch).
+        window.api.getDiskRestoreInfo(),
+        // Parity sweep: theme / auto-permission-mode / keep-awake / recent
+        // folders. Resolved and applied BEFORE the first render (below) so
+        // nothing paints with the dark default for a light-theme user — same
+        // rationale main's own window `backgroundColor` pre-paint fix follows
+        // (main/index.ts's `resolveWindowBg`).
+        window.api.getAppSettings(),
+        // Harness home directory display path (Phase 8.7) — resolved
+        // main-side (needs os.homedir()); see SettingsPanel's "Harness home"
+        // section.
+        window.api.getHarnessHomePath(),
+        // Workspace registry (Phase 8.7) — awaits the SAME disk-restore
+        // promise `restoreSessions` does main-side, so this never races
+        // ahead of `restoreFromDisk` populating it.
+        window.api.listWorkspaces()
+      ]);
     await fontsReady;
 
     useAppSettingsStore.getState().hydrate(appSettings);
+    useAppSettingsStore.getState().hydrateHarnessHomePath(harnessHomePath);
+    useWorkspaceStore.getState().hydrate(workspaceSnapshot);
     applyTheme(resolveEffectiveTheme(appSettings.theme));
     // Only matters while the setting is 'system' (the watcher itself checks
     // this on every OS appearance change) — started unconditionally so a

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerSaveBlocker, shell } from 'electron';
-import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
 import { CostWatcher } from './costWatcher';
@@ -11,6 +12,8 @@ import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
 import { respawnSession } from './sessionRespawn';
 import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
+import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
+import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
 import type {
   DiskRestoreInfo,
   LazySpriteMeta,
@@ -23,6 +26,7 @@ import type {
 import type { AudioSettings } from '../shared/audioTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
+import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -61,6 +65,22 @@ const hookBridge = new HookBridge(
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
+
+// ─── Harness home directory + workspaces (Phase 8.7) ───────────────────────
+// Resolved for real (against the persisted setting) in `app.whenReady()`,
+// before `restoreFromDisk()` — this module-scope default just gives every
+// reference below a sane value in the window before that (nothing can
+// actually need it that early). See harnessHome.ts.
+let harnessHomeDir = defaultHarnessHomeDir();
+// Populated for real inside `restoreFromDisk()` (it needs the first
+// persisted session's cwd, if any, to name a migrated default workspace) —
+// this single-workspace placeholder just keeps every reader (notably
+// `notifyStatusTransitions`) valid before that resolves, mirroring how
+// `sessionRegistry` starts empty rather than undefined.
+let workspaceRegistry: WorkspaceSnapshot = {
+  workspaces: [{ id: DEFAULT_WORKSPACE_ID, name: 'garden 1', primaryFolder: homedir(), createdAt: Date.now() }],
+  activeWorkspaceId: DEFAULT_WORKSPACE_ID
+};
 
 // ─── Keep-awake (parity sweep item 4) ──────────────────────────────────────
 // Holds a powerSaveBlocker while the setting is ON and at least one session
@@ -165,10 +185,16 @@ const NOTIFY_STATUSES: ReadonlySet<SessionStatus> = new Set(['blocked', 'done'])
 /** Diff `sessionRegistry` (the PREVIOUS checkpoint) against the incoming
  *  `nextSessions` and fire a native notification for any status transition
  *  into 'blocked' or 'done' — unless the window is focused AND the user is
- *  already looking at exactly that session (munder-difflin's gate: never
- *  notify for the focused, visible session). A brand-new session (no
- *  previous entry) never notifies here — only a change fires this, not an
- *  initial value, so a session restored already-'done' on boot stays quiet. */
+ *  already looking at exactly that session IN ITS OWN (active) workspace
+ *  (munder-difflin's gate: never notify for the focused, visible session).
+ *  A brand-new session (no previous entry) never notifies here — only a
+ *  change fires this, not an initial value, so a session restored
+ *  already-'done' on boot stays quiet.
+ *
+ *  Workspaces (Phase 8.7): a session in a workspace OTHER than the active
+ *  one still notifies even while focused+selected — you can't be "looking
+ *  at" a session whose garden isn't the one on screen — and its body names
+ *  the workspace, since the title alone doesn't say which garden to check. */
 function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: string | null): void {
   if (!Notification.isSupported()) return;
   const prevStatus = new Map(sessionRegistry.map((s) => [s.id, s.status]));
@@ -177,8 +203,14 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
     const was = prevStatus.get(session.id);
     if (was === undefined || was === session.status) continue;
     if (!NOTIFY_STATUSES.has(session.status)) continue;
-    if (focused && selectedId === session.id) continue;
-    const body = session.status === 'blocked' ? `${session.title} needs your input` : `${session.title} finished`;
+    const sessionWorkspaceId = session.workspaceId ?? DEFAULT_WORKSPACE_ID;
+    const inActiveWorkspace = sessionWorkspaceId === workspaceRegistry.activeWorkspaceId;
+    if (focused && inActiveWorkspace && selectedId === session.id) continue;
+    let body = session.status === 'blocked' ? `${session.title} needs your input` : `${session.title} finished`;
+    if (!inActiveWorkspace) {
+      const workspace = workspaceRegistry.workspaces.find((w) => w.id === sessionWorkspaceId);
+      if (workspace) body += ` (${workspace.name})`;
+    }
     try {
       new Notification({ title: 'pokemon-harness', body }).show();
     } catch {
@@ -215,6 +247,13 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
  */
 async function restoreFromDisk(): Promise<DiskRestoreInfo> {
   const persisted = await loadPersistedSessions(app.getPath('userData'));
+
+  // Workspaces (Phase 8.7): loaded/initialized here, not in whenReady(),
+  // because a genuinely first-ever registry is named after the first
+  // pre-workspace persisted session's repo folder (if any) — this is the
+  // one place that knows both `harnessHomeDir` and `persisted.sessions`.
+  workspaceRegistry = await initWorkspaceRegistry(harnessHomeDir, persisted.sessions[0]?.cwd);
+
   if (persisted.sessions.length === 0) return { count: 0, notes: [] };
 
   const notes: string[] = [];
@@ -234,8 +273,14 @@ async function restoreFromDisk(): Promise<DiskRestoreInfo> {
     // anything yet this run. `status` is left as persisted: flush() runs
     // BEFORE killAll (see SessionPersistence.flush()'s own comment), so it's
     // the last genuinely-live status, not a quit-induced 'done'.
+    //
+    // `workspaceId`: a pre-8.7 record has none — resolved to the workspace
+    // registry's own default (falling back further only if that id somehow
+    // isn't in the registry either, e.g. it was renamed/deleted since) so
+    // this migrates for free instead of leaving the field undefined forever.
     restored.push({
       ...record,
+      workspaceId: resolveSessionWorkspaceId(record.workspaceId),
       tool: undefined,
       toolTarget: undefined,
       looping: false,
@@ -253,6 +298,14 @@ async function restoreFromDisk(): Promise<DiskRestoreInfo> {
       : null;
 
   return { count: restored.length, notes };
+}
+
+/** A concrete workspace id for a possibly-missing/stale one — see
+ *  `restoreFromDisk`'s own comment on `workspaceId`. */
+function resolveSessionWorkspaceId(id: string | undefined): string {
+  if (id && workspaceRegistry.workspaces.some((w) => w.id === id)) return id;
+  if (workspaceRegistry.workspaces.some((w) => w.id === DEFAULT_WORKSPACE_ID)) return DEFAULT_WORKSPACE_ID;
+  return workspaceRegistry.workspaces[0].id;
 }
 
 function createWindow(backgroundColor: string): void {
@@ -376,6 +429,8 @@ app.whenReady().then(async () => {
   costWatcher.start();
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
+  harnessHomeDir = resolveHarnessHomeDir(appSettings);
+  await ensureHarnessHome(harnessHomeDir);
   createWindow(resolveWindowBg(appSettings.theme));
   diskRestorePromise = restoreFromDisk();
   app.on('activate', () => {
@@ -507,10 +562,110 @@ ipcMain.handle('audio:cacheStatus', () => getCacheStatus());
 // ─── General app settings (parity sweep: theme, auto-permission mode,
 // keep-awake, recent folders) — same rationale as audio settings above.
 ipcMain.handle('appSettings:getSettings', () => loadAppSettings());
-ipcMain.handle('appSettings:saveSettings', (_e, settings: AppSettings) => {
+ipcMain.handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
   keepAwakeEnabled = settings.keepAwake;
   syncKeepAwake();
-  return saveAppSettings(settings);
+
+  // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
+  // actually changed, and never touches anything at the OLD location (the
+  // Settings copy says changing this "moves nothing automatically"). Writing
+  // the in-memory workspace registry to the NEW location right away is a
+  // future write, same as any other mutation below — not a migration of
+  // existing files — but it's what keeps "just point future writes at a new
+  // folder" from silently losing the workspace list on next launch (that
+  // folder has no workspaces.json of its own yet).
+  const nextHarnessHomeDir = resolveHarnessHomeDir(settings);
+  if (nextHarnessHomeDir !== harnessHomeDir) {
+    harnessHomeDir = nextHarnessHomeDir;
+    await ensureHarnessHome(harnessHomeDir);
+    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  }
+
+  await saveAppSettings(settings);
+  return harnessHomeDir;
+});
+
+// ─── Harness home directory (Phase 8.7) ────────────────────────────────────
+// Pulled once at boot (main.tsx) to display the CURRENT resolved path in
+// Settings even when the setting itself is null (i.e. "use the default") —
+// only main can resolve that default (needs os.homedir()).
+ipcMain.handle('harnessHome:getResolvedPath', () => harnessHomeDir);
+
+// ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────────
+// Every handler here returns the FULL current snapshot (not just the one
+// field that changed) so the renderer always hydrates from one authoritative
+// source instead of patching its local copy — most load-bearing for delete,
+// where main may have to pick a new active workspace itself.
+ipcMain.handle('workspaces:list', async () => {
+  // workspaceRegistry is populated inside restoreFromDisk() — await the same
+  // promise sessions:restore does so this never races ahead of it.
+  await diskRestorePromise;
+  return workspaceRegistry;
+});
+
+ipcMain.handle('workspaces:create', (_e, name: string, primaryFolder: string) => {
+  const id = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const workspace: WorkspaceRecord = {
+    id,
+    name: name.trim() || basename(primaryFolder.replace(/\/+$/, '')) || 'new garden',
+    primaryFolder,
+    createdAt: Date.now()
+  };
+  // A freshly created workspace becomes the active one immediately — there's
+  // no reason to create one and keep looking at another.
+  workspaceRegistry = { workspaces: [...workspaceRegistry.workspaces, workspace], activeWorkspaceId: id };
+  saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  return { ok: true, ...workspaceRegistry };
+});
+
+ipcMain.handle('workspaces:rename', (_e, id: string, name: string) => {
+  const trimmed = name.trim();
+  if (trimmed) {
+    workspaceRegistry = {
+      ...workspaceRegistry,
+      workspaces: workspaceRegistry.workspaces.map((w) => (w.id === id ? { ...w, name: trimmed } : w))
+    };
+    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  }
+  return { ok: true, ...workspaceRegistry };
+});
+
+ipcMain.handle('workspaces:setActive', (_e, id: string) => {
+  if (workspaceRegistry.workspaces.some((w) => w.id === id) && id !== workspaceRegistry.activeWorkspaceId) {
+    workspaceRegistry = { ...workspaceRegistry, activeWorkspaceId: id };
+    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  }
+  return { ok: true, ...workspaceRegistry };
+});
+
+ipcMain.handle('workspaces:delete', (_e, id: string) => {
+  if (workspaceRegistry.workspaces.length <= 1) {
+    return { ok: false, error: "Can't delete your only workspace.", ...workspaceRegistry };
+  }
+  // Authoritative liveness check (ptyManager, not merely `status !== 'done'`
+  // — same distinction main draws everywhere else it counts live sessions)
+  // — the renderer is expected to only ever offer delete once its own view
+  // agrees there's nothing live left, but this is the actual guard.
+  const liveIds = new Set(ptyManager.list().map((p) => p.id));
+  const hasLiveSession = sessionRegistry.some(
+    (s) => (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === id && liveIds.has(s.id)
+  );
+  if (hasLiveSession) {
+    return { ok: false, error: 'This workspace still has running sessions.', ...workspaceRegistry };
+  }
+
+  // Drop this workspace's persisted-dead sessions (finished-but-still-listed
+  // records) along with it, so deleting a workspace never leaves an orphaned
+  // entry with a workspaceId nothing in the registry owns anymore.
+  sessionRegistry = sessionRegistry.filter((s) => (s.workspaceId ?? DEFAULT_WORKSPACE_ID) !== id);
+  sessionPersistence.schedule({ sessions: sessionRegistry, lastSelectedId });
+
+  const workspaces = workspaceRegistry.workspaces.filter((w) => w.id !== id);
+  const activeWorkspaceId =
+    workspaceRegistry.activeWorkspaceId === id ? workspaces[0].id : workspaceRegistry.activeWorkspaceId;
+  workspaceRegistry = { workspaces, activeWorkspaceId };
+  saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  return { ok: true, ...workspaceRegistry };
 });
 
 // ─── Config ─────────────────────────────────────────────────────────────────

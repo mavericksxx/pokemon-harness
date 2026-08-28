@@ -3,6 +3,7 @@ import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest, SessionStatus } from '@shared/types';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf } from '@/scene/garden/dexData';
@@ -55,7 +56,11 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       model: req.model,
       pokemon,
       line,
-      shiny
+      shiny,
+      // Workspaces (Phase 8.7): a new session always joins whichever
+      // workspace is active right now — there's no "start in another
+      // workspace" picker in the New Session dialog.
+      workspaceId: useWorkspaceStore.getState().activeWorkspaceId
     });
     sessionAdded = true;
 

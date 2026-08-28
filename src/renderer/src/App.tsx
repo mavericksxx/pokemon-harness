@@ -5,6 +5,7 @@ import { TerminalDrawer } from '@/components/TerminalDrawer';
 import { RosterStrip } from '@/components/RosterStrip';
 import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
+import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { QuickMute } from '@/components/QuickMute';
@@ -13,6 +14,8 @@ import { QuitDialog } from '@/components/QuitDialog';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
+import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { cancelClosingTime, isClosingTimeActive, startClosingTime } from '@/closingTime';
 
@@ -26,6 +29,13 @@ const SHORTCUT_MODES: Record<string, ViewMode> = {
   '4': 'terminalFull'
 };
 
+/** Cmd/Ctrl+Shift+1..9 → switch to the Nth workspace, in registry order
+ *  (Phase 8.7) — matched off `e.code` ('Digit1'..'Digit9'), not `e.key`:
+ *  with Shift held, `e.key` for the number row is '!'/'@'/'#'/... on a US
+ *  layout, which would never match a plain digit lookup like
+ *  SHORTCUT_MODES does above. */
+const DIGIT_CODE_RE = /^Digit([1-9])$/;
+
 // Crash/reload recovery (consumeCrashInfo + restoreSessions) runs once in
 // main.tsx, BEFORE this component's first render — not here — so the store
 // already has any re-adopted sessions by the time GardenScene and
@@ -33,7 +43,9 @@ const SHORTCUT_MODES: Record<string, ViewMode> = {
 
 export function App(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const sessions = useStore((s) => s.sessions);
+  // Legacy topbar chips (Full view modes only, below) — scoped to the
+  // ACTIVE workspace (Phase 8.7), same as the roster strip/overview.
+  const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const drawerOpen = useStore((s) => s.drawerOpen);
@@ -60,9 +72,24 @@ export function App(): JSX.Element {
         return;
       }
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.shiftKey && e.key.toLowerCase() === 'q') {
-        e.preventDefault();
-        startClosingTime();
+      if (e.shiftKey) {
+        if (e.key.toLowerCase() === 'q') {
+          e.preventDefault();
+          startClosingTime();
+          return;
+        }
+        // Cmd/Ctrl+Shift+1..9 — switch workspace (Phase 8.7). Reads the
+        // workspace store directly (not a hook) since this effect has no
+        // reason to re-subscribe to the workspace list just for a shortcut.
+        const digitMatch = DIGIT_CODE_RE.exec(e.code);
+        if (digitMatch) {
+          const target = useWorkspaceStore.getState().workspaces[Number(digitMatch[1]) - 1];
+          if (target) {
+            e.preventDefault();
+            void useWorkspaceStore.getState().setActiveWorkspace(target.id);
+          }
+          return;
+        }
         return;
       }
       const mode = SHORTCUT_MODES[e.key];
@@ -91,6 +118,7 @@ export function App(): JSX.Element {
     <div className="app">
       <header className="topbar">
         <span className="brand">Pokemon Harness</span>
+        <WorkspaceSwitcher />
         {!showRosterStrip && (
           <>
             <button className="primary" onClick={() => setDialogOpen(true)}>

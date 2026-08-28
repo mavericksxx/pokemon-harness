@@ -1,4 +1,5 @@
 import { useStore } from '@/store/store';
+import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 
 interface Props {
@@ -13,9 +14,12 @@ interface Props {
  * comment for why). "+ new session" sits at the strip's end, not in the top
  * bar. The cards themselves are unchanged (AgentRosterCard) — this is
  * placement/orientation only.
+ *
+ * Scoped to the ACTIVE workspace's sessions (Phase 8.7) — a session in
+ * another workspace has no card here until you switch to it.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
-  const sessions = useStore((s) => s.sessions);
+  const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
 

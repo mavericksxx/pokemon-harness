@@ -66,6 +66,8 @@ export function SettingsPanel(): JSX.Element {
   const setTheme = useAppSettingsStore((s) => s.setTheme);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
+  const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
   // PTY has exited is flipped to 'done' the moment it happens (see
   // main/index.ts's own comment on the same signal), so this is the
@@ -76,6 +78,13 @@ export function SettingsPanel(): JSX.Element {
   const onTheme = (mode: ThemeMode): void => {
     setTheme(mode);
     applyTheme(resolveEffectiveTheme(mode));
+  };
+
+  // Harness home directory (Phase 8.7) — folder picker + the currently
+  // resolved path, plus a way back to the default.
+  const pickHarnessHome = async (): Promise<void> => {
+    const picked = await window.api.chooseFolder();
+    if (picked) setHarnessHomeDir(picked);
   };
 
   // Esc closes, matching the sessions overview / new-session modals.
@@ -158,6 +167,27 @@ export function SettingsPanel(): JSX.Element {
                 : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
             </span>
           </label>
+        </section>
+
+        <section className="settings-section">
+          <h3>Harness home</h3>
+          <p className="hint">
+            Where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
+          </p>
+          <div className="row harness-home-row">
+            <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
+            <button type="button" onClick={() => void pickHarnessHome()}>
+              Choose…
+            </button>
+          </div>
+          {appSettings.harnessHomeDir && (
+            <button type="button" onClick={() => setHarnessHomeDir(null)}>
+              Reset to default
+            </button>
+          )}
+          <p className="hint">
+            Changing this only points future writes at the new folder — nothing already on disk moves.
+          </p>
         </section>
 
         <section className="settings-section">

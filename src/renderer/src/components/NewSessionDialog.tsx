@@ -3,6 +3,7 @@ import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId 
 import { startSession } from '@/sessions';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { pickFreeLine, POKEMON_ROSTER } from '@/scene/garden/showdownArt';
 import { baseStageOf, chainLabel, searchDex, speciesEntry, type DexEntry } from '@/scene/garden/dexData';
 import { PokemonFace } from './PokemonFace';
@@ -26,7 +27,11 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     return () => window.clearTimeout(t);
   }, [query]);
   const [provider, setProvider] = useState<AgentProviderId>(DEFAULT_PROVIDER);
-  const [cwd, setCwd] = useState('');
+  // Prefilled from the ACTIVE workspace's primary folder (Phase 8.7) — still
+  // freely editable; this is a starting point, not a constraint (a session's
+  // cwd can be anything, same as before workspaces existed).
+  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId));
+  const [cwd, setCwd] = useState(() => activeWorkspace?.primaryFolder ?? '');
   const [command, setCommand] = useState(AGENT_PROVIDERS[DEFAULT_PROVIDER].defaultCommand);
   const [model, setModel] = useState('');
   const [title, setTitle] = useState('');

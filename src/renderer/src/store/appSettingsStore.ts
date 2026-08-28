@@ -13,25 +13,41 @@ import { DEFAULT_APP_SETTINGS, MAX_RECENT_FOLDERS, type AppSettings, type ThemeM
 interface AppSettingsState {
   settings: AppSettings;
   loaded: boolean;
+  /** The CURRENT resolved harness home directory (Phase 8.7) — an absolute
+   *  path even while `settings.harnessHomeDir` is null (the default), since
+   *  only main can resolve that (needs `os.homedir()`). Hydrated at boot and
+   *  refreshed after every `setHarnessHomeDir` call. */
+  harnessHomePath: string;
 
   hydrate(settings: AppSettings): void;
+  hydrateHarnessHomePath(path: string): void;
   setTheme(mode: ThemeMode): void;
   setAutoMode(provider: AgentProviderId, enabled: boolean): void;
   setKeepAwake(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
+  /** `dir` null resets to the default (`~/PokemonHarness`) — see
+   *  appSettingsTypes.ts's `harnessHomeDir` field comment for what changing
+   *  this does and doesn't do. */
+  setHarnessHomeDir(dir: string | null): void;
 }
 
 function persist(settings: AppSettings): void {
-  void window.api.saveAppSettings(settings);
+  // saveAppSettings resolves to the (possibly just-changed) harness home
+  // directory — see main/index.ts's `appSettings:saveSettings` handler.
+  void window.api.saveAppSettings(settings).then((path) => {
+    useAppSettingsStore.getState().hydrateHarnessHomePath(path);
+  });
 }
 
 export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
   settings: DEFAULT_APP_SETTINGS,
   loaded: false,
+  harnessHomePath: '',
 
   hydrate: (settings) => set({ settings, loaded: true }),
+  hydrateHarnessHomePath: (path) => set({ harnessHomePath: path }),
 
   setTheme: (mode) => {
     const settings = { ...get().settings, theme: mode };
@@ -57,6 +73,12 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
   addRecentFolder: (path) => {
     const deduped = [path, ...get().settings.recentFolders.filter((p) => p !== path)];
     const settings = { ...get().settings, recentFolders: deduped.slice(0, MAX_RECENT_FOLDERS) };
+    set({ settings });
+    persist(settings);
+  },
+
+  setHarnessHomeDir: (dir) => {
+    const settings = { ...get().settings, harnessHomeDir: dir };
     set({ settings });
     persist(settings);
   }

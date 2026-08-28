@@ -198,6 +198,25 @@ export class BattleManager {
     return this.battles.get(parentId)?.currentAttack != null;
   }
 
+  /** Workspace scoping (Phase 8.7): toggles a parent's battle visuals on or
+   *  off without touching the state machine — a battle for a session in an
+   *  inactive workspace keeps running (approach/attacks/end still fire,
+   *  same as any other background session's work) but stays invisible until
+   *  that workspace is active again. Needed because a challenger's
+   *  `Battler.container` is a direct child of `charLayer` (absolute map
+   *  coordinates, same space `Walker.container` uses), NOT nested under the
+   *  parent walker's own container — so GardenScene setting the parent
+   *  walker invisible doesn't cascade to it; this is the other half of that
+   *  same toggle, called alongside it every reconcile. No-op if `parentId`
+   *  isn't mid-battle. */
+  setVisible(parentId: string, visible: boolean): void {
+    const pb = this.battles.get(parentId);
+    if (!pb) return;
+    for (const b of pb.battlers) b.container.visible = visible;
+    for (const b of pb.leaving) b.container.visible = visible;
+    if (pb.overflowText) pb.overflowText.visible = visible;
+  }
+
   /** Call when a parent session's own walker is torn down (session ended)
    *  while a battle was in flight — drops it with no ceremony. */
   forceEnd(parentId: string): void {
