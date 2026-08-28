@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## unreleased
+
+- topbar view-switcher no longer shifts when switching views: the terminal-panel drawer toggle used to unmount entirely outside garden view (5 buttons → 4), resizing the group and sliding the usage chip / volume / theme / gear cluster; it now always renders, shown muted and inert in other views (tooltip explains it's garden-view-only), so the switcher's geometry is constant across every state
+
 ## v1.3.0 — 2026-08-29
 
 - focus mode: the terminal view (Cmd+2) is now a per-agent command center — compact identity header (pokemon face, session name, species, provider, status, cost/context gauges) over the full terminal, with a queue composer at the bottom: type a message and it sends immediately if the agent is idle, otherwise it queues as a removable chip ("sends when idle") and delivers the moment the agent's turn ends — never into a permission prompt, same safety rail as arceus relay (the two share one injection-queue implementation); multiline pastes go through bracketed paste as one turn; the bottom roster strip stays as the agent switcher; arceus keeps his dispatch box as his composer
