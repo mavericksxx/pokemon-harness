@@ -23,12 +23,10 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 2. **"tell chikorita to do X" routing** — speak to arceus naming an agent; arceus relays the instruction to that agent's session. North star of the agent-society phase (claude↔claude cross-session messaging; codex/cursor via file inboxes; per-agent memory; periodic arceus status reports). The dispatch box (`ArceusDispatchBox`) is unmounted in `TerminalDrawer` pending this — wire it up (or repurpose it) once routing lands.
 3. **arceus persona delivery** — evaluate munder difflin's approach (persona sent as an actual first prompt) vs our `--append-system-prompt`. Trade-offs: system prompt survives compaction and is firmer; first message is transcript-visible and matches MD. Deliberate decision, not a bug.
-4. **nebula backdrop grain** — reads too "zoomed in": rendered at coarse internal resolution then upscaled. Fix: higher internal resolution / finer noise, smaller + denser stars. Keep palette, composition, and the calm center zone.
 
 ## smaller known items
 
-- quit-dialog caption widths (longest caption may wrap badly in narrow columns) — needs an eyeball
-- light-theme lemon accent contrast (~2.3:1) — disclosed, revisit
+- "needs you" over-triggers: the CLI's idle waiting-for-input notification maps to the same badge as real permission prompts — split them (permission/questions → "needs you", plain turn-ended → "idle")
 
 ## bigger later
 

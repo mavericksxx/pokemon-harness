@@ -135,15 +135,31 @@ export const accentLight = {
 /** Light-theme primary accent. Per the parity sweep's explicit instruction:
  *  use munder-difflin's light-theme lemon value (their tokens.css has no
  *  separate "brand gold" token at all — `gold` above was this app's own
- *  user-approved pick, split from their dark lemon). Disclosed caveat: this
- *  measures ~2.30:1 against `groundLight[0]` (vs. the dark gold's ~1.83:1 in
- *  the same slot) — neither clears the 3:1 floor as flat text on the palest
- *  ground; it's used mostly as a fill (with `onAccent` on top) or a border/
- *  focus-ring accent, where the relevant contrast is against the surrounding
- *  panel, not pure white-ish cream. Kept as the spec's literal value rather
- *  than hand-darkened, per the instruction. */
+ *  user-approved pick, split from their dark lemon). Measures ~2.08:1
+ *  against `groundLight[0]` (WCAG relative-luminance formula) — well under
+ *  the 4.5:1 text floor, so this literal spec value is now used ONLY for
+ *  backgrounds/fills (button.primary, `.summon-arceus.active`, the roster
+ *  evo-bar fill, the checked-checkbox swatch) where `onAccent`'s near-black
+ *  text sits on top; see `accentTextLight` below for the darkened variant
+ *  everywhere this accent is painted as text or a thin stroke/outline. */
 export const goldLight = accentLight.lemon;
 export const primaryAccentLight = goldLight;
+
+/** Darkened light-theme accent for TEXT and thin strokes (borders, the
+ *  selected-card ring, the focus outline, `.summon-arceus`'s inactive
+ *  border+label) — `goldLight` itself (~2.08:1 on the palest ground) fails
+ *  WCAG 4.5:1 for text, so this is a deeper amber/ochre in the same hue
+ *  family (~36° hue vs. goldLight's ~42°, slightly higher saturation, much
+ *  lower lightness) chosen to clear 4.5:1 against every light-theme surface
+ *  this app paints text/strokes on — including `groundLight.disabled`
+ *  (~4.77:1, the `.summon-arceus:hover` fill and the tightest of the four
+ *  surfaces checked), `groundLight[200]` (~5.56:1), `groundLight[100]`
+ *  (~6.36:1), and `groundLight[0]` (~6.61:1). Backgrounds/fills keep
+ *  `goldLight` unchanged (dark `onAccent` text already reads fine there —
+ *  see that token's own comment). Dark theme is untouched: `applyTheme`
+ *  maps this slot to the same `primaryAccent` value dark theme already
+ *  used. */
+export const accentTextLight = '#7D5312';
 
 export const statusLight = {
   starting: '#A199AB', // their light status-idle, used as-is (no WCAG relighten pass — see statusLight's header note)
@@ -295,6 +311,7 @@ export function applyTheme(mode: EffectiveTheme): void {
   root.setProperty('--muted-dim', i[300]);
   root.setProperty('--accent', dark ? primaryAccent : primaryAccentLight);
   root.setProperty('--gold', dark ? gold : goldLight);
+  root.setProperty('--accent-text', dark ? primaryAccent : accentTextLight);
   root.setProperty('--on-accent', onAccent);
   root.setProperty('--danger', dark ? danger : dangerLight);
   root.setProperty('--danger-border', dark ? dangerBorder : dangerBorderLight);

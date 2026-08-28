@@ -10,6 +10,11 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 - custom application menu (app/Edit/View/Window, standard roles kept — copy/paste in text fields unaffected) so Cmd+0 resets zoom to the app's −0.5 default instead of Chromium's 100%; Cmd+plus/minus still step ±0.5 relative
 - cursor provider detection now tries `cursor-agent` then falls back to `agent` (Cursor has shipped both binary names), using whichever resolves on PATH
 - hid the Arceus "describe the task" dispatch box (it just duplicated the terminal below) — temporary, pending real task-routing ("tell chikorita to do X")
+- cosmos nebula backdrop reworked at 2.5x the internal resolution (128x80 → 320x200, dither cell and feature-star coordinates/radii scaled to match, cloud noise lattice 10 → 16, starfield 90 → 350 stars) so it no longer reads as "too zoomed in"
+- arceus warp reworked to actually read as pixel art: the streak burst is now 6 frame-flipped 32x32 hard-edged rasters per direction (was one texture continuously `transform: scale`d, which produced uneven, non-integer pixel blocks at arbitrary scale factors) in each direction's small fixed 3-color palette (no per-pixel blending); the midpoint flash is now a 17-level Bayer-ordered blocky dissolve in the direction's own accent color (was a plain white opacity fade), still guaranteed fully opaque through the scene swap (plus a hitch-proof forced-cover frame on any tick that jumps clean over the plateau); both frame sets are prewarmed on mount so no transition pays first-generation cost mid-animation
+- quit-dialog widened (460px → 600px, ~136px → ~183px per action column) with balanced caption wrapping so all three action captions read cleanly at 2 lines
+- light-theme accent darkened to a deeper amber (`#DCAB3C` ~2.08:1 → `#7D5312` ≥4.5:1, worst case ~4.77:1) everywhere it's used as text or a thin stroke/outline (chip labels, active states, focus ring, toast/card accents); fills (buttons, the arceus chip's active state, the evo-bar/checkbox swatches) keep the brighter literal accent with dark text on top
+>>>>>>> worktree-agent-ac4821128ed8accd7
 
 ## v1.1.0 — 2026-08-28
 
