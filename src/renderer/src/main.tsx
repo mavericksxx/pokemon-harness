@@ -2,7 +2,20 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store/store';
 import { startSession, stopSession } from './sessions';
-import { initAudio, debugSnapshot, Howler } from './audio/audioEngine';
+import {
+  initAudio,
+  debugSnapshot,
+  Howler,
+  notifyBattleStart,
+  notifyBattleEnd,
+  playAttackSound,
+  playVictoryChime,
+  notifyEvolutionStart,
+  notifyEvolutionFlash,
+  notifyEvolutionEnd,
+  playSpawnCry,
+  playEvolutionCry
+} from './audio/audioEngine';
 import { useAudioStore } from './audio/audioStore';
 import './index.css';
 
@@ -25,7 +38,19 @@ if (import.meta.env.DEV) {
     audio: {
       Howler,
       store: useAudioStore,
-      snapshot: debugSnapshot
+      snapshot: debugSnapshot,
+      // Exercises the same entry points BattleManager/EvolutionCeremony call,
+      // without needing a live PTY session wired end-to-end — same rationale
+      // as exposing startSession/stopSession above.
+      notifyBattleStart,
+      notifyBattleEnd,
+      playAttackSound,
+      playVictoryChime,
+      notifyEvolutionStart,
+      notifyEvolutionFlash,
+      notifyEvolutionEnd,
+      playSpawnCry,
+      playEvolutionCry
     }
   };
 }

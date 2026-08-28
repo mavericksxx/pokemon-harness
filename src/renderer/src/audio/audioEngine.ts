@@ -111,7 +111,10 @@ async function crossfadeToTrack(
   if (!url) return false;
 
   const prev = currentMusic;
-  const next = new Howl({ src: [url], loop: opts.loop, volume: 0 });
+  // `format` is required here: a `blob:` URL has no file extension, and
+  // Howler can't sniff the codec without one — omitting this leaves the Howl
+  // stuck at state 'unloaded' forever (silently; no error, no play).
+  const next = new Howl({ src: [url], format: ['mp3'], loop: opts.loop, volume: 0 });
   currentMusic = next;
   currentMusicId = id;
   next.play();
@@ -162,9 +165,21 @@ async function playNextAmbient(): Promise<void> {
     ambientTimer = setTimeout(() => void playNextAmbient(), AMBIENT_RETRY_MS);
     return;
   }
-  const durationS = currentMusic?.duration() ?? 0;
-  const untilNextMs = Math.max(1000, durationS * 1000 - CROSSFADE_MS);
-  ambientTimer = setTimeout(() => void playNextAmbient(), untilNextMs);
+  // `duration()` is 0 until the Howl's metadata has actually loaded — reading
+  // it immediately after crossfadeToTrack resolves (which is right after
+  // `play()` is called, not after decode) would schedule the next crossfade
+  // almost instantly instead of near the real track's end.
+  const thisHowl = currentMusic;
+  thisHowl?.once('load', () => {
+    if (currentMusicMode !== 'ambient' || currentMusic !== thisHowl) return;
+    const durationS = thisHowl.duration();
+    const untilNextMs = Math.max(1000, durationS * 1000 - CROSSFADE_MS);
+    ambientTimer = setTimeout(() => void playNextAmbient(), untilNextMs);
+  });
+  thisHowl?.once('loaderror', () => {
+    if (currentMusicMode !== 'ambient' || currentMusic !== thisHowl) return;
+    ambientTimer = setTimeout(() => void playNextAmbient(), AMBIENT_RETRY_MS);
+  });
 }
 
 function startAmbientRotation(): void {
@@ -357,7 +372,8 @@ async function playCry(speciesId: string): Promise<void> {
       return;
     }
     const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
-    h = new Howl({ src: [url] });
+    // See crossfadeToTrack's comment — a blob: URL needs an explicit format.
+    h = new Howl({ src: [url], format: ['mp3'] });
     cryHowlCache.set(speciesId, h);
   }
   if (!h || !sfxEnabled()) return;
