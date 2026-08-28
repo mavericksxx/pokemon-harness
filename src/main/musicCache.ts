@@ -24,7 +24,9 @@ import type { MusicTrackId } from '../shared/audioTypes';
 
 const ALBUM_SLUG = 'pokemon-heartgold-and-soulsilver';
 const ALBUM_URL = `https://downloads.khinsider.com/game-soundtracks/album/${ALBUM_SLUG}`;
-// khinsider 403s requests with no browser-like User-Agent.
+// Sent on every request out of caution — untested whether khinsider actually
+// rejects a request with no browser-like User-Agent, since live verification
+// always sent one from the first request onward.
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 const FETCH_TIMEOUT_MS = 10_000;

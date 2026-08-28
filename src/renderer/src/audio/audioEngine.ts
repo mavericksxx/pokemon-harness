@@ -39,6 +39,13 @@ let currentMusicMode: MusicMode = 'none';
 
 const activeBattles = new Set<string>();
 let ceremonyActiveCount = 0;
+/** Which ceremony track SHOULD be playing right now (charge or fanfare),
+ *  tracked independent of whether music is actually on — so if the user
+ *  enables music mid-ceremony, `enableMusic` can resume the right track
+ *  instead of `recomputeDesiredMode`'s battle/ambient-only guard silently
+ *  leaving nothing playing (it deliberately no-ops while a ceremony owns the
+ *  bus). Cleared once the last active ceremony ends. */
+let lastCeremonyTrackId: MusicTrackId | null = null;
 
 let ambientQueue: MusicTrackId[] = [];
 let lastAmbientId: MusicTrackId | null = null;
@@ -117,6 +124,7 @@ async function crossfadeToTrack(
   const next = new Howl({ src: [url], format: ['mp3'], loop: opts.loop, volume: 0 });
   currentMusic = next;
   currentMusicId = id;
+  ensureAudioContextResumed(); // musicOn can restore true on launch with no user gesture yet
   next.play();
   next.fade(0, musicGain(), CROSSFADE_MS);
   if (opts.onEndOnce) next.once('end', opts.onEndOnce);
@@ -233,8 +241,19 @@ async function enableMusic(): Promise<void> {
     return;
   }
   store.setMusicUnavailable(false);
-  currentMusicMode = 'none'; // force recomputeDesiredMode to actually (re)start
-  recomputeDesiredMode();
+  currentMusicMode = 'none'; // force the mode switch below to actually (re)start
+  if (ceremonyActiveCount > 0 && lastCeremonyTrackId) {
+    // recomputeDesiredMode() deliberately no-ops while a ceremony owns the
+    // bus (see its doc comment) — that guard exists for battle/ambient
+    // edges, not for "music just got turned on mid-ceremony." Resume
+    // whichever ceremony track should currently be playing directly instead
+    // of leaving the bus silently on 'none' until the next battle/ceremony
+    // edge.
+    currentMusicMode = 'ceremony';
+    void crossfadeToTrack(lastCeremonyTrackId, { loop: lastCeremonyTrackId === 'evolutionCharge' });
+  } else {
+    recomputeDesiredMode();
+  }
 }
 
 function disableMusic(): void {
@@ -302,12 +321,14 @@ export function notifyEvolutionStart(): void {
   playSfx(EVOLUTION_RISER_SFX, RISER_VOLUME_MUL);
   cancelAmbientTimer();
   currentMusicMode = 'ceremony';
+  lastCeremonyTrackId = 'evolutionCharge';
   void crossfadeToTrack('evolutionCharge', { loop: true });
 }
 
 /** The flash/reveal beat: crossfade to the "Congratulations" fanfare (plays
  *  once, short). */
 export function notifyEvolutionFlash(): void {
+  lastCeremonyTrackId = 'evolutionFanfare';
   void crossfadeToTrack('evolutionFanfare', { loop: false });
 }
 
@@ -318,6 +339,7 @@ export function notifyEvolutionFlash(): void {
 export function notifyEvolutionEnd(): void {
   ceremonyActiveCount = Math.max(0, ceremonyActiveCount - 1);
   if (ceremonyActiveCount > 0) return;
+  lastCeremonyTrackId = null;
   currentMusicMode = 'none';
   recomputeDesiredMode();
 }
@@ -344,6 +366,14 @@ export function onShinySpawn(): void {
 
 // --- sfx / cry playback ----------------------------------------------------
 
+/** Defensive belt-and-suspenders alongside the main-process autoplay-policy
+ *  switch (see index.ts): if the AudioContext is ever suspended when a sound
+ *  tries to play (a stricter Electron build, a future Chromium change), kick
+ *  it awake instead of silently dropping the sound. */
+function ensureAudioContextResumed(): void {
+  if (Howler.ctx && Howler.ctx.state === 'suspended') void Howler.ctx.resume();
+}
+
 function getSfxHowl(key: SfxKey): Howl | null {
   const cached = sfxHowlCache.get(key);
   if (cached) return cached;
@@ -358,6 +388,7 @@ function playSfx(key: SfxKey, mul = 1): void {
   if (!sfxEnabled()) return;
   const h = getSfxHowl(key);
   if (!h) return;
+  ensureAudioContextResumed();
   h.volume(sfxVolume(mul));
   h.play();
 }
@@ -377,6 +408,7 @@ async function playCry(speciesId: string): Promise<void> {
     cryHowlCache.set(speciesId, h);
   }
   if (!h || !sfxEnabled()) return;
+  ensureAudioContextResumed();
   h.volume(sfxVolume(CRY_VOLUME_MUL));
   h.play();
 }

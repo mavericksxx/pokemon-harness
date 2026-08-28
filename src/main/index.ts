@@ -9,6 +9,15 @@ import { loadAudioSettings, saveAudioSettings } from './audioSettings';
 import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
 import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
 
+// Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
+// session's walker first spawns — before the user has clicked anything.
+// Chromium suspends a page's AudioContext until a user gesture by default,
+// which would silently drop that first sound. This is a local, single-
+// purpose desktop app (no arbitrary untrusted autoplaying web content), so
+// lifting the gesture requirement is a deliberate choice, not an overlooked
+// default. Must be set before app is ready.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 let mainWindow: BrowserWindow | null = null;
 const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
 const ptyManager = new PtyManager(hookBridge);
