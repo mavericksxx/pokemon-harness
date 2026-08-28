@@ -163,7 +163,21 @@ async function restoreFromDisk(): Promise<DiskRestoreInfo> {
       console.error(`[sessions] could not restore "${record.title}" (${record.cwd})`);
       continue;
     }
-    restored.push(outcome.fallbackReason ? { ...record, error: outcome.fallbackReason } : record);
+    // The respawned process is BRAND NEW (even a `claude --resume` gets a
+    // fresh child process) — `tool`/`toolTarget` and `looping` describe the
+    // PREVIOUS process's last moment and would otherwise show a stale tool
+    // bubble / "looping" badge (with an empty loopDetector streak backing
+    // it, so nothing would ever clear it) for a session that hasn't done
+    // anything yet this run. `status` is left as persisted: flush() runs
+    // BEFORE killAll (see SessionPersistence.flush()'s own comment), so it's
+    // the last genuinely-live status, not a quit-induced 'done'.
+    restored.push({
+      ...record,
+      tool: undefined,
+      toolTarget: undefined,
+      looping: false,
+      ...(outcome.fallbackReason ? { error: outcome.fallbackReason } : {})
+    });
     if (outcome.fallbackReason) {
       notes.push(`${record.title}: ${outcome.fallbackReason} — opened a plain shell instead.`);
     }
