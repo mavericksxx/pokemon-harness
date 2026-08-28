@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- Required for Electron's V8 JIT to allocate executable memory. Without
+         this, an ad-hoc-signed (no paid Developer ID) arm64 build traps with
+         EXC_BREAKPOINT/SIGTRAP inside v8::internal::compiler on the very
+         first launch, before any app code runs — see build/afterSign.cjs's
+         header for the full story. Same three keys as electron-builder's own
+         default entitlements.mac.plist (app-builder-lib/templates/) — kept
+         as our own copy so the build doesn't depend on node_modules
+         internals for something this load-bearing. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
