@@ -2049,6 +2049,7 @@ button.icon:active {
 .focus-sidebar {
   flex: none;
   width: 300px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
