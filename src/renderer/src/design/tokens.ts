@@ -247,8 +247,14 @@ export const type = {
   displayMd: { size: 12, line: 20 },
   displayLg: { size: 16, line: 24 },
   bodyLg: { size: 16, line: 24 },
-  bodyMd: { size: 14, line: 20 }, // was 13/18
-  bodySm: { size: 13, line: 18 }, // was 11/15
+  // Density pass (topbar overhaul, BACKLOG.md brand-squash fix): the app
+  // used to fake ~9% extra density with Chromium zoomLevel -0.5, which broke
+  // Press Start 2P's integer pixel grid app-wide. Zoom is back to 0; these
+  // two steps (the ones actually used for general chrome body text — see
+  // index.css's --font-body-md/sm-size call sites) absorb that density
+  // directly instead, at real, always-integer CSS px.
+  bodyMd: { size: 13, line: 18 }, // was 14/20 (13/18 before that)
+  bodySm: { size: 12, line: 16 }, // was 13/18 (11/15 before that)
   monoMd: { size: 14, line: 20 },
   monoSm: { size: 13, line: 18 }
 } as const;

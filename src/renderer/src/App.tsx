@@ -60,7 +60,6 @@ export function App(): JSX.Element {
   // when the drawer is actually showing.
   const drawerOpen = useStore((s) => s.drawerOpen);
   const setViewMode = useStore((s) => s.setViewMode);
-  const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const isFullScreen = useStore((s) => s.isFullScreen);
 
   // Global Cmd/Ctrl+1..4 (discoverable copy also lives in ViewModeSwitcher's
@@ -164,20 +163,25 @@ export function App(): JSX.Element {
           </>
         )}
         <div className="spacer" />
-        {/* View-mode toggles, terminal-panel visibility, and the sessions
-            overview live together as one icon group now (parity sweep) —
-            see ViewModeSwitcher's own comment for why "all sessions" and the
-            terminal-panel toggle joined it instead of floating separately. */}
-        <ViewModeSwitcher />
-        <UsageChip />
-        <AudioPopover />
-        <ThemeToggle />
-        <QuickSettings />
-        {/* Last control in the topbar, deliberately — nothing sits to its
-            right (parity sweep). */}
-        <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
-          ⚙
-        </button>
+        {/* Right-cluster (topbar overhaul, BACKLOG.md phase B) — pinned via
+            `.topbar-actions` (index.css) so only the spacer/chip rows before
+            it absorb width changes; this group never reflows. View-mode
+            toggles, terminal-panel visibility, and the sessions overview
+            live together as one icon group (parity sweep) — see
+            ViewModeSwitcher's own comment for why "all sessions" and the
+            terminal-panel toggle joined it instead of floating separately.
+            QuickSettings is the LAST control, deliberately — nothing sits to
+            its right — and is now the settings entry point itself (its gear
+            trigger opens the quick-settings popover, whose "all settings…"
+            row opens SettingsPanel; the old standalone gear button that
+            opened SettingsPanel directly is gone, merged into this one). */}
+        <div className="topbar-actions">
+          <ViewModeSwitcher />
+          <UsageChip />
+          <AudioPopover />
+          <ThemeToggle />
+          <QuickSettings />
+        </div>
       </header>
 
       <main className="body">

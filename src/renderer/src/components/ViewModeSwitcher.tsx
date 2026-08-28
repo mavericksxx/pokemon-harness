@@ -41,7 +41,11 @@ export function ViewModeSwitcher(): JSX.Element {
       {MODES.map(({ mode, label, glyph, key }) => (
         <button
           key={mode}
-          className={mode === viewMode ? 'view-switcher-btn active tip' : 'view-switcher-btn tip'}
+          className={
+            mode === viewMode
+              ? 'topbar-icon-btn view-switcher-btn active tip'
+              : 'topbar-icon-btn view-switcher-btn tip'
+          }
           onClick={() => setViewMode(mode)}
           data-tip={`${label} (⌘${key})`}
           aria-label={label}
@@ -59,7 +63,9 @@ export function ViewModeSwitcher(): JSX.Element {
       {viewMode === 'garden' && (
         <button
           type="button"
-          className={drawerOpen ? 'view-switcher-btn active tip' : 'view-switcher-btn tip'}
+          className={
+            drawerOpen ? 'topbar-icon-btn view-switcher-btn active tip' : 'topbar-icon-btn view-switcher-btn tip'
+          }
           data-tip="show/hide terminal panel"
           aria-label="show/hide terminal panel"
           aria-pressed={drawerOpen}
@@ -70,7 +76,7 @@ export function ViewModeSwitcher(): JSX.Element {
       )}
       <button
         type="button"
-        className="view-switcher-btn tip"
+        className="topbar-icon-btn view-switcher-btn tip"
         data-tip="all sessions"
         aria-label="all sessions"
         onClick={() => setSessionsOverviewOpen(true)}

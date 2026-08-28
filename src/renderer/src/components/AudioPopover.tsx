@@ -40,7 +40,7 @@ export function AudioPopover(): JSX.Element {
     <div className="audio-popover">
       <button
         type="button"
-        className="icon tip"
+        className="topbar-icon-btn tip"
         data-tip={settings.masterMuted ? 'muted — open player' : 'music player'}
         aria-label="music player"
         aria-expanded={open}

@@ -48,7 +48,7 @@ export function DeleteWorkspaceDialog({ workspace, deadSessionCount, onClose }: 
             cancel
           </button>
           <button type="button" className="danger" onClick={() => void confirm()} disabled={busy}>
-            {busy ? 'deleting…' : 'delete workspace'}
+            {busy ? 'deleting…' : 'delete garden'}
           </button>
         </div>
       </div>

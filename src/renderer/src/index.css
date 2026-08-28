@@ -87,14 +87,21 @@
   --font-display-lg-line: 24px;
   --font-body-lg-size: 16px;
   --font-body-lg-line: 24px;
-  --font-body-md-size: 14px;
-  --font-body-md-line: 20px;
-  --font-body-sm-size: 13px;
-  --font-body-sm-line: 18px;
+  /* Density pass (topbar overhaul) — mirrors design/tokens.ts's
+   * `type.bodyMd`/`bodySm`, see that file's comment: bakes back the ~9%
+   * density the old -0.5 Chromium zoom gave, now that zoom is reset to 0. */
+  --font-body-md-size: 13px;
+  --font-body-md-line: 18px;
+  --font-body-sm-size: 12px;
+  --font-body-sm-line: 16px;
   --font-mono-md-size: 14px;
   --font-mono-md-line: 20px;
   --font-mono-sm-size: 13px;
   --font-mono-sm-line: 18px;
+  /* Fixed square box for the topbar's right-cluster icon-only buttons (view
+   * mode group, audio, theme, settings) — one size so glyphs land optically
+   * centered and nothing shifts as the row's content changes. */
+  --topbar-icon-size: 30px;
 
   font-family: var(--font-ui);
   font-size: var(--font-body-md-size);
@@ -135,23 +142,37 @@ body {
   align-items: center;
   gap: 10px;
   /* 96px, not 78-80px worth of actual traffic-light footprint: room for the
-   * macOS traffic lights plus a safety margin. The lights are native window
-   * chrome (titleBarStyle: 'hiddenInset', main/index.ts) — their position is
-   * fixed in window points and untouched by the page's own zoom level, so
-   * the default -0.5 zoom level (main/index.ts) shrinks this CSS padding's
-   * effective on-screen size and eats into whatever margin is left; 96px
-   * keeps a real buffer at that zoom instead of just clearing the lights
-   * exactly at 100%. */
-  padding: 6px 12px 6px 96px;
+   * macOS traffic lights (titleBarStyle: 'hiddenInset', main/index.ts) plus
+   * a safety margin. Taller bar (BACKLOG.md topbar overhaul — brand/chips
+   * were reading cramped) bumped the vertical padding and min-height; the
+   * left inset didn't need to change since it was already sized for the
+   * lights' own fixed window-point footprint, not for any particular zoom
+   * level (main/index.ts's default zoom is back to 0/100% as of this pass). */
+  padding: 10px 12px 10px 96px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
-  min-height: 42px;
+  min-height: 52px;
 }
 
 .topbar button,
 .topbar .chip {
   -webkit-app-region: no-drag;
+}
+
+/* Press-and-hold on a chip painted a white drag-ghost/text-selection bar
+ * across the bar (video-confirmed, BACKLOG.md phase B) — the topbar has no
+ * genuinely selectable text, so kill selection and native image/element
+ * drag on everything in it. The one exception is the garden-chip rename
+ * field, a real text input, which opts back in below. */
+.topbar,
+.topbar * {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.topbar input {
+  user-select: text;
 }
 
 /* macOS auto-hides the traffic lights in fullscreen, turning the inset above
@@ -177,6 +198,15 @@ body {
 
 .spacer {
   flex: 1;
+}
+
+/* The right-cluster wrapper (App.tsx) — pinned, never shrinks/reflows; see
+ * `.topbar-icon-btn`'s own comment further down for the full rationale. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
 }
 
 .session-chips {
@@ -295,6 +325,19 @@ body {
   flex: none;
 }
 
+/* Fold the active chip into ONE pill (BACKLOG.md phase C — rename/delete
+ * used to be two bare floating icon buttons beside the chip): the outer
+ * `.garden-chip` grows the border/fill that used to live only on the name
+ * button, and the name button itself goes borderless/transparent so it
+ * reads as text sitting inside the shared pill rather than a second nested
+ * box. `padding-right` leaves room for the folded-in actions below. */
+.garden-chip.active {
+  border: 1px solid var(--text-secondary);
+  background: var(--panel-2);
+  border-radius: var(--radius-md);
+  padding-right: 2px;
+}
+
 .garden-chip-name {
   max-width: 140px;
   overflow: hidden;
@@ -304,15 +347,38 @@ body {
 }
 
 .garden-chip.active .garden-chip-name {
-  border-color: var(--text-secondary);
-  box-shadow: inset 0 0 0 1px var(--text-secondary);
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
   color: var(--text);
 }
 
+/* Undoes the generic `button:hover` accent border on the now-borderless name
+ * button — that hover ring belongs to the pill (`.garden-chip.active`
+ * above), not to a see-through inner box. */
+.garden-chip.active .garden-chip-name:hover {
+  border-color: transparent;
+}
+
+/* Rename/delete themselves stay hover/focus-revealed at the pill's right
+ * edge rather than always-on, so the bar reads as just chip + chip + chip
+ * with nothing floating at rest. Opacity/pointer-events, not display, so
+ * revealing them never shifts the row's layout, and `:focus-within` keeps
+ * them reachable by keyboard (Tab lands on the hidden button, which then
+ * satisfies this selector itself). */
 .garden-chip-action {
   flex: none;
   font-size: 13px;
   padding: 2px 5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease-out;
+}
+
+.garden-chip.active:hover .garden-chip-action,
+.garden-chip.active:focus-within .garden-chip-action {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .garden-chip-rename {
@@ -442,7 +508,10 @@ button {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 4px 10px;
+  /* Density pass (topbar overhaul) — was 4px 10px; trimmed alongside the
+   * base body type scale above so chips/chrome buttons read tighter now
+   * that zoom (main/index.ts) isn't doing this for free anymore. */
+  padding: 3px 9px;
   cursor: pointer;
   /* A button's own label never wraps — every label in this app is a
    * short, deliberately one-line imperative ("+ New Session", "Hide
@@ -1357,7 +1426,13 @@ button.icon:active {
 .usage-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  /* Not `.topbar-icon-btn` (see that class's comment) — this can carry a
+   * variable-width usage readout, so only height/min-width are pinned to
+   * match the rest of the right cluster's row rhythm; width stays auto. */
+  height: var(--topbar-icon-size);
+  min-width: var(--topbar-icon-size);
   padding: 3px 8px;
   font-size: var(--font-body-sm-size);
   color: var(--gold);
@@ -1625,11 +1700,6 @@ button.icon:active {
 }
 
 .view-switcher-btn {
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 3px 8px;
-  font-size: 13px;
-  line-height: 1;
   background: none;
 }
 
@@ -1637,6 +1707,42 @@ button.icon:active {
   background: var(--panel-2);
   border-color: var(--line);
   color: var(--text);
+}
+
+/* ── Topbar right-cluster icon buttons (topbar overhaul, BACKLOG.md phase B
+ * "icon group" item) ────────────────────────────────────────────────────
+ * `.topbar-actions` (App.tsx) is the whole cluster after `.spacer` — pinned
+ * with `flex: none` so only the spacer (and the scrollable chip rows before
+ * it) absorb width changes; this cluster never reflows or shifts position.
+ * `.topbar-icon-btn` gives every icon-only control in it (the view-mode
+ * group's buttons, audio, theme, settings) the SAME fixed square box,
+ * border, and hover treatment, so glyphs land optically centered and stop
+ * drifting between components. Layered onto `.view-switcher-btn` above
+ * (which now only carries the segmented group's own `.active` fill) rather
+ * than replacing it. `UsageChip.tsx`'s trigger is deliberately NOT in this
+ * class — it can carry a variable-width usage readout next to its icon — but
+ * shares this box's height so the row still lines up (see `.usage-chip`). */
+.topbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--topbar-icon-size);
+  height: var(--topbar-icon-size);
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.topbar-icon-btn:hover {
+  border-color: var(--accent-text);
+}
+
+.topbar-icon-btn:active {
+  transform: translate(1px, 1px);
 }
 
 /* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5) ──── */

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useAudioStore } from '@/audio/audioStore';
-import { SlidersIcon } from '@/components/icons';
 
 /**
  * Topbar "quick settings" popover — the handful of things worth reaching
@@ -13,10 +12,14 @@ import { SlidersIcon } from '@/components/icons';
  * — deliberately NOT a duplicate of AudioPopover's mini-player; the sound
  * row here just links back to it for transport/search/the full track list.
  *
- * Self-contained on purpose (mount point: App.tsx, one line next to the
- * settings gear) — a concurrent topbar restructure is moving the gear and
- * other chrome around; this component owns its own trigger, popover, and
- * CSS block so it can be relocated without touching its internals.
+ * Topbar overhaul (BACKLOG.md phase B "merge quick settings into the gear"):
+ * this IS the settings entry point now — the trigger is the ⚙ gear glyph
+ * (was a separate sliders icon sitting beside a second, plain gear button
+ * that opened SettingsPanel directly; the two side by side read as
+ * confusing/duplicated). One gear, one popover; its own "all settings…" row
+ * below still opens the full SettingsPanel dialog. Self-contained on purpose
+ * (mount point: App.tsx's `.topbar-actions` cluster, last item) — this
+ * component owns its own trigger, popover, and CSS block.
  */
 export function QuickSettings(): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -51,20 +54,20 @@ export function QuickSettings(): JSX.Element {
     <div className="quick-settings">
       <button
         type="button"
-        className="icon tip"
-        data-tip="quick settings"
-        aria-label="quick settings"
+        className="topbar-icon-btn tip"
+        data-tip="settings"
+        aria-label="settings"
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((v) => !v)}
       >
-        <SlidersIcon />
+        ⚙
       </button>
 
       {open && (
         <>
           <div className="quick-settings-catcher" onClick={() => setOpen(false)} />
-          <div className="quick-settings-panel" role="dialog" aria-label="quick settings">
+          <div className="quick-settings-panel" role="dialog" aria-label="settings">
             <div className="segmented" role="group" aria-label="theme">
               {(['system', 'light', 'dark'] as const).map((mode) => (
                 <button
