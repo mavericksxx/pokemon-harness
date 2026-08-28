@@ -32,11 +32,10 @@ export function TerminalDrawer(): JSX.Element | null {
   const [findOpen, setFindOpen] = useState(false);
   useEffect(() => setFindOpen(false), [selectedId]);
 
-  // Phase 8 §1: 'terminal'/'terminalFull' always show the terminal (it IS the
-  // view); 'gardenFull' never does; 'garden' keeps the old manual toggle.
-  const open =
-    viewMode === 'terminal' || viewMode === 'terminalFull' || (viewMode === 'garden' && drawerOpenPref);
-  // Full-bleed in the two terminal-owning modes — no side-panel width cap.
+  // Phase 8 §1: 'terminal' always shows the terminal (it IS the view);
+  // 'gardenFull' never does; 'garden' keeps the old manual toggle.
+  const open = viewMode === 'terminal' || (viewMode === 'garden' && drawerOpenPref);
+  // Full-bleed in terminal-owning mode — no side-panel width cap.
   const wide = viewMode !== 'garden';
   // The bottom roster strip (terminal-focus mode; parity sweep item 5,
   // formerly a left sidebar) already offers session switching; the drawer's

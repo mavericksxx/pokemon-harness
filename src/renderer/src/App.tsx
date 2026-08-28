@@ -20,14 +20,13 @@ import { useWorkspaceStore } from '@/store/workspaceStore';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { cancelClosingTime, isClosingTimeActive, startClosingTime } from '@/closingTime';
 
-/** Cmd/Ctrl+1..4 → the four Phase 8 §1 view modes, matching ViewModeSwitcher's
- *  order. Bound globally (not per-input) — none of the app's text inputs use
+/** Cmd/Ctrl+1..3 → the three view modes, matching ViewModeSwitcher's order.
+ *  Bound globally (not per-input) — none of the app's text inputs use
  *  digit-only shortcuts, and Cmd is never a plain typing key. */
 const SHORTCUT_MODES: Record<string, ViewMode> = {
   '1': 'garden',
   '2': 'terminal',
-  '3': 'gardenFull',
-  '4': 'terminalFull'
+  '3': 'gardenFull'
 };
 
 /** Cmd/Ctrl+Shift+1..9 → switch to the Nth workspace, in registry order
@@ -109,10 +108,9 @@ export function App(): JSX.Element {
   // there.
   const gardenVisible = viewMode === 'garden' || viewMode === 'gardenFull';
   // Bottom roster strip (parity sweep item 5) — 'garden' and 'terminal' only
-  // (the two "Full" modes keep the previous topbar chips + New Session
-  // button below instead, unchanged: 'terminalFull' has no garden signpost
-  // to fall back on for switching sessions, and neither Full mode has room
-  // for a strip without shrinking the thing it's meant to be full-bleed).
+  // ('gardenFull' keeps the previous topbar chips + New Session button
+  // below instead, unchanged: full-bleed garden has no room for a strip
+  // without shrinking the thing it's meant to be full-bleed).
   const showRosterStrip = viewMode === 'garden' || viewMode === 'terminal';
 
   return (

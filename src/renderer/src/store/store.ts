@@ -23,18 +23,22 @@ export interface Toast {
   action?: { label: string; onClick: () => void };
 }
 
-/** One of the four Phase 8 §1 layouts:
- *   'garden'       — current layout: garden fills the body, terminal drawer
- *                     toggles as a side panel (`drawerOpen`).
- *   'terminal'     — munder-difflin's layout: a left sidebar of agent roster
- *                     cards, terminal owning the rest. Garden stays mounted
- *                     (simulation keeps running) but hidden.
- *   'gardenFull'   — garden fills the whole body, no terminal.
- *   'terminalFull' — terminal fills the whole body, no sidebar, no garden. */
-export type ViewMode = 'garden' | 'terminal' | 'gardenFull' | 'terminalFull';
+/** One of three layouts (was four — 'terminalFull' was dropped: it and
+ *  'terminal' both hid the garden and gave the terminal the whole body, and
+ *  users reported the two view-switcher buttons as duplicates. 'terminal'
+ *  is the one that survived — its bottom roster strip is the same
+ *  session-switching UI 'garden' mode already uses, instead of
+ *  'terminalFull''s topbar chips + drawer tab strip):
+ *   'garden'     — garden fills the body, terminal drawer toggles as a side
+ *                  panel (`drawerOpen`).
+ *   'terminal'   — munder-difflin's layout: a bottom roster strip of agent
+ *                  cards, terminal owning the rest. Garden stays mounted
+ *                  (simulation keeps running) but hidden.
+ *   'gardenFull' — garden fills the whole body, no terminal. */
+export type ViewMode = 'garden' | 'terminal' | 'gardenFull';
 
 const VIEW_MODE_STORAGE_KEY = 'poke:viewMode';
-const VALID_VIEW_MODES: readonly ViewMode[] = ['garden', 'terminal', 'gardenFull', 'terminalFull'];
+const VALID_VIEW_MODES: readonly ViewMode[] = ['garden', 'terminal', 'gardenFull'];
 
 /** Best-effort read of the last view mode — localStorage can throw (private
  *  browsing/disabled storage); default to the pre-Phase-8 layout on failure. */
