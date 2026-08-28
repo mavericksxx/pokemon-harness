@@ -54,7 +54,7 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ### phase D — feature: mega evolution
 
-- megas are absent from the picker (they're battle forms, not dex entries — sprite sets do include mega forms). Design a mega mechanic rather than listing them as species; candidate triggers: sustained heavy work (temporary mega while a session runs hot), during battles, or a manual "mega evolve" action on the roster card for species that have a mega. Needs a design decision before build.
+- megas are absent from the picker (they're battle forms, not dex entries — sprite sets do include mega forms). DECIDED (2026-08-29): **trigger = during battles only** — when a completion battle starts, the MAIN agent's pokemon mega evolves for the duration of the fight if its species has a mega form (sprite availability verified against the real sprite source; species without a mega just battle normally), then reverts after the battle/victory celebration. No picker entries, no manual button, no work-based trigger. Build AFTER the phase A lifecycle redesign lands (it owns the battle flow this hooks into).
 
 ### phase E — feature: focus mode (munder-difflin command center, requested 2026-08-29)
 
