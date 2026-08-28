@@ -368,8 +368,12 @@ body {
  * satisfies this selector itself). */
 .garden-chip-action {
   flex: none;
-  font-size: 13px;
-  padding: 2px 5px;
+  /* Small, tight footprint on purpose: this space is RESERVED at rest (see
+   * the opacity/pointer-events approach above) so revealing on hover never
+   * shifts the row — a bigger box here would read as a dead gap at the
+   * active pill's tail instead of padding. */
+  font-size: 12px;
+  padding: 0 4px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 90ms ease-out;
