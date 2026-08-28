@@ -45,7 +45,26 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
 
   switch (evt.event) {
     case 'SessionStart':
-      update({ status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
+      update({
+        status: 'idle',
+        tool: undefined,
+        toolTarget: undefined,
+        station: 'wander',
+        // Post-compact wake (item 4): a SessionStart whose `source` is
+        // 'compact' is the one Claude Code fires right after it finishes
+        // compacting — clear the nap the matching PreCompact set below.
+        // Every other SessionStart (a fresh session) leaves napping alone
+        // (it's already unset).
+        ...(evt.source === 'compact' ? { napping: false } : {})
+      });
+      break;
+
+    // Phase 8.5 Wave B item 4 — about to compact; nap until the post-compact
+    // SessionStart above wakes it. Status/tool/station are left as-is: the
+    // terminal stays live and Walker.setNapping (GardenScene's reconcile)
+    // is what actually parks the walker and hides its tool bubble.
+    case 'PreCompact':
+      update({ napping: true });
       break;
 
     case 'UserPromptSubmit':

@@ -202,7 +202,11 @@ export class HookBridge {
         PostToolUse: [entry('*')],
         Notification: [entry()],
         Stop: [entry()],
-        SubagentStop: [entry()]
+        SubagentStop: [entry()],
+        // Phase 8.5 Wave B item 4 — fires just before a compaction; the
+        // post-compact SessionStart (source: 'compact') that follows is
+        // already covered by the SessionStart entry above.
+        PreCompact: [entry()]
       }
     };
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
