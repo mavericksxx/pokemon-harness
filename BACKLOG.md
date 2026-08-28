@@ -27,11 +27,35 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 3. **"tell chikorita to do X" routing** — DECIDED (2026-08-29): transport = terminal injection (arceus emits a structured directive → app types the instruction into the target session's pty, visible in that terminal, all providers); autonomy = relay-only (arceus forwards only when the user explicitly asks); persona delivery switches to MD-style first prompt (replaces `--append-system-prompt`) as part of the same work; roster context fed to arceus so he knows agent names/status. The dispatch box (`ArceusDispatchBox`) is unmounted in `TerminalDrawer` pending this — re-enable it as the assignment entry when routing lands.
 
+## queued phases (logged 2026-08-29 — batch per phase, dispatch after usage limits ships)
+
+### phase A — critical: subagent lifecycle correctness
+
+- subagent's pokemon fainted and left the garden while the real subagent was STILL RUNNING (observed on v1.2.0). It did materialize this time (hardening worked) but died early — suspects: the 8-min `WANDER_SAFETY_MS` fallback expiring on a long-running subagent, or a false-positive opportunistic completion signal. Before coding: pull `~/PokemonHarness/logs/harness.log` for the repro window (battle counters + any `battle-*` entries) to see which path fired. Likely fix shape: raise/remove the wander safety for subagents whose parent session is still actively emitting PreToolUse/PostToolUse hooks (parent activity = proof the wave isn't done), rather than a bigger constant.
+- battles chain back-to-back with no breathing room — a new skirmish started immediately after the previous one ended; add a cooldown between battles (per-avatar and a short global stagger) so consecutive skirmishes read as separate events.
+
+### phase B — layout/visual bugs
+
+- garden flickers while dragging the garden/terminal splitter — likely the Pixi canvas re-laying-out/resizing every pointer-move despite the rAF throttle; consider resizing the canvas only on release (stretch/letterbox during the drag) or freezing to a snapshot while dragging.
+- topbar right-side icon group: glyphs not optically centered in their boxes, and the buttons shift position as window width/content changes — normalize every topbar icon button to one fixed box size and baseline, pin the right cluster.
+- quick settings (sliders icon) sitting directly beside settings (gear) is confusing and the two are misaligned. PROPOSED: merge — drop the sliders icon; the single gear at the far right opens the quick-settings popover, whose existing "all settings…" row opens the full dialog. One entry point, no duplication.
+- tool dialogue box overlaps the status dot / "!" above the sprite's head (screenshot-confirmed on meganium) — bubble must offset above or hide while a status indicator/battle alert occupies that zone (gate on `battleManager.isBattling` for the battle case).
+- press-and-hold on a garden chip paints a white bar/ghost strip across the topbar under the chip row (video-confirmed) — looks like a native drag ghost or text-selection artifact on the held element; suppress with `user-select: none` + `-webkit-user-drag: none` on topbar controls and verify no draggable ancestor.
+
+### phase C — ux polish
+
+- roster card shows session name + provider but not the species — add the pokemon's name (e.g. "meganium") to the card.
+- "change pokemon" affordance on the roster card is too small to notice/hit — make it a proper visible action on the card.
+- active garden chip's rename/delete are bare floating pencil/trash icons beside the chip — fold them into the chip (hover-reveal inside it, or a small menu on the active chip) so the topbar reads cleaner.
+
+### phase D — feature: mega evolution
+
+- megas are absent from the picker (they're battle forms, not dex entries — sprite sets do include mega forms). Design a mega mechanic rather than listing them as species; candidate triggers: sustained heavy work (temporary mega while a session runs hot), during battles, or a manual "mega evolve" action on the roster card for species that have a mega. Needs a design decision before build.
+
 ## smaller known items
 
 - "needs you" over-triggers: the CLI's idle waiting-for-input notification maps to the same badge as real permission prompts — split them (permission/questions → "needs you", plain turn-ended → "idle")
 - brand "pokéharness" text reads squashed (unresolved): é glyph + CSS ruled out; two live hypotheses — the −0.5 zoom breaking Press Start 2P's pixel grid app-wide, or the topbar's `-webkit-app-region: drag` region's Electron text-rendering quirk. Discriminating test: screenshot brand + a modal h2 in one frame; if both look off it's the zoom (not `.brand`'s fault)
-- tool bubble can overlap battle "!" alerts / floating move text now that it anchors at head−6 (same zone) — consider hiding the tool bubble while its session's avatar is mid-battle (gate the reconcile on `battleManager.isBattling`)
 - "new workspace"/"delete workspace" dialog copy still says workspace under the new "+ new garden" vocabulary — align to "garden"
 - invisible-subagent root cause still unconfirmed: the spawn chain is hardened + logged; on next repro check `~/PokemonHarness/logs/harness.log` for `battle-bus`/`hook-router` errors and fix the named throw
 
