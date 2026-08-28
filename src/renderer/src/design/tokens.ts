@@ -4,16 +4,24 @@
  * itself is untouched (Phase 8 §2): Pixi draws the world from its own art,
  * not from these.
  *
- * Structure (color ramp / space scale / type scale / panel border+shadow
- * language) is ported from munder-difflin's `design/tokens.ts` + `DESIGN.md`
- * §3-7 (MIT, see ATTRIBUTION.md) — but the values are ours: this app already
- * had a dark forest palette (index.css's old `:root` block) and a 6-color
- * session-tint set (`store.ts`'s `ACCENTS`) that lines up almost exactly with
- * their 6 agent-accent slots, so those hex codes are kept verbatim here
- * rather than replaced with their cream/violet ones. No pixel display font is
- * ported either — the renderer's CSP (`index.html`) is `default-src 'self'`
- * with no font-src, so a Google-Fonts pixel face isn't reachable, and this
- * app doesn't bundle one.
+ * PROVISIONAL PALETTE. The color values below were an initial pass that
+ * kept this app's pre-existing dark-GREEN identity (index.css's old
+ * `:root` block) and only ported munder-difflin's *structure* (ramp shape,
+ * space scale, type scale, panel border+shadow language). User feedback on
+ * that pass: it doesn't look/feel like the munder-difflin inspiration, and
+ * the green background specifically has to go — Pokemon flavor belongs in
+ * CONTENT (sprites, accents, copy), not the chrome's background palette.
+ *
+ * This revision replaces every chrome color with values captured verbatim
+ * from munder-difflin's own `design/tokens.css`, dark-theme block (MIT, see
+ * ATTRIBUTION.md) — their real neutral ramp + accent hues, not invented
+ * ones. It is STILL provisional: a dedicated research pass is producing an
+ * exact replication spec (hexes/type/spacing/radii/motion) from their repo
+ * + site, which supersedes this once it lands. Everything chrome-colored
+ * routes through the CSS custom properties `applyTokens()` sets below (and
+ * index.css's matching fallback block) specifically so that swap is a
+ * token-file edit, not a re-skin — grep for a raw `#` in index.css before
+ * adding new chrome CSS; if you find one, it isn't wired to this file yet.
  *
  * Mirrored onto `:root` as CSS custom properties by `applyTokens()` (called
  * once from `main.tsx` at boot) so existing class-based CSS in `index.css`
@@ -21,49 +29,69 @@
  * styles from this module.
  */
 
-/** Ground/surface ramp — darkest to lightest. Same values index.css already
- *  had (`--bg`/`--panel`/`--panel-2`), just named as a scale. */
+/** Ground/surface ramp — munder-difflin tokens.css dark theme: `--cth-cream-*`
+ *  (app ground → panel fill → raised/inset fill) and `--cth-ink-300` for the
+ *  border weight their own comment says carries "this app's entire
+ *  structural language" (used 93 times as `inset 0 0 0 1px`) — kept as the
+ *  border here for the same reason, not softened to a dimmer divider tone. */
 export const ground = {
-  0: '#0d150e', // app background, garden letterbox
-  100: '#16220f', // panel fill (titlebar, drawer, popovers)
-  200: '#1e2f16', // raised/inset fill (chips, inputs, list rows)
-  300: '#2c4224' // hairline borders
+  0: '#17171B', // cream-50 (dark) — app background, garden letterbox
+  100: '#1D1D22', // cream-100 (dark) — panel fill (titlebar, drawer, popovers)
+  200: '#26262C', // cream-200 (dark) — raised/inset fill (chips, inputs, list rows)
+  300: '#787684' // ink-300 (dark) — hairline borders (NOT ink-100; see comment above)
 } as const;
 
-/** Text ramp. `900` is the old `--text`, `500` the old `--muted`. */
+/** Text ramp — munder-difflin `--cth-ink-*` dark theme. `900` primary text,
+ *  `700` secondary, `500` tertiary/muted, `100` the quietest divider tone
+ *  (their comment: "meant to recede," 1.4-1.7:1 contrast — not for text). */
 export const ink = {
-  900: '#dfeed4',
-  700: '#b9cdae',
-  500: '#8fa383',
-  300: '#5f7256'
+  900: '#DEDBD6',
+  700: '#B3B0AC',
+  500: '#96919F',
+  300: '#3E3D46' // cth-ink-100 — subtle dividers only, not a border/text tone
 } as const;
 
-/** Session/agent accents — cycled per session by `store.ts`'s `ACCENTS`.
- *  Named here so chrome (roster cards, tab underlines) can reference the
- *  same hues by meaning instead of a raw hex. Order matches `ACCENTS`. */
+/** munder-difflin's six agent accents, dark-theme values — DESIGN.md §3.3.
+ *  Distinct from `store.ts`'s `ACCENTS` (the Pixi walker-tint set, garden-
+ *  side, untouched): these are for CHROME that wants a named hue (currently
+ *  none of index.css's rules consume them directly — kept available for
+ *  roster-card/tab accenting once the spec settles whether chrome should
+ *  echo a session's tint at all). */
 export const accent = {
-  gold: '#ffd166',
-  sky: '#8ecae6',
-  pink: '#ff8fa3',
-  leaf: '#b5e48c',
-  lilac: '#c8a2ff',
-  amber: '#ffb27a'
+  coral: '#E08C82',
+  mint: '#74C096',
+  sky: '#6FB3C4',
+  lemon: '#CFAA57',
+  lilac: '#A896E3',
+  peach: '#DFA57F'
 } as const;
 
-/** The app's primary accent (buttons, focus rings, brand mark) — leaf green,
- *  same as the old `--accent`. */
-export const primaryAccent = accent.leaf;
+/** The app's primary accent (buttons, focus rings, brand mark). Provisional:
+ *  munder-difflin's own system has no single "primary" — each agent gets one
+ *  of the six accents above. `sky` is a placeholder pick pending the spec. */
+export const primaryAccent = accent.sky;
 
-/** Status semantics — same mapping index.css already used per `.status.*`. */
+/** Status semantics — munder-difflin `--cth-status-*` dark theme (DESIGN.md
+ *  §3.4), mapped onto this app's five `SessionStatus` values by closest
+ *  meaning (their set has more granularity than this app uses). */
 export const status = {
-  starting: ink[500],
-  idle: accent.sky,
-  working: accent.leaf,
-  blocked: '#ffd23f',
-  done: ink[500]
+  starting: '#6F6C77', // their status-idle — "at desk, awaiting"
+  idle: '#64ACBB', // their status-thinking — closest to this app's old sky "breathing" idle
+  working: '#D8B052', // their status-working
+  blocked: '#DF8078', // their status-blocked
+  done: '#6C6A76' // their status-ghost — "pane closed, fading out"
 } as const;
 
-export const danger = '#ff8a8a';
+export const danger = accent.coral;
+/** Darker border to pair with `danger`'s coral fill/text — their coral-light
+ *  dark-theme value (a muted coral-brown), not a hand-picked dark red. */
+export const dangerBorder = '#3B2724';
+
+/** Gold used only for the shiny-Pokemon star badge — was accidentally the
+ *  same literal hex as the old status-blocked color pre-Phase-8 (coincidence
+ *  in the original file, not a deliberate shared token). Split out properly
+ *  now that both route through named tokens. */
+export const shiny = accent.lemon;
 
 /** 4px base grid. */
 export const space = {
@@ -97,9 +125,10 @@ export const radius = {
   lg: 6
 } as const;
 
-/** Hard offset shadow, no blur — DESIGN.md §6.4. Replaces the old blurred
+/** Hard offset shadow, no blur — DESIGN.md §6.4, their dark-theme value
+ *  ("reads as depth, not void"). Replaces the old blurred
  *  `0 6px 18px rgba(...)` on popovers/modals/toasts. */
-export const shadowHard = '4px 4px 0 rgba(0, 0, 0, 0.4)';
+export const shadowHard = '4px 4px 0 rgba(0, 0, 0, 0.45)';
 
 /** Convert the token modules above into a flat CSS custom-property map and
  *  stamp it onto `document.documentElement`, so `index.css`'s existing
@@ -117,13 +146,15 @@ export function applyTokens(): void {
   root.setProperty('--muted-dim', ink[300]);
   root.setProperty('--accent', primaryAccent);
   root.setProperty('--danger', danger);
+  root.setProperty('--danger-border', dangerBorder);
+  root.setProperty('--shiny', shiny);
 
-  root.setProperty('--accent-gold', accent.gold);
+  root.setProperty('--accent-coral', accent.coral);
+  root.setProperty('--accent-mint', accent.mint);
   root.setProperty('--accent-sky', accent.sky);
-  root.setProperty('--accent-pink', accent.pink);
-  root.setProperty('--accent-leaf', accent.leaf);
+  root.setProperty('--accent-lemon', accent.lemon);
   root.setProperty('--accent-lilac', accent.lilac);
-  root.setProperty('--accent-amber', accent.amber);
+  root.setProperty('--accent-peach', accent.peach);
 
   root.setProperty('--status-idle', status.idle);
   root.setProperty('--status-working', status.working);

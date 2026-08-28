@@ -30,7 +30,10 @@
         position: fixed;
         inset: 0;
         z-index: 100000;
-        background: #0d150e;
+        /* Tracks design/tokens.ts's `ground[0]` / index.css's `--bg`
+         * (Phase 8 §2) by hand — this paints before any stylesheet or
+         * applyTokens() runs, so it can't reference the var itself. */
+        background: #17171b;
         display: flex;
         align-items: center;
         justify-content: center;

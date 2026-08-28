@@ -127,7 +127,10 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'Pokemon Harness',
-    backgroundColor: '#101a12',
+    // Matches design/tokens.ts's `ground[0]` / index.css's `--bg` (Phase 8
+    // §2) — this paints before the renderer does, so it has to track that
+    // value by hand rather than reading it.
+    backgroundColor: '#17171b',
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {

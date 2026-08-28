@@ -4,31 +4,39 @@
  * so the sheet never resolves to an unset var even for a single frame;
  * tokens.ts is the single source of truth for the actual values — change
  * both together. Structure (ramp/space/type/shadow language) is ported from
- * munder-difflin's design system (MIT, see ATTRIBUTION.md); values are ours. */
+ * munder-difflin's design system (MIT, see ATTRIBUTION.md).
+ *
+ * PROVISIONAL PALETTE — see tokens.ts's header. Values below are captured
+ * verbatim from munder-difflin's own tokens.css dark theme, not invented; a
+ * precise replication spec supersedes them when it lands. Every chrome color
+ * must go through a var here — a raw `#hex` anywhere else in this file is a
+ * value the eventual spec-driven edit won't reach. */
 :root {
-  --bg: #0d150e;
-  --panel: #16220f;
-  --panel-2: #1e2f16;
-  --line: #2c4224;
-  --text: #dfeed4;
-  --text-secondary: #b9cdae;
-  --muted: #8fa383;
-  --muted-dim: #5f7256;
-  --accent: #b5e48c;
-  --danger: #ff8a8a;
+  --bg: #17171b;
+  --panel: #1d1d22;
+  --panel-2: #26262c;
+  --line: #787684;
+  --text: #dedbd6;
+  --text-secondary: #b3b0ac;
+  --muted: #96919f;
+  --muted-dim: #3e3d46;
+  --accent: #6fb3c4; /* provisional: their system has no single primary accent; spec will settle this */
+  --danger: #e08c82;
+  --danger-border: #3b2724;
+  --shiny: #cfaa57;
 
-  --accent-gold: #ffd166;
-  --accent-sky: #8ecae6;
-  --accent-pink: #ff8fa3;
-  --accent-leaf: #b5e48c;
-  --accent-lilac: #c8a2ff;
-  --accent-amber: #ffb27a;
+  --accent-coral: #e08c82;
+  --accent-mint: #74c096;
+  --accent-sky: #6fb3c4;
+  --accent-lemon: #cfaa57;
+  --accent-lilac: #a896e3;
+  --accent-peach: #dfa57f;
 
-  --status-idle: var(--accent-sky);
-  --status-working: var(--accent-leaf);
-  --status-blocked: #ffd23f;
-  --status-done: var(--muted);
-  --status-starting: var(--muted);
+  --status-idle: #64acbb;
+  --status-working: #d8b052;
+  --status-blocked: #df8078;
+  --status-done: #6c6a76;
+  --status-starting: #6f6c77;
 
   --space-0: 0px;
   --space-1: 4px;
@@ -45,7 +53,7 @@
   --radius-lg: 6px;
 
   /* Hard offset, no blur — munder-difflin DESIGN.md §6.4. */
-  --shadow-hard: 4px 4px 0 rgba(0, 0, 0, 0.4);
+  --shadow-hard: 4px 4px 0 rgba(0, 0, 0, 0.45);
 
   --font-display-size: 13px;
   --font-display-line: 18px;
@@ -213,7 +221,7 @@ body {
 /* Shiny badge (Phase 5 §4): the session chip and the picker's taken display
    both mark a shiny Pokemon with a small gold star next to its face. */
 .shiny-badge {
-  color: #ffd23f;
+  color: var(--shiny);
   font-size: 11px;
   line-height: 1;
 }
@@ -238,14 +246,19 @@ button:active {
   transform: translate(1px, 1px);
 }
 
+/* Provisional fill: their own PixelButton spec (light-theme "Primary: fill =
+ * ink-900, text = cream-50") doesn't have a stated dark-mode equivalent —
+ * using --accent as the fill with --bg text is a placeholder pending the
+ * spec, not a considered design choice. */
 button.primary {
-  background: #2f5a22;
-  border-color: #4b8a37;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
 }
 
 button.danger {
   color: var(--danger);
-  border-color: #5a2626;
+  border-color: var(--danger-border);
 }
 
 button.icon {
@@ -370,7 +383,7 @@ button.icon:active {
   flex: 1;
   min-height: 0;
   padding: 4px;
-  background: #0d150e;
+  background: var(--bg);
 }
 
 .empty {

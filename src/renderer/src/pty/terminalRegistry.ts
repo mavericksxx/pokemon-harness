@@ -19,12 +19,18 @@ import '@xterm/xterm/css/xterm.css';
 import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
 import { useStore } from '@/store/store';
+import { ground, ink, primaryAccent } from '@/design/tokens';
 
+// Pulled from design/tokens.ts (Phase 8 §2) rather than hardcoded — xterm's
+// theme is a plain JS object, not CSS, so it can't read the :root custom
+// properties applyTokens() sets; tokens.ts is the non-CSS consumer path for
+// exactly this (see that file's own header, and munder-difflin's tokens.ts,
+// which states the same rationale for its Pixi.js consumers).
 const THEME = {
-  background: '#0d150e',
-  foreground: '#d8e8d0',
-  cursor: '#b5e48c',
-  selectionBackground: '#2c4a2a'
+  background: ground[0],
+  foreground: ink[900],
+  cursor: primaryAccent,
+  selectionBackground: ground[200]
 };
 
 interface Entry {
