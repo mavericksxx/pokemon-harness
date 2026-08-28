@@ -209,6 +209,13 @@ export class HookBridge {
         PostToolUse: [entry('*')],
         Notification: [entry()],
         Stop: [entry()],
+        // Wired, but not relied on: confirmed against real transcripts that
+        // Claude Code's Agent/Task tool dispatches every subagent
+        // asynchronously and delivers completion via an internal message
+        // that never reaches ANY hook (not SubagentStop, not even
+        // UserPromptSubmit for the injected notification) — see
+        // hookRouter.ts's SubagentStop case and BattleManager.ts's file
+        // header for the fallback this app actually uses.
         SubagentStop: [entry()],
         // Phase 8.5 Wave B item 4 — fires just before a compaction; the
         // post-compact SessionStart (source: 'compact') that follows is

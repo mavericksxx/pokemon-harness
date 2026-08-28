@@ -538,8 +538,20 @@ export function GardenScene(): JSX.Element {
         }
         // Runs after every walker's own update() so battle positioning always
         // overwrites with a fresh absolute (base + offset) value rather than
-        // fighting Walker's own syncPosition from a stale frame.
-        battleManager.update(dt);
+        // fighting Walker's own syncPosition from a stale frame. Guarded: an
+        // uncaught throw here would propagate out of this ticker listener and
+        // skip Pixi's OWN render call for the rest of this tick (added at
+        // lower priority, so it runs after everyone else's) — if that kept
+        // happening every frame (e.g. several subagent battles overlapping),
+        // the canvas would simply stop being repainted and read as a dead
+        // black screen the next time anything (a resize, a DPI change)
+        // cleared it. One bad battle must never take the whole garden down
+        // with it — log once and skip this frame's battle visuals instead.
+        try {
+          battleManager.update(dt);
+        } catch (e) {
+          console.error('[battle] update() threw — skipping this frame:', e);
+        }
         closingRitual.update(dt);
 
         flushAccum += dt;

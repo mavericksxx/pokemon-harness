@@ -110,6 +110,16 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       break;
 
     case 'SubagentStop':
+      // Wired for the rare case the CLI actually sends it, but don't build
+      // anything load-bearing on top: verified against real transcripts
+      // (and matching public anthropics/claude-code issues #25147/#27755/
+      // #33049) that Claude Code's Agent/Task tool dispatches every
+      // subagent asynchronously and delivers its real completion as an
+      // internal message that never reaches the hooks system at all — no
+      // SubagentStop, not even UserPromptSubmit for the injected
+      // notification. BattleManager's wander-safety timeout (see its file
+      // header) is this app's actual, documented fallback for "a subagent
+      // is done."
       emitBattleSignal({ type: 'end', parentId: sessionId });
       break;
 
