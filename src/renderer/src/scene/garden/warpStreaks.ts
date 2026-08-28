@@ -14,7 +14,12 @@
  * symmetric per the design brief.
  */
 
-const SIZE = 128;
+// 2.5x the original 128 — matches nebula.ts's own RES_SCALE bump (backlog
+// item: cosmos "looks too zoomed in") so the warp's grain doesn't suddenly
+// read chunkier than the cosmos backdrop it reveals; both canvases were 128
+// before this pass, both are 320 now.
+const RES_SCALE = 2.5;
+const SIZE = 128 * RES_SCALE;
 const CENTER = SIZE / 2;
 /** Pixels from center to the nearest edge — rays are normalized against
  *  this so `radius` is a plain 0..1 (plus corner overshoot) fraction. */
@@ -110,8 +115,12 @@ function rasterizeWarpStreaks(direction: WarpDirection): string {
       if (heat > 0.6) rgb = lerpRgb(rgb, core, (heat - 0.6) / 0.4);
 
       // Coarse dither, same reasoning as nebula.ts — breaks up flat bands at
-      // this low a resolution once scaled up pixelated.
-      const blockHash = Math.sin(Math.floor(x / 2) * 12.9898 + Math.floor(y / 2) * 78.233 + 4.1) * 43758.5453;
+      // this low a resolution once scaled up pixelated. Block size scaled by
+      // RES_SCALE (was /2 at the original SIZE 128) so the cluster keeps its
+      // former on-screen size, same fix as nebula.ts's own blockX/blockY.
+      const blockHash =
+        Math.sin(Math.floor(x / (2 * RES_SCALE)) * 12.9898 + Math.floor(y / (2 * RES_SCALE)) * 78.233 + 4.1) *
+        43758.5453;
       const ditherAmt = (blockHash - Math.floor(blockHash) - 0.5) * 18;
       rgb = [
         clamp01((rgb[0] + ditherAmt) / 255) * 255,

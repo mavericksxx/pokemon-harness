@@ -38,7 +38,7 @@ export function QuitDialog(): JSX.Element | null {
 
   return (
     <div className="modal-backdrop" onClick={keepRunning}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal quit-dialog-modal" onClick={(e) => e.stopPropagation()}>
         <h2>quitting now?</h2>
         <p className="quit-dialog-count">
           {count} agent{count === 1 ? '' : 's'} still running

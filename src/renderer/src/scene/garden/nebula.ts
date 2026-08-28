@@ -22,8 +22,17 @@
  * the band math lands.
  */
 
-const WIDTH = 128;
-const HEIGHT = 80;
+/** 2.5x the original 128x80 (backlog item: "cosmos view looks too zoomed
+ *  in") — finer effective pixel grain once stretched to fill the pane.
+ *  Generated once at module load and cached (see `nebulaDataUrl` below), so
+ *  the bigger raster costs nothing per-frame; still well under
+ *  window-size*devicePixelRatio, nowhere near absurd. Every pixel-space
+ *  constant below that scaled WITH this resolution bump (the coarse dither
+ *  block, the feature-star coordinates) is called out at its own
+ *  definition — see RES_SCALE. */
+const RES_SCALE = 2.5;
+const WIDTH = Math.round(128 * RES_SCALE);
+const HEIGHT = Math.round(80 * RES_SCALE);
 
 /** Small deterministic PRNG (mulberry32) — same seed every load. */
 function makeRng(seed: number): () => number {
@@ -117,7 +126,7 @@ function generateNebulaDataUrl(): string {
   // A handful of noise octaves (value noise via smoothed random lattice) for
   // dust-lane clump irregularity, cheap enough at this resolution to do
   // per-pixel with a small lattice + bilinear sample.
-  const LATTICE = 10;
+  const LATTICE = 16;
   const lattice: number[][] = Array.from({ length: LATTICE + 1 }, () =>
     Array.from({ length: LATTICE + 1 }, () => rng())
   );
@@ -192,8 +201,12 @@ function generateNebulaDataUrl(): string {
       // stochastic hash for cluster-scale variation, layered under a much
       // fainter Bayer4 component for fine texture — "blue-noise-ish" rather
       // than one repeating tile.
-      const blockX = Math.floor(x / 2);
-      const blockY = Math.floor(y / 2);
+      // Block size scaled by RES_SCALE (was /2 at the original 128x80) so
+      // the coarse stochastic cluster keeps its former ON-SCREEN size once
+      // stretched to fill the pane — only the Bayer4 fine layer and the
+      // underlying color field get genuinely finer at the new resolution.
+      const blockX = Math.floor(x / (2 * RES_SCALE));
+      const blockY = Math.floor(y / (2 * RES_SCALE));
       const blockHash = Math.sin(blockX * 12.9898 + blockY * 78.233 + 4.1) * 43758.5453;
       const blockRand = blockHash - Math.floor(blockHash);
       const bayer = BAYER4[y % 4][x % 4];
@@ -225,7 +238,14 @@ const ARCEUS_NEBULA_SEED_SALT = 7;
 const STAR_COLORS = ['#ffffff', '#bfe8ff', '#ffd9a8', '#ffb8f0'];
 
 function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
-  const count = 90;
+  // Denser starfield: count is an absolute number spread across the whole
+  // canvas (on-screen star SPACING scales with it directly, independent of
+  // RES_SCALE, which only shrinks each star's own footprint) — 90 -> 350 is
+  // ~3.9x the count, ~1.97x tighter on-screen spacing (sqrt(350/90)), while
+  // each star's on-screen area is only 0.16x (RES_SCALE^-2) its old size,
+  // so total lit-pixel coverage still drops to roughly 0.62x the original —
+  // smaller, individually finer stars, packed closer together.
+  const count = 350;
   for (let i = 0; i < count; i++) {
     const x = Math.floor(rng() * WIDTH);
     const y = Math.floor(rng() * HEIGHT);
@@ -249,15 +269,17 @@ function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
   // band's brightest core, same "stay a backdrop" reasoning as the heat
   // falloff above.
   const featureStars = [
-    { x: 14, y: 12, color: '#bfe8ff' },
-    { x: 112, y: 16, color: '#ffe3c2' }
+    { x: 14 * RES_SCALE, y: 12 * RES_SCALE, color: '#bfe8ff' },
+    { x: 112 * RES_SCALE, y: 16 * RES_SCALE, color: '#ffe3c2' }
   ];
   for (const s of featureStars) {
     for (let r = 3; r >= 0; r--) {
       ctx.globalAlpha = [0.12, 0.22, 0.4, 0.9][3 - r];
       ctx.fillStyle = s.color;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      // Radius scaled by RES_SCALE too (like the star's own x/y above) so
+      // its on-screen glow-ring size is preserved — composition, not grain.
+      ctx.arc(s.x, s.y, r * RES_SCALE, 0, Math.PI * 2);
       ctx.fill();
     }
   }

@@ -96,6 +96,19 @@ export function ArceusWarp({ hostRef, ascended }: Props): JSX.Element {
     }
   }, []);
 
+  // Prewarm BOTH warp-streak textures once, right after mount — the actual
+  // transition effect below only generates the direction it's about to
+  // play, which (memoized per-direction) means the FIRST real toggle to
+  // whichever direction wasn't already warmed by that effect's own initial
+  // run pays `rasterizeWarpStreaks`'s cost synchronously, in the same tick
+  // that kicks off the warp's rAF loop — a stall right at the start of an
+  // animation. Priming both here, off the animation path, means neither
+  // direction is ever generated for the first time mid-transition.
+  useEffect(() => {
+    warpStreaksDataUrl('up');
+    warpStreaksDataUrl('down');
+  }, []);
+
   // First summon: show the base forme only once ITS thumbnail is actually
   // ready (the warp's own flash gives this cover — by the time the cosmos
   // layer is visibly opaque, this has almost always resolved). Warms the

@@ -22,6 +22,12 @@
   --muted-dim: #3e3d46;
   --accent: #e8b740; /* brand gold — "yellow Pokedex shell" */
   --gold: #e8b740;
+  /* Accent as TEXT/thin-stroke (vs. `--accent`/`--gold` above, which stay
+   * bright for fills) — same value as `--accent` in dark theme, hand-
+   * darkened only in the light theme (see design/tokens.ts's
+   * `accentTextLight`) where the literal brand gold fails WCAG text
+   * contrast on a cream ground. */
+  --accent-text: #e8b740;
   /* Text painted ON an accent fill — same value in both themes, see
    * design/tokens.ts's `onAccent` for why. */
   --on-accent: #1a1320;
@@ -216,8 +222,8 @@ body {
   gap: 5px;
   white-space: nowrap;
   background: var(--panel-2);
-  border: 1px solid var(--gold);
-  color: var(--gold);
+  border: 1px solid var(--accent-text);
+  color: var(--accent-text);
 }
 
 .summon-arceus:hover {
@@ -303,7 +309,7 @@ body {
 }
 
 .workspace-row.active .workspace-row-name {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .workspace-row-name {
@@ -354,7 +360,7 @@ body {
 
 .workspace-switcher-new:hover {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 
 /* ── Pokemon faces (a cropped frame of the walk sheet) ───────────────────── */
@@ -395,7 +401,7 @@ body {
 }
 
 .pokemon-option.chosen {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   color: var(--text);
   background: var(--panel-2);
 }
@@ -446,7 +452,7 @@ button {
 }
 
 button:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 
 /* Pressable, not just clickable — DESIGN.md §7.2 (top edge bright, snaps down
@@ -1037,10 +1043,19 @@ button.icon:active {
 }
 
 /* ── Quit-intercept dialog (parity sweep item 2) ─────────────────────────── */
+/* Wider than the generic `.modal` (backlog: the "kill it & quit" caption
+ * wrapped badly in the ~136px column the default 460px width leaves for
+ * three side-by-side actions). Relies on source order to win over `.modal`
+ * above (both are single-class selectors, so this rule — later in the
+ * sheet — takes it; keep it below `.modal` if this block ever moves). */
+.quit-dialog-modal {
+  width: 600px;
+}
+
 .quit-dialog-count {
   margin: 0;
   font-size: var(--font-body-lg-size);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .quit-dialog-actions {
@@ -1069,6 +1084,7 @@ button.icon:active {
   text-align: center;
   font-size: 11px;
   line-height: 1.3;
+  text-wrap: balance;
 }
 
 .error {
@@ -1355,7 +1371,7 @@ button.icon:active {
 }
 
 .mini-player-list-item.active {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -1383,7 +1399,7 @@ button.icon:active {
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--accent-text);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-hard);
   cursor: pointer;
@@ -1465,7 +1481,7 @@ button.icon:active {
 
 .roster-strip-new:hover {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 
 .roster-card {
@@ -1495,9 +1511,9 @@ button.icon:active {
  * border"), not inset — an inset ring on a 1px border reads as a double
  * line, an outside ring reads as a distinct selection state. */
 .roster-card.selected {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   border-left-width: 3px;
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-text);
 }
 
 /* Alpha card (Phase 8.8 §5) — Arceus's roster card, pinned first in every
@@ -1759,7 +1775,7 @@ button.icon:active {
 
 /* Focus ring — instant, 2px outline at +2px offset (design spec §E). */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 
