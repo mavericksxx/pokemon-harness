@@ -310,7 +310,17 @@ button.icon:active {
 }
 
 /* ── body ────────────────────────────────────────────────────────────────── */
+/* Column: the existing garden/terminal row on top, the roster strip (parity
+ * sweep item 5) as a fixed-height band below it — `.body-row` below is the
+ * OLD `.body`'s row layout, now nested one level in. */
 .body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.body-row {
   flex: 1;
   display: flex;
   min-height: 0;
@@ -933,18 +943,40 @@ button.icon:active {
   color: var(--text);
 }
 
-/* ── Agent roster cards (Phase 8 §3) ─────────────────────────────────────── */
-.roster-sidebar {
-  width: 260px;
-  min-width: 220px;
+/* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5) ──── */
+/* Horizontal strip replacing the old left sidebar (`.roster-sidebar`) — a
+ * fixed-height band under the garden/terminal row, scrolling sideways once
+ * cards overflow. "+ new session" sits at the end, not the top bar. */
+.roster-strip {
   flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: stretch;
+  gap: 8px;
   padding: 8px;
-  overflow-y: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: var(--panel);
-  border-right: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+}
+
+.roster-strip .roster-card {
+  width: 220px;
+  flex: none;
+}
+
+.roster-strip-new {
+  flex: none;
+  align-self: stretch;
+  width: 140px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+}
+
+.roster-strip-new:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .roster-card {

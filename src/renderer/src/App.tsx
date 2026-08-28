@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { GardenScene } from '@/scene/garden/GardenScene';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
-import { SessionSidebar } from '@/components/SessionSidebar';
+import { RosterStrip } from '@/components/RosterStrip';
 import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { PokemonFace } from '@/components/PokemonFace';
@@ -77,37 +77,52 @@ export function App(): JSX.Element {
   // Garden stays mounted across every mode (Pixi teardown/rebuild is
   // expensive and would drop the running simulation) — only its layout
   // visibility changes. `display: contents` when shown so it still
-  // participates in `.body`'s flex layout as if this wrapper weren't there.
+  // participates in `.body-row`'s flex layout as if this wrapper weren't
+  // there.
   const gardenVisible = viewMode === 'garden' || viewMode === 'gardenFull';
-  const showSidebar = viewMode === 'terminal';
+  // Bottom roster strip (parity sweep item 5) — 'garden' and 'terminal' only
+  // (the two "Full" modes keep the previous topbar chips + New Session
+  // button below instead, unchanged: 'terminalFull' has no garden signpost
+  // to fall back on for switching sessions, and neither Full mode has room
+  // for a strip without shrinking the thing it's meant to be full-bleed).
+  const showRosterStrip = viewMode === 'garden' || viewMode === 'terminal';
 
   return (
     <div className="app">
       <header className="topbar">
         <span className="brand">Pokemon Harness</span>
-        <button className="primary" onClick={() => setDialogOpen(true)}>
-          + New Session
-        </button>
-        <nav className="session-chips">
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              className={s.id === selectedId ? 'chip active' : 'chip'}
-              onClick={() => select(s.id === selectedId ? null : s.id)}
-              title={`${s.command} — ${s.cwd}`}
-            >
-              <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
-              {s.shiny && (
-                <span className="shiny-badge" title="Shiny" aria-label="shiny">
-                  ★
-                </span>
-              )}
-              {s.title}
-              <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
+        {!showRosterStrip && (
+          <>
+            <button className="primary" onClick={() => setDialogOpen(true)}>
+              + New Session
             </button>
-          ))}
-        </nav>
+            <nav className="session-chips">
+              {sessions.map((s) => (
+                <button
+                  key={s.id}
+                  className={s.id === selectedId ? 'chip active' : 'chip'}
+                  onClick={() => select(s.id === selectedId ? null : s.id)}
+                  title={`${s.command} — ${s.cwd}`}
+                >
+                  <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
+                  {s.shiny && (
+                    <span className="shiny-badge" title="Shiny" aria-label="shiny">
+                      ★
+                    </span>
+                  )}
+                  {s.title}
+                  <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
+                </button>
+              ))}
+            </nav>
+          </>
+        )}
         <div className="spacer" />
+        {/* Kept unconditionally (deviates from the strip-mode topbar's
+            otherwise-minimal set) — the garden's own signpost prop opens the
+            same overview, but it's unreachable while the garden is hidden
+            ('terminal' mode), so dropping this here would strand the
+            sessions-overview feature in that mode. */}
         <button title="All sessions" aria-label="All sessions" onClick={() => setSessionsOverviewOpen(true)}>
           Sessions
         </button>
@@ -122,11 +137,13 @@ export function App(): JSX.Element {
       </header>
 
       <main className="body">
-        <div style={{ display: gardenVisible ? 'contents' : 'none' }}>
-          <GardenScene />
+        <div className="body-row">
+          <div style={{ display: gardenVisible ? 'contents' : 'none' }}>
+            <GardenScene />
+          </div>
+          <TerminalDrawer />
         </div>
-        {showSidebar && <SessionSidebar />}
-        <TerminalDrawer />
+        {showRosterStrip && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
       </main>
 
       {dialogOpen && <NewSessionDialog onClose={() => setDialogOpen(false)} />}

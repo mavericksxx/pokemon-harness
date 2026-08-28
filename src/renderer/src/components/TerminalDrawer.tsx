@@ -27,8 +27,9 @@ export function TerminalDrawer(): JSX.Element | null {
     viewMode === 'terminal' || viewMode === 'terminalFull' || (viewMode === 'garden' && drawerOpenPref);
   // Full-bleed in the two terminal-owning modes — no side-panel width cap.
   const wide = viewMode !== 'garden';
-  // The sidebar (terminal-focus mode) already offers session switching; the
-  // drawer's own tab strip would just duplicate it.
+  // The bottom roster strip (terminal-focus mode; parity sweep item 5,
+  // formerly a left sidebar) already offers session switching; the drawer's
+  // own tab strip would just duplicate it.
   const showTabs = viewMode !== 'terminal';
 
   useEffect(() => {
