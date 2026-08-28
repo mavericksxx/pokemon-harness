@@ -55,6 +55,7 @@ export function App(): JSX.Element {
   const setViewMode = useStore((s) => s.setViewMode);
   const setSessionsOverviewOpen = useStore((s) => s.setSessionsOverviewOpen);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
+  const isFullScreen = useStore((s) => s.isFullScreen);
 
   // Global Cmd/Ctrl+1..4 (discoverable copy also lives in ViewModeSwitcher's
   // tooltips). Ctrl on top of Cmd so it also works un-remapped on Linux/Win,
@@ -115,7 +116,7 @@ export function App(): JSX.Element {
   const showRosterStrip = viewMode === 'garden' || viewMode === 'terminal';
 
   return (
-    <div className="app">
+    <div className={`app${isFullScreen ? ' is-fullscreen' : ''}`}>
       <header className="topbar">
         {/* Ship-cut item 1/6: brand mark is lowercase "pokéharness" — the
             voice's own lowercase convention, extended to the one string

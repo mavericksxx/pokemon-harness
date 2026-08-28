@@ -180,6 +180,15 @@ const api = {
   /** "kill it & quit" — bypasses the sunset ritual, quits immediately. */
   forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit'),
 
+  /** macOS fullscreen state — fires on enter/leave-full-screen plus once per
+   *  page load (main/index.ts) so a reload starts with the right topbar
+   *  inset. See index.css's `.app.is-fullscreen .topbar`. */
+  onFullscreenChange: (cb: (isFullScreen: boolean) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, isFullScreen: boolean): void => cb(isFullScreen);
+    ipcRenderer.on('window:fullscreenChanged', listener);
+    return () => ipcRenderer.removeListener('window:fullscreenChanged', listener);
+  },
+
   // ─── App version + updates (ship-cut item 4) ───────────────────────────
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),

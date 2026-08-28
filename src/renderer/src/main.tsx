@@ -46,6 +46,12 @@ startQuitInterceptListener();
 // wiring as the quit-intercept listener above.
 startUpdateCheckListener();
 
+// macOS fullscreen-aware topbar inset — registered synchronously here
+// (before boot()'s async work) rather than in a React effect, so the
+// listener is already attached by the time main's did-finish-load push
+// arrives, same rationale as the quit-intercept listener above.
+window.api.onFullscreenChange((isFullScreen) => useStore.getState().setIsFullScreen(isFullScreen));
+
 // Local-only diagnostics (BACKLOG item 1) — error capture + invariant
 // counters, both independent of boot()'s async recovery work, same as the
 // listeners above. `data` is kept to plain scalars/strings at both call

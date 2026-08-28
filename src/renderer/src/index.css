@@ -148,6 +148,13 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* macOS auto-hides the traffic lights in fullscreen, turning the inset above
+ * into dead space — drop back to the topbar's own right-side content padding
+ * (App.tsx toggles `is-fullscreen` off main's enter/leave-full-screen push). */
+.app.is-fullscreen .topbar {
+  padding-left: 12px;
+}
+
 .brand {
   font-family: var(--font-display);
   font-size: var(--font-display-md-size);

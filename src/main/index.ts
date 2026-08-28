@@ -437,6 +437,26 @@ function createWindow(backgroundColor: string): void {
   // navigation resets zoomLevel to 0.
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomLevel(DEFAULT_ZOOM_LEVEL);
+    // Fullscreen-aware topbar inset — see the enter/leave-full-screen
+    // listeners below. Sent here too (not just on those events) so a fresh
+    // navigation — including the render-process-gone auto-reload path —
+    // starts with the correct inset instead of assuming windowed.
+    win.webContents.send('window:fullscreenChanged', win.isFullScreen());
+  });
+
+  // macOS auto-hides the traffic lights in fullscreen, which turns the
+  // topbar's traffic-light-safe left inset (index.css's `.topbar` padding)
+  // into dead space. Renderer toggles an `is-fullscreen` class off this.
+  // `leave-full-screen` in particular can fire mid-teardown (a fullscreen
+  // window animates out of fullscreen before closing) — guarded the same
+  // way `requestQuitConfirmation`/`runBackgroundUpdateCheck` above are,
+  // since an unguarded throw here is a hard app kill (see the
+  // `uncaughtException` handler at the top of this file).
+  win.on('enter-full-screen', () => {
+    if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', true);
+  });
+  win.on('leave-full-screen', () => {
+    if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', false);
   });
 
   // A renderer OOM-kill or fatal GPU/WebGL loss leaves the native chrome (this

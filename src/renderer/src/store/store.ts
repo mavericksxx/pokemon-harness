@@ -70,6 +70,11 @@ interface HarnessState {
    *  `startQuitInterceptListener`). */
   quitDialogOpen: boolean;
   quitDialogCount: number;
+  /** macOS fullscreen state, pushed from main (main.tsx's
+   *  `window.api.onFullscreenChange` listener; see main/index.ts's
+   *  `enter-full-screen`/`leave-full-screen` handlers). Drives the topbar's
+   *  traffic-light-safe inset in App.tsx. */
+  isFullScreen: boolean;
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>
@@ -96,6 +101,7 @@ interface HarnessState {
   setSessionsOverviewOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
   setQuitDialogOpen(open: boolean, count?: number): void;
+  setIsFullScreen(isFullScreen: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
@@ -112,6 +118,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   settingsOpen: false,
   quitDialogOpen: false,
   quitDialogCount: 0,
+  isFullScreen: false,
 
   addSession: (s) => {
     const session: Session = {
@@ -162,6 +169,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setQuitDialogOpen: (open, count) => set((st) => ({ quitDialogOpen: open, quitDialogCount: count ?? st.quitDialogCount })),
+  setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
 
   pushToast: (text, action) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
