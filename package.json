@@ -24,7 +24,7 @@
   },
   "build": {
     "appId": "dev.mavericksxx.pokeharness",
-    "productName": "Pokéharness",
+    "productName": "Pokeharness",
     "copyright": "Copyright © 2026 Parth Kohale",
     "files": [
       "out/**/*",
@@ -50,7 +50,10 @@
         }
       ],
       "identity": null,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "CFBundleDisplayName": "Pokéharness"
+      }
     },
     "afterSign": "build/afterSign.cjs"
   },

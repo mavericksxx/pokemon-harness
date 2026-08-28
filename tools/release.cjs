@@ -20,6 +20,14 @@
  * With --publish: also runs those commands for you (still requires `gh` to
  * be authenticated — this script never handles credentials itself).
  *
+ * Special case: if the requested version already equals package.json's
+ * current version (e.g. cutting v1.0.0 itself, right after hand-setting
+ * "version": "1.0.0" with no prior tag) there's nothing to bump — `npm
+ * version` would error ("Version not changed"). This script detects that
+ * and just tags the current HEAD instead of bumping, then proceeds to build
+ * as usual. Every other invocation (patch/minor/major, or an explicit
+ * version that differs from the current one) goes through `npm version`.
+ *
  * Requires a clean git working tree (uncommitted changes would otherwise
  * get swept into the version-bump commit) and the `gh` CLI on PATH.
  */
@@ -29,6 +37,7 @@ const { join } = require('node:path');
 
 const REPO_ROOT = join(__dirname, '..');
 const DIST_DIR = join(REPO_ROOT, 'dist');
+const PKG = require(join(REPO_ROOT, 'package.json'));
 
 function run(cmd, opts = {}) {
   return execSync(cmd, { cwd: REPO_ROOT, stdio: 'pipe', encoding: 'utf8', ...opts }).trim();
@@ -72,10 +81,34 @@ if (branch !== 'master' && branch !== 'main') {
 // ---- version bump (npm handles package.json + package-lock.json + the
 // git commit + the vX.Y.Z tag together — no reason to hand-roll any of
 // that) ----
-console.log(`[release] bumping version (${bumpArg})…`);
-const newVersionOut = run(`npm version ${bumpArg} -m "Release v%s"`);
-const version = newVersionOut.replace(/^v/, '');
-console.log(`[release] now at v${version}`);
+// Explicit x.y.z matching the CURRENT version (e.g. cutting the very first
+// release right after hand-setting "version": "1.0.0") is a no-op, not an
+// error — `npm version` itself would fail ("Version not changed") since it
+// only knows how to bump. Skip straight to build/artifact/tag-check in that
+// one case; every other path (patch/minor/major, or an explicit version
+// that's actually different) still goes through `npm version` as before.
+let version = PKG.version;
+if (bumpArg === version) {
+  console.log(`[release] requested version v${version} matches package.json already — skipping bump.`);
+  const existingTag = (() => {
+    try {
+      return run(`git rev-parse -q --verify refs/tags/v${version}`);
+    } catch {
+      return '';
+    }
+  })();
+  if (!existingTag) {
+    console.log(`[release] tagging current HEAD as v${version} (no version-bump commit needed).`);
+    run(`git tag -a v${version} -m "Release v${version}"`);
+  } else {
+    console.log(`[release] tag v${version} already exists — reusing it.`);
+  }
+} else {
+  console.log(`[release] bumping version (${bumpArg})…`);
+  const newVersionOut = run(`npm version ${bumpArg} -m "Release v%s"`);
+  version = newVersionOut.replace(/^v/, '');
+  console.log(`[release] now at v${version}`);
+}
 
 // ---- build ----
 console.log('[release] building (npm run dist)…');

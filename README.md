@@ -1,4 +1,4 @@
-# pokemon-harness
+# Pokéharness
 
 A local-only, single-user desktop coding harness: your coding-agent CLI sessions
 shown as Pokemon-style walkers moving around a pixel-art garden.
@@ -7,6 +7,29 @@ Everything runs on your machine. There are no accounts, no cloud, no telemetry
 and no auth of any kind — the app spawns the agent CLI (`claude`, `codex`,
 `cursor-agent`) from your `PATH` and you are already logged in through that CLI's
 own flow.
+
+## Install
+
+**Download a release** (macOS, Apple Silicon): grab the latest `.zip` from
+[Releases](https://github.com/mavericksxx/pokemon-harness/releases), unzip it,
+and drag `Pokéharness.app` to `/Applications`. Builds are ad-hoc signed (no
+paid Apple Developer ID behind this project), so macOS Gatekeeper will refuse
+a plain double-click the first time with an "unidentified developer" warning
+— **right-click (or Control-click) the app → Open → Open** instead, once.
+After that first launch it opens normally like anything else.
+
+**Run from source** (any platform you can get `node-pty` building on):
+
+```sh
+git clone https://github.com/mavericksxx/pokemon-harness.git
+cd pokemon-harness
+npm install     # includes electron-rebuild for node-pty
+npm run dev
+```
+
+Either way, the app itself is stateless setup — it spawns whichever agent CLI
+(`claude`, `codex`, `cursor-agent`) you already have installed and authenticated
+on your `PATH`; there's no separate account or login inside the app.
 
 ## Status
 
@@ -216,12 +239,17 @@ Gust/Whirlwind, Task a Teleport, anything else a generic hit — see
 evolution ceremony start. These clips are a small curated, committed subset
 (not fetched) — see `assets/ASSETS.md`.
 
-## Running
+## Development
+
+Same `git clone` + `npm install` as the "Run from source" step above, then:
 
 ```sh
-npm install     # includes electron-rebuild for node-pty
-npm run dev
-npm run typecheck
+npm run dev         # electron-vite dev, hot-reloads renderer changes
+npm run typecheck   # tsc --noEmit, node + web configs
+npm run build        # electron-vite build (production bundle, no packaging)
+npm run dist         # npm run build + electron-builder — packaged, ad-hoc-signed .app zip
+npm run gen:icon     # regenerates build/icon.icns + build/icon/icon.png from build/icon/gen-icon.mjs
+npm run release      # bumps version, builds, prints (never auto-runs) the gh release command
 ```
 
 macOS (Apple Silicon) is the target platform.
@@ -267,3 +295,19 @@ Substantial parts of the scene engine and the PTY layer are ported from
 [munder-difflin](https://github.com/chaitanyagiri/munder-difflin) (MIT) and,
 upstream of it, [shahar061/the-office](https://github.com/shahar061/the-office)
 (MIT). See [ATTRIBUTION.md](./ATTRIBUTION.md) for the file-by-file map.
+
+## Fan-use notice
+
+Pokémon and Pokémon character names are trademarks of Nintendo, Game Freak,
+and Creatures Inc. Walker sprites are drawn from
+[Pokémon Showdown](https://pokemonshowdown.com/)'s animated Gen-5 sheets and
+the [Smogon Sprite Project](https://www.smogon.com/forums/threads/smogon-sprite-project.3647722/)'s
+fan-made static sheets for species Showdown doesn't animate; cries and music
+are fetched at runtime from Showdown and [khinsider](https://downloads.khinsider.com/)
+respectively (see `assets/ASSETS.md` for exactly what's fetched vs. bundled).
+None of this artwork or audio is included in this repository's own license —
+it's pulled from those sources on demand, cached locally, and used here purely
+as a personal, non-commercial fan project with no affiliation to Nintendo,
+Game Freak, Creatures Inc., Pokémon Showdown, Smogon, or khinsider. If you're
+a rights holder and want anything here changed or removed, open an issue and
+it'll be handled promptly.
