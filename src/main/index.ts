@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerSaveBlocker, shell } from 'electron';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
@@ -123,6 +124,16 @@ function resolveWindowBg(theme: AppSettings['theme']): string {
   const dark = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors);
   return dark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT;
 }
+
+// App icon (ship-cut item 2) — macOS reads its dock/Finder icon from the
+// packaged bundle's Info.plist (electron-builder's `mac.icon`, build/icon.icns)
+// and needs nothing here. This is only for the BrowserWindow itself, which
+// matters on Windows/Linux (title bar + taskbar icon) — a no-op on darwin,
+// which ignores BrowserWindow's `icon` option. This app has no Windows/Linux
+// packaging target yet (item 3 is mac-only), so this only fires in a dev run
+// of `npm run dev` on those platforms; `existsSync` guards a repo checkout
+// that hasn't run `node build/icon/gen-icon.mjs` yet.
+const NON_MAC_WINDOW_ICON = join(process.cwd(), 'build/icon/icon.png');
 
 /** Load (or reload, after a crash) the app's page. A fresh navigation, not
  *  `webContents.reload()`: testing an induced crash (CDP's `Page.crash()`)
@@ -331,6 +342,9 @@ function createWindow(backgroundColor: string): void {
     backgroundColor,
     titleBarStyle: 'hiddenInset',
     show: false,
+    ...(process.platform !== 'darwin' && existsSync(NON_MAC_WINDOW_ICON)
+      ? { icon: NON_MAC_WINDOW_ICON }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Privileged work stays behind the narrow contextBridge/IPC surface owned
