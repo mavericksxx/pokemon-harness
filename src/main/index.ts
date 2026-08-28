@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
+import { ensureMusicTrack } from './musicCache';
+import { ensureCry } from './cryCache';
+import { loadAudioSettings, saveAudioSettings } from './audioSettings';
 import type { LazySpriteMeta, SpawnPtyOptions, SpriteView } from '../shared/types';
+import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
 
 let mainWindow: BrowserWindow | null = null;
 const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
@@ -94,6 +98,17 @@ ipcMain.handle(
   (_e, id: string, view: SpriteView, png: ArrayBuffer, meta: LazySpriteMeta) =>
     saveCachedSprite(id, view, png, meta)
 );
+
+// ─── Audio (Phase 7) ────────────────────────────────────────────────────────
+// Same rationale as the sprite cache above: the renderer's CSP has no
+// connect-src beyond self, so main is the only actor that can reach khinsider
+// or Showdown's cry endpoint; it also owns the userData disk cache and the
+// settings JSON (see audioSettings.ts — no other persistence precedent
+// existed in this app to follow instead).
+ipcMain.handle('audio:getSettings', () => loadAudioSettings());
+ipcMain.handle('audio:saveSettings', (_e, settings: AudioSettings) => saveAudioSettings(settings));
+ipcMain.handle('audio:ensureTrack', (_e, id: MusicTrackId) => ensureMusicTrack(id));
+ipcMain.handle('audio:ensureCry', (_e, id: string) => ensureCry(id));
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 // The renderer is sandboxed and cannot reliably read process.env itself; main

@@ -16,6 +16,7 @@ import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { randomAnimatedSpecies, speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
 import { clearBattleFx } from './battle/battleFx';
+import { playSpawnCry } from '@/audio/audioEngine';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -216,6 +217,7 @@ export function GardenScene(): JSX.Element {
         };
         runtimes.set(session.id, rt);
         upgradeIfLazy(session, walker, rt);
+        playSpawnCry(session.pokemon); // this session's walker's first spawn (Phase 7)
         return rt;
       };
 
@@ -241,7 +243,7 @@ export function GardenScene(): JSX.Element {
             useStore.getState().pushToast(`Couldn't load ${label}'s sprite — evolving with a placeholder.`);
           }
           const nextLabel = speciesEntry(nextId)?.name ?? nextId;
-          rt.walker.evolve(anim, entry.name, nextLabel, () => {
+          rt.walker.evolve(anim, entry.name, nextLabel, nextId, () => {
             useStore.getState().updateSession(session.id, { pokemon: nextId });
           });
         };

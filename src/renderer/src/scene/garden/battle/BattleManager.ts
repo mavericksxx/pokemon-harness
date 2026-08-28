@@ -40,6 +40,7 @@ import { findPath } from '../pathfinding';
 import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
 import { spawnExclaimBubble, spawnHitFlash, spawnSparkleBurst, tickBattleFx } from './battleFx';
+import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
 
 const LUNGE_MS = 150;
 const HOLD_MS = 150;
@@ -201,11 +202,15 @@ export class BattleManager {
     if (!pb) return;
     this.destroyBattle(pb);
     this.battles.delete(parentId);
+    notifyBattleEnd(parentId); // a session-kill mid-battle must still hand the music bus back
   }
 
   dispose(): void {
     this.unsubscribe();
-    for (const pb of this.battles.values()) this.destroyBattle(pb);
+    for (const [parentId, pb] of this.battles) {
+      this.destroyBattle(pb);
+      notifyBattleEnd(parentId);
+    }
     this.battles.clear();
   }
 
@@ -259,6 +264,7 @@ export class BattleManager {
       const pb = this.battles.get(id);
       if (pb) this.destroyBattle(pb);
       this.battles.delete(id);
+      notifyBattleEnd(id); // crossfades back to ambient once this was the LAST active battle
       this.deps.onBattleEnd(id);
     }
   }
@@ -290,6 +296,7 @@ export class BattleManager {
     if (!pb) {
       pb = this.createBattle(parentId, rt.walker);
       this.battles.set(parentId, pb);
+      notifyBattleStart(parentId); // crossfades ambient -> battle music (no-op if already battling elsewhere)
     }
     if (pb.phase === 'ending') return; // a straggling spawn after victory
 
@@ -689,6 +696,7 @@ export class BattleManager {
     const defenderContainer = a.attackerIsParent ? defenderBattler!.container : pb.parentWalker.container;
     const defenderHeight = a.attackerIsParent ? defenderBattler!.drawnHeight : pb.parentWalker.spriteHeight;
     spawnHitFlash(defenderContainer, Math.max(16, defenderHeight * 0.7), defenderHeight);
+    playAttackSound(a.tool); // one sound per rendered lunge — applyHit already respects combo coalescing
   }
 
   private applyPositions(pb: ParentBattle): void {
@@ -788,6 +796,7 @@ export class BattleManager {
     pb.parentWalker.setForcedBackView(false);
     pb.parentWalker.showFloatingText('Victory!');
     spawnSparkleBurst(pb.parentWalker.container);
+    playVictoryChime();
   }
 
   private destroyBattle(pb: ParentBattle): void {

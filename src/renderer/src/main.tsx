@@ -2,7 +2,13 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store/store';
 import { startSession, stopSession } from './sessions';
+import { initAudio, debugSnapshot, Howler } from './audio/audioEngine';
+import { useAudioStore } from './audio/audioStore';
 import './index.css';
+
+// Independent of the garden scene's own mount/unmount — the speaker popover
+// works even before/without it (see audioEngine.ts's initAudio doc comment).
+void initAudio();
 
 // Dev-only introspection hook (stripped from production builds by Vite's
 // import.meta.env.DEV dead-code elimination) — lets an external CDP/manual
@@ -13,7 +19,14 @@ if (import.meta.env.DEV) {
     sessions: () => useStore.getState().sessions,
     store: useStore,
     startSession,
-    stopSession
+    stopSession,
+    // Phase 7 — audio: no speakers in CI, so verification reads Howler state
+    // and this snapshot over CDP instead.
+    audio: {
+      Howler,
+      store: useAudioStore,
+      snapshot: debugSnapshot
+    }
   };
 }
 

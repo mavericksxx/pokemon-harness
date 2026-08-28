@@ -9,6 +9,7 @@ import type {
   SpriteView
 } from '../shared/types';
 import type { HookEvent } from '../shared/hookEvents';
+import type { AudioSettings, MusicTrackId } from '../shared/audioTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -51,7 +52,14 @@ const api = {
   saveCachedSprite: (id: string, view: SpriteView, png: ArrayBuffer, meta: LazySpriteMeta): Promise<void> =>
     ipcRenderer.invoke('sprites:saveCache', id, view, png, meta),
 
-  getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds')
+  getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds'),
+
+  getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),
+  saveAudioSettings: (settings: AudioSettings): Promise<void> =>
+    ipcRenderer.invoke('audio:saveSettings', settings),
+  ensureMusicTrack: (id: MusicTrackId): Promise<ArrayBuffer | null> =>
+    ipcRenderer.invoke('audio:ensureTrack', id),
+  ensureCry: (id: string): Promise<ArrayBuffer | null> => ipcRenderer.invoke('audio:ensureCry', id)
 };
 
 export type HarnessApi = typeof api;

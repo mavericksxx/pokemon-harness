@@ -298,13 +298,20 @@ export class Walker {
    *  EvolutionCeremony's decay phase), hidden inside the white flash-out. A
    *  second call while one is already running is ignored — thresholds are
    *  crossed in order, so evolve() is called once per stage. */
-  evolve(nextAnimation: PokemonAnimation, fromLabel: string, toLabel: string, onSwap?: () => void): void {
+  evolve(
+    nextAnimation: PokemonAnimation,
+    fromLabel: string,
+    toLabel: string,
+    toId: string,
+    onSwap?: () => void
+  ): void {
     if (this.ceremony) return;
     const ts = this.map.tileSize;
     this.ceremony = new EvolutionCeremony({
       container: this.container,
       sprite: this.sprite,
       newAnimation: nextAnimation,
+      toId,
       tileSize: ts,
       dimLayer: this.dimLayer,
       flashLayer: this.flashLayer,

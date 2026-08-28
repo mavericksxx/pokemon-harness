@@ -22,6 +22,12 @@ import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { Facing, WalkerSprite } from './WalkerSprite';
 import type { PokemonAnimation } from './showdownArt';
 import { spriteScale } from './spriteScale';
+import {
+  notifyEvolutionStart,
+  notifyEvolutionFlash,
+  notifyEvolutionEnd,
+  playEvolutionCry
+} from '@/audio/audioEngine';
 
 // --- Authored timeline (ms at durationScale 1.0) ---------------------------
 const HALT_END = 1000;
@@ -133,6 +139,9 @@ export interface CeremonyDeps {
   container: Container;
   sprite: WalkerSprite;
   newAnimation: PokemonAnimation;
+  /** Dex id of the evolved species — for its cry at the reveal (Phase 7),
+   *  distinct from `toLabel`'s display name. */
+  toId: string;
   tileSize: number;
   /** Where each ceremony's dim (black) overlay goes — shared, so with two
    *  ceremonies running at once, both dims stack; kept BELOW flashLayer so
@@ -202,6 +211,7 @@ export class EvolutionCeremony {
   private rainStarted = false;
   private starsSpawned = false;
   private swapped = false;
+  private flashMusicStarted = false;
 
   constructor(private deps: CeremonyDeps) {
     this.originalParent = deps.container.parent;
@@ -255,6 +265,7 @@ export class EvolutionCeremony {
     deps.sprite.freeze(true);
     deps.setChromeHidden(true);
     deps.spawnText(`What? ${deps.fromLabel} is evolving!`);
+    notifyEvolutionStart();
   }
 
   get done(): boolean {
@@ -420,6 +431,10 @@ export class EvolutionCeremony {
   }
 
   private phaseFlashAttack(): void {
+    if (!this.flashMusicStarted) {
+      this.flashMusicStarted = true;
+      notifyEvolutionFlash();
+    }
     this.blackOverlay.visible = false;
     this.whiteOverlay.visible = true;
     const t = (this.v - LOCK_END) / (FLASH_END - LOCK_END);
@@ -458,6 +473,7 @@ export class EvolutionCeremony {
       this.deps.applySwap();
       this.deps.sprite.setBodyAlpha(1);
       this.deps.sprite.freeze(false);
+      playEvolutionCry(this.deps.toId);
     }
     if (!this.starsSpawned) {
       this.starsSpawned = true;
@@ -544,6 +560,7 @@ export class EvolutionCeremony {
   private teardown(): void {
     if (this.finished) return;
     this.finished = true;
+    notifyEvolutionEnd(); // hands the music bus back to battle/ambient — runs on force-end too
     this.deps.setChromeHidden(false);
     this.blackOverlay.destroy();
     this.whiteOverlay.destroy();
