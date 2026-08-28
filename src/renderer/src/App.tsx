@@ -145,7 +145,7 @@ export function App(): JSX.Element {
                       ★
                     </span>
                   )}
-                  {s.title}
+                  <span className="chip-title">{s.title}</span>
                   <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
                 </button>
               ))}

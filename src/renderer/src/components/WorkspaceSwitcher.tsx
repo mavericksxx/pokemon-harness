@@ -74,7 +74,7 @@ export function WorkspaceSwitcher(): JSX.Element {
         <span className="workspace-switcher-glyph" aria-hidden="true">
           <SproutIcon />
         </span>
-        {active?.name ?? 'garden'}
+        <span className="workspace-switcher-name">{active?.name ?? 'garden'}</span>
         <span className="workspace-switcher-caret" aria-hidden="true">
           ▾
         </span>

@@ -128,7 +128,15 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px 6px 88px; /* room for the macOS traffic lights */
+  /* 96px, not 78-80px worth of actual traffic-light footprint: room for the
+   * macOS traffic lights plus a safety margin. The lights are native window
+   * chrome (titleBarStyle: 'hiddenInset', main/index.ts) — their position is
+   * fixed in window points and untouched by the page's own zoom level, so
+   * the default -0.5 zoom level (main/index.ts) shrinks this CSS padding's
+   * effective on-screen size and eats into whatever margin is left; 96px
+   * keeps a real buffer at that zoom instead of just clearing the lights
+   * exactly at 100%. */
+  padding: 6px 12px 6px 96px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
@@ -146,6 +154,12 @@ body {
   line-height: var(--font-display-md-line);
   color: var(--text);
   white-space: nowrap;
+  /* Never shrink, never wrap — a flex-shrink:1 default with a nowrap text
+   * node can still overflow the row under enough sibling pressure (long
+   * workspace name, long session titles); pinning this to its natural
+   * content size guarantees no flex math can ever compress or reflow it
+   * toward the traffic-light-safe inset above. */
+  flex: 0 0 auto;
 }
 
 .spacer {
@@ -174,6 +188,13 @@ body {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
+}
+
+.chip-title {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chip.active {
@@ -217,6 +238,19 @@ body {
   gap: 4px;
   white-space: nowrap;
   max-width: 220px;
+  /* Lets this shrink below its content's natural width (min-width:auto is
+   * the flex-item default) — a topbar flex item with only `max-width` and
+   * no `overflow`/`min-width:0` doesn't actually clip: a long typed
+   * workspace name just grew this button past 220px instead of truncating.
+   * `.workspace-switcher-name` below does the actual ellipsis. */
+  min-width: 0;
+}
+
+.workspace-switcher-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .workspace-switcher-glyph {
@@ -1421,6 +1455,15 @@ button.icon:active {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Same Chromium button/flex quirk `.roster-card-top` already documents
+   * above: a plain block child of the `<button>.roster-card` (a column flex
+   * container) doesn't reliably stretch to the button's content-box width,
+   * so a long unbroken activity string (e.g. a Bash command with no spaces
+   * to wrap on) grew this box past the card's fixed 220px instead of being
+   * clipped by the ellipsis rule above — the box needs a definite width for
+   * overflow/ellipsis to apply at all. */
+  width: 100%;
+  min-width: 0;
 }
 
 .roster-card-evo {
