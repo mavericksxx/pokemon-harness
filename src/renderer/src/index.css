@@ -135,6 +135,17 @@ body {
   border-color: var(--line);
 }
 
+/* Gen 6-9 species: a Smogon Sprite Project static PNG, not an animated
+   Showdown sheet (Phase 6 §5) — a subtle hint, not a warning. */
+.pokemon-static-tag {
+  font-style: normal;
+  font-size: 7px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  opacity: 0.75;
+  line-height: 1;
+}
+
 .chip em {
   font-style: normal;
   font-size: 10px;

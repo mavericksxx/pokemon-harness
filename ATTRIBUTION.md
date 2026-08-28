@@ -42,6 +42,7 @@ from munder-difflin's, so the-office is upstream of it too.
 | Tiled layer convention (`floor`, `walls`, `furniture-below`, `furniture-above`, `collision`, `spawn-points`, `zones`) | munder-difflin / the-office | convention adopted as-is |
 
 Written fresh for this project (no upstream): `tools/gen-garden-map.cjs`,
+`tools/build-dex.cjs`,
 `scene/garden/gardenArt.ts`, `scene/garden/showdownArt.ts`,
 `scene/garden/spriteScale.ts`, `scene/garden/imageTexture.ts`,
 `scene/garden/stations.ts`,

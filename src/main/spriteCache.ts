@@ -2,19 +2,43 @@
  * Runtime sprite cache for species not bundled in assets/showdown/ (Phase 3
  * §2). Main owns both actors the renderer's CSP forbids — network fetches and
  * the disk cache under `userData/sprites/` — and hands the renderer raw bytes.
- * Decoding the GIF and re-encoding the coalesced sheet as a PNG happens in the
- * renderer (`lazySprites.ts`), which has a DOM/canvas; main does not.
+ * Decoding the art and re-encoding the coalesced sheet as a PNG happens in
+ * the renderer (`lazySprites.ts`), which has a DOM/canvas; main does not.
+ *
+ * Phase 6 §1/§3: species #650-1025 have no Showdown gen5ani animation, so
+ * they use the Smogon Sprite Project's static Gen-5-style PNGs (`gen5`,
+ * `gen5-back`) instead of the animated GIF sets. `fetchSpriteGif` (name kept
+ * for the existing IPC contract in `src/main/index.ts` — Phase 6 stays out of
+ * that file) picks the right base URL and extension per id by consulting the
+ * generated dex's `static` flag; it returns raw bytes either way; the
+ * renderer decides how to decode them the same way it already knows a
+ * species is static (`dexData.ts`).
  */
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CachedSprite, LazySpriteMeta, SpriteView } from '../shared/types';
+// Plain data import (JSON), not the renderer's `@assets` alias — that alias
+// is only configured for the renderer's Vite build (electron.vite.config.ts),
+// which Phase 6 does not touch.
+import dexIndex from '../../assets/dex/dexIndex.json';
 
-const SPRITE_BASE: Record<SpriteView, string> = {
-  front: 'https://play.pokemonshowdown.com/sprites/gen5ani',
-  back: 'https://play.pokemonshowdown.com/sprites/gen5ani-back'
-};
+interface DexEntryLite {
+  static?: boolean;
+}
+const DEX = dexIndex as unknown as Record<string, DexEntryLite>;
+
+const SPRITE_BASE = {
+  front: {
+    animated: 'https://play.pokemonshowdown.com/sprites/gen5ani',
+    static: 'https://play.pokemonshowdown.com/sprites/gen5'
+  },
+  back: {
+    animated: 'https://play.pokemonshowdown.com/sprites/gen5ani-back',
+    static: 'https://play.pokemonshowdown.com/sprites/gen5-back'
+  }
+} satisfies Record<SpriteView, Record<'animated' | 'static', string>>;
 
 function cacheDir(): string {
   return join(app.getPath('userData'), 'sprites');
@@ -54,11 +78,14 @@ export async function saveCachedSprite(
   await Promise.all([writeFile(pngPath, Buffer.from(png)), writeFile(metaPath, JSON.stringify(meta))]);
 }
 
-/** Raw GIF bytes from Showdown, or null on any failure (offline, 404) — the
- *  renderer falls back to a pokeball placeholder and a non-blocking toast. */
+/** Raw sprite bytes — an animated GIF for #1-649, a static PNG for #650-1025
+ *  (Phase 6 §1/§3) — or null on any failure (offline, 404). The renderer
+ *  falls back to a pokeball placeholder and a non-blocking toast either way. */
 export async function fetchSpriteGif(id: string, view: SpriteView): Promise<ArrayBuffer | null> {
+  const kind = DEX[id]?.static ? 'static' : 'animated';
+  const ext = kind === 'static' ? 'png' : 'gif';
   try {
-    const res = await fetch(`${SPRITE_BASE[view]}/${id}.gif`);
+    const res = await fetch(`${SPRITE_BASE[view][kind]}/${id}.${ext}`);
     if (!res.ok) return null;
     return await res.arrayBuffer();
   } catch {

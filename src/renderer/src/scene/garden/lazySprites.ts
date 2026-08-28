@@ -2,11 +2,17 @@
  * Runtime sprite loading for species that are NOT among the 42 bundled in
  * assets/showdown/ (Phase 3 §2). Fetches and disk-caching happen in the main
  * process (`spriteCache.ts`) behind IPC — the renderer's CSP allows no network
- * connect-src; decoding the GIF and re-encoding it as a coalesced PNG sheet
+ * connect-src; decoding the art and re-encoding it as a coalesced PNG sheet
  * happens HERE, because that needs a DOM canvas main does not have.
  *
- * Species-agnostic: this module only knows how to turn a Showdown gen5ani
- * id into art. Line/stage/evolvesTo/locomotion come from `dexData.ts`.
+ * Two art kinds, both ending up as the same `FrameSet` shape (Phase 6 §1/§3):
+ * species #1-649 fetch an animated gen5ani GIF and get coalesced frame-by-
+ * frame (`fetchAndDecode`); species #650-1025 (`dexData.ts`'s `static: true`)
+ * fetch a single Smogon Sprite Project PNG and get wrapped as a 1-frame sheet
+ * (`fetchAndDecodeStatic`) — no animation, but otherwise identical to the
+ * consumer (`WalkerSprite`'s bob/mirror/shadow treatment doesn't care how
+ * many frames a sheet has). Line/stage/evolvesTo/locomotion come from
+ * `dexData.ts` either way.
  */
 import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
 import { Texture } from 'pixi.js';
@@ -135,6 +141,42 @@ async function fetchAndDecode(id: string, view: SpriteView): Promise<{ sheet: HT
   return { sheet, meta };
 }
 
+/** How long a static species' single frame "holds" — never advances, so the
+ *  value is arbitrary, but AnimatedSprite's FrameObject shape wants one. */
+const STATIC_FRAME_MS = 1000;
+
+/**
+ * Species #650-1025 (Phase 6 §1): no gen5ani animation exists, so their art
+ * is a single static PNG (Smogon Sprite Project's Gen-5-style set,
+ * `gen5`/`gen5-back`) rather than a GIF to decode. `fetchSpriteGif` (shared
+ * IPC call, name predates statics — see `spriteCache.ts`) already returns the
+ * right bytes for either kind; this just skips the GIF-specific decode and
+ * wraps the single image as a 1-frame sheet, so everything downstream
+ * (`frameSetFromSheet`, the cache write, `WalkerSprite`'s bob/mirror/shadow)
+ * treats it exactly like an animated sheet that happens to have one frame. */
+async function fetchAndDecodeStatic(id: string, view: SpriteView): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
+  const pngBytes = await window.api.fetchSpriteGif(id, view);
+  if (!pngBytes) return null;
+  const blobUrl = URL.createObjectURL(new Blob([pngBytes], { type: 'image/png' }));
+  try {
+    const texture = await loadPixelTexture(blobUrl);
+    const { width, height } = texture;
+    if (width <= 0 || height <= 0) return null;
+    const sheet = document.createElement('canvas');
+    sheet.width = width;
+    sheet.height = height;
+    const ctx = sheet.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(texture.source.resource as CanvasImageSource, 0, 0);
+    return {
+      sheet,
+      meta: { frameWidth: width, frameHeight: height, frameCount: 1, columns: 1, rows: 1, durations: [STATIC_FRAME_MS] }
+    };
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
 /** One view (front or back) of one species: cache-hit from disk, or fetch +
  *  decode + cache-write. Returns null when the species has no such sprite at
  *  all (a real 404 — most species have no back-view alternate, which is
@@ -157,7 +199,7 @@ async function loadView(id: string, view: SpriteView, evictOnNull = true): Promi
       return frameSetFromSheet(cached.meta, texture);
     }
 
-    const decoded = await fetchAndDecode(id, view);
+    const decoded = speciesEntry(id)?.static ? await fetchAndDecodeStatic(id, view) : await fetchAndDecode(id, view);
     if (!decoded) return null;
 
     const frameSet = frameSetFromSheet(decoded.meta, decoded.sheet);
