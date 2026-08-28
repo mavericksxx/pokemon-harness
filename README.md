@@ -12,11 +12,15 @@ own flow.
 
 **Download a release** (macOS, Apple Silicon): grab the latest `.zip` from
 [Releases](https://github.com/mavericksxx/pokemon-harness/releases), unzip it,
-and drag `Pokéharness.app` to `/Applications`. Builds are ad-hoc signed (no
-paid Apple Developer ID behind this project), so macOS Gatekeeper will refuse
-a plain double-click the first time with an "unidentified developer" warning
-— **right-click (or Control-click) the app → Open → Open** instead, once.
-After that first launch it opens normally like anything else.
+and drag the app to `/Applications`. On disk the bundle is named
+`Pokeharness.app` (plain ASCII — that's what you'll see in a Finder search or
+`ls`); it still shows up as **Pokéharness** everywhere macOS actually displays
+an app name (Finder icon label, Dock, menu bar), via the bundle's display-name
+metadata. Builds are ad-hoc signed (no paid Apple Developer ID behind this
+project), so macOS Gatekeeper will refuse a plain double-click the first time
+with an "unidentified developer" warning — **right-click (or Control-click)
+the app → Open → Open** instead, once. After that first launch it opens
+normally like anything else.
 
 **Run from source** (any platform you can get `node-pty` building on):
 
