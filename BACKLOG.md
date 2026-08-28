@@ -50,11 +50,22 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 - roster card shows session name + provider but not the species — add the pokemon's name (e.g. "meganium") to the card.
 - "change pokemon" affordance on the roster card is too small to notice/hit — make it a proper visible action on the card.
 - pokemon picker dialog reads small against the rest of the app (screenshot-confirmed) — enlarge the modal itself and make the individual species cards bigger so sprites/names are easier to see (applies to both new-session and change-pokemon uses of PokemonPicker).
+- change-pokemon stage semantics (user, 2026-08-29; relayed to the wave-1 roster agent mid-build): swapping currently maps accumulated working time onto the new species, so a max-evolved session can't become a base form — instead the session should become EXACTLY the species picked (picking chikorita on a meganium session gives chikorita), with the evolution clock restarting from that stage so the cycle kicks off again; plus a "keep at this stage" checkbox in the change-pokemon flow (persisted per session) that freezes evolution at the chosen form until unchecked.
 - active garden chip's rename/delete are bare floating pencil/trash icons beside the chip — fold them into the chip (hover-reveal inside it, or a small menu on the active chip) so the topbar reads cleaner.
 
 ### phase D — feature: mega evolution
 
 - megas are absent from the picker (they're battle forms, not dex entries — sprite sets do include mega forms). DECIDED (2026-08-29): **trigger = during battles only** — when a completion battle starts, the MAIN agent's pokemon mega evolves for the duration of the fight if its species has a mega form (sprite availability verified against the real sprite source; species without a mega just battle normally), then reverts after the battle/victory celebration. No picker entries, no manual button, no work-based trigger. Build AFTER the phase A lifecycle redesign lands (it owns the battle flow this hooks into).
+
+### phase F — performance & battery optimization (requested 2026-08-29; runs BEFORE the demo/showreel phase)
+
+- macOS battery menu lists Pokeharness.app under "Using Significant Energy" (screenshot-confirmed, even in Low Power mode on AC). Dedicated optimization pass so the app runs smooth AND cheap:
+  - profile first (Instruments/Activity Monitor energy impact + chrome://tracing), then fix by evidence — likely suspects: the Pixi ticker rendering the garden at full fps continuously even when nothing moves or the window is hidden; render both when occluded/minimized (Electron `browserWindow.on('hide'/'show')`, `powerMonitor`, page visibility) — pause or drop to a low tick rate when not visible and when the scene is fully idle
+  - cap the garden to a sane fps (pixel art doesn't need 120hz on ProMotion displays); consider dirty-flag rendering (only render frames where something animated)
+  - audit timers/polls across main+renderer (update check, counters snapshot, cost watcher, usage poller, prefetchers) for coalescing; audit xterm.js renderer choice and output flow for busy sessions
+  - the splitter ResizeObserver fix (phase B/wave 1) already removes one thrash source; verify with the log
+  - success criteria: app leaves the "Using Significant Energy" list during normal idle use; garden CPU near-zero when window hidden
+- ties into the existing "load-test 15+ concurrent chatty sessions" item in bigger later — same measurement pass can cover both.
 
 ### phase E — feature: focus mode (munder-difflin command center, requested 2026-08-29)
 
@@ -70,7 +81,7 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 ## bigger later
 
 - **agent society phase** (carries backlog item 3)
-- **demo mode + auto-run showreel + portfolio landing page** with live web embed of the garden engine
+- **demo mode + auto-run showreel + portfolio landing page** with live web embed of the garden engine. NOTE (2026-08-29): before building, research whether a proper product-style video can be made with an already-available AI tool or directly by claude (script + storyboard + scripted screen-capture of demo mode + ffmpeg assembly is the zero-cost baseline) — hard constraint: **free to use only, zero spend**; phase F (performance/battery) runs before this phase.
 - **tier-2 signed auto-update** if an Apple developer cert ($99/yr) ever makes sense
 - load-test 15+ concurrent chatty sessions (FPS/CPU/IPC), batch output only if measurements warrant
 - decide whether the GitHub repo renames to match the app (redirects make it safe)
