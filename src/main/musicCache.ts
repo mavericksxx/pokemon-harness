@@ -205,11 +205,15 @@ function cancelInFlight(): void {
  *  memory and handed back over IPC (Howler needs them) — unlike
  *  `prefetchTrack`, which never does this. */
 export async function ensureMusicTrack(id: string): Promise<ArrayBuffer | null> {
-  const cached = await getCachedTrack(id);
-  if (cached) return cached;
-
+  // Validate against the catalog BEFORE `id` ever reaches a filesystem path —
+  // it's the only thing ever taken from the renderer here, and widening this
+  // from the old literal MusicTrackId union to `string` removed the type
+  // system's guard against an unexpected id reaching cachePath()/disk.
   const track = MUSIC_CATALOG_BY_ID.get(id);
   if (!track) return null;
+
+  const cached = await getCachedTrack(id);
+  if (cached) return cached;
 
   cancelInFlight();
   const controller = new AbortController();
@@ -247,14 +251,16 @@ export async function ensureMusicTrack(id: string): Promise<ArrayBuffer | null> 
  *  already on disk (still touches its mtime), `'ok'` on a successful fetch,
  *  or `'failed'` on any error / unknown id / abort. */
 export async function prefetchTrack(id: string): Promise<'cached' | 'ok' | 'busy' | 'failed'> {
+  // Same validate-before-touching-disk ordering as ensureMusicTrack — see its
+  // comment.
+  const track = MUSIC_CATALOG_BY_ID.get(id);
+  if (!track) return 'failed';
+
   if (existsSync(cachePath(id))) {
     void touchCacheFile(id);
     return 'cached';
   }
   if (inFlightId) return 'busy';
-
-  const track = MUSIC_CATALOG_BY_ID.get(id);
-  if (!track) return 'failed';
 
   const controller = new AbortController();
   inFlightId = id;

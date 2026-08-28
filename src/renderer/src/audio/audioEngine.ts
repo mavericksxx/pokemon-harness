@@ -261,12 +261,13 @@ async function playCatalogTrack(id: string): Promise<void> {
   const title = trackTitle(id);
 
   const ok = await crossfadeToTrack(id, { loop: false });
+  useAudioStore.getState().setTrackLoading(false);
   if (currentMusicMode !== 'player') {
     // Superseded by a battle/ceremony takeover while this fetch was in
-    // flight — that path owns trackLoading/nowPlaying now.
+    // flight — that path owns nowPlaying now, but trackLoading is cleared
+    // unconditionally above so the label doesn't get stuck on "Loading…".
     return;
   }
-  useAudioStore.getState().setTrackLoading(false);
 
   if (!ok) {
     consecutiveFailures++;
