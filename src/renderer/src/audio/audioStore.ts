@@ -1,5 +1,5 @@
 /**
- * Audio settings + download-state UI store (Phase 7). Deliberately separate
+ * Audio settings + mini-player UI store (Phase 7). Deliberately separate
  * from `@/store/store.ts` (the session/garden store) — nothing here overlaps
  * with session state, and keeping it apart avoids any merge surface with
  * concurrent work on that file.
@@ -24,9 +24,6 @@ export interface NowPlaying {
 
 interface AudioUiState {
   settings: AudioSettings;
-  /** True while the initial music-track batch is being fetched-and-cached. */
-  downloading: boolean;
-  downloadProgress: { done: number; total: number };
   /** Set when a music fetch fails while the browser reports itself offline,
    *  or after too many consecutive track failures — cleared the next time
    *  the user tries to enable music. */
@@ -51,8 +48,6 @@ interface AudioUiState {
   setMusicVolume(v: number): void;
   setSfxOn(v: boolean): void;
   setSfxVolume(v: number): void;
-  setDownloading(v: boolean): void;
-  setDownloadProgress(done: number, total: number): void;
   setMusicUnavailable(v: boolean): void;
   hydrate(settings: AudioSettings): void;
 
@@ -75,8 +70,6 @@ function persist(settings: AudioSettings): void {
 
 export const useAudioStore = create<AudioUiState>((set, get) => ({
   settings: DEFAULT_AUDIO_SETTINGS,
-  downloading: false,
-  downloadProgress: { done: 0, total: 0 },
   musicUnavailable: false,
   loaded: false,
   nowPlaying: { id: null, title: '', mode: 'none' },
@@ -110,8 +103,6 @@ export const useAudioStore = create<AudioUiState>((set, get) => ({
     set({ settings });
     persist(settings);
   },
-  setDownloading: (v) => set({ downloading: v }),
-  setDownloadProgress: (done, total) => set({ downloadProgress: { done, total } }),
   setMusicUnavailable: (v) => set({ musicUnavailable: v }),
   hydrate: (settings) => set({ settings, loaded: true }),
 
