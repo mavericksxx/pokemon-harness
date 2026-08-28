@@ -19,6 +19,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "gen:icon": "node build/icon/gen-icon.mjs",
+    "gen:tahoe-icon": "node build/icon/gen-tahoe-icon.mjs",
     "dist": "npm run build && electron-builder --mac",
     "release": "node tools/release.cjs"
   },
@@ -58,8 +59,15 @@
       "identity": null,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "CFBundleDisplayName": "Pokéharness"
-      }
+        "CFBundleDisplayName": "Pokéharness",
+        "CFBundleIconName": "PokeharnessIcon"
+      },
+      "extraResources": [
+        {
+          "from": "build/Assets.car",
+          "to": "Assets.car"
+        }
+      ]
     },
     "dmg": {
       "sign": false
