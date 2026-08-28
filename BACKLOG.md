@@ -12,10 +12,10 @@ Working list of known issues and planned work — open items only; completed wor
 - [x] sound icon opens mini-player popover (mute, volume, transport, search, gen filter)
 - [x] peaceful-only ambient music; battle tracks (379/1376 classified) reserved for battles; manual picks always win
 - [x] app icon white ring in dock (full-bleed icns; pre-Tahoe macOS now shows square corners — accepted)
-- [ ] background subagents not appearing in the garden (Phase C, in flight)
-- [ ] new subagent battle lifecycle: intro fight → loser wanders far zone while working → final fight on completion → faints (Phase C, in flight)
-- [ ] garden goes black after overlapping battles (Phase C, in flight)
-- [ ] verify updates/upgrades never lose sessions (Phase C, in flight)
+- [x] background subagents not appearing in the garden (root cause: the CLI reports every subagent dispatch as an instant async launch and emits no reliable completion hook; lifecycle no longer depends on those signals)
+- [x] new subagent battle lifecycle: intro fight → loser wanders its own far corner while working → final fight on completion → faints (8-min safety fallback since the CLI emits no trustworthy completion event)
+- [x] garden black-screen hardening: battle update loop can no longer kill the render frame; crash vector under concurrent battles removed (not a confirmed repro of the exact report — watch for recurrence)
+- [x] verified: updates never lose sessions (atomic persistence flushed before quit, `--resume` respawn, userData path pinned by app name independent of bundle churn; update check never touches state)
 
 Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 

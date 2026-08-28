@@ -12,6 +12,9 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 - sound icon opens a mini-player popover (mute, volume, transport, search, gen filter); mini-player extracted to a shared component
 - ambient garden music draws only from peaceful tracks (379 battle / 997 peaceful classified from real titles); battle music reserved for battles; manual picks always win
 - dock icon rebuilt full-bleed — no more white ring on macOS Tahoe
+- subagent lifecycle rebuilt: every subagent (including backgrounded ones, which the CLI reports without reliable hooks) gets a body in the garden — intro skirmish, then wandering its own far corner while it works, then a final skirmish and faint on completion; concurrent subagents choreograph safely
+- garden render loop hardened against battle-system exceptions (black-screen vector) and a concurrent-battle crash vector removed
+- verified update-survival of sessions: atomic persistence, resume-on-relaunch, stable storage paths across versions
 - arceus transition reworked: vertical ascent replaced with a ~720ms bidirectional pixel-streak warp (violet in, green/gold out), scene swap hidden under the flash
 - summon-once arceus: setup dialog only ever on first run; auto-returns on every later launch
 
