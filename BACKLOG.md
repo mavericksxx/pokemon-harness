@@ -21,9 +21,7 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ## next up (one at a time, in rough order)
 
-
-
-1. **"tell chikorita to do X" routing** (IN FLIGHT — wave-1 agent building it now) — DECIDED (2026-08-29): transport = terminal injection (arceus emits a structured directive → app types the instruction into the target session's pty, visible in that terminal, all providers); autonomy = relay-only (arceus forwards only when the user explicitly asks); persona delivery switches to MD-style first prompt (replaces `--append-system-prompt`) as part of the same work; roster context fed to arceus so he knows agent names/status. The dispatch box (`ArceusDispatchBox`) is unmounted in `TerminalDrawer` pending this — re-enable it as the assignment entry when routing lands.
+1. **"tell chikorita to do X" routing** — SHIPPED (2026-08-29, see CHANGELOG unreleased). Follow-ups worth watching: bracketed-paste first-prompt delivery is unverified against a live CLI (flagged in code — first place to look if the persona lands fragmented); a relay landing in the narrow just-spawned window before a target CLI accepts input could be lost; arceus quoting the grammar verbatim would cosmetically toast an unresolved name.
 
 ## queued phases (logged 2026-08-29 — batch per phase, dispatch after usage limits ships)
 
