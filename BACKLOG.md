@@ -1,6 +1,6 @@
 # backlog
 
-Working list of known issues and planned work. Rule of engagement: ship the release in flight first, then resolve items **one at a time** (no parallel fan-outs unless explicitly requested).
+Working list of known issues and planned work — open items only; completed work moves to [CHANGELOG.md](CHANGELOG.md). Rule of engagement: ship the release in flight first, then resolve items **one at a time** (no parallel fan-outs unless explicitly requested).
 
 ## in flight (v1.1.0 release batch)
 
