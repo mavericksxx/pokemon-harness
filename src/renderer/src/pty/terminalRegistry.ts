@@ -18,6 +18,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
+import { resetLoopStreak } from './loopDetector';
 import { useStore } from '@/store/store';
 import { ground, ink, primaryAccent, type as textType } from '@/design/tokens';
 
@@ -109,6 +110,10 @@ export function createTerminal(sessionId: string, replay?: string): void {
   });
 
   term.onData((data) => {
+    // The user typing into this session's terminal is a "steer" — the loop
+    // breaker's other reset trigger besides a different tool+target
+    // (Phase 8.5 #3).
+    resetLoopStreak(sessionId);
     void window.api.writePty(sessionId, data);
   });
 

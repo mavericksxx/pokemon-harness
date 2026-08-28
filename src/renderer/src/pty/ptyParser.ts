@@ -15,6 +15,7 @@ import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { clearHookAuthority, isHookAuthoritative } from './hookRouter';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { noteToolUse, resetLoopStreak } from './loopDetector';
 
 // Tool call lines look like: `● Read SPEC.md`, `● Bash npm test`, `● Edit src/foo.ts`
 const TOOL_RE = /●\s+([A-Za-z][A-Za-z_]*)(?:\s+(.+))?/g;
@@ -124,6 +125,9 @@ export function createPtyParser(sessionId: string): PtyParser {
         });
         // Regex-fallback attack beat — a no-op unless this session is battling.
         emitBattleSignal({ type: 'attack', parentId: sessionId, tool: lastTool });
+        // Loop breaker (Phase 8.5 #3) — the regex-fallback path's closest
+        // analogue to a PostToolUse beat; see loopDetector.ts's header.
+        noteToolUse(sessionId, lastTool, target);
         if (running) cancelIdle();
         else scheduleIdle();
         return;
@@ -157,6 +161,7 @@ export function createPtyParser(sessionId: string): PtyParser {
     dispose(): void {
       cancelIdle();
       clearHookAuthority(sessionId);
+      resetLoopStreak(sessionId);
     }
   };
 }

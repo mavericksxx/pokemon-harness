@@ -104,9 +104,13 @@ async function boot(): Promise<void> {
     // just after.
     const fontsReady = document.fonts.load(`14px "JetBrains Mono"`);
 
-    const [crashInfo, { sessions: restored, selectedId }] = await Promise.all([
+    const [crashInfo, { sessions: restored, selectedId }, diskRestoreInfo] = await Promise.all([
       window.api.getCrashInfo(),
-      window.api.restoreSessions()
+      window.api.restoreSessions(),
+      // Non-null exactly once, on the launch that respawned disk-persisted
+      // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
+      // a same-process renderer reload; this is a fresh app launch).
+      window.api.getDiskRestoreInfo()
     ]);
     await fontsReady;
 
@@ -115,7 +119,11 @@ async function boot(): Promise<void> {
       useStore.getState().restoreSessions(restored.map((r) => r.session), selectedId);
     }
 
-    if (crashInfo) {
+    if (diskRestoreInfo) {
+      const n = diskRestoreInfo.count;
+      useStore.getState().pushToast(`Restored ${n} session${n === 1 ? '' : 's'}.`);
+      for (const note of diskRestoreInfo.notes) useStore.getState().pushToast(note);
+    } else if (crashInfo) {
       const suffix =
         restored.length > 0
           ? ` — reconnected ${restored.length} session${restored.length === 1 ? '' : 's'}.`

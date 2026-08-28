@@ -6,7 +6,10 @@ import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
 import { loadAudioSettings, saveAudioSettings } from './audioSettings';
+import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
+import { respawnSession } from './sessionRespawn';
 import type {
+  DiskRestoreInfo,
   LazySpriteMeta,
   RendererCrashInfo,
   SessionRecord,
@@ -28,6 +31,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 let mainWindow: BrowserWindow | null = null;
 const hookBridge = new HookBridge(app.getPath('userData'), () => mainWindow?.webContents ?? null);
 const ptyManager = new PtyManager(hookBridge);
+const sessionPersistence = new SessionPersistence(app.getPath('userData'));
 
 /** Load (or reload, after a crash) the app's page. A fresh navigation, not
  *  `webContents.reload()`: testing an induced crash (CDP's `Page.crash()`)
@@ -118,6 +122,60 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
       /* unsupported/denied on this platform — best-effort, never throw into the IPC handler */
     }
   }
+}
+
+/** App-launch session restoration (Phase 8.5 #1): respawns every session the
+ *  last live checkpoint persisted to disk (see sessionPersistence.ts) before
+ *  this process last quit, reusing the SAME ids the renderer already knows
+ *  — so the existing renderer-crash adoption path (`sessions:restore`,
+ *  below) picks them up unchanged; nothing renderer-side needs to know this
+ *  restore is disk-sourced rather than in-memory.
+ *
+ * A session is "restorable" here in the persisted-FILE sense — present in
+ * the renderer's array as of the last checkpoint — NOT filtered by its last
+ * `status`. Quitting the app kills every live pty, and that exit flips each
+ * session to `status: 'done'` moments before the process actually exits
+ * (see PtyManager's onExit → the terminal's onPtyExit → updateSession), so
+ * 'done' in the persisted file means "was open when the app quit", not "the
+ * user closed this". The one signal that actually means "don't resurrect"
+ * is the session having been REMOVED from the renderer's array (closed
+ * in-app via stopSession) — checkpointSessions only ever mirrors what's
+ * still in that array, so a closed session was simply never written here in
+ * the first place.
+ *
+ * Called once, from `app.whenReady()`, right after `createWindow()` so
+ * `attachWebContents` is already wired before any respawned session's first
+ * bytes arrive. `sessions:restore` awaits `diskRestorePromise` so the
+ * renderer's boot-time pull can never race ahead and see a still-empty
+ * registry (a claude-resume respawn's grace-period wait can take several
+ * seconds).
+ */
+async function restoreFromDisk(): Promise<DiskRestoreInfo> {
+  const persisted = await loadPersistedSessions(app.getPath('userData'));
+  if (persisted.sessions.length === 0) return { count: 0, notes: [] };
+
+  const notes: string[] = [];
+  const restored: SessionRecord[] = [];
+
+  for (const record of persisted.sessions) {
+    const outcome = await respawnSession(ptyManager, record);
+    if (!outcome.ok) {
+      console.error(`[sessions] could not restore "${record.title}" (${record.cwd})`);
+      continue;
+    }
+    restored.push(outcome.fallbackReason ? { ...record, error: outcome.fallbackReason } : record);
+    if (outcome.fallbackReason) {
+      notes.push(`${record.title}: ${outcome.fallbackReason} — opened a plain shell instead.`);
+    }
+  }
+
+  sessionRegistry = restored;
+  lastSelectedId =
+    persisted.lastSelectedId && restored.some((s) => s.id === persisted.lastSelectedId)
+      ? persisted.lastSelectedId
+      : null;
+
+  return { count: restored.length, notes };
 }
 
 function createWindow(): void {
@@ -212,23 +270,40 @@ function createWindow(): void {
   loadApp(win);
 }
 
+/** Kicked off once at launch, right after `createWindow()` — see
+ *  `restoreFromDisk`'s own header for why the ordering and the
+ *  `sessions:restore` await below both matter. Starts as an already-resolved
+ *  empty result so `sessions:restore` never hangs if `whenReady` somehow
+ *  never re-assigns it (e.g. a test harness that skips straight to the IPC
+ *  layer). */
+let diskRestorePromise: Promise<DiskRestoreInfo> = Promise.resolve({ count: 0, notes: [] });
+/** Cleared to true once `app:getDiskRestoreInfo` has handed its result to
+ *  the renderer — a later call (a plain dev Cmd+R after boot, say) must not
+ *  re-toast the same launch-time restore. */
+let diskRestoreConsumed = false;
+
 app.whenReady().then(() => {
   // Independent of any live claude session — the socket must be up before the
   // first spawn (and before any manual shim verification) ever happens.
   hookBridge.ensureFiles();
   hookBridge.start();
   createWindow();
+  diskRestorePromise = restoreFromDisk();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
+  // Flush BEFORE killing — see sessionPersistence.ts's SessionPersistence.flush()
+  // doc comment for why the order matters.
+  sessionPersistence.flush();
   ptyManager.killAll();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', () => {
+  sessionPersistence.flush();
   ptyManager.killAll();
   hookBridge.stop();
 });
@@ -258,6 +333,7 @@ ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId
   notifyStatusTransitions(sessions, selectedId);
   sessionRegistry = sessions;
   lastSelectedId = selectedId;
+  sessionPersistence.schedule({ sessions, lastSelectedId: selectedId });
 });
 
 // Boot-time pull, for both a crash-triggered reload and a plain dev Cmd+R:
@@ -267,13 +343,27 @@ ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId
 // sitting in sessionRegistry from before the exit; ptyManager.list() is the
 // authority here, not the mirror). Same liveness check for selectedId: no
 // point reselecting a tab that isn't coming back.
-ipcMain.handle('sessions:restore', () => {
+ipcMain.handle('sessions:restore', async () => {
+  // Awaits the launch-time disk restore (a no-op once it's already settled,
+  // which is the common case by the time the renderer gets this far) so this
+  // never races ahead of `restoreFromDisk` and sees a still-empty registry —
+  // see that function's own header.
+  await diskRestorePromise;
   const liveIds = new Set(ptyManager.list().map((p) => p.id));
   const sessions = sessionRegistry
     .filter((s) => liveIds.has(s.id))
     .map((session) => ({ session, replay: ptyManager.getReplay(session.id) }));
   const selectedId = lastSelectedId && liveIds.has(lastSelectedId) ? lastSelectedId : null;
   return { sessions, selectedId };
+});
+
+// Boot-time pull for the "restored N sessions" toast (Phase 8.5 #1) — see
+// `diskRestoreConsumed`'s own comment for why this is clear-on-read.
+ipcMain.handle('app:getDiskRestoreInfo', async () => {
+  const info = await diskRestorePromise;
+  if (diskRestoreConsumed || info.count === 0) return null;
+  diskRestoreConsumed = true;
+  return info;
 });
 
 // ─── Lazy sprite cache (Phase 3 §2) ────────────────────────────────────────

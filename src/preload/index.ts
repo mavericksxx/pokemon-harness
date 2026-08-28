@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   CachedSprite,
+  DiskRestoreInfo,
   LazySpriteMeta,
   PtyExit,
   PtyInfo,
@@ -61,6 +62,11 @@ const api = {
    *  plus the last-selected id — called once on boot to re-adopt them after a
    *  crash or a plain reload. */
   restoreSessions: (): Promise<RestoreSnapshot> => ipcRenderer.invoke('sessions:restore'),
+  /** Non-null exactly once, right after a launch that respawned at least one
+   *  disk-persisted session (Phase 8.5 #1) — see main/index.ts's
+   *  `diskRestoreConsumed`. Pulled on boot the same way `getCrashInfo` is. */
+  getDiskRestoreInfo: (): Promise<DiskRestoreInfo | null> =>
+    ipcRenderer.invoke('app:getDiskRestoreInfo'),
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
 

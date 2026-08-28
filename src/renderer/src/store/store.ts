@@ -17,6 +17,10 @@ const TOAST_DURATION_MS = 4500;
 export interface Toast {
   id: string;
   text: string;
+  /** Optional single action button (Phase 8.5 #3's "steer" offer on a
+   *  looping session) — dismisses the toast when clicked, same as clicking
+   *  the toast body itself does. */
+  action?: { label: string; onClick: () => void };
 }
 
 /** One of the four Phase 8 §1 layouts:
@@ -82,8 +86,8 @@ interface HarnessState {
   setSessionsOverviewOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
-   *  itself after a few seconds. */
-  pushToast(text: string): void;
+   *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
+  pushToast(text: string, action?: Toast['action']): void;
   dismissToast(id: string): void;
 }
 
@@ -145,9 +149,9 @@ export const useStore = create<HarnessState>((set, get) => ({
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 
-  pushToast: (text) => {
+  pushToast: (text, action) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    set((st) => ({ toasts: [...st.toasts, { id, text }] }));
+    set((st) => ({ toasts: [...st.toasts, { id, text, action }] }));
     window.setTimeout(() => get().dismissToast(id), TOAST_DURATION_MS);
   },
   dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) }))
