@@ -13,6 +13,7 @@
     "postinstall": "electron-rebuild -f -w node-pty && node tools/ensure-pty-perms.cjs",
     "gen:map": "node tools/gen-garden-map.cjs",
     "gen:dex": "node tools/build-dex.cjs",
+    "gen:music-catalog": "node tools/build-music-catalog.cjs",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web"
