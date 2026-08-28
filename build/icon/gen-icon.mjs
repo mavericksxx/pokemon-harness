@@ -39,8 +39,10 @@
 // needing Tiled-authored input, not a new npm package).
 //
 // Run: node build/icon/gen-icon.mjs
-// Writes build/icon.icns (mac icon, wired into electron-builder) and
-// build/icon/icon.png (512px, for the non-mac BrowserWindow icon option).
+// Writes build/icon.icns (mac icon, wired into electron-builder),
+// build/icon/icon.png (512px, for the non-mac BrowserWindow icon option),
+// and build/icon/icon-1024.png (1024px master, consumed by
+// gen-tahoe-icon.mjs for the macOS 26 Tahoe Assets.car asset).
 
 import { execSync } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
@@ -374,6 +376,13 @@ function main() {
   const pngOut = join(HERE, 'icon.png');
   sh(`cp "${rendered.get(512)}" "${pngOut}"`);
   console.log(`wrote ${pngOut}`);
+
+  // 1024px master, persisted (not just a _tmp render) as the single-layer
+  // source image for the macOS 26 Tahoe Icon Composer asset — see
+  // gen-tahoe-icon.mjs, which composites this into a .icon bundle.
+  const png1024Out = join(HERE, 'icon-1024.png');
+  sh(`cp "${rendered.get(1024)}" "${png1024Out}"`);
+  console.log(`wrote ${png1024Out}`);
 
   rmSync(TMP, { recursive: true, force: true });
 }
