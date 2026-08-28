@@ -4,6 +4,7 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
 ## unreleased
 
+- focus mode restyled to the Munder Difflin layout it was modeled on: agent roster moves into a left sidebar ("+ add agent" pinned on top, vertical cards, garden view keeps its bottom strip); header gets the avatar tile + title + status chip with a species/provider subtitle line; the terminal now sits in a framed panel with its own mini header — live dot + label on the left, a [−] [Npx] [+] font-size stepper on the right wired to the same terminal-font setting as the settings slider (re-fits live); the composer becomes a labeled "queue" section with a 4-row textarea and a right-aligned send button. All queue/injection semantics unchanged; the terminal mount stays fixed in the tree so switching views still never blanks it
 - topbar view-switcher no longer shifts when switching views: the terminal-panel drawer toggle used to unmount entirely outside garden view (5 buttons → 4), resizing the group and sliding the usage chip / volume / theme / gear cluster; it now always renders, shown muted and inert in other views (tooltip explains it's garden-view-only), so the switcher's geometry is constant across every state
 
 ## v1.3.0 — 2026-08-29

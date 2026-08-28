@@ -47,7 +47,6 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ### phase E — focus mode — SHIPPED (2026-08-29, see CHANGELOG unreleased). Follow-up idea kept: which MD tabs (monitor/tasks/activity) deserve pokéharness equivalents someday.
 
-- **focus mode restyle to match the MD inspo (reported 2026-08-29, DISPATCHED)**: v1.3.0's focus view doesn't resemble the Munder Difflin screenshot it was modeled on. Gap vs inspo: (1) agent roster belongs in a LEFT SIDEBAR with "+ new agent" on top and rich per-agent rows (sprite, pixel-caps name, status chip, species · provider line, context/cost bar), not a bottom card strip; (2) header needs the big pixel-caps title treatment (avatar tile, TITLE, status chip, subtitle), not a slim strip; (3) terminal goes inside a FRAMED PANEL with its own mini header ("live · <session>" left, font-size stepper − px + right); (4) composer becomes a labeled "queue" section with a large multiline textarea + send button, not a one-line input. Keep our dark/light theme tokens (inspo's cream palette is theirs), Press Start 2P at integer px only.
 
 ## smaller known items
 
