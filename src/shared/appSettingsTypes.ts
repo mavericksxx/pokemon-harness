@@ -3,8 +3,10 @@
  *  keep-awake, and the recent-folders quick-pick. One JSON blob, following
  *  the same shape/persistence pattern as `audioTypes.ts` — a handful of
  *  small scalars/lists that don't warrant a file each. Dependency-free
- *  except `AgentProviderId`, matching the rest of shared/. */
+ *  except `AgentProviderId` and `UsageProviderId`, matching the rest of
+ *  shared/. */
 import type { AgentProviderId } from './agentProvider';
+import type { UsageProviderId } from './usageTypes';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
@@ -46,6 +48,18 @@ export interface AppSettings {
    *  off — see that file's `setEnabled`). Read-only carve-out: never stored,
    *  refreshed, or sent anywhere but the documented usage endpoint. */
   usageLimitsEnabled: boolean;
+  /** Per-provider include/exclude for the usage-limits panel (feedback:
+   *  "let the user pick which providers to include" — e.g. Claude only, no
+   *  Codex). An excluded-list rather than an included-map so a future
+   *  provider is included by default without a settings migration (it's
+   *  simply absent from this array) — same "no behavior change on upgrade"
+   *  guarantee `usageLimitsEnabled`'s default gives existing users, extended
+   *  to cover providers added after this field was. Default empty (every
+   *  known provider included). Enforced in main/usageService.ts's
+   *  `setExcludedProviders`: an excluded provider is never polled — no
+   *  credential read, no network call — same hygiene as the master toggle's
+   *  off state, just scoped to one provider. */
+  usageExcludedProviders: UsageProviderId[];
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -55,5 +69,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   recentFolders: [],
   harnessHomeDir: null,
 hideClaudeStatusline: false,
-  usageLimitsEnabled: false
+  usageLimitsEnabled: false,
+  usageExcludedProviders: []
 };

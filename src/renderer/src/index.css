@@ -1352,6 +1352,35 @@ button.icon:active {
   color: var(--muted);
 }
 
+/* Per-provider usage include/exclude (usage settings section, feedback:
+ * "let the user pick which providers to include") — indented under the
+ * master toggle's label text (20px, matching `.new-session-auto-mode .hint`'s
+ * own indent convention above), dimmed to read as disabled while the master
+ * toggle is off even though each checkbox's own `disabled` attribute is what
+ * actually blocks interaction. */
+.settings-usage-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 20px;
+}
+
+.settings-usage-providers.is-disabled {
+  opacity: 0.5;
+}
+
+.settings-usage-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.settings-usage-providers.is-disabled .settings-usage-provider-row {
+  cursor: default;
+}
+
 /* ── Segmented control (settings redesign, item 3) — theme picker ───────── */
 .segmented {
   display: inline-flex;
@@ -1602,29 +1631,36 @@ button.icon:active {
 .usage-provider {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .usage-provider + .usage-provider {
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--line);
 }
 
+/* Pixel-caps section header ("trainer card" restyle) — same Press Start 2P
+ * treatment as `.modal h2`/`.brand`, just at the type scale's smallest step
+ * (matches `.usage-window-pct` below) since this sits inside a 300px
+ * popover, not a full dialog. */
 .usage-provider-head {
-  font-size: var(--font-body-sm-size);
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
   color: var(--text);
 }
 
 .usage-window {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .usage-window-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 8px;
   font-size: var(--font-body-sm-size);
   color: var(--muted);
 }
@@ -1637,36 +1673,48 @@ button.icon:active {
   font-family: var(--font-display);
   font-size: var(--font-display-sm-size);
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Pixel HP-style bar — hard edges, 0-2px radius, charcoal ground fill,
- * matching `.roster-card-gauge` (AgentRosterCard.tsx) but taller: this is
- * the panel's own focal gauge, not a thin accent flush against a card edge. */
+/* Pokémon-style HP-bar housing — chunky, hard-edged, 1px border frame around
+ * the fill (restyle, user feedback: "generic thin bars" → HP-bar look).
+ * Taller than `.roster-card-gauge`'s thin accent (this is the panel's own
+ * focal gauge) and the padding is the housing's inner bezel — the fill sits
+ * inset from the frame rather than flush against it. */
 .usage-bar {
-  height: 8px;
+  height: 10px;
+  padding: 1px;
   background: var(--bg-terminal);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  overflow: hidden;
 }
 
+/* Fill color = remaining headroom (green/amber/red via `gaugeTone`,
+ * UsageChip.tsx — <50% used, 50-79%, 80%+) using the same semantic status
+ * tokens the rest of the chrome already uses for good/caution/danger states,
+ * so both themes are covered for free (design/tokens.ts sets these per-
+ * theme, no new tokens needed). The repeating stripe is the "segmented HP
+ * bar" texture — a fixed-opacity dark overlay, so it reads correctly over
+ * any of the three fill colors in either theme. */
 .usage-bar-fill {
   height: 100%;
-  background: var(--gold);
+  background-color: var(--status-done);
+  background-image: repeating-linear-gradient(to right, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 4px);
   transition: width 400ms steps(2, end);
 }
 
 .usage-bar-fill--warn {
-  background: var(--status-working);
+  background-color: var(--status-working);
 }
 
 .usage-bar-fill--danger {
-  background: var(--status-blocked);
+  background-color: var(--status-blocked);
 }
 
 .usage-window-foot {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   color: var(--muted);
 }

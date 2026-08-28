@@ -67,6 +67,12 @@ const CLAUDE_USER_AGENT = 'claude-code/2.1.0';
 
 const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 
+/** Every provider id this service knows how to poll — the default "nothing
+ *  excluded" set, and what `setExcludedProviders` below diffs the persisted
+ *  `AppSettings.usageExcludedProviders` list against (feedback: "let the
+ *  user pick which providers to include"). */
+const ALL_USAGE_PROVIDERS: UsageProviderId[] = ['claude', 'codex'];
+
 // ─── Shared helpers ─────────────────────────────────────────────────────────
 
 function clampPercent(n: unknown): number {
@@ -177,6 +183,16 @@ interface ClaudeUsageResponse {
   }>;
 }
 
+/** Loose equality for two `resetsAt` values (both epoch-ms-or-null): exact
+ *  `null === null` counts as a match, otherwise within a minute counts as
+ *  "the same window" — the named-window and `limits[]` representations of
+ *  the same underlying window come from independently-parsed ISO strings in
+ *  the same response, so a sub-minute precision/truncation difference
+ *  shouldn't defeat the dedupe below. */
+function resetsRoughlyMatch(a: number | null, b: number | null): boolean {
+  return a === null || b === null ? a === b : Math.abs(a - b) < 60_000;
+}
+
 /** CodexBar's `mapOAuthUsage` gauge-mapping rules (research doc §1), ported
  *  1:1: 5h fallback chain, weekly always from `seven_day` alone, one
  *  model-scoped card, `limits[]` additive (never filtered on `is_active`),
@@ -191,9 +207,9 @@ function mapClaudeUsage(data: ClaudeUsageResponse): UsageWindow[] {
     data.five_hour ?? data.seven_day ?? data.seven_day_oauth_apps ?? data.seven_day_sonnet ?? data.seven_day_opus;
   // When `five_hour` itself is absent, the fallback chain can resolve to the
   // SAME object `data.seven_day` — faithful to the research doc's mapping,
-  // but rendering it a second time under the 'wk' label below would show two
+  // but rendering it a second time under the '7d' label below would show two
   // identical bars with different names, which reads as a bug rather than a
-  // deliberate fallback. Skip the 5h row in that one case; 'wk' still shows
+  // deliberate fallback. Skip the 5h row in that one case; '7d' still shows
   // the real number.
   if (typeof fiveHour?.utilization === 'number' && fiveHour !== data.seven_day) {
     windows.push({ label: '5h', usedPercent: clampPercent(fiveHour.utilization), resetsAt: isoToMs(fiveHour.resets_at) });
@@ -201,7 +217,7 @@ function mapClaudeUsage(data: ClaudeUsageResponse): UsageWindow[] {
 
   if (typeof data.seven_day?.utilization === 'number') {
     windows.push({
-      label: 'wk',
+      label: '7d',
       usedPercent: clampPercent(data.seven_day.utilization),
       resetsAt: isoToMs(data.seven_day.resets_at)
     });
@@ -209,14 +225,39 @@ function mapClaudeUsage(data: ClaudeUsageResponse): UsageWindow[] {
 
   const modelCard = data.seven_day_sonnet ?? data.seven_day_opus;
   if (typeof modelCard?.utilization === 'number') {
-    const label = data.seven_day_sonnet ? 'sonnet' : 'opus';
+    const label = data.seven_day_sonnet ? '7d sonnet' : '7d opus';
     windows.push({ label, usedPercent: clampPercent(modelCard.utilization), resetsAt: isoToMs(modelCard.resets_at) });
   }
 
+  // `limits[]` is additive per the research doc, but in practice its entries
+  // frequently just restate a window already rendered above under a
+  // different label — e.g. a "session"/"weekly" alias for `five_hour`/
+  // `seven_day` (user-reported duplicate rows: "5h 75%" AND "session 75%",
+  // same reset time). Dedupe by (resetsAt, usedPercent): a restatement of an
+  // already-added window always carries the same reset time and the same
+  // percentage. A model-scoped entry (`scope.model.display_name` present,
+  // e.g. the "Fable" promotional window) is NEVER treated as a restatement
+  // even if it happens to share both — early in a shared weekly window every
+  // model-scoped card can read the same 0%/same reset as the plain '7d' row,
+  // and that row must still render (it's real and distinct, not a duplicate).
   for (const limit of data.limits ?? []) {
     if (typeof limit?.percent !== 'number') continue;
-    const label = (limit.scope?.model?.display_name || limit.group || limit.kind || 'limit').toLowerCase();
-    windows.push({ label, usedPercent: clampPercent(limit.percent), resetsAt: isoToMs(limit.resets_at) });
+    const resetsAt = isoToMs(limit.resets_at);
+    const usedPercent = clampPercent(limit.percent);
+    const modelName = limit.scope?.model?.display_name;
+    const isRestatement =
+      !modelName &&
+      windows.some(
+        (w) => resetsRoughlyMatch(w.resetsAt, resetsAt) && Math.round(w.usedPercent) === Math.round(usedPercent)
+      );
+    if (isRestatement) continue;
+    const name = (modelName || limit.kind || 'limit').toLowerCase();
+    // Only the one confirmed shape (research doc: `group: "weekly"` on the
+    // "Fable" example) gets the "7d " scope prefix — matching the 7d/7d
+    // sonnet/7d opus convention above without guessing at an unconfirmed
+    // 5h-scoped limits[] shape.
+    const label = limit.group === 'weekly' ? `7d ${name}` : name;
+    windows.push({ label, usedPercent, resetsAt });
   }
 
   if (windows.length === 0 && data.extra_usage?.is_enabled && typeof data.extra_usage.utilization === 'number') {
@@ -273,12 +314,14 @@ interface CodexAuthFile {
  *  always the weekly one, per every example payload in the research doc) —
  *  `window_minutes` only overrides it when actually present. `window_minutes`
  *  is optional (research doc: schema has changed at least once), so relying
- *  on it alone would collapse both windows to the SAME label ('wk', since
+ *  on it alone would collapse both windows to the SAME label ('7d', since
  *  `undefined <= 720` is false) whenever it's missing from both — duplicate
- *  React keys and a display that lies about which window is which. */
+ *  React keys and a display that lies about which window is which. '7d' (not
+ *  'wk') to match Claude's own weekly-window label — same popover, same
+ *  convention, so a provider swap in the panel doesn't flip label style. */
 function codexWindowLabel(slot: 'primary' | 'secondary', windowMinutes: number | undefined): string {
-  if (typeof windowMinutes === 'number') return windowMinutes <= 720 ? '5h' : 'wk';
-  return slot === 'primary' ? '5h' : 'wk';
+  if (typeof windowMinutes === 'number') return windowMinutes <= 720 ? '5h' : '7d';
+  return slot === 'primary' ? '5h' : '7d';
 }
 
 function mapCodexRateLimits(rl: CodexRateLimits): UsageWindow[] {
@@ -492,6 +535,13 @@ export class UsageService {
 
   private codexUnauthorizedToken: string | null = null;
 
+  /** Which providers are actually polled — the complement of the persisted
+   *  `AppSettings.usageExcludedProviders` list. Defaults to every known
+   *  provider so a fresh install / never-saved settings sees no behavior
+   *  change. Set from main/index.ts on boot and every settings save, same
+   *  call sites as `setEnabled` below — see `setExcludedProviders`. */
+  private includedProviders: Set<UsageProviderId> = new Set(ALL_USAGE_PROVIDERS);
+
   constructor(private getWebContents: () => WebContents | null) {}
 
   /** The ONE place credential access turns on/off. Called from main/index.ts
@@ -527,6 +577,44 @@ export class UsageService {
     }
   }
 
+  /** Per-provider mirror of `setEnabled` above — called from main/index.ts on
+   *  boot and every settings save with `AppSettings.usageExcludedProviders`.
+   *  A newly-excluded provider is never polled again (see `pollAll`'s own
+   *  filter) and has its own gate/lock/cache state cleared immediately, same
+   *  hygiene `setEnabled(false)` applies to everything: a later re-include
+   *  starts clean rather than reusing stale state from before it was
+   *  excluded. If a poll already produced a snapshot containing the newly-
+   *  excluded provider, strip it and re-emit right away rather than waiting
+   *  for the next poll to quietly drop it. Symmetrically, a provider going
+   *  the OTHER way (re-included) triggers an immediate poll rather than
+   *  waiting up to `POLL_MS_BACKGROUND` for the next background tick — a
+   *  user who just ticked the checkbox back on should see that provider's
+   *  row appear right away, not up to 5 minutes later. */
+  setExcludedProviders(excluded: UsageProviderId[]): void {
+    const next = new Set<UsageProviderId>(ALL_USAGE_PROVIDERS.filter((p) => !excluded.includes(p)));
+    const newlyExcluded = ALL_USAGE_PROVIDERS.filter((p) => this.includedProviders.has(p) && !next.has(p));
+    const newlyIncluded = ALL_USAGE_PROVIDERS.filter((p) => !this.includedProviders.has(p) && next.has(p));
+    this.includedProviders = next;
+    if (newlyExcluded.includes('claude')) {
+      this.claudeGatedUntil = 0;
+      this.claudeUnauthorizedToken = null;
+      this.claudeLastGood = null;
+    }
+    if (newlyExcluded.includes('codex')) {
+      this.codexUnauthorizedToken = null;
+    }
+    if (!this.enabled) return;
+    if (newlyExcluded.length > 0) {
+      this.snapshot = { ...this.snapshot, providers: this.snapshot.providers.filter((p) => next.has(p.provider)) };
+      this.emit();
+    }
+    // Guarded by `this.enabled` above: at boot, setExcludedProviders runs
+    // BEFORE setEnabled (see main/index.ts) while `this.enabled` is still
+    // false, so this never double-polls alongside setEnabled(true)'s own
+    // initial pollAllGuarded() call.
+    if (newlyIncluded.length > 0) this.pollAllGuarded();
+  }
+
   getSnapshot(): UsageSnapshot {
     return this.snapshot;
   }
@@ -557,7 +645,10 @@ export class UsageService {
     // function (directly, or via pollAllGuarded/refreshNow above), so this
     // one check is the single enforcement point.
     if (!this.enabled) return;
-    const [claude, codex] = await Promise.all([this.fetchClaude(), this.fetchCodex()]);
+    const [claude, codex] = await Promise.all([
+      this.includedProviders.has('claude') ? this.fetchClaude() : Promise.resolve(null),
+      this.includedProviders.has('codex') ? this.fetchCodex() : Promise.resolve(null)
+    ]);
     // The toggle can flip off WHILE the two fetches above were in flight —
     // `setEnabled(false)` already cleared and emitted an empty snapshot in
     // that case, so this result is stale by the time it lands. Discard it
@@ -567,8 +658,15 @@ export class UsageService {
     // = zero credential access" promises never happens.
     if (!this.enabled) return;
     const providers: UsageProviderSnapshot[] = [];
-    if (claude) providers.push(claude);
-    if (codex) providers.push(codex);
+    // Same race, scoped to one provider: `setExcludedProviders` can exclude
+    // a provider WHILE its fetch above was already in flight — it already
+    // cleared that provider's state and stripped/re-emitted the snapshot at
+    // the time it ran, but this poll's OWN result lands after, and without
+    // this re-check would rebuild a snapshot that puts the excluded provider
+    // right back in (`includedProviders` is re-read here, after the await,
+    // not captured before it).
+    if (claude && this.includedProviders.has('claude')) providers.push(claude);
+    if (codex && this.includedProviders.has('codex')) providers.push(codex);
     this.snapshot = { enabled: true, providers, updatedAt: Date.now() };
     this.emit();
   }
