@@ -21,12 +21,13 @@ import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
 import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
+import { ArceusAscent } from '@/components/ArceusAscent';
+import { ARCEUS_SESSION_ID } from '@shared/arceus';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
 import { useStore, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
-import { isGlobalSession } from '@shared/arceus';
 import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 
@@ -65,6 +66,14 @@ export function GardenScene(): JSX.Element {
   // imperative Pixi: this is the one piece of UI actually in the React tree
   // (see the JSX return below).
   const [ritualActive, setRitualActive] = useState(false);
+  // The cosmos ascent (Phase 8.8 §4) — active exactly when Arceus is the
+  // selected session. A pure derived value (no lifecycle to manage, unlike
+  // `ritualActive` above), so it reads straight off the store rather than
+  // being toggled from inside the imperative Pixi effect below — that
+  // effect never needs to know about it at all: it's a CSS transform on
+  // this component's own JSX, entirely separate from the simulation
+  // running underneath (which keeps going, unaffected, while ascended).
+  const ascended = useStore((s) => s.selectedId === ARCEUS_SESSION_ID);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -135,8 +144,37 @@ export function GardenScene(): JSX.Element {
 
       const camera = new Camera(world);
       camera.setMapSize(map.width * map.tileSize, map.height * map.tileSize);
-      camera.setViewSize(app.screen.width, app.screen.height);
-      camera.fitToScreen();
+
+      // The canvas/camera's ONE source of truth for "how big is the pane
+      // right now" — re-measures `host.clientWidth/Height` fresh rather
+      // than trusting `app.init()`'s reading (taken before this scene's own
+      // tileset/animation loads awaited above, and on macOS a
+      // `titleBarStyle: 'hiddenInset'` window's content view can still be
+      // settling its final size around then too). Used both for the
+      // one-time initial fit below and every later ResizeObserver firing,
+      // so there's exactly one code path that can leave the canvas
+      // undersized relative to its host — not two that can silently
+      // disagree. `app.renderer.resize` is a no-op if the size didn't
+      // change, so calling this redundantly (e.g. the initial rAF pass
+      // landing on a size the observer already applied) is harmless.
+      const syncCanvasToHost = (): void => {
+        const w = host.clientWidth;
+        const h = host.clientHeight;
+        if (w < 2 || h < 2) return;
+        app.renderer.resize(w, h);
+        camera.setViewSize(w, h);
+      };
+      syncCanvasToHost();
+      // One frame later, in case layout was still settling at the line
+      // above (a still-in-flight reflow — e.g. the roster strip populating
+      // from session restore, or the window's content view finishing its
+      // own resize on macOS) — catches the "canvas sized smaller than its
+      // pane, stuck that way" case a ResizeObserver started only THIS LATE
+      // (after this scene's own async loads) can otherwise miss if the
+      // host's size already finished changing before it started watching.
+      requestAnimationFrame(() => {
+        if (!destroyed) syncCanvasToHost();
+      });
 
       const patchPool = new SeatPool(STATION_SPAWNS.patch);
       const runtimes = new Map<string, Runtime>();
@@ -387,6 +425,12 @@ export function GardenScene(): JSX.Element {
         }
 
         for (const session of sessions) {
+          // Arceus (Phase 8.8) is not part of the garden population at all
+          // — no walker, no station, no wandering, no battles/errands. His
+          // "cosmos" presence is a separate, purely visual transition on
+          // the garden pane itself (see the ascent overlay in this
+          // component's JSX/CSS), not anything in `runtimes`.
+          if (session.isArceus) continue;
           const rt = runtimes.get(session.id) ?? addWalker(session);
           const { walker } = rt;
           // Kept in sync regardless of workspace visibility (below) — the
@@ -403,7 +447,7 @@ export function GardenScene(): JSX.Element {
           // before the early-continue below so a battle that's mid-fight
           // when its workspace goes inactive is hidden on the very next
           // reconcile, not left showing until something else changes it.
-          const inActiveWorkspace = isGlobalSession(session) || sessionWorkspaceId(session) === activeWorkspaceId;
+          const inActiveWorkspace = sessionWorkspaceId(session) === activeWorkspaceId;
           walker.container.visible = inActiveWorkspace;
           walker.bubbleContainer.visible = inActiveWorkspace;
           battleManager.setVisible(session.id, inActiveWorkspace);
@@ -545,13 +589,7 @@ export function GardenScene(): JSX.Element {
         camera.update();
       });
 
-      const ro = new ResizeObserver(() => {
-        const w = host.clientWidth;
-        const h = host.clientHeight;
-        if (w < 2 || h < 2) return;
-        app.renderer.resize(w, h);
-        camera.setViewSize(w, h);
-      });
+      const ro = new ResizeObserver(syncCanvasToHost);
       ro.observe(host);
 
       cleanup = (): void => {
@@ -576,8 +614,13 @@ export function GardenScene(): JSX.Element {
   }, []);
 
   // The map is the game screen; this pane is its console shell. `.garden-mat`
-  // is the lifted bezel (margin + border); `.garden` is the Pixi host itself,
-  // sized to the mat's interior so `fitToScreen` centers the map inside it.
+  // is the lifted bezel (margin + border); `.garden-ascent-frame` is its
+  // clipped interior (Phase 8.8 §4 — `.garden` (the Pixi host) plus
+  // `ArceusAscent`'s two layers are three stacked full-size panes;
+  // ArceusAscent.tsx drives all three's transform/opacity directly via a
+  // single JS progress value, not a CSS class, so the three-phase liftoff/
+  // rush/arrival sequence can reverse mid-flight — the simulation inside
+  // `.garden` keeps running the whole time it's off-screen).
   // `.garden-frame-shadow` is a plain absolutely-positioned sibling of the
   // canvas (appended imperatively, below) — being positioned, it always
   // paints above the non-positioned canvas regardless of DOM order, which is
@@ -585,8 +628,11 @@ export function GardenScene(): JSX.Element {
   // painted underneath it.
   return (
     <div className="garden-mat">
-      <div className="garden" ref={hostRef}>
-        <div className="garden-frame-shadow" />
+      <div className="garden-ascent-frame">
+        <div className="garden" ref={hostRef}>
+          <div className="garden-frame-shadow" />
+        </div>
+        <ArceusAscent hostRef={hostRef} ascended={ascended} />
       </div>
       <div className={ritualActive ? 'garden-sunset-overlay active' : 'garden-sunset-overlay'} aria-hidden="true" />
     </div>

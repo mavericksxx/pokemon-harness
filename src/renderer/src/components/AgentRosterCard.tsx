@@ -35,6 +35,15 @@ function formatTokenCount(n: number): string {
 
 export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Element {
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
+  // Alpha card (Phase 8.8 §5) — distinct treatment for Arceus: an "alpha"
+  // tag (the games' own name for him — the ALPHA Pokémon) and his
+  // ring-cycle color as the card's left accent border (instead of
+  // `session.accent`, the ordinary per-session tint) via the `.alpha` CSS
+  // class (index.css's `arceus-ring-cycle` keyframes). Everything else on
+  // the card — status label, tool text, cost gauge — renders exactly as it
+  // would for any other session; he's a real claude session, so gauges
+  // apply the same as anyone's.
+  const isArceus = !!session.isArceus;
   const toolText = session.tool
     ? `${toolIcon(session.tool)} ${session.toolTarget || session.tool}`
     : session.status === 'blocked'
@@ -52,10 +61,14 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
     ? `${formatTokenCount(cost.contextTokens)} / ${formatTokenCount(cost.contextWindow)} context (approx.) · $${cost.costUsd.toFixed(2)}`
     : '';
 
+  const classes = ['roster-card', selected && 'selected', isArceus && 'alpha'].filter(Boolean).join(' ');
+
   return (
     <button
-      className={selected ? 'roster-card selected' : 'roster-card'}
-      style={{ borderLeftColor: `#${session.accent.toString(16).padStart(6, '0')}` }}
+      className={classes}
+      // The alpha card's left border is CSS-animated (arceus-ring-cycle) —
+      // an inline style here would win the cascade and freeze it.
+      style={isArceus ? undefined : { borderLeftColor: `#${session.accent.toString(16).padStart(6, '0')}` }}
       onClick={() => onSelect(session.id)}
       title={`${session.command} — ${session.cwd}`}
     >
@@ -69,7 +82,10 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           )}
         </span>
         <span className="roster-card-id">
-          <span className="roster-card-name">{session.title}</span>
+          <span className="roster-card-name">
+            {session.title}
+            {isArceus && <span className="roster-card-alpha-tag">alpha</span>}
+          </span>
           <span className="roster-card-provider">{providerLabel}</span>
         </span>
         {/* Phase 8.5: `looping` and `napping` are flags orthogonal to

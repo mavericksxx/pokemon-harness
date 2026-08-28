@@ -5,6 +5,7 @@ import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pt
 import { stopSession } from '@/sessions';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
+import { ArceusDispatchBox } from '@/components/ArceusDispatchBox';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget).
@@ -108,6 +109,7 @@ export function TerminalDrawer(): JSX.Element | null {
             </button>
           </div>
           {session.error && <p className="error drawer-error">{session.error}</p>}
+          {session.isArceus && <ArceusDispatchBox sessionId={session.id} />}
           <div className="terminal-mount-wrap">
             <div className="terminal-mount" ref={mountRef} />
             {findOpen && <TerminalFindBar sessionId={session.id} onClose={() => setFindOpen(false)} />}

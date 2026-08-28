@@ -608,7 +608,7 @@ ipcMain.handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harne
 // testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
 // real `claude --append-system-prompt ...` spawn for a plain shell tagged
 // `isArceus` (see the renderer's arceus.ts `summonArceusDevStandin`) —
-// everything BUT the real spawn (aura, Hall of Origin, boss card, dispatch
+// everything BUT the real spawn (the cosmos ascent, alpha card, dispatch
 // box, persistence, cross-workspace presence) is then exercisable live.
 ipcMain.handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
 

@@ -499,11 +499,29 @@ button.icon:active {
   opacity: 1;
 }
 
-.garden {
+/* Arceus's cosmos ascent (Phase 8.8 §4) — `.garden-ascent-frame` is
+ * `.garden`'s OLD flex:1 slot in `.garden-mat`, now just a clipped
+ * viewport holding THREE stacked full-size layers: `.garden` (the Pixi
+ * canvas host, unchanged simulation underneath), `.garden-rush` (the sky
+ * transit — speed lines + color ramp), and `.garden-cosmos` (nebula +
+ * Arceus). ArceusAscent.tsx drives all three directly via a single
+ * continuous JS `progress` value (0=garden, 1=cosmos) rather than a CSS
+ * class + `transition` — that's what makes the three-phase liftoff/rush/
+ * arrival sequence interruptible mid-flight (a `transition` retargeting
+ * mid-flight still only knows two endpoints; a per-frame progress value
+ * can reverse from wherever it actually is). Base positioning only lives
+ * here; `transform`/`opacity`/`background` are all set inline by that
+ * component, every frame during a transition. */
+.garden-ascent-frame {
   flex: 1;
   min-width: 0;
   position: relative;
   overflow: hidden;
+}
+
+.garden {
+  position: absolute;
+  inset: 0;
 }
 
 .garden canvas {
@@ -517,6 +535,106 @@ button.icon:active {
   inset: 0;
   pointer-events: none;
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
+}
+
+/* The rush phase — a full-pane sky transit. Its own opacity/background are
+ * both set inline (ArceusAscent.tsx); this is just the streak children's
+ * static layout + their perpetual (always-running, cheap) fall animation —
+ * only the LAYER's opacity toggles what's actually visible. */
+.garden-rush {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Fixed px travel (not %) — a percentage `translateY` resolves against the
+ * STREAK's own (small) height, not the pane's, so it wouldn't reliably
+ * cross a real pane's height. -140px start clears comfortably above any
+ * garden pane this app ships at; 1400px of travel comfortably clears below
+ * the tallest reasonable one too. */
+.garden-rush-streak {
+  position: absolute;
+  top: -140px;
+  width: 2px;
+  background: #ffffff;
+  animation-name: streak-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes streak-fall {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(1400px);
+  }
+}
+
+/* Home is the cosmos, above the garden. Same dark indigo in both themes,
+ * deliberately (space is dark either way) — see the Phase 8.8 report. */
+.garden-cosmos {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: #0b0b24;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* Pixel-art nebula (nebula.ts) — a small, low-res canvas of dithered color
+ * blobs generated once and stretched with `pixelated` rendering so each
+ * source pixel becomes a chunky block, not a smooth gradient. */
+.garden-cosmos-nebula {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
+}
+
+/* Arceus's own figure — no ring/halo (dropped per design feedback: the
+ * PLATE ON HIS BODY is the type indicator, not a scene glow — see
+ * ArceusAscent.tsx's forme cycling, which swaps the displayed sprite
+ * between Showdown's per-type gen5ani formes). Stars are baked into the
+ * nebula texture itself now (nebula.ts) — no separate CSS starfield layer. */
+.garden-cosmos-figure {
+  position: relative;
+  z-index: 1;
+  width: 96px;
+  height: 96px;
+  animation: arceus-bob 2600ms ease-in-out infinite;
+}
+
+/* Two stacked slots (ArceusAscent.tsx) crossfading via `transition:
+ * opacity` — a plain CSS transition is fine here (unlike the ascent's own
+ * three-phase progress, this is a simple two-state toggle with nothing to
+ * interrupt mid-curve); retargeting mid-fade still reverses smoothly from
+ * wherever it currently is. 200ms: a swap, not a slow dissolve. Only ever
+ * gets a `background-image` once a forme's thumbnail has actually
+ * resolved — see this file's header on why that matters. */
+.garden-cosmos-forme {
+  position: absolute;
+  inset: 0;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: opacity 200ms ease;
+}
+
+@keyframes arceus-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 /* ── terminal drawer ─────────────────────────────────────────────────────── */
@@ -583,6 +701,22 @@ button.icon:active {
   white-space: nowrap;
   direction: rtl;
   text-align: left;
+}
+
+/* Arceus dispatch box (Phase 8.8 §6) — a one-line convenience bar above the
+ * terminal, shown ONLY while he's selected (ArceusDispatchBox is only
+ * rendered for that session; nothing here needs its own visibility gate). */
+.dispatch-box {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.dispatch-box input {
+  flex: 1;
+  background: var(--bg-terminal);
 }
 
 /* Status badge: 8px colored dot + 4px gap + lowercase body-sm text, on a
@@ -1153,6 +1287,36 @@ button.icon:active {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* Alpha card (Phase 8.8 §5) — Arceus's roster card, pinned first in every
+ * workspace's strip (RosterStrip.tsx). "Alpha" per the games' own name for
+ * him (the ALPHA Pokémon), not "boss". Deliberately AFTER `.selected` above
+ * so `border-left-color` here wins that one shared side even when both
+ * classes apply (a selected alpha card keeps its ring/left-width from
+ * `.selected`, but the cycling colour, not `--accent`, on the left edge).
+ * `--plate-color` is a registered custom property (`@property` /
+ * `arceus-ring-cycle` below) rather than a plain `border-left-color`
+ * keyframe, so a future second consumer could share the same animation.
+ * Its registered `initial-value` (Fire) is what `prefers-reduced-motion`
+ * freezes on, since that rule only zeroes animation DURATION, not the
+ * property's own value. */
+.roster-card.alpha {
+  border-left-width: 3px;
+  border-left-color: var(--plate-color, #f08030);
+  animation: arceus-ring-cycle 30s linear infinite;
+}
+
+.roster-card-alpha-tag {
+  font-size: 10px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  color: var(--on-accent);
+  background: var(--gold);
+  padding: 1px 4px;
+  margin-left: 6px;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+}
+
 .roster-card-top {
   display: flex;
   align-items: center;
@@ -1454,6 +1618,84 @@ textarea,
   50%,
   100% {
     transform: scale(0.7);
+  }
+}
+
+/* Registered so `--plate-color` is an interpolable, non-inherited color —
+ * without this, animating a plain custom property just snaps between
+ * keyframe stops instead of smoothly cycling (same trick index.html's own
+ * `@property --boot-r` uses for the boot wipe). `initial-value` (Fire) is
+ * also what `.roster-card.alpha`'s `var(--plate-color, #f08030)` fallback
+ * matches. */
+@property --plate-color {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: #f08030;
+}
+
+/* Arceus's ring cycle (Phase 8.8 §5) — the alpha card's cycling left
+ * border. The 17 type-plate colors (every type but Normal, which needs no
+ * plate for his own base form — 17 real Judgment plates), smooth linear
+ * interpolation, ~30s loop, animating the `--plate-color` custom property
+ * `.roster-card.alpha` reads via `var(--plate-color, ...)`. The cosmos
+ * view itself has no glow/ring (dropped per design feedback — see
+ * ArceusAscent.tsx's forme-cycling comment); the type indicator there is
+ * the plate ON HIS SPRITE instead. The last stop repeats the first color
+ * so the loop has no visible seam. */
+@keyframes arceus-ring-cycle {
+  0% {
+    --plate-color: #f08030; /* Fire */
+  }
+  5.88% {
+    --plate-color: #6890f0; /* Water */
+  }
+  11.76% {
+    --plate-color: #f8d030; /* Electric */
+  }
+  17.65% {
+    --plate-color: #78c850; /* Grass */
+  }
+  23.53% {
+    --plate-color: #98d8d8; /* Ice */
+  }
+  29.41% {
+    --plate-color: #c03028; /* Fighting */
+  }
+  35.29% {
+    --plate-color: #a040a0; /* Poison */
+  }
+  41.18% {
+    --plate-color: #e0c068; /* Ground */
+  }
+  47.06% {
+    --plate-color: #a890f0; /* Flying */
+  }
+  52.94% {
+    --plate-color: #f85888; /* Psychic */
+  }
+  58.82% {
+    --plate-color: #a8b820; /* Bug */
+  }
+  64.71% {
+    --plate-color: #b8a038; /* Rock */
+  }
+  70.59% {
+    --plate-color: #705898; /* Ghost */
+  }
+  76.47% {
+    --plate-color: #7038f8; /* Dragon */
+  }
+  82.35% {
+    --plate-color: #705848; /* Dark */
+  }
+  88.24% {
+    --plate-color: #b8b8d0; /* Steel */
+  }
+  94.12% {
+    --plate-color: #ee99ac; /* Fairy */
+  }
+  100% {
+    --plate-color: #f08030; /* Fire — loop seam */
   }
 }
 

@@ -12,7 +12,7 @@
  * agents/arceus/SYSTEM.md appended); `summonArceusDevStandin` swaps that for
  * a plain shell tagged `isArceus`, gated by main's `config:arceusDevStandin`
  * (POKE_ARCEUS_DEV_STANDIN=1) — see the dialog, which picks between them.
- * Everything but the real claude spawn (aura, Hall of Origin, boss card,
+ * Everything but the real claude spawn (the cosmos ascent, alpha card,
  * dispatch box, persistence, cross-workspace presence) is exercisable
  * through the stand-in.
  */

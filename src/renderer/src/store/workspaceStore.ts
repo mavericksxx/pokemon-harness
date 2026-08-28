@@ -52,7 +52,7 @@ function syncSelectionToWorkspace(activeWorkspaceId: string): void {
   const current = state.sessions.find((s) => s.id === state.selectedId);
   // A global session (Arceus, Phase 8.8) is visible in every workspace, so a
   // switch must never knock the selection off him — that would silently
-  // deselect him (and drop the Hall of Origin backdrop) on every switch.
+  // deselect him (and drop the cosmos ascent) on every switch.
   if (current && isGlobalSession(current)) return;
   const sessions = state.sessions.filter((s) => sessionWorkspaceId(s) === activeWorkspaceId);
   state.select(sessions[0]?.id ?? null);

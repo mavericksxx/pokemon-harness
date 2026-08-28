@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
@@ -16,10 +17,18 @@ interface Props {
  * placement/orientation only.
  *
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7) — a session in
- * another workspace has no card here until you switch to it.
+ * another workspace has no card here until you switch to it. Arceus
+ * (Phase 8.8) is global, so `useActiveWorkspaceSessions` already includes
+ * him regardless of which workspace is active; this component's own job is
+ * just pinning his card FIRST — a stable sort (every other session keeps
+ * its existing relative order) rather than a fresh sort by some other key.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
-  const sessions = useActiveWorkspaceSessions();
+  const activeWorkspaceSessions = useActiveWorkspaceSessions();
+  const sessions = useMemo(
+    () => [...activeWorkspaceSessions].sort((a, b) => (b.isArceus ? 1 : 0) - (a.isArceus ? 1 : 0)),
+    [activeWorkspaceSessions]
+  );
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
 

@@ -17,6 +17,7 @@ import dexIndexRaw from '@assets/dex/dexIndex.json';
 import linesRaw from '@assets/dex/lines.json';
 import type { Locomotion } from './showdownArt';
 import { BUNDLED_BY_NAME } from './showdownArt';
+import { ARCEUS_DEX_ID } from '@shared/arceus';
 
 export interface DexEntry {
   id: string;
@@ -127,7 +128,12 @@ export function searchDex(query: string, limit = 30): DexEntry[] {
  */
 export function randomAnimatedSpecies(candidateIds: readonly string[]): string | undefined {
   if (candidateIds.length <= 1) return candidateIds[0];
-  const eligible = candidateIds.filter((id) => !DEX[id]?.static);
+  // Belt-and-braces (Phase 8.8): Arceus already can't reach this filter in
+  // practice — he isn't in the bundled roster pickFreeLine draws from, and
+  // no species lists him in `evolvesTo` — but he's excluded here explicitly
+  // too, same as `static` species, since this is the one function every
+  // "pick something to randomly become" path already funnels through.
+  const eligible = candidateIds.filter((id) => !DEX[id]?.static && id !== ARCEUS_DEX_ID);
   if (eligible.length === 0) return undefined;
   return eligible[Math.floor(Math.random() * eligible.length)];
 }

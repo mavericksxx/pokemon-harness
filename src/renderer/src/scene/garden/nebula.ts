@@ -1,0 +1,252 @@
+/**
+ * The cosmos backdrop's nebula texture (Phase 8.8 §4, final revision) — a
+ * dense diagonal galaxy band (warm orange/salmon core, near-black dust-lane
+ * clumps, violet haze, deep-indigo corners) with heavy ordered (Bayer)
+ * dithering and a scattered multicolor starfield, style-matched to a user-
+ * supplied stock reference — generated PROCEDURALLY from scratch here
+ * (noise + a Bayer threshold + fixed-seed placements), never by copying,
+ * tracing, or embedding any part of that reference image.
+ *
+ * Generated ONCE at module load as a small (low-res) canvas, exported as a
+ * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) stretches
+ * it to fill the pane with `image-rendering: pixelated`, so every source
+ * pixel becomes a chunky block. Deterministic (a small seeded PRNG, not
+ * `Math.random()`) so the backdrop is the SAME every time this module
+ * loads, not reshuffled on every launch.
+ *
+ * The band's peak brightness is placed off-center (see `bandProfile`),
+ * deliberately away from (0.5, 0.5) where Arceus's sprite floats
+ * (`.garden-cosmos` centers its figure) — the reference's hottest core
+ * would otherwise sit directly behind him.
+ */
+
+const WIDTH = 128;
+const HEIGHT = 80;
+
+/** Small deterministic PRNG (mulberry32) — same seed every load. */
+function makeRng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const BAYER4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5]
+].map((row) => row.map((v) => v / 16));
+
+function clamp01(t: number): number {
+  return Math.max(0, Math.min(1, t));
+}
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+function lerpRgb(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+}
+
+// Palette ramp, cool -> warm: deep indigo corners -> violet haze -> warm
+// core (orange/salmon). Dust-lane clumps punch near-black holes through
+// the warm core, same as the reference's dark dust lanes.
+const C_INDIGO: [number, number, number] = [10, 9, 28];
+const C_VIOLET: [number, number, number] = [58, 34, 92];
+const C_HAZE: [number, number, number] = [110, 70, 130];
+const C_CORE: [number, number, number] = [214, 120, 90];
+const C_CORE_BRIGHT: [number, number, number] = [244, 176, 128];
+const C_DUST: [number, number, number] = [14, 9, 16];
+
+/** Band centerline (fractions of W/H), run corner-to-corner OFF the canvas
+ *  on both ends so it reads as a band crossing an implied larger frame, not
+ *  a shape that starts/stops inside it — same diagonal sense as the
+ *  reference, but kept low/shallow (mostly the bottom half) so the canvas
+ *  CENTER (where Arceus floats) sits well clear of it, in the cooler
+ *  violet-haze/indigo zone rather than the hottest core. Peak brightness
+ *  sits at `PEAK_T` along it, further off toward the A end (bottom-left) —
+ *  the closest point on this line to center is already ~t=0.59; peaking at
+ *  0.25 pushes the brightest knot decisively away from him. */
+const BAND_A = { x: -0.15, y: 1.1 };
+const BAND_B = { x: 1.15, y: 0.65 };
+const PEAK_T = 0.25;
+/** Perpendicular falloff, fraction of the canvas diagonal — tight enough
+ *  that the corners (and the area behind Arceus) actually read as dark,
+ *  rather than the whole frame washing out toward the core. */
+const BAND_WIDTH = 0.055;
+/** Haze (violet, cooler than the core) extends further than the core
+ *  itself before giving way to flat indigo — a wider multiple of
+ *  BAND_WIDTH than the core's own falloff. */
+const HAZE_WIDTH_MULT = 4.5;
+
+function generateNebulaDataUrl(): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.imageSmoothingEnabled = false;
+
+  const rng = makeRng(0x41c3e5 ^ (ARCEUS_NEBULA_SEED_SALT * 2654435761));
+
+  const diag = Math.hypot(WIDTH, HEIGHT);
+  const ax = BAND_A.x * WIDTH;
+  const ay = BAND_A.y * HEIGHT;
+  const bx = BAND_B.x * WIDTH;
+  const by = BAND_B.y * HEIGHT;
+  const abx = bx - ax;
+  const aby = by - ay;
+  const abLen2 = abx * abx + aby * aby;
+
+  // A handful of noise octaves (value noise via smoothed random lattice) for
+  // dust-lane clump irregularity, cheap enough at this resolution to do
+  // per-pixel with a small lattice + bilinear sample.
+  const LATTICE = 10;
+  const lattice: number[][] = Array.from({ length: LATTICE + 1 }, () =>
+    Array.from({ length: LATTICE + 1 }, () => rng())
+  );
+  function noise(u: number, v: number): number {
+    const gx = u * LATTICE;
+    const gy = v * LATTICE;
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const fx = gx - x0;
+    const fy = gy - y0;
+    const s00 = lattice[Math.min(LATTICE, y0)][Math.min(LATTICE, x0)];
+    const s10 = lattice[Math.min(LATTICE, y0)][Math.min(LATTICE, x0 + 1)];
+    const s01 = lattice[Math.min(LATTICE, y0 + 1)][Math.min(LATTICE, x0)];
+    const s11 = lattice[Math.min(LATTICE, y0 + 1)][Math.min(LATTICE, x0 + 1)];
+    return lerp(lerp(s00, s10, fx), lerp(s01, s11, fx), fy);
+  }
+
+  const img = ctx.createImageData(WIDTH, HEIGHT);
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      // Perpendicular distance + position-along-band, both normalized.
+      const apx = x - ax;
+      const apy = y - ay;
+      const t = abLen2 === 0 ? 0 : clamp01((apx * abx + apy * aby) / abLen2);
+      const projX = ax + abx * t;
+      const projY = ay + aby * t;
+      const perp = Math.hypot(x - projX, y - projY) / diag;
+
+      // Brightness: falls off perpendicular to the band (Gaussian-ish) and
+      // tapers along it away from PEAK_T.
+      const alongFalloff = 1 - Math.min(1, Math.abs(t - PEAK_T) * 1.15);
+      const perpFalloff = Math.exp(-((perp / BAND_WIDTH) ** 2));
+      let heat = clamp01(perpFalloff * lerp(0.35, 1, alongFalloff));
+
+      // Dust-lane clumps: low-frequency noise carved OUT of the band's
+      // heat wherever it crosses a threshold, concentrated near the band
+      // itself (perp small) so dust reads as sitting IN the band, not
+      // scattered across open sky.
+      const dust = noise(x / WIDTH, y / HEIGHT);
+      if (perp < BAND_WIDTH * 1.3 && dust > 0.56) {
+        heat *= clamp01(1 - (dust - 0.56) * 2.6);
+      }
+
+      // Base ground color: indigo far out, violet haze nearer the band.
+      const groundT = clamp01(1 - perp / (BAND_WIDTH * HAZE_WIDTH_MULT));
+      let rgb = lerpRgb(C_INDIGO, C_VIOLET, groundT * 0.7);
+      rgb = lerpRgb(rgb, C_HAZE, groundT * groundT * 0.6);
+
+      // Warm core blends in on top as heat rises; a bright-white-ish
+      // highlight only very near the peak.
+      rgb = lerpRgb(rgb, C_CORE, heat);
+      if (heat > 0.72) rgb = lerpRgb(rgb, C_CORE_BRIGHT, (heat - 0.72) / 0.28);
+
+      // Dust lanes darken toward near-black, independent of the ground/core
+      // blend above (dust sits ON TOP, occluding).
+      if (perp < BAND_WIDTH * 1.3 && dust > 0.56) {
+        const dustAmt = clamp01((dust - 0.56) * 2.6);
+        rgb = lerpRgb(rgb, C_DUST, dustAmt * 0.85);
+      }
+
+      // Heavy ordered dithering — quantize the local brightness against a
+      // Bayer4 threshold so adjacent bands read as halftone-ish stipple
+      // rather than a smooth gradient. Applied as a small per-pixel
+      // luminance nudge up/down rather than a hard 2-color quantization,
+      // which keeps the wide color ramp above while still reading as
+      // dithered once scaled up blocky.
+      const bayer = BAYER4[y % 4][x % 4];
+      const ditherAmt = (bayer - 0.5) * 26;
+      rgb = [
+        clamp01((rgb[0] + ditherAmt) / 255) * 255,
+        clamp01((rgb[1] + ditherAmt) / 255) * 255,
+        clamp01((rgb[2] + ditherAmt) / 255) * 255
+      ];
+
+      const i = (y * WIDTH + x) * 4;
+      img.data[i] = rgb[0];
+      img.data[i + 1] = rgb[1];
+      img.data[i + 2] = rgb[2];
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  drawStars(ctx, rng);
+
+  return canvas.toDataURL('image/png');
+}
+
+/** A dummy salt so re-seeding this file (if the look ever needs a refresh)
+ *  is a one-constant change rather than hunting through the RNG call. */
+const ARCEUS_NEBULA_SEED_SALT = 7;
+
+const STAR_COLORS = ['#ffffff', '#bfe8ff', '#ffd9a8', '#ffb8f0'];
+
+function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
+  const count = 90;
+  for (let i = 0; i < count; i++) {
+    const x = Math.floor(rng() * WIDTH);
+    const y = Math.floor(rng() * HEIGHT);
+    const color = STAR_COLORS[Math.floor(rng() * STAR_COLORS.length)];
+    ctx.globalAlpha = 0.45 + rng() * 0.5;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, 1, 1);
+    // Occasional 4-point cross twinkle on a plain 1px star.
+    if (rng() < 0.12) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(x - 1, y, 1, 1);
+      ctx.fillRect(x + 1, y, 1, 1);
+      ctx.fillRect(x, y - 1, 1, 1);
+      ctx.fillRect(x, y + 1, 1, 1);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // A couple of "feature" stars with concentric pixel glow rings — kept
+  // away from canvas center (Arceus's sprite sits there) and away from the
+  // band's brightest core, same "stay a backdrop" reasoning as the heat
+  // falloff above.
+  const featureStars = [
+    { x: 14, y: 12, color: '#bfe8ff' },
+    { x: 112, y: 16, color: '#ffe3c2' }
+  ];
+  for (const s of featureStars) {
+    for (let r = 3; r >= 0; r--) {
+      ctx.globalAlpha = [0.12, 0.22, 0.4, 0.9][3 - r];
+      ctx.fillStyle = s.color;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Computed once, lazily, the first time anything asks for it — module-level
+ *  memoization so re-mounting the cosmos view (e.g. a renderer crash
+ *  reload) doesn't regenerate it, but a plain script importing this module
+ *  in a non-DOM context (there isn't one today) wouldn't crash on import
+ *  either. */
+let cached: string | null = null;
+export function nebulaDataUrl(): string {
+  if (cached === null) cached = generateNebulaDataUrl();
+  return cached;
+}
