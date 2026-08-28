@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { GardenScene } from '@/scene/garden/GardenScene';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
+import { GardenSplitHandle } from '@/components/GardenSplitHandle';
 import { RosterStrip } from '@/components/RosterStrip';
 import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
@@ -179,6 +180,12 @@ export function App(): JSX.Element {
           <div style={{ display: gardenVisible ? 'contents' : 'none' }}>
             <GardenScene />
           </div>
+          {/* Draggable garden/terminal divider — 'garden' view mode's
+              side-by-side layout only ('terminal'/'gardenFull' have no
+              split, and a hidden drawer has nothing to divide). See
+              gardenSplit.ts for the persisted ratio/clamps and index.css's
+              "garden/terminal split divider" block for its styling. */}
+          {viewMode === 'garden' && drawerOpen && <GardenSplitHandle />}
           <TerminalDrawer />
         </div>
         {showRosterStrip && <RosterStrip onNewSession={() => setDialogOpen(true)} />}

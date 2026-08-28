@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SessionRecord } from '@shared/types';
+import { DEFAULT_GARDEN_SPLIT } from '@/gardenSplit';
 
 /** Field-for-field `SessionRecord` (shared/types.ts) — kept as a local alias
  *  so call sites here read the same as before the crash-recovery work moved
@@ -52,12 +53,34 @@ function loadViewMode(): ViewMode {
   return 'garden';
 }
 
+/** Garden/terminal split (garden's fraction of `.body-row`'s width, 'garden'
+ *  view mode's side-by-side layout only) — same persistence pattern as
+ *  `viewMode` above. Kept as a plain number rather than derived px so it
+ *  survives a window resize unchanged (gardenSplit.ts's `terminalWidthCss`
+ *  re-applies both floors against whatever the row's width is now). */
+const GARDEN_SPLIT_STORAGE_KEY = 'poke:gardenSplit';
+
+function loadGardenSplit(): number {
+  try {
+    const v = window.localStorage.getItem(GARDEN_SPLIT_STORAGE_KEY);
+    const n = v == null ? NaN : Number(v);
+    if (Number.isFinite(n) && n > 0 && n < 1) return n;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_GARDEN_SPLIT;
+}
+
 interface HarnessState {
   sessions: Session[];
   selectedId: string | null;
   drawerOpen: boolean;
   toasts: Toast[];
   viewMode: ViewMode;
+  /** Garden's fraction of `.body-row`'s width, dragged via
+   *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
+   *  above. */
+  gardenSplit: number;
   /** Sessions-overview grid (Phase 8 §3) — a topbar button and (Phase 8 §7)
    *  the garden's signpost prop both open it. */
   sessionsOverviewOpen: boolean;
@@ -98,6 +121,12 @@ interface HarnessState {
   /** Switches the Phase 8 §1 layout and persists it (survives relaunch and
    *  the crash-recovery reload). */
   setViewMode(mode: ViewMode): void;
+  /** Updates the live split ratio; `persist` (default false) additionally
+   *  banks it as the default for next launch. Drag ticks pass `false` (see
+   *  GardenSplitHandle.tsx's rAF-throttled pointermove) so a fast drag
+   *  doesn't hit localStorage every frame — pointerup/double-click-reset
+   *  pass `true` once, at the end. */
+  setGardenSplit(ratio: number, persist?: boolean): void;
   setSessionsOverviewOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
   setQuitDialogOpen(open: boolean, count?: number): void;
@@ -114,6 +143,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   drawerOpen: true,
   toasts: [],
   viewMode: loadViewMode(),
+  gardenSplit: loadGardenSplit(),
   sessionsOverviewOpen: false,
   settingsOpen: false,
   quitDialogOpen: false,
@@ -165,6 +195,16 @@ export const useStore = create<HarnessState>((set, get) => ({
       /* ignore — mode still applies for this session */
     }
     set({ viewMode: mode });
+  },
+  setGardenSplit: (ratio, persist = false) => {
+    if (persist) {
+      try {
+        window.localStorage.setItem(GARDEN_SPLIT_STORAGE_KEY, String(ratio));
+      } catch {
+        /* ignore — ratio still applies for this session */
+      }
+    }
+    set({ gardenSplit: ratio });
   },
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),

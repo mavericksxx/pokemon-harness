@@ -5,6 +5,7 @@ import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pt
 import { stopSession } from '@/sessions';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
+import { terminalWidthCss } from '@/gardenSplit';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget).
@@ -22,6 +23,7 @@ export function TerminalDrawer(): JSX.Element | null {
   const selectedId = useStore((s) => s.selectedId);
   const drawerOpenPref = useStore((s) => s.drawerOpen);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
+  const gardenSplit = useStore((s) => s.gardenSplit);
   const select = useStore((s) => s.select);
   const viewMode = useStore((s) => s.viewMode);
   const mountRef = useRef<HTMLDivElement>(null);
@@ -69,8 +71,13 @@ export function TerminalDrawer(): JSX.Element | null {
 
   const session = allSessions.find((s) => s.id === selectedId);
 
+  // The draggable split (GardenSplitHandle.tsx) only applies to the
+  // side-by-side 'garden' layout — `wide` mode fills the row on its own via
+  // `.drawer-wide`'s `flex: 1`, no width of its own to override.
+  const splitStyle = wide ? undefined : { width: terminalWidthCss(gardenSplit) };
+
   return (
-    <aside className={wide ? 'drawer drawer-wide' : 'drawer'}>
+    <aside className={wide ? 'drawer drawer-wide' : 'drawer'} style={splitStyle}>
       {showTabs && (
         <header className="drawer-head">
           <div className="drawer-tabs">

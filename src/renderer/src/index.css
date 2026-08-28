@@ -705,7 +705,12 @@ button.icon:active {
 /* ── terminal drawer ─────────────────────────────────────────────────────── */
 .drawer {
   width: 46%;
-  min-width: 380px;
+  /* Matches gardenSplit.ts's TERMINAL_MIN_PX — 'garden' mode overrides
+   * `width` inline (via GardenSplitHandle.tsx's ratio) with a `clamp()`
+   * already floored at that same value, but this stays as the browser-
+   * enforced backstop for the one render before that inline style lands,
+   * and for any width this class ever gets without it. */
+  min-width: 420px;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -1957,4 +1962,53 @@ textarea,
     animation-duration: 0s !important;
     transition-duration: 0s !important;
   }
+}
+
+/* ── garden/terminal split divider ──────────────────────────────────────── *
+ * GardenSplitHandle.tsx — the draggable divider between the garden and the
+ * terminal drawer in `.body-row`, 'garden' view mode's side-by-side layout
+ * only (App.tsx only mounts it there; a hidden drawer or either full-bleed
+ * mode has no split to divide). 6px hit area (`flex: 0 0 6px`, matching
+ * gardenSplit.ts's HANDLE_PX) with a 2px visible line centered inside it —
+ * a flat fill, no gradient, same as every other divider/border in this
+ * file. */
+.garden-split-handle {
+  flex: 0 0 6px;
+  width: 6px;
+  position: relative;
+  cursor: col-resize;
+  /* Pointer events alone drive the drag — this stops touch/trackpad
+   * gestures (scroll, pinch) from fighting it on the 6px hit area. */
+  touch-action: none;
+}
+
+.garden-split-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--line);
+}
+
+.garden-split-handle:hover .garden-split-line,
+.garden-split-handle:active .garden-split-line,
+body.is-splitting .garden-split-line {
+  background: var(--gold);
+}
+
+/* Drag-time hygiene (toggled on <body> by GardenSplitHandle.tsx's
+ * pointerdown/up handlers): killing text selection and canvas pointer
+ * events app-wide stops a fast drag from "sticking" to the Pixi canvas or
+ * an xterm layer mid-move — `setPointerCapture` alone keeps pointer EVENTS
+ * routed back to the handle, but not hit-testing/selection on whatever's
+ * under the cursor as it crosses the garden or terminal. */
+body.is-splitting,
+body.is-splitting * {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.is-splitting canvas {
+  pointer-events: none;
 }
