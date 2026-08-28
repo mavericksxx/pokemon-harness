@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store/store';
-import { startSession, stopSession, startRegistrySync } from './sessions';
+import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
 import { createTerminal } from './pty/terminalRegistry';
 import {
   initAudio,
@@ -93,6 +93,7 @@ async function boot(): Promise<void> {
   // exists to fix. render() is unconditional, in `finally`, below.
   try {
     startRegistrySync();
+    startCompletionToasts();
 
     const [crashInfo, { sessions: restored, selectedId }] = await Promise.all([
       window.api.getCrashInfo(),

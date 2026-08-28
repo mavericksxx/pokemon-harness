@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
@@ -10,6 +10,7 @@ import type {
   LazySpriteMeta,
   RendererCrashInfo,
   SessionRecord,
+  SessionStatus,
   SpawnPtyOptions,
   SpriteView
 } from '../shared/types';
@@ -86,6 +87,38 @@ let sessionRegistry: SessionRecord[] = [];
  *  — so restore reselects whatever tab was actually open, not just the first
  *  session. */
 let lastSelectedId: string | null = null;
+
+/** Session statuses whose transition INTO deserves a native desktop
+ *  notification (Phase 8 §6) — blocked (needs input) and done (finished).
+ *  The in-app completion TOAST for 'done' is a separate, unconditional path
+ *  (sessions.ts's `startCompletionToasts`, renderer-side) — this one is
+ *  gated on window focus and only fires for the OS notification. */
+const NOTIFY_STATUSES: ReadonlySet<SessionStatus> = new Set(['blocked', 'done']);
+
+/** Diff `sessionRegistry` (the PREVIOUS checkpoint) against the incoming
+ *  `nextSessions` and fire a native notification for any status transition
+ *  into 'blocked' or 'done' — unless the window is focused AND the user is
+ *  already looking at exactly that session (munder-difflin's gate: never
+ *  notify for the focused, visible session). A brand-new session (no
+ *  previous entry) never notifies here — only a change fires this, not an
+ *  initial value, so a session restored already-'done' on boot stays quiet. */
+function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: string | null): void {
+  if (!Notification.isSupported()) return;
+  const prevStatus = new Map(sessionRegistry.map((s) => [s.id, s.status]));
+  const focused = mainWindow?.isFocused() ?? false;
+  for (const session of nextSessions) {
+    const was = prevStatus.get(session.id);
+    if (was === undefined || was === session.status) continue;
+    if (!NOTIFY_STATUSES.has(session.status)) continue;
+    if (focused && selectedId === session.id) continue;
+    const body = session.status === 'blocked' ? `${session.title} needs your input` : `${session.title} finished`;
+    try {
+      new Notification({ title: 'pokemon-harness', body }).show();
+    } catch {
+      /* unsupported/denied on this platform — best-effort, never throw into the IPC handler */
+    }
+  }
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -219,6 +252,7 @@ ipcMain.handle('app:getCrashInfo', () => pendingCrashInfo);
 // sessionRegistry's own comment above for why this replaces wholesale rather
 // than upserting.
 ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string | null) => {
+  notifyStatusTransitions(sessions, selectedId);
   sessionRegistry = sessions;
   lastSelectedId = selectedId;
 });

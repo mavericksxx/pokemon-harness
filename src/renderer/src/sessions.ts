@@ -1,6 +1,6 @@
 /** Session lifecycle: spawn a coding-agent CLI, wire its terminal, tear it down. */
 import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
-import type { NewSessionRequest } from '@shared/types';
+import type { NewSessionRequest, SessionStatus } from '@shared/types';
 import { useStore } from '@/store/store';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
@@ -98,6 +98,37 @@ export async function stopSession(id: string): Promise<void> {
  * mutation actually touches, so an unrelated change (toasts...) leaves both
  * in place and would otherwise round-trip them to main for no reason.
  */
+/**
+ * In-app completion toast (Phase 8 §6): pushes a toast the moment a
+ * session's status transitions TO 'done'. Unconditional — unlike the native
+ * OS notification for the same event (main/index.ts's `notifyStatusTransitions`,
+ * gated on window focus + selection), this one is already inside the app, so
+ * there's no "was the user looking at it" gate to apply. Call once, at boot.
+ */
+export function startCompletionToasts(): void {
+  // A single persistent Map, mutated in place (not rebuilt per call): pushToast
+  // itself is a store write, so it re-enters this same subscriber synchronously
+  // (zustand notifies listeners inline). Updating an entry BEFORE calling
+  // pushToast for it means that re-entrant call already sees the transition as
+  // consumed — rebuilding the map only after the loop would instead let the
+  // nested call see the stale pre-transition value and toast a second time.
+  const prevStatus = new Map<string, SessionStatus>();
+  useStore.subscribe((state) => {
+    for (const session of state.sessions) {
+      const was = prevStatus.get(session.id);
+      prevStatus.set(session.id, session.status);
+      // `was === undefined` covers both a brand-new session AND one first
+      // seen already-'done' (e.g. crash-recovery restore) — neither is a
+      // fresh completion.
+      if (session.status !== 'done' || was === undefined || was === 'done') continue;
+      useStore.getState().pushToast(`${session.title} finished.`);
+    }
+    for (const id of [...prevStatus.keys()]) {
+      if (!state.sessions.some((s) => s.id === id)) prevStatus.delete(id);
+    }
+  });
+}
+
 export function startRegistrySync(): void {
   let lastSessions: ReturnType<typeof useStore.getState>['sessions'] | null = null;
   let lastSelectedId: string | null | undefined;
