@@ -200,8 +200,11 @@ const api = {
   logDiagnostic: (area: string, level: LogLevel, message: string, data?: unknown): Promise<void> =>
     ipcRenderer.invoke('diagnostics:log', area, level, message, data),
   getDiagnosticsInfo: (): Promise<DiagnosticsInfo> => ipcRenderer.invoke('diagnostics:getInfo'),
-  /** Settings panel's "open logs" button — `shell.openPath` via IPC. */
-  openLogsFolder: (): Promise<void> => ipcRenderer.invoke('diagnostics:openLogs')
+  /** Settings panel's "open logs" button — `shell.openPath` via IPC.
+   *  Resolves to '' on success, or an OS error string on failure (Electron's
+   *  own shell.openPath contract) — not currently surfaced in the UI, same
+   *  as every other fire-and-forget button in this panel. */
+  openLogsFolder: (): Promise<string> => ipcRenderer.invoke('diagnostics:openLogs')
 };
 
 export type HarnessApi = typeof api;

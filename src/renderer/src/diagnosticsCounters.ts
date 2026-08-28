@@ -15,7 +15,6 @@
  * here — main.js's own diagnostics log covers those separately (see the
  * malformed-payload log in hookBridge.ts).
  */
-import { WANDER_SAFETY_MS } from '@/scene/garden/battle/BattleManager';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 
 export interface Counters {
@@ -58,10 +57,13 @@ const BATTLE_DIVERGENCE_MS = 5 * 60 * 1000;
  *  gap means BattleManager's `!rt`/`!species` guard is dropping spawns. */
 const SPAWN_MATERIALIZE_DIVERGENCE_MS = 5 * 60 * 1000;
 /** `subagentsMaterialized` vs `subagentsCleanedUp`: a subagent legitimately
- *  sits mid-lifecycle for up to WANDER_SAFETY_MS (8min) before its final
- *  skirmish even starts — the threshold has to clear that plus room for the
- *  final skirmish itself, or every real subagent trips this. */
-const SUBAGENT_LIFECYCLE_DIVERGENCE_MS = WANDER_SAFETY_MS + 2 * 60_000;
+ *  sits mid-lifecycle for up to BattleManager.ts's own WANDER_SAFETY_MS
+ *  (8min, not imported here — see that constant's own comment on why this
+ *  file deliberately doesn't import from BattleManager.ts) before its final
+ *  skirmish even starts. This threshold must stay comfortably above that
+ *  8min plus room for the final skirmish itself, or every real subagent
+ *  trips this — if WANDER_SAFETY_MS ever changes, bump this too. */
+const SUBAGENT_LIFECYCLE_DIVERGENCE_MS = 10 * 60 * 1000;
 
 interface DivergingPair {
   label: string;

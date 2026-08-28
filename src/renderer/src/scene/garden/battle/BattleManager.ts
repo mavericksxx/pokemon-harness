@@ -123,11 +123,15 @@ const CORNER_MARGIN = 3;
 /** Hard cap on how long a subagent may sit in `wandering` before this app
  *  gives up waiting for a completion signal and plays its final battle
  *  anyway — see file header on why this exists at all. Generous: real
- *  subagent work can run for many minutes. Exported so diagnosticsCounters.ts
- *  can size its "materialized vs cleaned up" divergence threshold above this
- *  — a subagent legitimately sitting in `wandering` this long is normal, not
- *  a stuck counter. */
-export const WANDER_SAFETY_MS = 8 * 60 * 1000;
+ *  subagent work can run for many minutes. NOT exported: diagnosticsCounters
+ *  .ts already imports `bumpCounter` FROM this file for its own bumps below
+ *  — importing back from there for this constant would make the two modules
+ *  circular, an easy-to-miss renderer-boot hazard (a TDZ ReferenceError
+ *  depending on which module's body happens to run first) that neither
+ *  typecheck nor build reliably catches. Its own divergence threshold just
+ *  hardcodes a value comfortably above this one instead, with a comment
+ *  tying the two together. */
+const WANDER_SAFETY_MS = 8 * 60 * 1000;
 /** Watchdog for `alert`/`approaching` specifically — the only two wave
  *  phases NOT bounded purely by dt accumulation (faceoff/looping/ending all
  *  progress on a fixed clock regardless of anyone's position). If a goTo()
