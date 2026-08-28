@@ -55,6 +55,6 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 - **agent society phase** (carries backlog item 3)
 - **demo mode + auto-run showreel + portfolio landing page** with live web embed of the garden engine. NOTE (2026-08-29): before building, research whether a proper product-style video can be made with an already-available AI tool or directly by claude (script + storyboard + scripted screen-capture of demo mode + ffmpeg assembly is the zero-cost baseline) — hard constraint: **free to use only, zero spend**; phase F (performance/battery) runs before this phase.
-- **tier-2 signed auto-update** if an Apple developer cert ($99/yr) ever makes sense
+- **macOS menu bar item (requested 2026-08-29, later stage)**: a `Tray` extra in the app with a pixel-art icon in our pokemon design language (note: menu bar template images are tiny ~18-22pt and traditionally monochrome/template-style — a recognizable 1-bit pixel pokéball/sprite silhouette is the likely sweet spot; test both template and full-color). WHAT IT DOES is an open design decision — candidates to pick from when this comes up: at-a-glance agent statuses (working/idle/needs-you counts with a click-through menu per session), a mini usage-limits readout (codexbar territory — we already have the data service), quick summon/focus actions, or just show/hide the window. Decide scope before building.
 - load-test 15+ concurrent chatty sessions (FPS/CPU/IPC), batch output only if measurements warrant
 - decide whether the GitHub repo renames to match the app (redirects make it safe)
