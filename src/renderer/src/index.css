@@ -350,13 +350,17 @@ body {
   opacity: 0.6;
 }
 
+/* Phase C item 3: enlarged (was minmax(58px,…)/232px max-height) — the
+ * dialog read small against the rest of the app (screenshot-confirmed).
+ * Still auto-fill, not a fixed column count: the roster is whatever the
+ * showdown manifest holds, and it is expected to grow. `max-height` is
+ * viewport-relative (matches `.sessions-overview-grid`'s own 60vh) rather
+ * than a fixed px, consistent with "generous share of the window". */
 .pokemon-picker {
   display: grid;
-  /* auto-fill, not a fixed column count: the roster is whatever the showdown
-     manifest holds, and it is expected to grow. */
-  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
-  gap: 4px;
-  max-height: 232px;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  max-height: 60vh;
   overflow-y: auto;
 }
 
@@ -364,9 +368,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 4px 2px;
-  font-size: 9px;
+  gap: 4px;
+  padding: 8px 4px;
+  font-size: 12px;
   color: var(--muted);
   background: var(--bg-terminal);
   /* Fixed card size (picker grid-alignment fix): a bundled sprite's own
@@ -375,20 +379,22 @@ body {
    * render at uneven heights with names floating at different offsets.
    * `.pokemon-option-face`/`.pokemon-option-name` below give the sprite and
    * label their own fixed-size slots within this. */
-  height: 78px;
+  height: 128px;
   overflow: hidden;
 }
 
 /* Sprite slot: fixed box, sprite centered/clipped within it regardless of
  * the source sheet's own aspect ratio (`PokemonFace` sizes bundled sprites
- * by their real frame dimensions, not a fixed square). */
+ * by their real frame dimensions, not a fixed square). Matches the `box={72}`
+ * passed to `PokemonFace` in PokemonPicker.tsx (Phase C item 3, was the
+ * 44px default). */
 .pokemon-option-face {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 72px;
+  height: 72px;
   overflow: hidden;
 }
 
@@ -987,6 +993,20 @@ button.icon:active {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Phase C item 3: the dialog hosting a PokemonPicker (both the change-pokemon
+ * swap dialog and the new-session form) reads narrow against the rest of the
+ * app — widen it via `:has()` rather than a dedicated class so both entry
+ * points pick it up without editing NewSessionDialog.tsx. Width echoes
+ * SettingsPanel's own centered dialog (720px/92vw) as "the app's other large
+ * modals"; `max-height`/`overflow-y` are new here (the plain `.modal` has
+ * neither) so the new-session form's other fields plus a much taller picker
+ * grid can't push the action buttons off-screen. */
+.modal:has(.pokemon-picker) {
+  width: 680px;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .modal h2 {
@@ -1598,6 +1618,17 @@ button.icon:active {
   color: var(--muted);
 }
 
+/* Phase C item 1: the species name (session.pokemon, already a lowercase dex
+ * id) — own line under the provider so it always renders in full rather than
+ * risking truncation if it shared a line with the provider label. */
+.roster-card-species {
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .roster-card-tool {
   font-size: var(--font-body-sm-size);
   color: var(--muted);
@@ -1647,13 +1678,14 @@ button.icon:active {
   transition: width 400ms steps(2, end);
 }
 
-/* ── Roster card "change pokemon" swap action (added: update-session-pokemon) ──
- * `.roster-card-wrap` is the roster card's new outer element — `.roster-card`
- * itself is a <button> and can't nest another <button>, so the swap button
- * is a sibling, absolutely positioned against this wrapper. Deliberately no
- * `transform` here (unlike `.roster-card:hover` below): a transformed
- * ancestor becomes the containing block for a `position: fixed` descendant,
- * which would break the swap dialog's `.modal-backdrop`. */
+/* ── Roster card "change pokemon" swap action (added: update-session-pokemon;
+ * enlarged Phase C item 2) ── `.roster-card-wrap` is the roster card's outer
+ * element — `.roster-card` itself is a <button> and can't nest another
+ * <button>, so the swap button is a sibling, absolutely positioned against
+ * this wrapper. Deliberately no `transform` here (unlike `.roster-card:hover`
+ * below): a transformed ancestor becomes the containing block for a
+ * `position: fixed` descendant, which would break the swap dialog's
+ * `.modal-backdrop`. */
 .roster-card-wrap {
   position: relative;
   /* `.roster-strip` stretches its flex children to the row's full height
@@ -1664,20 +1696,29 @@ button.icon:active {
   height: 100%;
 }
 
+/* Phase C item 2: was an 18x18 icon-only corner badge (too small to notice
+ * or hit — user complaint, screenshot). Now a labeled pill anchored to the
+ * card's bottom-right, hover-revealed same as before (hovering anywhere on
+ * the wrap reveals it, so it's already visible by the time the pointer
+ * reaches it — not a blind click), but sized like a real control instead of
+ * a glyph-sized overlay. Bottom-right (not a full-width bottom bar, and not
+ * the old top-right corner) deliberately avoids two collisions: the status
+ * badge in the card's top row, and — a full-width bar's own footprint —
+ * eating the bottom edge of `.roster-card`'s own click-to-select target. */
 .roster-card-swap {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  right: 6px;
+  bottom: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  color: var(--muted);
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--font-body-sm-size);
+  color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
   opacity: 0;
   transition:
     opacity 90ms steps(2, end),
@@ -1685,24 +1726,24 @@ button.icon:active {
 }
 
 /* Hover OR keyboard focus reveals it — hover alone would leave it
- * unreachable from the keyboard. Hovering the icon itself still counts as
- * hovering the wrap (it contains both), so this also covers the icon's own
+ * unreachable from the keyboard. Hovering the row itself still counts as
+ * hovering the wrap (it contains both), so this also covers the row's own
  * :hover once revealed. */
 .roster-card-wrap:hover .roster-card-swap,
 .roster-card-swap:focus-visible {
   opacity: 1;
 }
 
-/* Keeps the icon moving in sync with `.roster-card`'s own hover-lift
+/* Keeps the row moving in sync with `.roster-card`'s own hover-lift
  * (translateY(-1px), below) — without this the card visually lifts out from
- * under a statically-positioned icon, a 1px jitter right where the pointer
- * crosses onto the icon's own hit area. */
+ * under a statically-positioned row, a 1px jitter right where the pointer
+ * crosses onto the row's own hit area. */
 .roster-card-wrap:hover .roster-card-swap {
   transform: translateY(-1px);
 }
 
 .roster-card-swap:hover {
-  color: var(--text);
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 

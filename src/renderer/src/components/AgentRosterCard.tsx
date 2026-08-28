@@ -90,6 +90,15 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           <span className="roster-card-id">
             <span className="roster-card-name">{session.title}</span>
             <span className="roster-card-provider">{providerLabel}</span>
+            {/* Phase C item 1: `entry.name` lowercased, not the raw dex id —
+                ~42 species (Ho-Oh, Mr. Mime, Flabébé, Tapu Koko...) have a
+                punctuation-stripped id that reads wrong on its own (hooh,
+                mrmime). Reads off `session.pokemon` (same field PokemonFace/
+                evolutionHint above use), so it updates on its own when the
+                session evolves or gets swapped, no extra state. */}
+            <span className="roster-card-species">
+              {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
+            </span>
           </span>
           {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
               `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
@@ -120,13 +129,17 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
         )}
       </button>
 
+      {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
+          find/hit (screenshot complaint) — now a labeled, full-width row
+          hover-revealed along the card's bottom edge, sized like the rest of
+          the app's real controls rather than a tiny overlay glyph. */}
       <button
         type="button"
         className="roster-card-swap"
-        title="change pokemon"
         onClick={() => setSwapOpen(true)}
       >
         <SwapIcon />
+        change pokemon
       </button>
 
       {swapOpen && (
