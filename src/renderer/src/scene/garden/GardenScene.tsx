@@ -32,6 +32,7 @@ import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
 import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
+import { safeLogDiagnostic } from '@/diagnosticsClient';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -562,21 +563,38 @@ export function GardenScene(): JSX.Element {
             }
           }
 
-          const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}|${session.looping ? 1 : 0}|${!!session.napping}`;
-          if (toolKey !== rt.lastToolKey) {
-            rt.lastToolKey = toolKey;
-            if (session.looping) {
-              walker.showText('looping');
-            } else if (session.napping) {
-              walker.hideBubble();
-            } else if (session.status === 'working' && session.tool) {
-              walker.showTool(session.tool, formatBubbleLabel(session.tool, session.toolTarget) || '');
-            } else if (session.status === 'working') {
-              walker.showTool('', '...');
-            } else if (session.status === 'blocked') {
-              walker.showText('needs you');
-            } else {
-              walker.lingerBubble();
+          if (battleManager.isBattling(session.id)) {
+            // Mid-battle, the choreography's own exclaim/move-text bubbles
+            // own this space above the head — and it's exactly where the
+            // status badge normally sits too (see the blocked case below),
+            // so the ordinary tool bubble has no business showing here.
+            // Deliberately does NOT touch rt.lastToolKey: skip the whole
+            // reconcile below rather than compute-and-discard, so the
+            // ordinary tool-bubble state picks back up correctly the moment
+            // the battle ends instead of reading as unchanged.
+            walker.hideBubble();
+          } else {
+            const toolKey = `${session.status}|${session.tool ?? ''}|${session.toolTarget ?? ''}|${session.looping ? 1 : 0}|${!!session.napping}`;
+            if (toolKey !== rt.lastToolKey) {
+              rt.lastToolKey = toolKey;
+              if (session.looping) {
+                walker.showText('looping');
+              } else if (session.napping) {
+                walker.hideBubble();
+              } else if (session.status === 'working' && session.tool) {
+                walker.showTool(session.tool, formatBubbleLabel(session.tool, session.toolTarget) || '');
+              } else if (session.status === 'working') {
+                walker.showTool('', '...');
+              } else if (session.status === 'blocked') {
+                // The pulsing "!" badge above the head (Walker.redrawBadge)
+                // already carries this — a "needs you" bubble stacked on
+                // the exact same spot reads as overlapping clutter
+                // (screenshot-confirmed), so leave the bubble hidden rather
+                // than duplicate the signal.
+                walker.hideBubble();
+              } else {
+                walker.lingerBubble();
+              }
             }
           }
         }
@@ -596,6 +614,11 @@ export function GardenScene(): JSX.Element {
       // needs to be accurate to about a second — flushing every frame would
       // mean a store write (and an applyState reconcile) 60 times a second.
       let flushAccum = 0;
+      // Battle-update throw guard (see the ticker's own try/catch below):
+      // logged once, not every frame, so a persistent throw can't spam
+      // harness.log at 60Hz the way a bare per-frame console.error used to
+      // spam devtools with nothing captured at all.
+      let loggedBattleUpdateThrow = false;
 
       app.ticker.add((ticker) => {
         const dt = Math.min(ticker.deltaMS / 1000, 0.1);
@@ -618,7 +641,24 @@ export function GardenScene(): JSX.Element {
         try {
           battleManager.update(dt);
         } catch (e) {
+          // BattleManager.update() now isolates each parent's own battle in
+          // its own try/catch (Phase A rework), so reaching here at all
+          // means something outside that isolation broke — worth surfacing
+          // for real. A bare console.error here previously left a per-frame
+          // throw with ZERO trace in harness.log (diagnosticsClient.ts only
+          // captures window.onerror/unhandledrejection and explicit
+          // safeLogDiagnostic calls, not caught console.error) — this is
+          // exactly how v1.2.0's invisible-subagent bug went unlogged for
+          // 30+ minutes. Logged once, not every frame (see
+          // loggedBattleUpdateThrow above), since a persistent throw would
+          // otherwise fire this at 60Hz.
           console.error('[battle] update() threw — skipping this frame:', e);
+          if (!loggedBattleUpdateThrow) {
+            loggedBattleUpdateThrow = true;
+            safeLogDiagnostic('battle', 'error', 'battleManager.update() threw outside per-parent isolation', {
+              error: e instanceof Error ? (e.stack ?? e.message) : String(e)
+            });
+          }
         }
         closingRitual.update(dt);
 

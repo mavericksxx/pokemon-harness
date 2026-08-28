@@ -58,14 +58,18 @@ const BATTLE_DIVERGENCE_MS = 5 * 60 * 1000;
  *  same synchronous call (battleBus.ts's emitter is synchronous) — a lasting
  *  gap means BattleManager's `!rt`/`!species` guard is dropping spawns. */
 const SPAWN_MATERIALIZE_DIVERGENCE_MS = 5 * 60 * 1000;
-/** `subagentsMaterialized` vs `subagentsCleanedUp`: a subagent legitimately
- *  sits mid-lifecycle for up to BattleManager.ts's own WANDER_SAFETY_MS
- *  (8min, not imported here — see that constant's own comment on why this
- *  file deliberately doesn't import from BattleManager.ts) before its final
- *  skirmish even starts. This threshold must stay comfortably above that
- *  8min plus room for the final skirmish itself, or every real subagent
- *  trips this — if WANDER_SAFETY_MS ever changes, bump this too. */
-const SUBAGENT_LIFECYCLE_DIVERGENCE_MS = 10 * 60 * 1000;
+/** `subagentsMaterialized` vs `subagentsCleanedUp`: as of the Phase A
+ *  lifecycle redesign, BattleManager.ts no longer bounds a roaming subagent
+ *  with a wall-clock timer at all (that timer, WANDER_SAFETY_MS, was the
+ *  cause of v1.2.0's premature-death bug — a subagent's pokemon fainting
+ *  while the real subagent was still running — so it was dropped rather
+ *  than tuned; see that file's header). A subagent can now legitimately sit
+ *  mid-lifecycle (roaming) for its parent SESSION's entire lifetime, which
+ *  has no upper bound this file can reason about. This threshold is
+ *  therefore no longer a tight "should reconcile within X" invariant — it's
+ *  a coarse, generous smoke-test tripwire for something genuinely stuck
+ *  (e.g. a wedged battle queue), not for an ordinary long-running subagent. */
+const SUBAGENT_LIFECYCLE_DIVERGENCE_MS = 6 * 60 * 60 * 1000;
 
 interface DivergingPair {
   label: string;

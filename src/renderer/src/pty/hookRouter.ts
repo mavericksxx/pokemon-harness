@@ -133,6 +133,26 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
 
     case 'Stop':
       update({ status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
+      // A `Task` tool call blocks the parent's own turn until it genuinely
+      // completes, so the parent reaching Stop is a DETERMINISTIC signal
+      // that every subagent dispatched this turn is actually done — unlike
+      // the opportunistic SubagentStop below (effectively never fires) and
+      // the wall-clock fallback BattleManager.ts used to lean on instead
+      // (see its file header: that fallback is what caused v1.2.0's
+      // premature-death bug, a subagent's pokemon fainting while the real
+      // subagent was still running). Isolated in its own try/catch, same
+      // reasoning as the Task spawn signal above, and ordered after
+      // `update()` so a battle-path throw can never skip the ordinary
+      // status update.
+      try {
+        emitBattleSignal({ type: 'parentDone', parentId: sessionId });
+      } catch (err) {
+        bumpCounter('battleSignalErrors');
+        safeLogDiagnostic('battle-parent-done', 'error', 'emitBattleSignal threw', {
+          sessionId,
+          error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+        });
+      }
       break;
 
     case 'SubagentStop':
@@ -149,11 +169,36 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       emitBattleSignal({ type: 'end', parentId: sessionId });
       break;
 
-    case 'Notification':
-      // Claude fires this precisely when it wants the user — permission
-      // prompt or an idle nudge alike — so it always reads as "needs you".
-      update({ status: 'blocked', station: 'signpost' });
+    case 'Notification': {
+      // Claude fires this hook both for a real permission/question prompt
+      // AND for a plain "still there?" idle nudge after a quiet turn —
+      // previously both mapped to the same 'blocked' ("needs you") badge,
+      // over-triggering it for the merely-idle case. `notification_type` is
+      // checked first when present, but it looks like a shim-era artifact
+      // never actually confirmed against a real installed CLI the way
+      // PreCompact was (see hookEvents.ts's own history) — this app can't
+      // spawn a real session to verify it live (see this file's header), so
+      // the primary discriminator is `message` text, matched against the
+      // one idle wording Claude Code's own docs describe ("Claude is
+      // waiting for your input"). Anything else — including an unrecognized
+      // wording or no message at all — keeps today's behavior: a real
+      // permission/question prompt, or a nudge this app doesn't recognize,
+      // both still read as "needs you" rather than silently going idle.
+      const notifType = evt.notificationType?.toLowerCase();
+      const isIdleNudge =
+        notifType === 'idle' || (notifType === undefined && /waiting for your input/i.test(evt.message ?? ''));
+      if (isIdleNudge) {
+        // Unlike Stop, this does NOT clear tool/toolTarget — an idle nudge
+        // can fire while a tool call is genuinely still in flight (e.g. a
+        // permission prompt on one tool doesn't mean nothing else is
+        // running), and PostToolUse is what should retire those fields when
+        // that call actually finishes, not this notification.
+        update({ status: 'idle', station: 'wander' });
+      } else {
+        update({ status: 'blocked', station: 'signpost' });
+      }
       break;
+    }
 
     default:
       break;

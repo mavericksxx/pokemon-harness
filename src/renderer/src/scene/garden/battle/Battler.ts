@@ -9,6 +9,14 @@ import { spawnMoveText } from './battleFx';
 const SPEED = 44; // px/sec — matches Walker's SPEED so approach reads the same
 const POOF_IN_MS = 260;
 const POOF_OUT_MS = 220;
+/** Poof-in starts at this scale and grows to 1 over POOF_IN_MS. Deliberately
+ *  not near-zero: if this battler's own `update()` were ever starved for a
+ *  tick or more (e.g. BattleManager.update() throwing on a DIFFERENT
+ *  parent's battle before reaching this one — see BattleManager.ts's file
+ *  header on the invisible-subagent bug this guards against), a frozen
+ *  battler should read as visibly-stuck-small, not as having silently never
+ *  appeared at all. */
+const POOF_IN_START_SCALE = 0.4;
 
 /**
  * One wild Pokemon spawned for a subagent battle (Phase 4 Part B).
@@ -57,7 +65,7 @@ export class Battler {
     this.container.sortableChildren = true;
     this.sprite = new WalkerSprite(opts.animation, ts);
     this.container.addChild(this.sprite.container);
-    this.container.scale.set(0.05); // poof-in starts tiny and grows
+    this.container.scale.set(POOF_IN_START_SCALE);
     this.syncPosition();
   }
 
@@ -137,7 +145,7 @@ export class Battler {
     if (this.poofPhase === 'in') {
       this.poofElapsed += dt * 1000;
       const t = Math.min(1, this.poofElapsed / POOF_IN_MS);
-      this.container.scale.set(0.05 + 0.95 * t);
+      this.container.scale.set(POOF_IN_START_SCALE + (1 - POOF_IN_START_SCALE) * t);
       if (t >= 1) this.poofPhase = 'live';
     } else if (this.poofPhase === 'out') {
       this.poofElapsed += dt * 1000;

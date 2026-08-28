@@ -22,7 +22,13 @@ export type BattleSignal =
   | { type: 'end'; parentId: string }
   /** Regex-fallback heuristic only: the parent went idle/blocked with no clean
    *  per-subagent completion signal available — end the whole battle. */
-  | { type: 'endAll'; parentId: string };
+  | { type: 'endAll'; parentId: string }
+  /** The parent session's own turn fully ended (`Stop`, hooks path only) —
+   *  a deterministic proof every subagent it dispatched this turn is done,
+   *  since a `Task` tool call blocks the parent's turn until it genuinely
+   *  completes. See BattleManager.ts's file header and `handleParentDone`
+   *  for why this replaces the old wall-clock completion fallback. */
+  | { type: 'parentDone'; parentId: string };
 
 type Listener = (signal: BattleSignal) => void;
 
