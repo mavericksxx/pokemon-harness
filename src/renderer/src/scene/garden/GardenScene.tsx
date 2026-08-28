@@ -291,7 +291,7 @@ export function GardenScene(): JSX.Element {
             walker.setAnimation(anim);
           } else {
             const label = speciesEntry(session.pokemon)?.name ?? session.pokemon;
-            useStore.getState().pushToast(`Couldn't load ${label}'s sprite — offline or not found.`);
+            useStore.getState().pushToast(`couldn't load ${label}'s sprite — offline or not found.`);
           }
           if (session.shiny) {
             spawnShinySparkle(walker.container, -walker.spriteHeight - 8);
@@ -360,7 +360,7 @@ export function GardenScene(): JSX.Element {
           if (runtimes.get(session.id) !== rt) return; // session gone meanwhile
           if (failed) {
             const label = speciesEntry(nextId)?.name ?? nextId;
-            useStore.getState().pushToast(`Couldn't load ${label}'s sprite — evolving with a placeholder.`);
+            useStore.getState().pushToast(`couldn't load ${label}'s sprite — evolving with a placeholder.`);
           }
           const nextLabel = speciesEntry(nextId)?.name ?? nextId;
           rt.walker.evolve(anim, entry.name, nextLabel, nextId, () => {

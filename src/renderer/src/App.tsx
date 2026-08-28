@@ -131,7 +131,7 @@ export function App(): JSX.Element {
         {!showRosterStrip && (
           <>
             <button className="primary" onClick={() => setDialogOpen(true)}>
-              + New Session
+              + new session
             </button>
             <nav className="session-chips">
               {sessions.map((s) => (
@@ -143,7 +143,7 @@ export function App(): JSX.Element {
                 >
                   <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
                   {s.shiny && (
-                    <span className="shiny-badge" title="Shiny" aria-label="shiny">
+                    <span className="shiny-badge" title="shiny" aria-label="shiny">
                       ★
                     </span>
                   )}
@@ -160,16 +160,16 @@ export function App(): JSX.Element {
             same overview, but it's unreachable while the garden is hidden
             ('terminal' mode), so dropping this here would strand the
             sessions-overview feature in that mode. */}
-        <button title="All sessions" aria-label="All sessions" onClick={() => setSessionsOverviewOpen(true)}>
-          Sessions
+        <button title="all sessions" aria-label="all sessions" onClick={() => setSessionsOverviewOpen(true)}>
+          sessions
         </button>
         <ViewModeSwitcher />
         <QuickMute />
-        <button className="tip" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        <button className="tip" data-tip="settings" aria-label="settings" onClick={() => setSettingsOpen(true)}>
           ⚙
         </button>
         {viewMode === 'garden' && (
-          <button onClick={() => setDrawerOpen(!drawerOpen)}>{drawerOpen ? 'Hide terminal' : 'Show terminal'}</button>
+          <button onClick={() => setDrawerOpen(!drawerOpen)}>{drawerOpen ? 'hide terminal' : 'show terminal'}</button>
         )}
       </header>
 

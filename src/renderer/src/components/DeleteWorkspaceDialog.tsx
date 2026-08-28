@@ -39,8 +39,8 @@ export function DeleteWorkspaceDialog({ workspace, deadSessionCount, onClose }: 
         <h2>delete {workspace.name}?</h2>
         <p className="hint">
           {deadSessionCount > 0
-            ? `Its ${deadSessionCount} finished session${deadSessionCount === 1 ? '' : 's'} go with it. This can't be undone.`
-            : "This can't be undone."}
+            ? `its ${deadSessionCount} finished session${deadSessionCount === 1 ? '' : 's'} go with it. this can't be undone.`
+            : "this can't be undone."}
         </p>
         {error && <p className="error">{error}</p>}
         <div className="modal-actions">

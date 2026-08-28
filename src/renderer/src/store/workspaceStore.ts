@@ -84,7 +84,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   deleteWorkspace: async (id) => {
     const res = await window.api.deleteWorkspace(id);
-    if (!res.ok) return res.error ?? 'Could not delete this workspace.';
+    if (!res.ok) return res.error ?? 'could not delete this workspace.';
     set({ workspaces: res.workspaces, activeWorkspaceId: res.activeWorkspaceId });
     syncSelectionToWorkspace(res.activeWorkspaceId);
     return null;

@@ -27,7 +27,7 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     if (!folder.trim()) {
-      setError('Choose a folder for this workspace.');
+      setError('choose a folder for this workspace.');
       return;
     }
     setBusy(true);
@@ -44,10 +44,10 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>New workspace</h2>
+        <h2>new workspace</h2>
 
         <label>
-          Name <span className="hint">(optional)</span>
+          name <span className="hint">(optional)</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -57,7 +57,7 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
         </label>
 
         <label>
-          Primary folder
+          primary folder
           <div className="row">
             <input
               value={folder}
@@ -67,7 +67,7 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
               list="recent-folders-workspace"
             />
             <button type="button" onClick={pickFolder}>
-              Browse…
+              browse…
             </button>
           </div>
           <datalist id="recent-folders-workspace">
@@ -75,17 +75,17 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
               <option key={f} value={f} />
             ))}
           </datalist>
-          <p className="hint">New sessions in this workspace default here — any session can still pick another folder.</p>
+          <p className="hint">new sessions in this workspace default here — any session can still pick another folder.</p>
         </label>
 
         {error && <p className="error">{error}</p>}
 
         <div className="modal-actions">
           <button type="button" onClick={onClose}>
-            Cancel
+            cancel
           </button>
           <button type="submit" className="primary" disabled={busy}>
-            {busy ? 'Creating…' : 'Create'}
+            {busy ? 'creating…' : 'create'}
           </button>
         </div>
       </form>

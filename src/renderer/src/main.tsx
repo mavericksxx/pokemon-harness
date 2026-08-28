@@ -164,18 +164,18 @@ async function boot(): Promise<void> {
 
     if (diskRestoreInfo) {
       const n = diskRestoreInfo.count;
-      useStore.getState().pushToast(`Restored ${n} session${n === 1 ? '' : 's'}.`);
+      useStore.getState().pushToast(`restored ${n} session${n === 1 ? '' : 's'}.`);
       for (const note of diskRestoreInfo.notes) useStore.getState().pushToast(note);
     } else if (crashInfo) {
       const suffix =
         restored.length > 0
           ? ` — reconnected ${restored.length} session${restored.length === 1 ? '' : 's'}.`
           : '.';
-      useStore.getState().pushToast(`Recovered from a renderer crash (${crashInfo.reason})${suffix}`);
+      useStore.getState().pushToast(`recovered from a renderer crash (${crashInfo.reason})${suffix}`);
     } else if (restored.length > 0) {
       useStore
         .getState()
-        .pushToast(`Reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
+        .pushToast(`reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
     }
   } catch (err) {
     console.error('[boot] crash/reload recovery failed — starting with an empty garden', err);

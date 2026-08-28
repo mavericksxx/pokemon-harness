@@ -10,10 +10,10 @@ import { TreeIcon } from '@/components/icons';
  *  TREE (a genuine color emoji) and renders via TreeIcon (icons.tsx)
  *  instead, as of the ship-cut emoji purge. */
 const MODES: { mode: ViewMode; label: string; glyph?: string; key: string }[] = [
-  { mode: 'garden', label: 'Garden', key: '1' },
-  { mode: 'terminal', label: 'Terminal focus', glyph: '☰', key: '2' },
-  { mode: 'gardenFull', label: 'Full-screen garden', glyph: '⛶', key: '3' },
-  { mode: 'terminalFull', label: 'Full-screen terminal', glyph: '▣', key: '4' }
+  { mode: 'garden', label: 'garden', key: '1' },
+  { mode: 'terminal', label: 'terminal focus', glyph: '☰', key: '2' },
+  { mode: 'gardenFull', label: 'full-screen garden', glyph: '⛶', key: '3' },
+  { mode: 'terminalFull', label: 'full-screen terminal', glyph: '▣', key: '4' }
 ];
 
 export function ViewModeSwitcher(): JSX.Element {
@@ -21,7 +21,7 @@ export function ViewModeSwitcher(): JSX.Element {
   const setViewMode = useStore((s) => s.setViewMode);
 
   return (
-    <div className="view-switcher" role="group" aria-label="View mode">
+    <div className="view-switcher" role="group" aria-label="view mode">
       {MODES.map(({ mode, label, glyph, key }) => (
         <button
           key={mode}

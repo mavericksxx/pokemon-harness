@@ -83,7 +83,7 @@ async function spawnArceus(
       rows: 30,
       provider
     });
-    if (!res.ok) throw new Error(res.error ?? 'Failed to summon Arceus.');
+    if (!res.ok) throw new Error(res.error ?? 'failed to summon Arceus.');
     useStore.getState().updateSession(ARCEUS_SESSION_ID, { status: 'idle', cwd: res.cwd ?? req.cwd });
   } catch (err) {
     if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);

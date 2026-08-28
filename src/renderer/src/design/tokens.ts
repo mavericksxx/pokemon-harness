@@ -21,6 +21,20 @@
  * theme, see `groundLight`/`inkLight`/etc. below and `design/theme.ts`) so
  * existing class-based CSS in `index.css` keeps working unchanged —
  * components don't need to switch to inline styles from this module.
+ *
+ * VOICE (ship-cut item 6, lowercase sweep): every chrome string — labels,
+ * buttons, headers, tooltips, toasts, notification bodies — is lowercase,
+ * including the first word of a sentence-shaped hint (e.g. QuitDialog's
+ * "quitting stops every session where it stands. claude sessions resume
+ * next launch..."). Not colors/type/space, but it's this file's only home
+ * for a rule that spans every component, so it lives here rather than
+ * nowhere. Exemptions: user-entered content (session titles, workspace
+ * names as typed) is shown verbatim; Pokemon species names and other proper
+ * nouns (Claude Code, Codex CLI, Arceus, Mac) keep their real casing even
+ * mid-sentence; game-flavor battle/flavor text keeps normal casing; the
+ * brand mark is the one deliberate exception THIS rule creates rather than
+ * follows — "pokéharness" is lowercase by design choice (App.tsx has the
+ * font-rendering note), not because this rule forced it.
  */
 
 /** Ground/surface ramp — munder-difflin tokens.css dark theme: `--cth-cream-*`

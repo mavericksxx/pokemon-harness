@@ -88,7 +88,7 @@ export function TerminalDrawer(): JSX.Element | null {
             ))}
           </div>
           {viewMode === 'garden' && (
-            <button className="icon tip" data-tip="Hide terminal" onClick={() => setDrawerOpen(false)}>
+            <button className="icon tip" data-tip="hide terminal" onClick={() => setDrawerOpen(false)}>
               ×
             </button>
           )}
@@ -105,7 +105,7 @@ export function TerminalDrawer(): JSX.Element | null {
               {session.cwd}
             </span>
             <button className="danger" onClick={() => void stopSession(session.id)}>
-              Kill
+              kill
             </button>
           </div>
           {session.error && <p className="error drawer-error">{session.error}</p>}
@@ -118,7 +118,7 @@ export function TerminalDrawer(): JSX.Element | null {
       ) : (
         <div className="empty-terminal">
           <div className="empty-terminal-glyph" aria-hidden="true" />
-          <p className="empty">Pick a session to see what's happening.</p>
+          <p className="empty">pick a session to see what's happening.</p>
         </div>
       )}
     </aside>

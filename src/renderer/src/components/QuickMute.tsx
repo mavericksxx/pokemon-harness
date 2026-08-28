@@ -16,8 +16,8 @@ export function QuickMute(): JSX.Element {
   return (
     <button
       className="icon tip"
-      data-tip={settings.masterMuted ? 'Unmute' : 'Mute all'}
-      aria-label={settings.masterMuted ? 'Unmute' : 'Mute all'}
+      data-tip={settings.masterMuted ? 'unmute' : 'mute all'}
+      aria-label={settings.masterMuted ? 'unmute' : 'mute all'}
       aria-pressed={settings.masterMuted}
       onClick={() => setMasterMuted(!settings.masterMuted)}
     >

@@ -682,7 +682,7 @@ ipcMain.handle('workspaces:setActive', (_e, id: string) => {
 
 ipcMain.handle('workspaces:delete', (_e, id: string) => {
   if (workspaceRegistry.workspaces.length <= 1) {
-    return { ok: false, error: "Can't delete your only workspace.", ...workspaceRegistry };
+    return { ok: false, error: "can't delete your only workspace.", ...workspaceRegistry };
   }
   // Authoritative liveness check (ptyManager, not merely `status !== 'done'`
   // — same distinction main draws everywhere else it counts live sessions)
@@ -697,7 +697,7 @@ ipcMain.handle('workspaces:delete', (_e, id: string) => {
     (s) => !s.isArceus && (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === id && liveIds.has(s.id)
   );
   if (hasLiveSession) {
-    return { ok: false, error: 'This workspace still has running sessions.', ...workspaceRegistry };
+    return { ok: false, error: 'this workspace still has running sessions.', ...workspaceRegistry };
   }
 
   // Drop this workspace's persisted-dead sessions (finished-but-still-listed

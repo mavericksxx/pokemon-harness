@@ -80,7 +80,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     if (!cwd.trim()) {
-      setError('Choose a working directory.');
+      setError('choose a working directory.');
       return;
     }
     if (takenLines.has(base.line)) {
@@ -109,10 +109,10 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>New session</h2>
+        <h2>new session</h2>
 
         <label>
-          Agent
+          agent
           <select value={provider} onChange={(e) => onProvider(e.target.value as AgentProviderId)}>
             {PROVIDER_LIST.map((p) => (
               <option key={p.id} value={p.id}>
@@ -123,7 +123,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         </label>
 
         <label>
-          Working directory
+          working directory
           <div className="row">
             <input
               value={cwd}
@@ -133,7 +133,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
               list="recent-folders"
             />
             <button type="button" onClick={pickFolder}>
-              Browse…
+              browse…
             </button>
           </div>
           {/* Recent-repos quick-pick (parity sweep item 6) — a native
@@ -147,7 +147,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         </label>
 
         <label>
-          Command
+          command
           <input value={command} onChange={(e) => setCommand(e.target.value)} spellCheck={false} />
         </label>
 
@@ -161,7 +161,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
 
         {AGENT_PROVIDERS[provider].supportsModel && (
           <label>
-            Model <span className="hint">(optional)</span>
+            model <span className="hint">(optional)</span>
             <input
               value={model}
               onChange={(e) => setModel(e.target.value)}
@@ -172,7 +172,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         )}
 
         <label>
-          Name <span className="hint">(optional)</span>
+          name <span className="hint">(optional)</span>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -181,11 +181,11 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         </label>
 
         <label>
-          Pokemon <span className="hint">(one per evolution line)</span>
+          pokemon <span className="hint">(one per evolution line)</span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search all 1025 by name or dex number…"
+            placeholder="search all 1025 by name or dex number…"
             spellCheck={false}
           />
           <div className="pokemon-picker">
@@ -204,7 +204,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
               const noSprite = entry.hasSprite === false;
               const disabled = isTaken || noSprite;
               const optionTitle = noSprite
-                ? `No sprite available for ${entry.name}`
+                ? `no sprite available for ${entry.name}`
                 : isTaken
                   ? `${entry.name}'s line is already in the garden`
                   : entry.name;
@@ -224,7 +224,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
                   )}
                   <span>{entry.name}</span>
                   {takenByShiny && (
-                    <span className="shiny-badge" title="A shiny is out in the garden" aria-label="shiny">
+                    <span className="shiny-badge" title="a shiny is out in the garden" aria-label="shiny">
                       ★
                     </span>
                   )}
@@ -232,7 +232,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
                 </button>
               );
             })}
-            {debouncedQuery.trim() && results.length === 0 && <p className="hint">No match.</p>}
+            {debouncedQuery.trim() && results.length === 0 && <p className="hint">no match.</p>}
           </div>
           <p className="hint pokemon-note">{note}</p>
         </label>
@@ -241,10 +241,10 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
 
         <div className="modal-actions">
           <button type="button" onClick={onClose}>
-            Cancel
+            cancel
           </button>
           <button type="submit" className="primary" disabled={busy}>
-            {busy ? 'Starting…' : 'Start'}
+            {busy ? 'starting…' : 'start'}
           </button>
         </div>
       </form>

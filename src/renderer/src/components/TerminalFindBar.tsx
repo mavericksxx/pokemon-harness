@@ -55,8 +55,8 @@ export function TerminalFindBar({ sessionId, onClose }: Props): JSX.Element {
       <button
         type="button"
         className="icon tip"
-        data-tip="Previous (shift+enter)"
-        aria-label="Previous match"
+        data-tip="previous (shift+enter)"
+        aria-label="previous match"
         onClick={() => searchPrevious(sessionId, term)}
       >
         ↑
@@ -64,13 +64,13 @@ export function TerminalFindBar({ sessionId, onClose }: Props): JSX.Element {
       <button
         type="button"
         className="icon tip"
-        data-tip="Next (enter)"
-        aria-label="Next match"
+        data-tip="next (enter)"
+        aria-label="next match"
         onClick={() => searchNext(sessionId, term)}
       >
         ↓
       </button>
-      <button type="button" className="icon tip" data-tip="Close (esc)" aria-label="Close find bar" onClick={onClose}>
+      <button type="button" className="icon tip" data-tip="close (esc)" aria-label="close find bar" onClick={onClose}>
         ×
       </button>
     </div>

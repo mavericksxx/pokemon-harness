@@ -77,7 +77,7 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
         <span className="roster-card-face">
           <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
           {session.shiny && (
-            <span className="shiny-badge roster-card-shiny" title="Shiny" aria-label="shiny">
+            <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
               ★
             </span>
           )}

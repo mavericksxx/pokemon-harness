@@ -80,7 +80,7 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       provider: req.provider
     });
 
-    if (!res.ok) throw new Error(res.error ?? 'Failed to start session.');
+    if (!res.ok) throw new Error(res.error ?? 'failed to start session.');
     useStore.getState().updateSession(id, { status: 'idle', cwd: res.cwd ?? req.cwd });
     // Recent-folders quick-pick (parity sweep item 6) — recorded only on a
     // CONFIRMED spawn, and `res.cwd` (the tilde-expanded path main actually

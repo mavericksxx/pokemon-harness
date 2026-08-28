@@ -108,9 +108,9 @@ export function SettingsPanel(): JSX.Element {
     nowPlaying.mode === 'player' && nowPlaying.id
       ? GEN_LABELS[MUSIC_CATALOG_BY_ID.get(nowPlaying.id)?.gen as MusicGen]
       : nowPlaying.mode === 'battle'
-        ? 'Battle'
+        ? 'battle'
         : nowPlaying.mode === 'ceremony'
-          ? 'Evolution'
+          ? 'evolution'
           : '';
 
   const shiny = shinyConfig();
@@ -121,15 +121,15 @@ export function SettingsPanel(): JSX.Element {
       {open && <div className="settings-backdrop" onClick={() => setOpen(false)} />}
       <aside className={open ? 'settings-panel open' : 'settings-panel'} aria-hidden={!open}>
         <header className="settings-head">
-          <h2>Settings</h2>
-          <button className="icon tip" data-tip="Close" aria-label="Close settings" onClick={() => setOpen(false)}>
+          <h2>settings</h2>
+          <button className="icon tip" data-tip="close" aria-label="close settings" onClick={() => setOpen(false)}>
             ×
           </button>
         </header>
 
         <section className="settings-section">
-          <h3>Appearance</h3>
-          <div className="theme-picker" role="radiogroup" aria-label="Theme">
+          <h3>appearance</h3>
+          <div className="theme-picker" role="radiogroup" aria-label="theme">
             {(['system', 'light', 'dark'] as const).map((mode) => (
               <label key={mode} className="theme-picker-option">
                 <input
@@ -145,7 +145,7 @@ export function SettingsPanel(): JSX.Element {
         </section>
 
         <section className="settings-section">
-          <h3>Automation</h3>
+          <h3>automation</h3>
           {AUTO_MODE_PROVIDERS.map((p) => (
             <label key={p.id} className="settings-auto-row">
               <input
@@ -170,41 +170,41 @@ export function SettingsPanel(): JSX.Element {
         </section>
 
         <section className="settings-section">
-          <h3>Harness home</h3>
+          <h3>harness home</h3>
           <p className="hint">
-            Where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
+            where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
           </p>
           <div className="row harness-home-row">
             <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
             <button type="button" onClick={() => void pickHarnessHome()}>
-              Choose…
+              choose…
             </button>
           </div>
           {appSettings.harnessHomeDir && (
             <button type="button" onClick={() => setHarnessHomeDir(null)}>
-              Reset to default
+              reset to default
             </button>
           )}
           <p className="hint">
-            Changing this only points future writes at the new folder — nothing already on disk moves.
+            changing this only points future writes at the new folder — nothing already on disk moves.
           </p>
         </section>
 
         <section className="settings-section">
-          <h3>Sound</h3>
+          <h3>sound</h3>
           <label className="audio-row audio-row-master">
             <input
               type="checkbox"
               checked={settings.masterMuted}
               onChange={(e) => setMasterMuted(e.target.checked)}
             />
-            Mute all
+            mute all
           </label>
 
           <div className="audio-row">
             <label className="audio-toggle">
               <input type="checkbox" checked={settings.musicOn} onChange={(e) => setMusicOn(e.target.checked)} />
-              Music
+              music
             </label>
             <input
               type="range"
@@ -222,7 +222,7 @@ export function SettingsPanel(): JSX.Element {
             <div className="mini-player" data-testid="mini-player">
               <div className="mini-player-now">
                 <div className="mini-player-now-title" title={nowPlaying.title || undefined}>
-                  {trackLoading ? 'One sec…' : nowPlaying.title || 'Nothing playing'}
+                  {trackLoading ? 'one sec…' : nowPlaying.title || 'nothing playing'}
                 </div>
                 {!trackLoading && nowPlayingGenLabel && (
                   <div className="mini-player-now-gen">{nowPlayingGenLabel}</div>
@@ -230,18 +230,18 @@ export function SettingsPanel(): JSX.Element {
               </div>
 
               <div className="mini-player-transport">
-                <button className="icon tip" data-tip="Previous track" aria-label="Previous track" onClick={playerPrev}>
+                <button className="icon tip" data-tip="previous track" aria-label="previous track" onClick={playerPrev}>
                   ⏮
                 </button>
                 <button
                   className="icon tip"
-                  data-tip={settings.musicPaused ? 'Play' : 'Pause'}
-                  aria-label={settings.musicPaused ? 'Play' : 'Pause'}
+                  data-tip={settings.musicPaused ? 'play' : 'pause'}
+                  aria-label={settings.musicPaused ? 'play' : 'pause'}
                   onClick={playerTogglePause}
                 >
                   {settings.musicPaused ? '▶' : '⏸'}
                 </button>
-                <button className="icon tip" data-tip="Next track" aria-label="Next track" onClick={playerNext}>
+                <button className="icon tip" data-tip="next track" aria-label="next track" onClick={playerNext}>
                   ⏭
                 </button>
               </div>
@@ -258,9 +258,9 @@ export function SettingsPanel(): JSX.Element {
                 className="mini-player-gen-select"
                 value={genFilter}
                 onChange={(e) => setGenFilter(e.target.value)}
-                aria-label="Generation filter"
+                aria-label="generation filter"
               >
-                <option value="all">All gens</option>
+                <option value="all">all gens</option>
                 {GEN_ORDER.map((g) => (
                   <option key={g} value={g}>
                     {GEN_LABELS[g]}
@@ -271,13 +271,13 @@ export function SettingsPanel(): JSX.Element {
               <input
                 type="text"
                 className="mini-player-search"
-                placeholder="Search songs…"
+                placeholder="search songs…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
 
               <div className="mini-player-list">
-                {filtered.length === 0 && <div className="mini-player-list-empty">No matches</div>}
+                {filtered.length === 0 && <div className="mini-player-list-empty">no matches</div>}
                 {filtered.slice(0, MAX_LIST_ROWS).map((t) => (
                   <div
                     key={t.id}
@@ -300,7 +300,7 @@ export function SettingsPanel(): JSX.Element {
           <div className="audio-row">
             <label className="audio-toggle">
               <input type="checkbox" checked={settings.sfxOn} onChange={(e) => setSfxOn(e.target.checked)} />
-              SFX
+              sfx
             </label>
             <input
               type="range"
@@ -315,9 +315,9 @@ export function SettingsPanel(): JSX.Element {
         </section>
 
         <section className="settings-section">
-          <h3>Terminal</h3>
+          <h3>terminal</h3>
           <div className="audio-row">
-            <span>Font size</span>
+            <span>font size</span>
             <input
               type="range"
               min={TERMINAL_FONT_SIZE_MIN}
@@ -325,12 +325,12 @@ export function SettingsPanel(): JSX.Element {
               step={1}
               value={terminalSettings.fontSize}
               onChange={(e) => setFontSize(Number(e.target.value))}
-              aria-label="Terminal font size"
+              aria-label="terminal font size"
             />
             <span className="hint">{terminalSettings.fontSize}px</span>
           </div>
           <div className="audio-row">
-            <span>Scrollback</span>
+            <span>scrollback</span>
             <input
               type="range"
               min={TERMINAL_SCROLLBACK_MIN}
@@ -338,34 +338,34 @@ export function SettingsPanel(): JSX.Element {
               step={1000}
               value={terminalSettings.scrollback}
               onChange={(e) => setScrollback(Number(e.target.value))}
-              aria-label="Terminal scrollback depth"
+              aria-label="terminal scrollback depth"
             />
             <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
           </div>
         </section>
 
         <section className="settings-section">
-          <h3>Config</h3>
+          <h3>config</h3>
           <p className="hint settings-config-note">
-            Env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
+            env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
           </p>
           <dl className="settings-config-list">
-            <dt>Shiny odds</dt>
+            <dt>shiny odds</dt>
             <dd>1 in {shiny.odds}</dd>
-            <dt>Evolve to stage 2</dt>
+            <dt>evolve to stage 2</dt>
             <dd>{Math.round(evo.stage2Ms / 1000)}s worked</dd>
-            <dt>Evolve to stage 3</dt>
+            <dt>evolve to stage 3</dt>
             <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
           </dl>
         </section>
 
         <section className="settings-section">
-          <h3>Closing time</h3>
+          <h3>closing time</h3>
           <p className="hint">
-            Every session's Pokémon heads for the garden gate and waves out, then the app quits. Esc cancels.
+            every session's Pokémon heads for the garden gate and waves out, then the app quits. esc cancels.
           </p>
           <button type="button" onClick={() => startClosingTime()}>
-            Wrap up &amp; quit <span className="hint">⌘⇧Q</span>
+            wrap up &amp; quit <span className="hint">⌘⇧Q</span>
           </button>
         </section>
       </aside>

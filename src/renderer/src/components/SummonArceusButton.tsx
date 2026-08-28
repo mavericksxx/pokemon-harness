@@ -21,7 +21,7 @@ export function SummonArceusButton(): JSX.Element {
       <button
         type="button"
         className={selected && live ? 'summon-arceus active' : 'summon-arceus'}
-        title={live ? 'Select Arceus' : 'Summon Arceus'}
+        title={live ? 'select Arceus' : 'summon Arceus'}
         onClick={() => (arceusIsLive() ? selectArceus() : setDialogOpen(true))}
       >
         <span className="summon-arceus-glyph" aria-hidden="true">

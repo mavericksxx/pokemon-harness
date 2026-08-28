@@ -36,7 +36,7 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     if (!cwd.trim()) {
-      setError('Choose a folder.');
+      setError('choose a folder.');
       return;
     }
     setBusy(true);
@@ -59,11 +59,11 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
           <h2>summon arceus</h2>
           <p className="hint">
             Arceus is a real Claude Code session — the <code>claude</code> CLI isn&apos;t on your PATH, so there&apos;s
-            nothing to summon him into. Install Claude Code, then try again.
+            nothing to summon him into. install Claude Code, then try again.
           </p>
           <div className="modal-actions">
             <button type="button" className="primary" onClick={onClose}>
-              Close
+              close
             </button>
           </div>
         </div>
@@ -75,21 +75,21 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2>summon arceus</h2>
-        <p className="hint">The orchestrator of this garden — one, global, seen from every workspace.</p>
+        <p className="hint">the orchestrator of this garden — one, global, seen from every workspace.</p>
 
         <label>
-          Folder
+          folder
           <div className="row">
             <input value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} />
             <button type="button" onClick={pickFolder}>
-              Browse…
+              browse…
             </button>
           </div>
-          <p className="hint">Defaults to the harness home folder.</p>
+          <p className="hint">defaults to the harness home folder.</p>
         </label>
 
         <label>
-          Model <span className="hint">(optional)</span>
+          model <span className="hint">(optional)</span>
           <input
             value={model}
             onChange={(e) => setModel(e.target.value)}
@@ -108,10 +108,10 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
 
         <div className="modal-actions">
           <button type="button" onClick={onClose}>
-            Cancel
+            cancel
           </button>
           <button type="submit" className="primary" disabled={busy}>
-            {busy ? 'Summoning…' : 'Summon'}
+            {busy ? 'summoning…' : 'summon'}
           </button>
         </div>
       </form>

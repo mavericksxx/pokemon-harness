@@ -119,8 +119,8 @@ export function WorkspaceSwitcher(): JSX.Element {
                   <button
                     type="button"
                     className="icon workspace-row-action"
-                    aria-label={`Rename ${w.name}`}
-                    title="Rename"
+                    aria-label={`rename ${w.name}`}
+                    title="rename"
                     onClick={() => startRename(w)}
                   >
                     ✎
@@ -128,13 +128,13 @@ export function WorkspaceSwitcher(): JSX.Element {
                   <button
                     type="button"
                     className="icon workspace-row-action"
-                    aria-label={`Delete ${w.name}`}
+                    aria-label={`delete ${w.name}`}
                     title={
                       canDelete
-                        ? 'Delete this workspace'
+                        ? 'delete this workspace'
                         : workspaces.length <= 1
-                          ? "Can't delete your only workspace"
-                          : 'Still has running sessions — stop them first'
+                          ? "can't delete your only workspace"
+                          : 'still has running sessions — stop them first'
                     }
                     disabled={!canDelete}
                     onClick={() => setDeleteTarget(w)}

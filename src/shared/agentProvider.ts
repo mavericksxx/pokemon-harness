@@ -79,7 +79,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderPreset> = {
   // scope. No hooks (pty.ts only wires them for 'claude'), no model field.
   shell: {
     id: 'shell',
-    label: 'Plain Shell',
+    label: 'plain shell',
     defaultCommand: '/bin/zsh',
     supportsModel: false
   }

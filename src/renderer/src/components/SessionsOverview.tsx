@@ -27,9 +27,9 @@ export function SessionsOverview(): JSX.Element | null {
   return (
     <div className="modal-backdrop" onClick={() => setOpen(false)}>
       <div className="modal sessions-overview" onClick={(e) => e.stopPropagation()}>
-        <h2>Sessions</h2>
+        <h2>sessions</h2>
         {sessions.length === 0 ? (
-          <p className="empty">No sessions in this workspace yet — start one from the topbar.</p>
+          <p className="empty">no sessions in this workspace yet — start one from the topbar.</p>
         ) : (
           <div className="sessions-overview-grid">
             {sessions.map((s) => (
@@ -38,7 +38,7 @@ export function SessionsOverview(): JSX.Element | null {
           </div>
         )}
         <div className="modal-actions">
-          <button onClick={() => setOpen(false)}>Close</button>
+          <button onClick={() => setOpen(false)}>close</button>
         </div>
       </div>
     </div>
