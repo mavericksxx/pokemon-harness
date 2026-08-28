@@ -111,16 +111,19 @@ async function spawnArceus(
 const FIRST_PROMPT_FALLBACK_MS = 10_000;
 
 /** Wraps text in the bracketed-paste escape sequence (`ESC[200~ … ESC[201~`)
- *  so its internal newlines land as literal multi-line content in Arceus's
+ *  so its internal newlines land as literal multi-line content in a CLI's
  *  input box instead of each one submitting a fragment early (the way a bare
  *  `\r` would) — the same mechanism a bracketed-paste-aware terminal app
  *  uses for a pasted multi-line block. The caller still appends a single
  *  trailing `\r` after this to actually press Enter and submit the whole
- *  paste as one turn. UNVERIFIED against a live CLI (this app must never
- *  spawn a real claude session for its own testing) — if Claude Code's
- *  input box doesn't honor bracketed paste the way assumed here, this is the
- *  first place to look. */
-function wrapBracketedPaste(text: string): string {
+ *  paste as one turn. Two callers: `armFirstPromptDelivery` below (Arceus's
+ *  persona, delivered as his first typed prompt) and BACKLOG phase E's focus
+ *  composer (src/renderer/src/pty/focusQueue.ts, for a multiline queued
+ *  message). UNVERIFIED against a live CLI (this app must never spawn a real
+ *  claude session for its own testing) — if Claude Code's input box doesn't
+ *  honor bracketed paste the way assumed here, this is the first place to
+ *  look. */
+export function wrapBracketedPaste(text: string): string {
   return `\x1b[200~${text}\x1b[201~`;
 }
 

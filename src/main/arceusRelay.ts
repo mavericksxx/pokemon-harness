@@ -35,6 +35,7 @@
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import type { WebContents } from 'electron';
 import { ARCEUS_SESSION_ID } from '../shared/arceus';
+import { InjectionQueue } from '../shared/injectionQueue';
 import type { PtyResult, SessionRecord } from '../shared/types';
 import { log } from './diagnostics';
 
@@ -137,16 +138,30 @@ interface TrackedTranscript {
 export class ArceusRelayWatcher {
   private tracked: TrackedTranscript | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  /** Target session id -> queued messages, for a directive whose target
-   *  wasn't idle at resolve time (item 3's "queue the injection until that
-   *  session next goes idle"). Flushed from `onSessionsChecked`. */
-  private queue = new Map<string, string[]>();
+  /** Per-target idle-queue + injection (item 3's "queue the injection until
+   *  that session next goes idle") — the shared helper (shared/injectionQueue.ts)
+   *  BACKLOG phase E's focus-mode composer also builds on, so the safety
+   *  rail (never inject into a non-idle session) lives in exactly one place.
+   *  Flushed from `onSessionsChecked`. */
+  private queue: InjectionQueue<string>;
 
   constructor(
     private writePty: (id: string, data: string) => PtyResult,
     private getSessions: () => SessionRecord[],
     private getWebContents: () => WebContents | null
-  ) {}
+  ) {
+    this.queue = new InjectionQueue<string>(this.writePty, MAX_QUEUE_PER_TARGET, (message) => message, {
+      onDropOldest: (targetId) =>
+        log('arceus-relay', 'warn', 'relay queue full for target — dropping oldest', { targetId }),
+      onDeliver: (target, _item, res) =>
+        log('arceus-relay', 'info', res.ok ? 'relay delivered' : 'relay delivery failed', {
+          targetId: target.id,
+          title: target.title,
+          ok: res.ok,
+          error: res.error
+        })
+    });
+  }
 
   start(): void {
     if (this.timer) return;
@@ -199,18 +214,7 @@ export class ArceusRelayWatcher {
    *  a real permission prompt — see BACKLOG's "needs you over-triggers")
    *  stays queued, same as at first-resolve time in `handleDirective`. */
   onSessionsChecked(sessions: SessionRecord[]): void {
-    if (this.queue.size === 0) return;
-    for (const id of [...this.queue.keys()]) {
-      const session = sessions.find((s) => s.id === id);
-      if (!session || session.status === 'done') {
-        this.queue.delete(id);
-        continue;
-      }
-      if (session.status !== 'idle') continue;
-      const pending = this.queue.get(id);
-      this.queue.delete(id);
-      if (pending) for (const message of pending) this.inject(session, message);
-    }
+    this.queue.flush(sessions);
   }
 
   private poll(): void {
@@ -295,34 +299,18 @@ export class ArceusRelayWatcher {
     // prompt from a plain idle nudge (both collapse to 'blocked' — see
     // hookRouter.ts's Notification case and BACKLOG's "needs you
     // over-triggers"), so treating everything but 'idle' as unsafe to type
-    // into is the conservative choice that holds either way.
-    if (target.status === 'idle') {
-      this.inject(target, message);
-      return;
+    // into is the conservative choice that holds either way. Enforced inside
+    // `InjectionQueue.submit` itself now (shared/injectionQueue.ts) — this
+    // call site only adds the `agent` field the shared queue's own log hooks
+    // don't have access to.
+    const result = this.queue.submit(target, message + '\r');
+    if (result === 'queued') {
+      log('arceus-relay', 'info', 'relay queued — target not idle', {
+        agent: d.agent,
+        targetId: target.id,
+        status: target.status
+      });
     }
-
-    const q = this.queue.get(target.id) ?? [];
-    if (q.length >= MAX_QUEUE_PER_TARGET) {
-      log('arceus-relay', 'warn', 'relay queue full for target — dropping oldest', { targetId: target.id });
-      q.shift();
-    }
-    q.push(message);
-    this.queue.set(target.id, q);
-    log('arceus-relay', 'info', 'relay queued — target not idle', {
-      agent: d.agent,
-      targetId: target.id,
-      status: target.status
-    });
-  }
-
-  private inject(target: SessionRecord, message: string): void {
-    const res = this.writePty(target.id, message + '\r');
-    log('arceus-relay', 'info', res.ok ? 'relay delivered' : 'relay delivery failed', {
-      targetId: target.id,
-      title: target.title,
-      ok: res.ok,
-      error: res.error
-    });
   }
 
   private notifyUnresolved(name: string): void {

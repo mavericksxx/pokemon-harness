@@ -4,6 +4,7 @@ import { useStore } from './store/store';
 import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
 import { autoSummonArceus, startArceusRelayToasts } from './arceus';
 import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
+import { startFocusQueueFlush } from './pty/focusQueue';
 import {
   initAudio,
   debugSnapshot,
@@ -156,6 +157,9 @@ async function boot(): Promise<void> {
     startRegistrySync();
     startCompletionToasts();
     startArceusRelayToasts();
+    // BACKLOG phase E — focus mode's queue composer; see focusQueue.ts's own
+    // header for why this lives renderer-side rather than main.
+    startFocusQueueFlush();
 
     // xterm measures glyph width once at `term.open()` and never re-measures
     // on a later font swap, so JetBrains Mono must be ready before any
