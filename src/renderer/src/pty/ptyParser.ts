@@ -34,7 +34,11 @@ const TASK_SPAWN_RE = /●\s+Task\(/g;
 // on every repaint — making it flip-flop between working and blocked.
 const BLOCK_HINTS = [
   /Do you want to proceed/i,
-  /❯\s*\d+\.\s*Yes/i, // numbered approval menu, cursor on "1. Yes"
+  // Numbered approval menu, cursor on "1. Yes" (or "1. Yes, continue" etc).
+  // ❯ (U+276F) is Claude's own cursor glyph; › (U+203A) is codex's — same
+  // menu shape, different Unicode arrow, confirmed live against the real
+  // codex CLI (its directory-trust prompt renders "› 1. Yes, continue").
+  /[❯›]\s*\d+\.\s*Yes/i,
   /Yes, and don't ask again/i,
   /\(y\/n\)/i,
   /\[y\/n\]/i
