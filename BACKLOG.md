@@ -19,14 +19,17 @@ Working list of known issues and planned work — open items only; completed wor
 
 Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
-## post-v1.1.0 (one at a time, in rough order)
+## next up (one at a time, in rough order)
 
-2. **"tell chikorita to do X" routing** — speak to arceus naming an agent; arceus relays the instruction to that agent's session. North star of the agent-society phase (claude↔claude cross-session messaging; codex/cursor via file inboxes; per-agent memory; periodic arceus status reports). The dispatch box (`ArceusDispatchBox`) is unmounted in `TerminalDrawer` pending this — wire it up (or repurpose it) once routing lands.
-3. **arceus persona delivery** — evaluate munder difflin's approach (persona sent as an actual first prompt) vs our `--append-system-prompt`. Trade-offs: system prompt survives compaction and is firmer; first message is transcript-visible and matches MD. Deliberate decision, not a bug.
+1. **"tell chikorita to do X" routing** — DECIDED (2026-08-29): transport = terminal injection (arceus emits a structured directive → app types the instruction into the target session's pty, visible in that terminal, all providers); autonomy = relay-only (arceus forwards only when the user explicitly asks); persona delivery switches to MD-style first prompt (replaces `--append-system-prompt`) as part of the same work; roster context fed to arceus so he knows agent names/status. The dispatch box (`ArceusDispatchBox`) is unmounted in `TerminalDrawer` pending this — re-enable it as the assignment entry when routing lands.
 
 ## smaller known items
 
 - "needs you" over-triggers: the CLI's idle waiting-for-input notification maps to the same badge as real permission prompts — split them (permission/questions → "needs you", plain turn-ended → "idle")
+- brand "pokéharness" text reads squashed (unresolved): é glyph + CSS ruled out; two live hypotheses — the −0.5 zoom breaking Press Start 2P's pixel grid app-wide, or the topbar's `-webkit-app-region: drag` region's Electron text-rendering quirk. Discriminating test: screenshot brand + a modal h2 in one frame; if both look off it's the zoom (not `.brand`'s fault)
+- tool bubble can overlap battle "!" alerts / floating move text now that it anchors at head−6 (same zone) — consider hiding the tool bubble while its session's avatar is mid-battle (gate the reconcile on `battleManager.isBattling`)
+- "new workspace"/"delete workspace" dialog copy still says workspace under the new "+ new garden" vocabulary — align to "garden"
+- invisible-subagent root cause still unconfirmed: the spawn chain is hardened + logged; on next repro check `~/PokemonHarness/logs/harness.log` for `battle-bus`/`hook-router` errors and fix the named throw
 
 ## bigger later
 
