@@ -85,6 +85,11 @@ export class HookBridge {
   private readonly shimFile: string;
   private readonly launcherFile: string;
   readonly sockPath: string;
+  /** BACKLOG "next up" item 2 — mirrors index.ts's `keepAwakeEnabled` module
+   *  variable pattern for a setting read at spawn time rather than passed
+   *  through per-call. Default off so a freshly-constructed bridge (tests,
+   *  other callers) behaves exactly as before this setting existed. */
+  private hideStatusline = false;
 
   constructor(
     userDataDir: string,
@@ -237,10 +242,44 @@ export class HookBridge {
         // post-compact SessionStart (source: 'compact') that follows is
         // already covered by the SessionStart entry above.
         PreCompact: [entry()]
-      }
+      },
+      // BACKLOG "next up" item 2 — only added when the user opts in
+      // (settings → terminal → "hide claude statusline"); when off this key
+      // is omitted entirely so the file is byte-identical to before this
+      // feature existed and a session inherits `~/.claude/settings.json`'s
+      // own `statusLine` exactly as today (CLI-flag settings win over user
+      // settings, so an omitted key here is what "untouched" requires).
+      // `command: ":"` — the POSIX shell no-op builtin — exits 0 and writes
+      // nothing to stdout. Deliberately `:` and not `true`: Claude Code's
+      // docs don't document the shell environment `statusLine.command` runs
+      // under, and this app's own HOOK_SHIM above needed a PATH workaround
+      // because Claude invokes ITS shell commands via a bare `sh -c` with a
+      // stripped PATH — `true` is only guaranteed to resolve if `/usr/bin`
+      // (or wherever it lives) is on that PATH, while `:` is a POSIX
+      // "special builtin" every conforming shell must implement with no
+      // external binary lookup, so it can't fail to resolve. Per Claude
+      // Code's docs (Troubleshooting: "Scripts that exit with non-zero
+      // codes or produce no output cause the status line to go blank"), a
+      // no-output command leaves the row blank rather than erroring — this
+      // is documented as the failure-mode behavior, not a formal "disable"
+      // API, so it's correct by observation rather than by contract. The
+      // row itself still reserves its line and the footer's keyboard-hint
+      // text (`esc to interrupt`, `? for shortcuts`, `hold space to speak`)
+      // still collapses the way it does for any configured `statusLine` —
+      // that's a real, documented side effect of setting this key at all,
+      // not something an empty command avoids.
+      ...(this.hideStatusline ? { statusLine: { type: 'command', command: ':' } } : {})
     };
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
     return settingsPath;
+  }
+
+  /** Set from `appSettings.hideClaudeStatusline` at boot and on every
+   *  settings save (main/index.ts) — read by the next `prepareSession` call,
+   *  so it only affects sessions spawned/respawned after the toggle changes
+   *  (existing ptys keep whatever they launched with, per spec). */
+  setHideStatusline(hide: boolean): void {
+    this.hideStatusline = hide;
   }
 
   /** Best-effort teardown of a session's generated settings file. */
