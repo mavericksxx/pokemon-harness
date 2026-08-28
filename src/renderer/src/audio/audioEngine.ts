@@ -397,6 +397,10 @@ export function playerTogglePause(): void {
     cancelPlayerTimer();
   } else {
     currentMusic.play();
+    // Covers the "started a track while already paused" case (crossfadeToTrack
+    // skips its fade-in then, leaving volume at the Howl's initial 0) as well
+    // as the normal case, where this is a same-value no-op.
+    currentMusic.volume(musicGain());
     if (currentMusicMode === 'player') {
       const durationS = currentMusic.duration();
       const posS = (currentMusic.seek() as number) || 0;
