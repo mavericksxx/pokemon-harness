@@ -18,6 +18,7 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
 import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/workspaceTypes';
+import type { UpdateCheckResult } from '../shared/updateTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -162,7 +163,22 @@ const api = {
     return () => ipcRenderer.removeListener('app:quitRequested', listener);
   },
   /** "kill it & quit" — bypasses the sunset ritual, quits immediately. */
-  forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit')
+  forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit'),
+
+  // ─── App version + updates (ship-cut item 4) ───────────────────────────
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),
+  /** Settings panel's "check now" — resolves either way, including a
+   *  "you're already up to date" (`available: false`) result. */
+  checkForUpdateNow: (): Promise<UpdateCheckResult | null> => ipcRenderer.invoke('update:checkNow'),
+  /** Fires only when the background 24h/launch check (main/index.ts's
+   *  `scheduleUpdateChecks`) actually finds something newer — never for a
+   *  "no update" result, which stays silent by design. */
+  onUpdateAvailable: (cb: (result: UpdateCheckResult) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, result: UpdateCheckResult): void => cb(result);
+    ipcRenderer.on('update:available', listener);
+    return () => ipcRenderer.removeListener('update:available', listener);
+  }
 };
 
 export type HarnessApi = typeof api;

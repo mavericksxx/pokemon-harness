@@ -18,6 +18,7 @@ import { PROVIDER_LIST } from '@shared/agentProvider';
 import type { ThemeMode } from '@shared/appSettingsTypes';
 import { applyTheme } from '@/design/tokens';
 import { resolveEffectiveTheme } from '@/design/theme';
+import { showUpdateToast } from '@/updateNotifier';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
  *  item 1) — the ones with a verified `autoModeArgs` in agentProvider.ts. */
@@ -74,6 +75,29 @@ export function SettingsPanel(): JSX.Element {
   // renderer-side equivalent of main's ptyManager-backed count without a new
   // IPC round trip just for a label.
   const liveSessionCount = useStore((s) => s.sessions.filter((sess) => sess.status !== 'done').length);
+
+  // Tier-1 update check (ship-cut item 4) — "check now" row. `appVersion`
+  // fetched once on open rather than kept live: it can't change during a
+  // running process. `checkStatus` is purely this row's own local feedback
+  // (idle/checking/result text) — a found update ALSO fires the shared
+  // toast (showUpdateToast, same one main's background check triggers), so
+  // clicking "check now" and finding something newer looks identical to the
+  // passive 24h check finding it, just on demand.
+  const [appVersion, setAppVersion] = useState('');
+  const [checkStatus, setCheckStatus] = useState<'idle' | 'checking' | 'up to date' | 'checked — offline?'>('idle');
+  useEffect(() => {
+    void window.api.getAppVersion().then(setAppVersion);
+  }, []);
+  const checkForUpdateNow = async (): Promise<void> => {
+    setCheckStatus('checking');
+    const result = await window.api.checkForUpdateNow();
+    if (result?.available) {
+      showUpdateToast(result);
+      setCheckStatus('idle');
+    } else {
+      setCheckStatus(result ? 'up to date' : 'checked — offline?');
+    }
+  };
 
   const onTheme = (mode: ThemeMode): void => {
     setTheme(mode);
@@ -367,6 +391,19 @@ export function SettingsPanel(): JSX.Element {
           <button type="button" onClick={() => startClosingTime()}>
             wrap up &amp; quit <span className="hint">⌘⇧Q</span>
           </button>
+        </section>
+
+        <section className="settings-section">
+          <h3>about</h3>
+          <div className="row settings-version-row">
+            <span>pokéharness {appVersion && `v${appVersion}`}</span>
+            <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
+              {checkStatus === 'checking' ? 'checking…' : 'check now'}
+            </button>
+          </div>
+          {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
+            <p className="hint">{checkStatus}</p>
+          )}
         </section>
       </aside>
     </>

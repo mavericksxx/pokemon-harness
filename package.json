@@ -19,7 +19,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "gen:icon": "node build/icon/gen-icon.mjs",
-    "dist": "npm run build && electron-builder --mac"
+    "dist": "npm run build && electron-builder --mac",
+    "release": "node tools/release.cjs"
   },
   "build": {
     "appId": "dev.mavericksxx.pokeharness",

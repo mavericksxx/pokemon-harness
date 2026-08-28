@@ -1646,6 +1646,14 @@ button.icon:active {
   gap: 6px;
 }
 
+/* ── About / update check (ship-cut item 4) ──────────────────────────────── */
+.settings-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .harness-home-row input {
   flex: 1;
   min-width: 0;

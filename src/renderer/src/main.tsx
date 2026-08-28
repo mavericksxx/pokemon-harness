@@ -24,6 +24,7 @@ import { useWorkspaceStore } from './store/workspaceStore';
 import { applyTheme } from './design/tokens';
 import { resolveEffectiveTheme, watchSystemTheme } from './design/theme';
 import { startQuitInterceptListener } from './closingTime';
+import { startUpdateCheckListener } from './updateNotifier';
 import './index.css';
 
 // Design tokens (Phase 8 §2) — stamped onto :root before anything paints, so
@@ -37,6 +38,10 @@ applyTheme('dark');
 // Quit-intercept dialog (parity sweep item 2) — independent of boot()'s
 // async recovery work, same as initAudio() below.
 startQuitInterceptListener();
+
+// Tier-1 update check (ship-cut item 4) — same independent-of-boot()
+// wiring as the quit-intercept listener above.
+startUpdateCheckListener();
 
 // Independent of the garden scene's own mount/unmount — the speaker popover
 // works even before/without it (see audioEngine.ts's initAudio doc comment).

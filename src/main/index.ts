@@ -16,6 +16,7 @@ import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureArceusSystemPrompt } from './arceusPrompt';
 import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
+import { checkForUpdate } from './updateCheck';
 import type {
   DiskRestoreInfo,
   LazySpriteMeta,
@@ -29,6 +30,7 @@ import type { AudioSettings } from '../shared/audioTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
+import type { UpdateCheckResult } from '../shared/updateTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -448,6 +450,30 @@ let diskRestorePromise: Promise<DiskRestoreInfo> = Promise.resolve({ count: 0, n
  *  re-toast the same launch-time restore. */
 let diskRestoreConsumed = false;
 
+// ─── Tier-1 update check (ship-cut item 4) ─────────────────────────────────
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** Runs one check and, only when it finds something actually newer, pushes
+ *  it to the renderer for the update toast — never pushes a "no update"
+ *  result (the Settings panel's own "check now" round-trip, below, is the
+ *  only path that ever sees a negative result). Errors are already
+ *  swallowed inside `checkForUpdate` itself; this has nothing further to
+ *  catch. */
+async function runBackgroundUpdateCheck(): Promise<void> {
+  const result = await checkForUpdate();
+  if (!result?.available) return;
+  const wc = mainWindow?.webContents;
+  if (wc && !wc.isDestroyed()) wc.send('update:available', result);
+}
+
+/** Once at launch, then every 24h for as long as the app stays open — no
+ *  persisted "next check due" timestamp, so a relaunch always re-checks
+ *  immediately (cheap: it's one conditional GET, 304 on no change). */
+function scheduleUpdateChecks(): void {
+  void runBackgroundUpdateCheck();
+  setInterval(() => void runBackgroundUpdateCheck(), UPDATE_CHECK_INTERVAL_MS);
+}
+
 app.whenReady().then(async () => {
   // Independent of any live claude session — the socket must be up before the
   // first spawn (and before any manual shim verification) ever happens.
@@ -463,6 +489,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(resolveWindowBg(appSettings.theme));
   });
+  scheduleUpdateChecks();
 });
 
 app.on('window-all-closed', () => {
@@ -724,6 +751,15 @@ ipcMain.handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
 // Phase 8.5 Wave B item 3 §3 — the "plain shell" provider's actual command:
 // the user's own interactive shell, which only main can read off $SHELL.
 ipcMain.handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
+
+// ─── App version + updates (ship-cut item 4) ───────────────────────────────
+ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('app:openExternal', (_e, url: string) => shell.openExternal(url));
+// Settings panel's "check now" — unlike the background 24h check
+// (`scheduleUpdateChecks`), this reports its result either way (including
+// "you're up to date"), since a user who clicked the button is owed an
+// answer, not silence.
+ipcMain.handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
 
 // ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
 ipcMain.handle('terminal:getSettings', () => loadTerminalSettings());
