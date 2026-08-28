@@ -21,7 +21,7 @@ import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
 import { clearBattleFx, spawnShinySparkle } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
-import { ArceusAscent } from '@/components/ArceusAscent';
+import { ArceusWarp } from '@/components/ArceusWarp';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
@@ -66,13 +66,14 @@ export function GardenScene(): JSX.Element {
   // imperative Pixi: this is the one piece of UI actually in the React tree
   // (see the JSX return below).
   const [ritualActive, setRitualActive] = useState(false);
-  // The cosmos ascent (Phase 8.8 §4) — active exactly when Arceus is the
+  // The cosmos warp — active (target = cosmos) exactly when Arceus is the
   // selected session. A pure derived value (no lifecycle to manage, unlike
   // `ritualActive` above), so it reads straight off the store rather than
   // being toggled from inside the imperative Pixi effect below — that
-  // effect never needs to know about it at all: it's a CSS transform on
-  // this component's own JSX, entirely separate from the simulation
-  // running underneath (which keeps going, unaffected, while ascended).
+  // effect never needs to know about it at all: the warp is entirely owned
+  // by ArceusWarp.tsx's own JSX/inline styles, separate from the
+  // simulation running underneath (which keeps going, unaffected, while
+  // the garden host is warped away).
   const ascended = useStore((s) => s.selectedId === ARCEUS_SESSION_ID);
 
   useEffect(() => {
@@ -614,13 +615,12 @@ export function GardenScene(): JSX.Element {
   }, []);
 
   // The map is the game screen; this pane is its console shell. `.garden-mat`
-  // is the lifted bezel (margin + border); `.garden-ascent-frame` is its
-  // clipped interior (Phase 8.8 §4 — `.garden` (the Pixi host) plus
-  // `ArceusAscent`'s two layers are three stacked full-size panes;
-  // ArceusAscent.tsx drives all three's transform/opacity directly via a
-  // single JS progress value, not a CSS class, so the three-phase liftoff/
-  // rush/arrival sequence can reverse mid-flight — the simulation inside
-  // `.garden` keeps running the whole time it's off-screen).
+  // is the lifted bezel (margin + border); `.garden-warp-frame` is its
+  // clipped interior — `.garden` (the Pixi host) plus `ArceusWarp`'s layers
+  // are stacked full-size panes; ArceusWarp.tsx drives them all via a
+  // single JS progress value, not a CSS class, so the warp can reverse
+  // mid-flight — the simulation inside `.garden` keeps running the whole
+  // time it's warped away.
   // `.garden-frame-shadow` is a plain absolutely-positioned sibling of the
   // canvas (appended imperatively, below) — being positioned, it always
   // paints above the non-positioned canvas regardless of DOM order, which is
@@ -628,11 +628,11 @@ export function GardenScene(): JSX.Element {
   // painted underneath it.
   return (
     <div className="garden-mat">
-      <div className="garden-ascent-frame">
+      <div className="garden-warp-frame">
         <div className="garden" ref={hostRef}>
           <div className="garden-frame-shadow" />
         </div>
-        <ArceusAscent hostRef={hostRef} ascended={ascended} />
+        <ArceusWarp hostRef={hostRef} ascended={ascended} />
       </div>
       <div className={ritualActive ? 'garden-sunset-overlay active' : 'garden-sunset-overlay'} aria-hidden="true" />
     </div>

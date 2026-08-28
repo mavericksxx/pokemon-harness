@@ -513,20 +513,18 @@ button.icon:active {
   opacity: 1;
 }
 
-/* Arceus's cosmos ascent (Phase 8.8 §4) — `.garden-ascent-frame` is
- * `.garden`'s OLD flex:1 slot in `.garden-mat`, now just a clipped
- * viewport holding THREE stacked full-size layers: `.garden` (the Pixi
- * canvas host, unchanged simulation underneath), `.garden-rush` (the sky
- * transit — speed lines + color ramp), and `.garden-cosmos` (nebula +
- * Arceus). ArceusAscent.tsx drives all three directly via a single
- * continuous JS `progress` value (0=garden, 1=cosmos) rather than a CSS
- * class + `transition` — that's what makes the three-phase liftoff/rush/
- * arrival sequence interruptible mid-flight (a `transition` retargeting
- * mid-flight still only knows two endpoints; a per-frame progress value
- * can reverse from wherever it actually is). Base positioning only lives
- * here; `transform`/`opacity`/`background` are all set inline by that
- * component, every frame during a transition. */
-.garden-ascent-frame {
+/* Arceus's cosmos warp — `.garden-warp-frame` is `.garden`'s OLD flex:1
+ * slot in `.garden-mat`, now a clipped viewport holding stacked full-size
+ * layers: `.garden` (the Pixi canvas host, unchanged simulation
+ * underneath), `.garden-cosmos` (nebula + Arceus), and the warp burst/
+ * flash (below). ArceusWarp.tsx drives all of it via a single continuous
+ * JS `progress` value (0=garden, 1=cosmos) rather than a CSS class +
+ * `transition` — that's what makes the warp INTERRUPTIBLE mid-flight (a
+ * `transition` retargeting mid-flight still only knows two endpoints; a
+ * per-frame progress value can reverse from wherever it actually is). Base
+ * positioning only lives here; `transform`/`opacity`/`background-image`
+ * are all set inline by that component, every frame during a transition. */
+.garden-warp-frame {
   flex: 1;
   min-width: 0;
   position: relative;
@@ -551,115 +549,35 @@ button.icon:active {
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
 }
 
-/* The rush phase — a full-pane sky transit. Its own opacity/background are
- * both set inline (ArceusAscent.tsx); this is just the streak children's
- * static layout + their perpetual (always-running, cheap) fall animation —
- * only the LAYER's opacity toggles what's actually visible. */
-.garden-rush {
+/* The warp-streak burst (warpStreaks.ts) — a single canvas-rasterized
+ * radial sprite (chunky pixel rays, never a CSS gradient), animated with
+ * nothing but `transform: scale` + `opacity` (ArceusWarp.tsx, every frame
+ * during a transition): shrinks toward a point approaching the midpoint
+ * flash, then grows back out, so the SAME sprite serves both the converge
+ * and diverge halves. */
+.garden-warp-streaks {
   position: absolute;
   inset: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* Fixed px travel (not %) — a percentage `translateY` resolves against the
- * STREAK's own (small) height, not the pane's, so it wouldn't reliably
- * cross a real pane's height. -140px start clears comfortably above any
- * garden pane this app ships at; 1400px of travel comfortably clears below
- * the tallest reasonable one too. */
-.garden-rush-streak {
-  position: absolute;
-  top: -140px;
-  width: 2px;
-  background: #ffffff;
-  animation-name: streak-fall;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-}
-
-@keyframes streak-fall {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(1400px);
-  }
-}
-
-/* Puff shape (Phase 8.8 §4, style-matched to a user-supplied cumulus
- * reference — generated procedurally, never copied/traced from it; see
- * scene/garden/clouds.ts) — shared by the rush-phase whipping puffs AND the
- * arrival cloud bank. Each puff gets its own `background-image` (a small
- * canvas of overlapping domes rasterized to a data URL) stretched to the
- * element's own box; `pixelated` is what turns that low-res source into
- * chunky stair-stepped blocks instead of a smooth curve at this size. Two
- * tones only, baked into the sprite itself (white body, pale violet-grey
- * undersides/creases) — no outline. */
-.puff-shape {
-  position: absolute;
   background-repeat: no-repeat;
-  background-size: 100% 100%;
+  background-size: cover;
+  background-position: center;
   image-rendering: pixelated;
-}
-
-/* Rush-phase whipping puffs — same "static layout, JS only toggles the
- * layer's opacity" shape as `.garden-rush` above; each puff's OWN fall
- * motion is a perpetual (always-running, cheap) CSS animation. */
-.garden-rush-clouds {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
   opacity: 0;
-  pointer-events: none;
-}
-
-.garden-rush-puff {
-  top: -160px;
-  animation-name: puff-fall;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-}
-
-/* Same fixed-px-travel reasoning as streak-fall — clouds are bigger/slower
- * but travel the same real distance. */
-@keyframes puff-fall {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(1550px);
-  }
-}
-
-/* The arrival reveal (Phase 8.8 §4, reworked per design feedback — "sky
- * opening around him," not two panels sliding shut). Many individual
- * puffs (COVER_PUFFS, ArceusAscent.tsx) covering the pane as one bank;
- * each is positioned here as a fixed seat (left%/top%, centered via
- * negative margin) and gets its OWN opacity/transform every frame from
- * `applyStyles`'s per-puff center-out stagger — nothing here times the
- * reveal itself. Sits ABOVE `.garden-cosmos` in the DOM (later = on top),
- * genuinely occluding the (already fully loaded) nebula/Arceus
- * underneath, not an opacity trick. */
-.garden-cloud-cover {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
   pointer-events: none;
   z-index: 1;
 }
 
-/* Depth tones (COVER_PUFFS' `tone`) — further-back puffs read dimmer/
- * cooler, same "layered depth" idea as the rush-phase foreground/
- * background puff mix. Only `filter` here, never `opacity` — that's owned
- * entirely by the per-frame JS (ArceusAscent.tsx), which would win the
- * cascade anyway (inline style over stylesheet) but this keeps the two
- * concerns from ever looking like they're fighting. */
-.garden-cloud-cover-puff.dim {
-  filter: brightness(0.9);
-}
-.garden-cloud-cover-puff.mid {
-  filter: brightness(0.96);
+/* The midpoint flash — a plain flat fill (no gradient), opacity spiked
+ * only right around the swap (ArceusWarp.tsx's `applyStyles`), which is
+ * also exactly when `.garden`/`.garden-cosmos` swap visibility: this is
+ * what hides that swap from ever being seen. */
+.garden-warp-flash {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
 }
 
 /* Home is the cosmos, above the garden. Same dark indigo in both themes,
@@ -689,7 +607,7 @@ button.icon:active {
 
 /* Arceus's own figure — no ring/halo (dropped per design feedback: the
  * PLATE ON HIS BODY is the type indicator, not a scene glow — see
- * ArceusAscent.tsx's forme cycling, which swaps the displayed sprite
+ * ArceusWarp.tsx's forme cycling, which swaps the displayed sprite
  * between Showdown's per-type gen5ani formes). Stars are baked into the
  * nebula texture itself now (nebula.ts) — no separate CSS starfield layer. */
 .garden-cosmos-figure {
@@ -703,11 +621,12 @@ button.icon:active {
   animation: arceus-bob 2600ms ease-in-out infinite;
 }
 
-/* Two stacked slots (ArceusAscent.tsx) crossfading via `transition:
- * opacity` — a plain CSS transition is fine here (unlike the ascent's own
- * three-phase progress, this is a simple two-state toggle with nothing to
- * interrupt mid-curve); retargeting mid-fade still reverses smoothly from
- * wherever it currently is. 200ms: a swap, not a slow dissolve. Only ever
+/* Two stacked slots (ArceusWarp.tsx) crossfading via `transition:
+ * opacity` — a plain CSS transition is fine here (unlike the warp's own
+ * progress-driven burst/flash, this is a simple two-state toggle with
+ * nothing to interrupt mid-curve); retargeting mid-fade still reverses
+ * smoothly from wherever it currently is. 200ms: a swap, not a slow
+ * dissolve. Only ever
  * gets a `background-image` once a forme's thumbnail has actually
  * resolved — see this file's header on why that matters. */
 .garden-cosmos-forme {
@@ -1773,7 +1692,7 @@ textarea,
  * interpolation, ~30s loop, animating the `--plate-color` custom property
  * `.roster-card.alpha` reads via `var(--plate-color, ...)`. The cosmos
  * view itself has no glow/ring (dropped per design feedback — see
- * ArceusAscent.tsx's forme-cycling comment); the type indicator there is
+ * ArceusWarp.tsx's forme-cycling comment); the type indicator there is
  * the plate ON HIS SPRITE instead. The last stop repeats the first color
  * so the loop has no visible seam. */
 @keyframes arceus-ring-cycle {
