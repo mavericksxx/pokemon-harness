@@ -2,6 +2,7 @@
 import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest, SessionStatus } from '@shared/types';
 import { useStore } from '@/store/store';
+import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf } from '@/scene/garden/dexData';
@@ -58,11 +59,16 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     });
     sessionAdded = true;
 
+    // Auto-permission-mode (parity sweep item 1) — appended only when the
+    // dialog's per-session override is on AND the provider actually exposes
+    // an autonomous mode (agentProvider.ts's `autoModeArgs`); everything else
+    // spawns exactly as before this setting existed.
+    const autoArgs = req.autoMode ? (preset.autoModeArgs ?? []) : [];
     const res = await window.api.spawnPty({
       id,
       cwd: req.cwd,
       command,
-      args: buildProviderArgs(req.provider, req.model),
+      args: [...buildProviderArgs(req.provider, req.model), ...autoArgs],
       env: preset.env,
       cols: 100,
       rows: 30,
@@ -71,6 +77,11 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
 
     if (!res.ok) throw new Error(res.error ?? 'Failed to start session.');
     useStore.getState().updateSession(id, { status: 'idle', cwd: res.cwd ?? req.cwd });
+    // Recent-folders quick-pick (parity sweep item 6) — recorded only on a
+    // CONFIRMED spawn, and `res.cwd` (the tilde-expanded path main actually
+    // spawned into), not the raw dialog text, so `~/foo` and its expansion
+    // don't accumulate as two separate entries.
+    useAppSettingsStore.getState().addRecentFolder(res.cwd ?? req.cwd);
   } catch (err) {
     // A failed spawn must not leave a stale store entry or a ghost tab: undo the
     // terminal and the store entry together rather than surfacing the failure as

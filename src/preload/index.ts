@@ -16,6 +16,7 @@ import type { HookEvent } from '../shared/hookEvents';
 import type { AudioSettings } from '../shared/audioTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
+import type { AppSettings } from '../shared/appSettingsTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -118,7 +119,25 @@ const api = {
     ipcRenderer.invoke('audio:prefetchTrack', id),
   cancelMusicPrefetch: (): Promise<void> => ipcRenderer.invoke('audio:cancelPrefetch'),
   getMusicCacheStatus: (): Promise<{ bytes: number; cap: number; headroom: number }> =>
-    ipcRenderer.invoke('audio:cacheStatus')
+    ipcRenderer.invoke('audio:cacheStatus'),
+
+  // ─── General app settings (parity sweep: theme, auto-permission mode,
+  // keep-awake, recent folders) — same get/save shape as audio settings above.
+  getAppSettings: (): Promise<AppSettings> => ipcRenderer.invoke('appSettings:getSettings'),
+  saveAppSettings: (settings: AppSettings): Promise<void> =>
+    ipcRenderer.invoke('appSettings:saveSettings', settings),
+
+  // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────
+  /** Fires when main prevented a close/quit because sessions are still live
+   *  — `count` is the number of live sessions, main's own authoritative
+   *  count (ptyManager.list().length), not recomputed renderer-side. */
+  onQuitRequested: (cb: (count: number) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, count: number): void => cb(count);
+    ipcRenderer.on('app:quitRequested', listener);
+    return () => ipcRenderer.removeListener('app:quitRequested', listener);
+  },
+  /** "kill it & quit" — bypasses the sunset ritual, quits immediately. */
+  forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit')
 };
 
 export type HarnessApi = typeof api;

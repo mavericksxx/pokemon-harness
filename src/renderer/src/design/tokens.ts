@@ -15,10 +15,12 @@
  * rebuild for the three-font stack (Press Start 2P / Inter / JetBrains
  * Mono — see fonts.css).
  *
- * Mirrored onto `:root` as CSS custom properties by `applyTokens()` (called
- * once from `main.tsx` at boot) so existing class-based CSS in `index.css`
- * keeps working unchanged — components don't need to switch to inline
- * styles from this module.
+ * Mirrored onto `:root` as CSS custom properties by `applyTheme()` (called
+ * once from `main.tsx` at boot, with dark defaults, then again once the
+ * persisted theme setting resolves — parity sweep item 3 added a light
+ * theme, see `groundLight`/`inkLight`/etc. below and `design/theme.ts`) so
+ * existing class-based CSS in `index.css` keeps working unchanged —
+ * components don't need to switch to inline styles from this module.
  */
 
 /** Ground/surface ramp — munder-difflin tokens.css dark theme: `--cth-cream-*`
@@ -75,6 +77,76 @@ export const gold = '#E8B740';
 /** The app's primary accent. Was `accent.sky` (a placeholder pending the
  *  spec); now the user-approved brand gold. */
 export const primaryAccent = gold;
+
+/** Text painted ON an accent fill (a primary button, a selected chip). The
+ *  accents are light, saturated surfaces in BOTH themes (see `groundLight`
+ *  below), so this is the SAME dark value in both — munder-difflin's own
+ *  `--cth-on-accent` (light+dark theme, unchanged) uses the same logic:
+ *  using the theme's own ink-900 here would invert with the theme and paint
+ *  near-white text on a pale-gold button in light mode. */
+export const onAccent = '#1A1320';
+
+// ─── Light theme (parity sweep item 3) ─────────────────────────────────────
+// munder-difflin tokens.css's base `:root` block (the LIGHT theme — their
+// dark theme is the override) — same mapping as the dark constants above:
+// ground[0..200] <- cream-50/100/200, ground[300] <- ink-300 (border),
+// ground.terminal <- paper-100, ground.disabled <- cream-300, ink[300] <-
+// ink-100 (dividers). See ATTRIBUTION.md.
+
+export const groundLight = {
+  0: '#FFFDF5', // cream-50 (light) — app background, garden letterbox
+  100: '#FFF8E7', // cream-100 (light) — panel fill
+  200: '#F4E9C7', // cream-200 (light) — raised/inset fill
+  300: '#A899B5', // ink-300 (light) — hairline borders
+  terminal: '#FCFAF0', // paper-100 (light)
+  disabled: '#E8D9A0' // cream-300 (light)
+} as const;
+
+export const inkLight = {
+  900: '#1A1320',
+  700: '#3D2E4A',
+  500: '#6B5878',
+  300: '#D9CFE0' // ink-100 (light) — subtle dividers only
+} as const;
+
+export const accentLight = {
+  coral: '#D96A62',
+  mint: '#5CA97A',
+  sky: '#4F9FAF',
+  lemon: '#DCAB3C',
+  lilac: '#9482D3',
+  peach: '#D99168'
+} as const;
+
+/** Light-theme primary accent. Per the parity sweep's explicit instruction:
+ *  use munder-difflin's light-theme lemon value (their tokens.css has no
+ *  separate "brand gold" token at all — `gold` above was this app's own
+ *  user-approved pick, split from their dark lemon). Disclosed caveat: this
+ *  measures ~2.30:1 against `groundLight[0]` (vs. the dark gold's ~1.83:1 in
+ *  the same slot) — neither clears the 3:1 floor as flat text on the palest
+ *  ground; it's used mostly as a fill (with `onAccent` on top) or a border/
+ *  focus-ring accent, where the relevant contrast is against the surrounding
+ *  panel, not pure white-ish cream. Kept as the spec's literal value rather
+ *  than hand-darkened, per the instruction. */
+export const goldLight = accentLight.lemon;
+export const primaryAccentLight = goldLight;
+
+export const statusLight = {
+  starting: '#A199AB', // their light status-idle, used as-is (no WCAG relighten pass — see statusLight's header note)
+  idle: '#4F9FAF', // their light status-thinking
+  working: '#DCAB3C', // their light status-working
+  blocked: '#D96A62', // their light status-blocked
+  done: '#5CA97A' // their light status-success
+} as const;
+
+export const dangerLight = accentLight.coral;
+export const dangerBorderLight = '#F3D3CD'; // their light coral-light fill
+
+export const shinyLight = accentLight.lemon;
+
+/** Hard shadow, light theme — their tokens.css light value (softer than the
+ *  dark theme's, same "reads as depth, not void" intent). */
+export const shadowHardLight = '3px 3px 0 rgba(26, 19, 32, 0.14)';
 
 /** Status semantics — munder-difflin `--cth-status-*` dark theme, mapped
  *  onto this app's five `SessionStatus` values by closest meaning (their set
@@ -176,45 +248,61 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/** Effective theme, after resolving a 'system' setting against the OS
+ *  preference — see design/theme.ts's `resolveEffectiveTheme`. */
+export type EffectiveTheme = 'light' | 'dark';
+
 /** Convert the token modules above into a flat CSS custom-property map and
  *  stamp it onto `document.documentElement`, so `index.css`'s existing
- *  `var(--x)` references resolve to these values. Idempotent; safe to call
- *  more than once (e.g. hot reload). */
-export function applyTokens(): void {
+ *  `var(--x)` references resolve to these values — picking the light or
+ *  dark set per `mode`. Idempotent; safe to call more than once (hot reload,
+ *  a theme-setting change, a live macOS-appearance change while the setting
+ *  is 'system'). Called once from `main.tsx` before the first paint (with
+ *  the dark defaults, so nothing ever renders with an unset custom
+ *  property), then again once the persisted theme setting resolves. */
+export function applyTheme(mode: EffectiveTheme): void {
+  const dark = mode === 'dark';
+  const g = dark ? ground : groundLight;
+  const i = dark ? ink : inkLight;
+  const a = dark ? accent : accentLight;
+  const s = dark ? status : statusLight;
+
   const root = document.documentElement.style;
-  root.setProperty('--bg', ground[0]);
-  root.setProperty('--panel', ground[100]);
-  root.setProperty('--panel-2', ground[200]);
-  root.setProperty('--bg-terminal', ground.terminal);
-  root.setProperty('--disabled', ground.disabled);
-  root.setProperty('--line', ground[300]);
-  root.setProperty('--text', ink[900]);
-  root.setProperty('--text-secondary', ink[700]);
-  root.setProperty('--muted', ink[500]);
-  root.setProperty('--muted-dim', ink[300]);
-  root.setProperty('--accent', primaryAccent);
-  root.setProperty('--gold', gold);
-  root.setProperty('--danger', danger);
-  root.setProperty('--danger-border', dangerBorder);
-  root.setProperty('--shiny', shiny);
+  root.setProperty('color-scheme', mode);
+  root.setProperty('--bg', g[0]);
+  root.setProperty('--panel', g[100]);
+  root.setProperty('--panel-2', g[200]);
+  root.setProperty('--bg-terminal', g.terminal);
+  root.setProperty('--disabled', g.disabled);
+  root.setProperty('--line', g[300]);
+  root.setProperty('--text', i[900]);
+  root.setProperty('--text-secondary', i[700]);
+  root.setProperty('--muted', i[500]);
+  root.setProperty('--muted-dim', i[300]);
+  root.setProperty('--accent', dark ? primaryAccent : primaryAccentLight);
+  root.setProperty('--gold', dark ? gold : goldLight);
+  root.setProperty('--on-accent', onAccent);
+  root.setProperty('--danger', dark ? danger : dangerLight);
+  root.setProperty('--danger-border', dark ? dangerBorder : dangerBorderLight);
+  root.setProperty('--shiny', dark ? shiny : shinyLight);
 
-  root.setProperty('--accent-coral', accent.coral);
-  root.setProperty('--accent-mint', accent.mint);
-  root.setProperty('--accent-sky', accent.sky);
-  root.setProperty('--accent-lemon', accent.lemon);
-  root.setProperty('--accent-lilac', accent.lilac);
-  root.setProperty('--accent-peach', accent.peach);
+  root.setProperty('--accent-coral', a.coral);
+  root.setProperty('--accent-mint', a.mint);
+  root.setProperty('--accent-sky', a.sky);
+  root.setProperty('--accent-lemon', a.lemon);
+  root.setProperty('--accent-lilac', a.lilac);
+  root.setProperty('--accent-peach', a.peach);
 
-  root.setProperty('--status-idle', status.idle);
-  root.setProperty('--status-working', status.working);
-  root.setProperty('--status-blocked', status.blocked);
-  root.setProperty('--status-done', status.done);
-  root.setProperty('--status-starting', status.starting);
-  root.setProperty('--status-idle-bg', hexToRgba(status.idle, 0.2));
-  root.setProperty('--status-working-bg', hexToRgba(status.working, 0.2));
-  root.setProperty('--status-blocked-bg', hexToRgba(status.blocked, 0.2));
-  root.setProperty('--status-done-bg', hexToRgba(status.done, 0.2));
-  root.setProperty('--status-starting-bg', hexToRgba(status.starting, 0.2));
+  root.setProperty('--status-idle', s.idle);
+  root.setProperty('--status-working', s.working);
+  root.setProperty('--status-blocked', s.blocked);
+  root.setProperty('--status-done', s.done);
+  root.setProperty('--status-starting', s.starting);
+  root.setProperty('--status-idle-bg', hexToRgba(s.idle, 0.2));
+  root.setProperty('--status-working-bg', hexToRgba(s.working, 0.2));
+  root.setProperty('--status-blocked-bg', hexToRgba(s.blocked, 0.2));
+  root.setProperty('--status-done-bg', hexToRgba(s.done, 0.2));
+  root.setProperty('--status-starting-bg', hexToRgba(s.starting, 0.2));
 
   for (const [k, v] of Object.entries(space)) root.setProperty(`--space-${k}`, `${v}px`);
 
@@ -222,7 +310,7 @@ export function applyTokens(): void {
   root.setProperty('--radius-md', `${radius.md}px`);
   root.setProperty('--radius-lg', `${radius.lg}px`);
 
-  root.setProperty('--shadow-hard', shadowHard);
+  root.setProperty('--shadow-hard', dark ? shadowHard : shadowHardLight);
 
   root.setProperty('--font-display', font.display);
   root.setProperty('--font-ui', font.ui);

@@ -52,6 +52,12 @@ export interface NewSessionRequest {
    *  actually hatches at that line's stage 1; defaults to a free line at
    *  random when omitted. */
   pokemon?: string;
+  /** Per-session override of the provider's auto-permission-mode setting
+   *  (parity sweep item 1) — when true and the provider defines
+   *  `autoModeArgs` (agentProvider.ts), those args are appended to the spawn.
+   *  Absent/false spawns with no permission-mode flag, same as before this
+   *  setting existed. */
+  autoMode?: boolean;
 }
 
 /** Front or back sprite sheet, for the lazy (unbundled-species) sprite cache. */

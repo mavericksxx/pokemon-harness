@@ -9,6 +9,7 @@ import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { QuickMute } from '@/components/QuickMute';
 import { SettingsPanel } from '@/components/SettingsPanel';
+import { QuitDialog } from '@/components/QuitDialog';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
@@ -131,6 +132,7 @@ export function App(): JSX.Element {
       {dialogOpen && <NewSessionDialog onClose={() => setDialogOpen(false)} />}
       <SessionsOverview />
       <SettingsPanel />
+      <QuitDialog />
       <Toasts />
       <BootWipe />
     </div>

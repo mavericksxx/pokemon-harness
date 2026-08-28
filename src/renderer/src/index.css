@@ -22,6 +22,9 @@
   --muted-dim: #3e3d46;
   --accent: #e8b740; /* brand gold — "yellow Pokedex shell" */
   --gold: #e8b740;
+  /* Text painted ON an accent fill — same value in both themes, see
+   * design/tokens.ts's `onAccent` for why. */
+  --on-accent: #1a1320;
   --danger: #e08c82;
   --danger-border: #3b2724;
   --shiny: #cfaa57;
@@ -277,13 +280,16 @@ button:disabled:active {
   transform: none;
 }
 
-/* Primary fill: dark text (--bg) on the brand-gold accent — gold is a light,
- * saturated surface in this dark theme, so dark text is the readable pairing
- * (munder-difflin's own --cth-on-accent uses the same logic). */
+/* Primary fill: dark text (--on-accent) on the brand-gold accent — gold is a
+ * light, saturated surface in BOTH themes, so dark text is always the
+ * readable pairing (munder-difflin's own --cth-on-accent uses the same
+ * logic, unchanged across their light/dark themes — see tokens.ts). Was
+ * `var(--bg)`, which only happened to work in the dark theme (`--bg` is
+ * cream in light theme, which would pair cream text on a lemon fill). */
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--bg);
+  color: var(--on-accent);
 }
 
 button.danger {
@@ -650,6 +656,23 @@ button.icon:active {
   flex: 1;
 }
 
+/* Auto-permission-mode per-session override (parity sweep item 1) — checkbox
+ * + label text on one row, the "off: ..." sub-line wrapping full-width below
+ * it, indented to align under the label text rather than the checkbox. */
+.modal label.new-session-auto-mode {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: var(--font-body-md-size);
+}
+
+.new-session-auto-mode .hint {
+  flex-basis: 100%;
+  margin-left: 20px;
+}
+
 .hint {
   opacity: 0.6;
 }
@@ -663,6 +686,17 @@ button.icon:active {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ── Quit-intercept dialog (parity sweep item 2) ─────────────────────────── */
+.quit-dialog-count {
+  margin: 0;
+  font-size: var(--font-body-lg-size);
+  color: var(--accent);
+}
+
+.quit-dialog-actions {
+  justify-content: space-between;
 }
 
 .error {
@@ -682,6 +716,46 @@ button.icon:active {
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
+}
+
+/* Auto-mode / keep-awake toggle rows (parity sweep items 1/4) — checkbox +
+ * label text on one row, the "off: ..." sub-line wrapping full-width below
+ * it, indented to align under the label text. Same shape as `.audio-row
+ * .audio-row-master` but as one class (these aren't paired with a volume
+ * slider, so there's no need for the two-class split that row uses). */
+.settings-auto-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.settings-auto-row:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.settings-auto-row .hint {
+  flex-basis: 100%;
+  margin-left: 20px;
+}
+
+/* ── Theme picker (parity sweep item 3) ──────────────────────────────────── */
+.theme-picker {
+  display: flex;
+  gap: 12px;
+}
+
+.theme-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  text-transform: capitalize;
 }
 
 .audio-toggle {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId } from '@shared/agentProvider';
 import { startSession } from '@/sessions';
 import { useStore } from '@/store/store';
+import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { pickFreeLine, POKEMON_ROSTER } from '@/scene/garden/showdownArt';
 import { baseStageOf, chainLabel, searchDex, speciesEntry, type DexEntry } from '@/scene/garden/dexData';
 import { PokemonFace } from './PokemonFace';
@@ -31,6 +32,12 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const appSettings = useAppSettingsStore((s) => s.settings);
+  // Per-session override of the provider's auto-permission-mode setting
+  // (parity sweep item 1) — defaults to whatever the Settings panel has for
+  // THIS provider, editable per session from here.
+  const [autoMode, setAutoMode] = useState(() => appSettings.autoModeByProvider[DEFAULT_PROVIDER] ?? false);
+  const recentFolders = useAppSettingsStore((s) => s.settings.recentFolders);
 
   // Empty query: the bundled 42 need no network and cover most of the fun
   // evolution lines already, so they stay the default listing. Non-empty:
@@ -62,6 +69,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     } else {
       setCommand(AGENT_PROVIDERS[id].defaultCommand);
     }
+    setAutoMode(appSettings.autoModeByProvider[id] ?? false);
   };
 
   const submit = async (e: React.FormEvent): Promise<void> => {
@@ -83,7 +91,8 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         command,
         model: model.trim() || undefined,
         title,
-        pokemon
+        pokemon,
+        autoMode
       });
       onClose();
     } catch (err) {
@@ -116,17 +125,34 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
               onChange={(e) => setCwd(e.target.value)}
               placeholder="~/Developer/my-project"
               spellCheck={false}
+              list="recent-folders"
             />
             <button type="button" onClick={pickFolder}>
               Browse…
             </button>
           </div>
+          {/* Recent-repos quick-pick (parity sweep item 6) — a native
+              datalist combo: typeable like before, with the last ~10 working
+              directories offered as suggestions, newest first. */}
+          <datalist id="recent-folders">
+            {recentFolders.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
         </label>
 
         <label>
           Command
           <input value={command} onChange={(e) => setCommand(e.target.value)} spellCheck={false} />
         </label>
+
+        {AGENT_PROVIDERS[provider].autoModeArgs && (
+          <label className="new-session-auto-mode">
+            <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} />
+            auto mode — agents act without asking first
+            <span className="hint">off: agents pause for your approval in the terminal</span>
+          </label>
+        )}
 
         {AGENT_PROVIDERS[provider].supportsModel && (
           <label>

@@ -62,3 +62,22 @@ function fadeAudioThenQuit(): void {
     }
   }, FADE_MS / FADE_STEPS);
 }
+
+/**
+ * Quit-intercept dialog (parity sweep item 2) — main asks the renderer to
+ * show the "N agents still running" dialog whenever a close/quit was
+ * prevented because sessions are live (see main/index.ts's `close` and
+ * `before-quit` guards). Call once, at boot.
+ *
+ * Ignores the request while the sunset ritual is already running: main's
+ * guard can't see the ritual's in-flight state, so a Cmd+Q pressed mid-
+ * ritual would otherwise pop this dialog OVER the sunset overlay — the
+ * ritual is already headed for a confirmed quit (`app:quit`, which sets
+ * `quitConfirmed` main-side) and doesn't need a second confirmation.
+ */
+export function startQuitInterceptListener(): void {
+  window.api.onQuitRequested((count) => {
+    if (isClosingTimeActive()) return;
+    useStore.getState().setQuitDialogOpen(true, count);
+  });
+}

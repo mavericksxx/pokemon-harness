@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, Notification, powerSaveBlocker, shell } from 'electron';
 import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
@@ -7,6 +7,7 @@ import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
 import { loadAudioSettings, saveAudioSettings } from './audioSettings';
+import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
 import { respawnSession } from './sessionRespawn';
 import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
@@ -20,6 +21,7 @@ import type {
   SpriteView
 } from '../shared/types';
 import type { AudioSettings } from '../shared/audioTypes';
+import type { AppSettings } from '../shared/appSettingsTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
@@ -32,6 +34,22 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
+
+// ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
+// Set once a quit is CONFIRMED — either the sunset ritual's own final quit
+// (the `app:quit` handler below, which the ritual is the only caller of) or
+// the quit dialog's "kill it & quit" action (`app:forceQuit`). While false,
+// both a window close and an app quit are intercepted whenever a session is
+// still live, and the renderer is asked to show the quit dialog instead.
+let quitConfirmed = false;
+function hasLiveSessions(): boolean {
+  return ptyManager.list().length > 0;
+}
+function requestQuitConfirmation(): void {
+  const wc = mainWindow?.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  wc.send('app:quitRequested', ptyManager.list().length);
+}
 // Phase 8.5 Wave B item 1 — registered off every hook payload's own
 // `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
 // of any one hook event.
@@ -41,8 +59,42 @@ const hookBridge = new HookBridge(
   () => mainWindow?.webContents ?? null,
   (agentId, transcriptPath) => costWatcher.onHookPayload(agentId, transcriptPath)
 );
-const ptyManager = new PtyManager(hookBridge);
+const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
+
+// ─── Keep-awake (parity sweep item 4) ──────────────────────────────────────
+// Holds a powerSaveBlocker while the setting is ON and at least one session
+// is live; releases it the moment either condition stops holding. Driven off
+// ptyManager's own live-session count (PtyManager's `onSessionsChanged`
+// callback above, plus the setting-change path in `appSettings:saveSettings`
+// below) — not the renderer's session list, which also contains 'done'
+// sessions whose PTY has already exited.
+let keepAwakeEnabled = false;
+let keepAwakeBlockerId: number | null = null;
+function syncKeepAwake(): void {
+  const shouldHold = keepAwakeEnabled && ptyManager.list().length > 0;
+  if (shouldHold) {
+    if (keepAwakeBlockerId === null || !powerSaveBlocker.isStarted(keepAwakeBlockerId)) {
+      keepAwakeBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    }
+  } else if (keepAwakeBlockerId !== null) {
+    if (powerSaveBlocker.isStarted(keepAwakeBlockerId)) powerSaveBlocker.stop(keepAwakeBlockerId);
+    keepAwakeBlockerId = null;
+  }
+}
+
+// Dark ground[0] / light groundLight[0] (design/tokens.ts) — the window's
+// `backgroundColor` paints before the renderer does, so (like the existing
+// dark-only value this replaces) it has to track those values by hand rather
+// than reading them. Resolved against the persisted theme setting (falling
+// back to the OS preference for 'system') right before window creation, so
+// a light-theme user never sees a dark flash on launch.
+const WINDOW_BG_DARK = '#17171b';
+const WINDOW_BG_LIGHT = '#fffdf5';
+function resolveWindowBg(theme: AppSettings['theme']): string {
+  const dark = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors);
+  return dark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT;
+}
 
 /** Load (or reload, after a crash) the app's page. A fresh navigation, not
  *  `webContents.reload()`: testing an induced crash (CDP's `Page.crash()`)
@@ -203,17 +255,14 @@ async function restoreFromDisk(): Promise<DiskRestoreInfo> {
   return { count: restored.length, notes };
 }
 
-function createWindow(): void {
+function createWindow(backgroundColor: string): void {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     title: 'Pokemon Harness',
-    // Matches design/tokens.ts's `ground[0]` / index.css's `--bg` (Phase 8
-    // §2) — this paints before the renderer does, so it has to track that
-    // value by hand rather than reading it.
-    backgroundColor: '#17171b',
+    backgroundColor,
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {
@@ -235,6 +284,18 @@ function createWindow(): void {
   win.on('ready-to-show', () => win.show());
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
+  });
+
+  // The macOS traffic-light close button fires `close` directly WITHOUT
+  // `before-quit` firing first (that only happens for Cmd+Q / Dock quit /
+  // app menu Quit — see the `before-quit` handler below) — on darwin,
+  // closing the app's one window doesn't quit the app at all
+  // (`window-all-closed` only calls `app.quit()` on non-darwin). Both entry
+  // points need their own guard.
+  win.on('close', (e) => {
+    if (quitConfirmed || !hasLiveSessions()) return;
+    e.preventDefault();
+    requestQuitConfirmation();
   });
 
   // Never navigate the shell away from the app; open external links in the OS browser.
@@ -307,16 +368,18 @@ let diskRestorePromise: Promise<DiskRestoreInfo> = Promise.resolve({ count: 0, n
  *  re-toast the same launch-time restore. */
 let diskRestoreConsumed = false;
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Independent of any live claude session — the socket must be up before the
   // first spawn (and before any manual shim verification) ever happens.
   hookBridge.ensureFiles();
   hookBridge.start();
   costWatcher.start();
-  createWindow();
+  const appSettings = await loadAppSettings();
+  keepAwakeEnabled = appSettings.keepAwake;
+  createWindow(resolveWindowBg(appSettings.theme));
   diskRestorePromise = restoreFromDisk();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(resolveWindowBg(appSettings.theme));
   });
 });
 
@@ -328,7 +391,17 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // Cmd+Q / Dock quit / app-menu Quit — see the window's own `close` handler
+  // in createWindow() for the OTHER entry point (the traffic-light button),
+  // which this does not cover. Never fires a second dialog while the sunset
+  // ritual itself is mid-flight: the ritual's own final quit routes through
+  // the `app:quit` handler below, which sets `quitConfirmed` first.
+  if (!quitConfirmed && hasLiveSessions()) {
+    e.preventDefault();
+    requestQuitConfirmation();
+    return;
+  }
   sessionPersistence.flush();
   ptyManager.killAll();
   hookBridge.stop();
@@ -431,6 +504,15 @@ ipcMain.handle('audio:prefetchTrack', (_e, id: string) => prefetchTrack(id));
 ipcMain.handle('audio:cancelPrefetch', () => cancelPrefetch());
 ipcMain.handle('audio:cacheStatus', () => getCacheStatus());
 
+// ─── General app settings (parity sweep: theme, auto-permission mode,
+// keep-awake, recent folders) — same rationale as audio settings above.
+ipcMain.handle('appSettings:getSettings', () => loadAppSettings());
+ipcMain.handle('appSettings:saveSettings', (_e, settings: AppSettings) => {
+  keepAwakeEnabled = settings.keepAwake;
+  syncKeepAwake();
+  return saveAppSettings(settings);
+});
+
 // ─── Config ─────────────────────────────────────────────────────────────────
 // The renderer is sandboxed and cannot reliably read process.env itself; main
 // definitely can. Lets POKE_EVOLVE_SECONDS accelerate evolution for demos/tests.
@@ -462,8 +544,23 @@ ipcMain.handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: st
 // Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called once the
 // renderer's own walk/wave/toast/audio-fade sequence finishes (see
 // src/renderer/src/closingTime.ts). `before-quit` (above) already kills
-// every PTY and stops the hook/cost-watcher servers.
-ipcMain.handle('app:quit', () => app.quit());
+// every PTY and stops the hook/cost-watcher servers. This is always a
+// CONFIRMED quit (the ritual is its only caller) — sets `quitConfirmed`
+// first so it passes through the quit-intercept guard uninterrupted, even if
+// sessions are still technically live (the ritual doesn't itself kill them;
+// `before-quit`'s existing `ptyManager.killAll()` does).
+ipcMain.handle('app:quit', () => {
+  quitConfirmed = true;
+  app.quit();
+});
+
+// "kill it & quit" — the quit dialog's destructive action (parity sweep item
+// 2). Bypasses the sunset ritual entirely; `before-quit`'s existing flush +
+// killAll still runs.
+ipcMain.handle('app:forceQuit', () => {
+  quitConfirmed = true;
+  app.quit();
+});
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:chooseFolder', async () => {

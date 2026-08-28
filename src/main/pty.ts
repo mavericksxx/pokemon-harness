@@ -47,8 +47,15 @@ export class PtyManager {
   private webContents: WebContents | null = null;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
-   *  it's absent. */
-  constructor(private hookBridge?: HookBridge) {}
+   *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
+   *  change to the live-session count (spawn, kill, natural exit) — the
+   *  keep-awake powerSaveBlocker's only signal for "is a session still
+   *  live"; optional so callers that don't care about keep-awake are
+   *  unaffected. */
+  constructor(
+    private hookBridge?: HookBridge,
+    private onSessionsChanged?: () => void
+  ) {}
 
   attachWebContents(wc: WebContents): void {
     this.webContents = wc;
@@ -126,6 +133,7 @@ export class PtyManager {
         replay: ''
       };
       this.sessions.set(opts.id, session);
+      this.onSessionsChanged?.();
 
       proc.onData((data) => {
         if (this.sessions.get(opts.id) !== session) return;
@@ -137,6 +145,7 @@ export class PtyManager {
       proc.onExit(({ exitCode, signal }) => {
         if (this.sessions.get(opts.id) !== session) return;
         this.sessions.delete(opts.id);
+        this.onSessionsChanged?.();
         this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal });
       });
 
@@ -174,6 +183,7 @@ export class PtyManager {
     // Delete BEFORE killing: onExit fires asynchronously and its identity guard
     // then correctly treats the dying process as stale.
     this.sessions.delete(id);
+    this.onSessionsChanged?.();
     this.hookBridge?.cleanupSession(id, hookTmpDir());
     try {
       s.proc.kill();

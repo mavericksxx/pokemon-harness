@@ -19,13 +19,23 @@ import {
 } from './audio/audioEngine';
 import { useAudioStore } from './audio/audioStore';
 import { useTerminalSettingsStore } from './terminal/terminalSettingsStore';
-import { applyTokens } from './design/tokens';
+import { useAppSettingsStore } from './store/appSettingsStore';
+import { applyTheme } from './design/tokens';
+import { resolveEffectiveTheme, watchSystemTheme } from './design/theme';
+import { startQuitInterceptListener } from './closingTime';
 import './index.css';
 
 // Design tokens (Phase 8 §2) — stamped onto :root before anything paints, so
 // index.css's existing var(--x) rules never render with unset custom
-// properties even for a single frame.
-applyTokens();
+// properties even for a single frame. Dark defaults here (matching the
+// CSS's own `:root` fallback block); boot() below re-applies the real,
+// persisted theme (parity sweep item 3) once it's resolved, before the
+// first React render — see that call's own comment.
+applyTheme('dark');
+
+// Quit-intercept dialog (parity sweep item 2) — independent of boot()'s
+// async recovery work, same as initAudio() below.
+startQuitInterceptListener();
 
 // Independent of the garden scene's own mount/unmount — the speaker popover
 // works even before/without it (see audioEngine.ts's initAudio doc comment).
@@ -112,15 +122,28 @@ async function boot(): Promise<void> {
     // just after.
     const fontsReady = document.fonts.load(`14px "JetBrains Mono"`);
 
-    const [crashInfo, { sessions: restored, selectedId }, diskRestoreInfo] = await Promise.all([
+    const [crashInfo, { sessions: restored, selectedId }, diskRestoreInfo, appSettings] = await Promise.all([
       window.api.getCrashInfo(),
       window.api.restoreSessions(),
       // Non-null exactly once, on the launch that respawned disk-persisted
       // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
       // a same-process renderer reload; this is a fresh app launch).
-      window.api.getDiskRestoreInfo()
+      window.api.getDiskRestoreInfo(),
+      // Parity sweep: theme / auto-permission-mode / keep-awake / recent
+      // folders. Resolved and applied BEFORE the first render (below) so
+      // nothing paints with the dark default for a light-theme user — same
+      // rationale main's own window `backgroundColor` pre-paint fix follows
+      // (main/index.ts's `resolveWindowBg`).
+      window.api.getAppSettings()
     ]);
     await fontsReady;
+
+    useAppSettingsStore.getState().hydrate(appSettings);
+    applyTheme(resolveEffectiveTheme(appSettings.theme));
+    // Only matters while the setting is 'system' (the watcher itself checks
+    // this on every OS appearance change) — started unconditionally so a
+    // later in-session switch TO 'system' is covered without a restart.
+    watchSystemTheme(() => useAppSettingsStore.getState().settings.theme);
 
     if (restored.length > 0) {
       for (const { session, replay } of restored) createTerminal(session.id, session.provider, replay);
