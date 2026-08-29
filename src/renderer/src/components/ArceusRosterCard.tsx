@@ -4,6 +4,7 @@ import { arceusIsLive, autoSummonArceus, selectArceus } from '@/arceus';
 import { ARCEUS_DEX_ID, ARCEUS_SESSION_ID, ARCEUS_TITLE } from '@shared/arceus';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { StarIcon } from '@/components/icons';
+import { gaugeTone } from '@/design/gaugeTone';
 
 /**
  * Arceus's own permanent card in the bottom roster strip — unlike every
@@ -22,6 +23,15 @@ import { StarIcon } from '@/components/icons';
  * points the user at that chip via a toast (same toast mechanism
  * SummonArceusButton already uses for its own 'failed' outcome). That keeps
  * this card cheap and dumb, matching the "presentation only" ask.
+ *
+ * Garden-split roster-strip rework — Arceus only ever renders here (neither
+ * FocusSidebar nor SessionsOverview render him at all, both filter him out
+ * of their own session lists), so unlike AgentRosterCard/SubagentRosterCard
+ * there's no 'full' size to preserve elsewhere: this card IS the compact
+ * ceremonial card now, permanently, no variant prop needed. Sized ~1.3× an
+ * ordinary compact card (`.roster-card-wrap-arceus`, index.css) — narrower
+ * than the old shipped 220px card, but still wider than a plain session so
+ * the gold frame reads as ceremonial, not cramped.
  */
 export function ArceusRosterCard(): JSX.Element {
   const session = useStore((s) => s.sessions.find((x) => x.id === ARCEUS_SESSION_ID));
@@ -40,36 +50,52 @@ export function ArceusRosterCard(): JSX.Element {
     });
   };
 
-  const classes = ['roster-card', 'roster-card-arceus', selected && 'selected'].filter(Boolean).join(' ');
+  const classes = ['roster-card', 'roster-card-arceus', 'roster-card-compact', selected && 'selected']
+    .filter(Boolean)
+    .join(' ');
+
+  // Same context sliver an ordinary compact card shows — Arceus is a real
+  // claude session under the hood, so `session.cost` populates the same way.
+  // Always rendered (0% width when there's no cost yet, e.g. never summoned)
+  // rather than conditionally mounted, matching the compact-card discipline
+  // elsewhere in this strip: a fixed shape means the strip's shared band
+  // height never has to account for a shorter Arceus card.
+  const cost = session?.cost;
+  const contextPct = cost ? Math.round(Math.min(1, cost.contextTokens / cost.contextWindow) * 100) : 0;
+  const contextTone = gaugeTone(contextPct);
 
   return (
-    <div className="roster-card-wrap">
+    <div className="roster-card-wrap roster-card-wrap-arceus">
       <button
         type="button"
         className={classes}
         onClick={onClick}
         title={live && session ? `select arceus — ${sessionStatusLabel(session)}` : 'summon arceus'}
       >
-        <div className="roster-card-top">
+        <div className="roster-card-top-compact">
           <span className="roster-card-face">
-            <PokemonFace name={ARCEUS_DEX_ID} box={32} />
+            <PokemonFace name={ARCEUS_DEX_ID} box={18} />
           </span>
-          <span className="roster-card-id">
-            <span className="roster-card-name">
-              {/* Ceremonial-plaque star (parity sweep item 6) — beside the
-                  name, not on the sprite/frame, so it reads as part of his
-                  title rather than another badge competing with the shiny
-                  star or trainer-card corner trigger. */}
-              <StarIcon className="roster-card-arceus-star" aria-hidden="true" />
-              {ARCEUS_TITLE.toLowerCase()}
-            </span>
+          <span className="roster-card-title-compact">
+            {/* Ceremonial-plaque star (parity sweep item 6) — beside the
+                name, not on the sprite/frame, so it reads as part of his
+                title rather than another badge competing with the shiny
+                star or trainer-card corner trigger. */}
+            <StarIcon className="roster-card-arceus-star" aria-hidden="true" />
+            {ARCEUS_TITLE.toLowerCase()}
           </span>
           {live && session && (
             <span
-              className={session.napping ? 'summon-arceus-dot napping' : `summon-arceus-dot ${session.status}`}
+              className={session.napping ? 'roster-card-dot napping' : `roster-card-dot ${session.status}`}
               aria-hidden="true"
             />
           )}
+        </div>
+        <div className="hp-bar roster-card-ctx-sliver">
+          <div
+            className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
+            style={{ width: `${contextPct}%` }}
+          />
         </div>
       </button>
     </div>

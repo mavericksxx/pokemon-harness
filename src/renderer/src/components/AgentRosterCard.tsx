@@ -21,6 +21,16 @@ interface Props {
   session: Session;
   selected: boolean;
   onSelect: (id: string) => void;
+  /** Garden-split roster-strip rework — a card's SIZE, not a different
+   *  component: FocusSidebar's vertical list and SessionsOverview's grid
+   *  never pass this (default 'full', today's card unchanged, every row
+   *  intact). RosterStrip.tsx is the only caller that ever passes
+   *  'compact'/'medium' — 'compact' for every unselected card (sprite,
+   *  truncated title, status dot, thin context sliver — nothing else),
+   *  'medium' for the currently selected one (adds a "provider · species"
+   *  line and a model-badge/context row, but deliberately NOT the live tool
+   *  line or the "working…" status pill — user decision, see BACKLOG). */
+  variant?: 'full' | 'compact' | 'medium';
 }
 
 /** `undefined` when the session's current species has no further evolution
@@ -35,7 +45,7 @@ function evolutionHint(session: Session): { pct: number; label: string } | undef
   return { pct: Math.min(1, session.workedMs / threshold), label: 'next evolution' };
 }
 
-export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Element {
+export function AgentRosterCard({ session, selected, onSelect, variant = 'full' }: Props): JSX.Element {
   // "Change pokemon" (roster card affordance) — not offered for Arceus, who
   // is fixed. Opens the same full-dex picker NewSessionDialog uses;
   // picking an option applies immediately (swapSessionPokemon) and closes.
@@ -63,7 +73,18 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
   const contextPct = cost ? Math.round(Math.min(1, cost.contextTokens / cost.contextWindow) * 100) : 0;
   const contextTone = gaugeTone(contextPct);
 
-  const classes = ['roster-card', selected && 'selected'].filter(Boolean).join(' ');
+  const classes = ['roster-card', variant !== 'full' && `roster-card-${variant}`, selected && 'selected']
+    .filter(Boolean)
+    .join(' ');
+  // Width lives on the WRAP (`.roster-strip .roster-card-wrap` below), not
+  // the button — 'compact' is that selector's own default (every unselected
+  // strip card), so only 'medium' needs an override class here. 'full'
+  // (FocusSidebar/SessionsOverview) never mounts inside `.roster-strip` at
+  // all, so neither class ever applies there — same DOM as before this prop
+  // existed.
+  const wrapClasses = ['roster-card-wrap', variant === 'medium' && 'roster-card-wrap-medium']
+    .filter(Boolean)
+    .join(' ');
 
   return (
     // Wrapper, not the card `<button>` itself, owns the swap button and its
@@ -73,89 +94,181 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
     // fixed` descendant, which would break the swap dialog's backdrop).
     // (Arceus never renders here — RosterStrip/SessionsOverview filter him
     // out; his one home is the topbar chip.)
-    <div className="roster-card-wrap">
+    <div className={wrapClasses}>
       <button
         className={classes}
         style={{ borderLeftColor: `#${session.accent.toString(16).padStart(6, '0')}` }}
         onClick={() => onSelect(session.id)}
         title={`${session.command} — ${session.cwd}`}
       >
-        <div className="roster-card-top">
-          <span className="roster-card-face">
-            <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
-            {session.shiny && (
-              <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
-                ★
+        {variant === 'compact' && (
+          <>
+            {/* Compact strip card (garden-split roster-strip rework) —
+                sprite, truncated title, a status dot, and a thin context
+                sliver. Provider/species/tool line/model badge/status pill
+                all move to the medium card (selection) or the trainer
+                popover (one click away, unchanged). */}
+            <div className="roster-card-top-compact">
+              <span className="roster-card-face">
+                <PokemonFace name={session.pokemon} shiny={session.shiny} box={18} />
+                {session.shiny && (
+                  <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
+                    ★
+                  </span>
+                )}
               </span>
-            )}
-          </span>
-          <span className="roster-card-id">
-            <span className="roster-card-name">{session.title}</span>
-            <span className="roster-card-provider">{providerLabel}</span>
-            {/* Phase C item 1: `entry.name` lowercased, not the raw dex id —
-                ~42 species (Ho-Oh, Mr. Mime, Flabébé, Tapu Koko...) have a
-                punctuation-stripped id that reads wrong on its own (hooh,
-                mrmime). Reads off `session.pokemon` (same field PokemonFace/
-                evolutionHint above use), so it updates on its own when the
-                session evolves or gets swapped, no extra state. */}
-            <span className="roster-card-species">
-              {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
-            </span>
-          </span>
-          {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
-              `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
-              the label because it's the one that needs the user's eyes. */}
-          <em className={session.napping ? 'status napping' : `status ${session.status}`}>
-            {session.looping ? (
-              <>
-                <LoopIcon className="status-loop-icon" /> looping
-              </>
-            ) : (
-              sessionStatusLabel(session)
-            )}
-          </em>
-        </div>
+              <span className="roster-card-title-compact">{session.title}</span>
+              <span
+                className={session.napping ? 'roster-card-dot napping' : `roster-card-dot ${session.status}`}
+                aria-hidden="true"
+              />
+            </div>
+            <div className="hp-bar roster-card-ctx-sliver">
+              <div
+                className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
+                style={{ width: `${cost ? contextPct : 0}%` }}
+              />
+            </div>
+          </>
+        )}
 
-        {/* Strip height jitter fix (parity sweep item 1) — every row below is
-            now ALWAYS mounted (never conditionally omitted), so a card's own
-            natural height is fixed from its very first render instead of
-            growing/shrinking as `toolText`/`hint`/`cost` arrive or clear
-            later. `.roster-card-row-hidden` (index.css) just hides the
-            content via `visibility: hidden`, which keeps the row's layout
-            box (and therefore the card's height) exactly as if it were
-            populated — the whole point being that late data FILLS reserved
-            space instead of ADDING new space, which is what was reflowing
-            the strip (`.roster-strip`'s `align-items: stretch` re-stretches
-            every card to match whichever one just grew). */}
-        <div className={toolText ? 'roster-card-tool' : 'roster-card-tool roster-card-row-hidden'}>
-          {toolText || ' '}
-        </div>
+        {variant === 'medium' && (
+          <>
+            {/* Medium strip card (selection expands, garden-split rework) —
+                the approved hybrid: three rows, deliberately NOT the old
+                full card below. Row 1 sprite+name+dot; row 2 one muted
+                "provider · species" line; row 3 model badge + a smaller
+                context bar + N%. The live tool line and the "working…" pill
+                are excluded (user decision) — the terminal panel's own head
+                already names the selected session and streams its live
+                activity right next to this strip, so this card doesn't need
+                to repeat either. */}
+            <div className="roster-card-top-compact">
+              <span className="roster-card-face">
+                <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
+                {session.shiny && (
+                  <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
+                    ★
+                  </span>
+                )}
+              </span>
+              <span className="roster-card-title-compact">{session.title}</span>
+              <span
+                className={session.napping ? 'roster-card-dot napping' : `roster-card-dot ${session.status}`}
+                aria-hidden="true"
+              />
+            </div>
+            <div className="roster-card-meta-line">
+              {providerLabel} · {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
+            </div>
+            {/* Same height-jitter discipline as the full card below — this
+                row is always mounted, badge/bar/label individually masked
+                via `roster-card-row-hidden` (visibility, not display) until
+                their own data arrives, so late telemetry fills reserved
+                space instead of growing the card. */}
+            <div className="roster-card-row3-medium">
+              {cost?.model ? (
+                <ModelBadge model={cost.model} changedFrom={session.modelChangedFrom} />
+              ) : (
+                <span className="model-badge roster-card-row-hidden">&nbsp;</span>
+              )}
+              <div
+                className={
+                  cost ? 'hp-bar roster-card-ctx-sliver-md' : 'hp-bar roster-card-ctx-sliver-md roster-card-row-hidden'
+                }
+              >
+                <div
+                  className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
+                  style={{ width: `${cost ? contextPct : 0}%` }}
+                />
+              </div>
+              <span className={cost ? 'roster-card-ctx-label' : 'roster-card-ctx-label roster-card-row-hidden'}>
+                {cost ? `${contextPct}%` : ' '}
+              </span>
+            </div>
+          </>
+        )}
 
-        <div className={hint ? 'roster-card-evo' : 'roster-card-evo roster-card-row-hidden'} title={hint?.label}>
-          <div className="roster-card-evo-fill" style={{ width: `${hint ? Math.round(hint.pct * 100) : 0}%` }} />
-        </div>
+        {variant === 'full' && (
+          <>
+            <div className="roster-card-top">
+              <span className="roster-card-face">
+                <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
+                {session.shiny && (
+                  <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
+                    ★
+                  </span>
+                )}
+              </span>
+              <span className="roster-card-id">
+                <span className="roster-card-name">{session.title}</span>
+                <span className="roster-card-provider">{providerLabel}</span>
+                {/* Phase C item 1: `entry.name` lowercased, not the raw dex id —
+                    ~42 species (Ho-Oh, Mr. Mime, Flabébé, Tapu Koko...) have a
+                    punctuation-stripped id that reads wrong on its own (hooh,
+                    mrmime). Reads off `session.pokemon` (same field PokemonFace/
+                    evolutionHint above use), so it updates on its own when the
+                    session evolves or gets swapped, no extra state. */}
+                <span className="roster-card-species">
+                  {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
+                </span>
+              </span>
+              {/* Phase 8.5: `looping` and `napping` are flags orthogonal to
+                  `status` (see loopDetector.ts / sessionLabel.ts) — looping wins
+                  the label because it's the one that needs the user's eyes. */}
+              <em className={session.napping ? 'status napping' : `status ${session.status}`}>
+                {session.looping ? (
+                  <>
+                    <LoopIcon className="status-loop-icon" /> looping
+                  </>
+                ) : (
+                  sessionStatusLabel(session)
+                )}
+              </em>
+            </div>
 
-        <div className={cost?.model ? 'roster-card-badges' : 'roster-card-badges roster-card-row-hidden'}>
-          {cost?.model ? (
-            <ModelBadge model={cost.model} changedFrom={session.modelChangedFrom} />
-          ) : (
-            // Placeholder sized exactly like a real ModelBadge (same class,
-            // same font/padding/border) so the row reserves the badge's own
-            // height rather than collapsing to 0 with no child at all.
-            <span className="model-badge">&nbsp;</span>
-          )}
-        </div>
+            {/* Strip height jitter fix (parity sweep item 1) — every row below is
+                now ALWAYS mounted (never conditionally omitted), so a card's own
+                natural height is fixed from its very first render instead of
+                growing/shrinking as `toolText`/`hint`/`cost` arrive or clear
+                later. `.roster-card-row-hidden` (index.css) just hides the
+                content via `visibility: hidden`, which keeps the row's layout
+                box (and therefore the card's height) exactly as if it were
+                populated — the whole point being that late data FILLS reserved
+                space instead of ADDING new space, which is what was reflowing
+                the strip (`.roster-strip`'s `align-items: stretch` re-stretches
+                every card to match whichever one just grew). */}
+            <div className={toolText ? 'roster-card-tool' : 'roster-card-tool roster-card-row-hidden'}>
+              {toolText || ' '}
+            </div>
 
-        <div className={cost ? 'roster-card-ctx-row' : 'roster-card-ctx-row roster-card-row-hidden'}>
-          <span className="roster-card-ctx-label">context</span>
-          <div className="hp-bar">
-            <div
-              className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-              style={{ width: `${cost ? contextPct : 0}%` }}
-            />
-          </div>
-          <span className="roster-card-ctx-label">{cost ? `${contextPct}%` : ' '}</span>
-        </div>
+            <div className={hint ? 'roster-card-evo' : 'roster-card-evo roster-card-row-hidden'} title={hint?.label}>
+              <div className="roster-card-evo-fill" style={{ width: `${hint ? Math.round(hint.pct * 100) : 0}%` }} />
+            </div>
+
+            <div className={cost?.model ? 'roster-card-badges' : 'roster-card-badges roster-card-row-hidden'}>
+              {cost?.model ? (
+                <ModelBadge model={cost.model} changedFrom={session.modelChangedFrom} />
+              ) : (
+                // Placeholder sized exactly like a real ModelBadge (same class,
+                // same font/padding/border) so the row reserves the badge's own
+                // height rather than collapsing to 0 with no child at all.
+                <span className="model-badge">&nbsp;</span>
+              )}
+            </div>
+
+            <div className={cost ? 'roster-card-ctx-row' : 'roster-card-ctx-row roster-card-row-hidden'}>
+              <span className="roster-card-ctx-label">context</span>
+              <div className="hp-bar">
+                <div
+                  className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
+                  style={{ width: `${cost ? contextPct : 0}%` }}
+                />
+              </div>
+              <span className="roster-card-ctx-label">{cost ? `${contextPct}%` : ' '}</span>
+            </div>
+          </>
+        )}
       </button>
 
       {/* Trainer-card popover trigger (session-status feature) — a sibling of
@@ -171,6 +284,12 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
       <button
         type="button"
         className="roster-card-swap"
+        // Compact strip cards shrink this to an icon-only square (font-size:
+        // 0 on the button, index.css) so the label doesn't spill past the
+        // card's edge — `title` keeps "change pokemon" reachable as a hover
+        // tooltip there instead of gone outright (the medium/full pill still
+        // shows it inline as before).
+        title="change pokemon"
         onClick={() => {
           // Re-sync every time the dialog opens, not just on mount — the
           // checkbox below must reflect this session's CURRENT frozen state

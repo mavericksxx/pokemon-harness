@@ -610,9 +610,14 @@ button.icon:active {
 }
 
 /* ── body ────────────────────────────────────────────────────────────────── */
-/* Column: the existing garden/terminal row on top, the roster strip (parity
- * sweep item 5) as a fixed-height band below it — `.body-row` below is the
- * OLD `.body`'s row layout, now nested one level in. */
+/* Garden-split roster-strip rework — `.body` is a plain single-child column
+ * again (`.body-row` fills it entirely); the roster strip that used to live
+ * here as `.body`'s second child (parity sweep item 5's "fixed-height band
+ * below it") now lives INSIDE `.body-row`, under the garden only (see
+ * `.garden-column` below) — that's also what makes the terminal drawer
+ * full-height for free: `.body-row` no longer shares `.body`'s height with
+ * a sibling strip, so it — and every row-flex child stretched to its height,
+ * `.drawer`/`.focus-sidebar` included — now spans `.body`'s full height. */
 .body {
   flex: 1;
   display: flex;
@@ -631,6 +636,23 @@ button.icon:active {
    * viewport regardless (fixed positioning isn't affected by an ancestor's
    * plain `position: relative`, only by a transformed/filtered one). */
   position: relative;
+}
+
+/* Left column of the garden-split layout — garden pane on top, roster strip
+ * directly under it (App.tsx's `.garden-column`, 'garden'/'gardenFull' view
+ * modes only; 'terminal' hides this whole column via inline `display: none`
+ * and uses `.focus-sidebar` instead). `flex: 1; min-width: 0` is `.garden-
+ * mat`'s OLD role as a direct `.body-row` flex child — this wrapper takes
+ * over that job one level up now that `.garden-mat` shares the column with
+ * the strip instead of being `.body-row`'s child directly. `min-height: 0`
+ * for the usual reason (a column flex item's automatic min-height would
+ * otherwise resist shrinking below its content's height). */
+.garden-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* Diorama mat: the garden is the game screen, this is its console shell —
@@ -2280,45 +2302,112 @@ button.icon:active {
   transform: translate(1px, 1px);
 }
 
-/* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5) ──── */
+/* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5;
+ * garden-split rework — strip narrowed to the garden column, cards go
+ * compact by default) ───────────────────────────────────────────────────── */
 /* Horizontal strip replacing the old left sidebar (`.roster-sidebar`) — a
- * fixed-height band under the garden/terminal row, scrolling sideways once
- * cards overflow. "+ new session" sits at the end, not the top bar. */
-.roster-strip {
+ * fixed-height band under the garden pane only now (not the full window
+ * width — see `.garden-column`), scrolling sideways once cards overflow.
+ * "+ new session" sits at the end, not the top bar.
+ *
+ * `.roster-strip-wrap` is the non-scrolling outer box: it owns the panel
+ * chrome (background/border) and is the positioning context for
+ * `.roster-strip-fade`, which has to sit OUTSIDE the actual `overflow-x:
+ * auto` scroller (`.roster-strip` itself) to stay pinned to the right edge
+ * instead of scrolling away with the cards. */
+.roster-strip-wrap {
   flex: none;
+  position: relative;
+  min-width: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.roster-strip {
   display: flex;
   align-items: stretch;
   gap: 8px;
   padding: 8px;
   overflow-x: auto;
   overflow-y: hidden;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
 }
 
+/* Right-edge scroll fade (item 6) — a narrower strip makes overflow the
+ * common case, not the exception, so the "there's more, keep scrolling"
+ * affordance matters more than it did at the old full window width. */
+.roster-strip-fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--panel));
+  pointer-events: none;
+}
+
+/* Compact width (item 2: "roughly half the current [220px] card") is the
+ * DEFAULT here, not a modifier class — any card variant that forgets to opt
+ * into a wider class (`.roster-card-wrap-medium`/`-arceus` below) safely
+ * falls back to compact instead of collapsing to `width: auto` against
+ * `.roster-card`'s own `width: 100%`. Scoped to `.roster-strip` specifically
+ * so FocusSidebar's/SessionsOverview's own `.roster-card-wrap` sizing
+ * (full-width list row / grid cell, untouched) never sees this rule.
+ *
+ * `height: 108px` (NOT `min-height`) is the strip's own deterministic height
+ * floor (parity sweep item 1's fix, recomputed for the trimmed medium card —
+ * the tallest state a card ever reaches now that the old 220px full card no
+ * longer appears in this strip at all):
+ *   16   .roster-card padding (8px top + bottom)
+ * + ~36  row 1 — a `box={32}` PokemonFace is 32px WIDE; its rendered height
+ *        is `(32 / frameWidth) * frameHeight` for a bundled sprite (not
+ *        guaranteed square — some Showdown sheets run taller than wide), so
+ *        this is a generous upper estimate, not the literal 32px box width
+ * +  4   .roster-card's row gap
+ * + 18   row 2 (.roster-card-meta-line) — one text line at the app's
+ *        inherited body line-height (18px; it's a fixed LENGTH set once on
+ *        the body root, so every descendant inherits 18px regardless of its
+ *        own smaller font-size, same as every existing roster-card text row)
+ * +  4   gap
+ * + 20   row 3 — bounded by .model-badge, the tallest element in it (~8px
+ *        Press Start 2P glyph + 8px vertical padding + 2px border, its own
+ *        `line-height: 1` opts out of the inherited 18px above)
+ * = ~98, rounded up to 108 for real headroom (not a margin-of-error
+ * rounding) over row 1's own uncertainty. `height`, not `min-height` — item
+ * 4's actual requirement is that selecting/deselecting a card must NEVER
+ * change the strip's height, and `min-height` only protects against
+ * clipping, not growth: since the medium card is both the tallest variant
+ * AND the one that only exists while something is selected, a `min-height`
+ * a hair too small would grow the strip on selection and shrink it back on
+ * deselect — exactly the reflow this item forbids. A fixed `height` plus
+ * `.roster-card`'s own `height: 100%` makes every variant's wrap exactly
+ * this tall regardless of content, and `.roster-strip`'s `overflow-y:
+ * hidden` is the backstop if this estimate is ever wrong in the other
+ * direction. */
 .roster-strip .roster-card-wrap {
-  width: 220px;
+  width: 110px;
   flex: none;
-  /* Parity sweep item 1 — a deterministic floor for the strip's own height
-   * band (this file's pre-existing "fixed-height band" comment above never
-   * actually had one). Sized for AgentRosterCard's full state — top row,
-   * tool, evolution hint, model badges, context row — now that every one of
-   * those rows is unconditionally mounted (see `.roster-card-row-hidden`
-   * below) rather than popping in/out, so a fully-populated card never
-   * exceeds this floor and `align-items: stretch` never has anything new to
-   * stretch the row to. Belt-and-braces alongside that fix, not a
-   * replacement for it — a shorter card (Arceus, a subagent) just stretches
-   * up to this floor via the strip's existing `align-items: stretch`, same
-   * as it already did against the tallest sibling. `min-height`, not
-   * `height` — an underestimate grows the band once rather than clipping
-   * against `.roster-strip`'s `overflow-y: hidden`. */
-  min-height: 150px;
+  height: 108px;
+}
+
+/* Selected session's card (AgentRosterCard variant="medium") — the one
+ * state that's still meaningfully wider than a compact card, trimmed down
+ * from the old shipped 220px full card since the medium card carries fewer
+ * rows (no tool line, no status pill). */
+.roster-strip .roster-card-wrap-medium {
+  width: 200px;
+}
+
+/* Arceus's ceremonial card (ArceusRosterCard.tsx) — ~1.3× an ordinary
+ * compact card (item 5's own mockup ratio), wide enough for the gold frame
+ * and his title to read as ceremonial rather than cramped. */
+.roster-strip .roster-card-wrap-arceus {
+  width: 143px;
 }
 
 .roster-strip-new {
   flex: none;
   align-self: stretch;
-  width: 140px;
+  width: 110px;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px dashed var(--line);
@@ -2492,6 +2581,162 @@ button.icon:active {
  * session. */
 .roster-card-subagent {
   border-style: dashed;
+}
+
+/* ── Compact/medium roster cards (garden-split roster-strip rework) ────────
+ * `.roster-card-compact` is shared by the ordinary session card, the
+ * subagent card, and Arceus's ceremonial card — every one of them is
+ * stretched by `.roster-card`'s own `height: 100%` to the fixed 108px band
+ * (`.roster-strip .roster-card-wrap`'s own `height`, sized for the taller
+ * medium card), and a compact card's own content is much shorter than that,
+ * so `justify-content:
+ * center` keeps its two rows centered in the taller box instead of pinned
+ * to the top with dead space below (item 4 explicitly wants compacts to
+ * stretch to the band — this is what keeps that look intentional rather
+ * than top-heavy). `.roster-card-medium` needs no layout override of its
+ * own — its three custom rows below (`.roster-card-meta-line`/`-row3-
+ * medium`) already fill the base `.roster-card` shell's default flow. */
+.roster-card-compact {
+  padding: 6px;
+  gap: 4px;
+  justify-content: center;
+}
+
+.roster-card-top-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.roster-card-title-compact {
+  font-size: var(--font-body-sm-size);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Standalone status dot for compact/medium cards — same status-color tokens
+ * `.status::before`/`.summon-arceus-dot` already use, just without either's
+ * badge background/pill text (there's no room for a label at this size; the
+ * color alone is the signal, same idiom the mockup's own compact cards use). */
+.roster-card-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+.roster-card-dot.working {
+  background: var(--status-working);
+}
+.roster-card-dot.blocked {
+  background: var(--status-blocked);
+}
+.roster-card-dot.done {
+  background: var(--status-done);
+}
+.roster-card-dot.idle {
+  background: var(--status-idle);
+}
+.roster-card-dot.starting {
+  background: var(--status-starting);
+}
+.roster-card-dot.napping {
+  background: var(--status-idle);
+}
+
+/* Compact card's context sliver — thinner than the ordinary `.hp-bar`
+ * (padding stripped so the border-box fill isn't squeezed to nothing), full
+ * card width. Reuses `.hp-bar-fill`/its warn/danger modifiers unchanged. */
+.roster-card-ctx-sliver {
+  display: block;
+  width: 100%;
+  height: 4px;
+  padding: 0;
+}
+
+/* Medium card row 2 — one muted "provider · species" line, replacing the
+ * full card's two separate `.roster-card-provider`/`.roster-card-species`
+ * rows. */
+.roster-card-meta-line {
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Medium card row 3 — model badge + a smaller context bar + N%, one row
+ * (the full card keeps these as two separate rows; the medium card merges
+ * them since it's already dropped the tool line and evolution hint that
+ * used to separate them vertically). Same Chromium button/flex quirk
+ * `.roster-card-top`/`.roster-card-tool`/`.roster-card-ctx-row` already
+ * document — needs its own definite width for the bar's `flex: 1` to have
+ * anything real to grow into. */
+.roster-card-row3-medium {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.roster-card-ctx-sliver-md {
+  flex: 1;
+  height: 5px;
+  padding: 0;
+}
+
+/* Subagent compact card's "↳ parent" line — same treatment as the ordinary
+ * card's `.roster-card-species`, just its own class since a subagent's
+ * compact card has no `.roster-card-id` column to nest it in. */
+.roster-card-parent-compact {
+  /* Every other new text row in this section uses a design token
+   * (`--font-body-sm-size`, 12px — the smallest one this app defines); this
+   * is no exception, even though the mockup's own doc sketched a smaller
+   * off-scale 8.5px here — a subagent's compact card already has one more
+   * text row than an ordinary compact card (its "↳ parent" line), and it
+   * only needs to fit within the shared 108px band, not a tighter budget of
+   * its own, so there's no real pressure to introduce a new token-less size
+   * just for this one row. */
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Arceus's ceremonial frame, scaled down for the compact card (item 5:
+ * "scale the double-line frame/corner brackets down cleanly") — smaller
+ * stepped corner brackets and star than the ordinary shipped size, since a
+ * 143px-wide card can't carry the old full card's 8px brackets without them
+ * reading as oversized. */
+.roster-card-arceus.roster-card-compact::before,
+.roster-card-arceus.roster-card-compact::after {
+  width: 6px;
+  height: 6px;
+}
+.roster-card-arceus.roster-card-compact::before {
+  top: -2px;
+  left: -2px;
+}
+.roster-card-arceus.roster-card-compact::after {
+  bottom: -2px;
+  right: -2px;
+}
+.roster-card-compact .roster-card-arceus-star {
+  width: 8px;
+  height: 8px;
+  margin-right: 2px;
 }
 
 .roster-card-top {
@@ -2693,6 +2938,31 @@ button.icon:active {
   transition:
     opacity 90ms steps(2, end),
     transform 90ms steps(2, end);
+}
+
+/* Compact card (garden-split rework, default state for every unselected
+ * strip card) is only 110px wide — the labeled pill above (icon + "change
+ * pokemon" at 12px, ~125px on its own) would spill past the card's edge and
+ * over its neighbor on hover. `font-size: 0` collapses the label's own text
+ * run to zero width without touching the JSX, leaving an icon-only square
+ * closer to the old pre-Phase-C badge size — acceptable here since the card
+ * is already this small everywhere else. The medium card (200px) keeps the
+ * full labeled pill unchanged, same room the old 220px full card always had.
+ * The icon itself needs an explicit px size in the same rule: PixelIcon's
+ * SVGs are `width="1em" height="1em"` (icons.tsx), and an SVG presentation
+ * attribute expressed in `em` resolves against the element's own computed
+ * font-size — zeroing the button's font-size would collapse the icon to 0
+ * too if this didn't override it with a real CSS dimension (CSS always
+ * outranks a presentation attribute). */
+.roster-card-wrap:has(.roster-card-compact) .roster-card-swap {
+  gap: 0;
+  padding: 0;
+  width: 24px;
+  font-size: 0;
+}
+.roster-card-wrap:has(.roster-card-compact) .roster-card-swap svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* Hover OR keyboard focus reveals it — hover alone would leave it
