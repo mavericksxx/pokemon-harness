@@ -553,8 +553,6 @@ export function GardenScene(): JSX.Element {
           map,
           animation,
           startTile: entrance,
-          // Wander around the claimed patch, not the shared gate.
-          homeTile: map.getSpawnPoint(homePatch) ?? entrance,
           accentColor: session.accent,
           label: session.title,
           dimLayer: evolutionDimLayer,
@@ -752,17 +750,22 @@ export function GardenScene(): JSX.Element {
           // napping walker owns its own position the same way — it stays
           // parked until it wakes.
           if (!battleManager.isBattling(session.id) && !walker.isNapping) {
-            const station: StationKind =
-              session.status === 'blocked'
-                ? BLOCKED_STATION
-                : session.status === 'working'
-                  ? session.station
-                  : 'wander';
+            // Free-roam (Phase 8.9): only a blocked session is pinned, to the
+            // signpost, as a deliberate "needs your attention" signal. Every
+            // other status — including working — wanders the whole map, so
+            // `session.station` (still populated by hookRouter/ptyParser for
+            // a possible future per-tool toggle) goes unread here.
+            const station: StationKind = session.status === 'blocked' ? BLOCKED_STATION : 'wander';
 
             if (station !== rt.lastStation) {
               if (station === 'wander') {
                 walker.beginWander();
-                rt.lastStation = station;
+                // beginWander() no-ops while an evolution ceremony owns the
+                // walker (see its own guard) — leave lastStation alone so
+                // this retries once the ceremony ends, same contract as the
+                // failed-goTo branch below, instead of recording a wander
+                // that never actually started.
+                if (!walker.isEvolving) rt.lastStation = station;
               } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
                 rt.lastStation = station;
               }
