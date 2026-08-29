@@ -357,15 +357,15 @@ export function GardenScene(): JSX.Element {
       // walkers alike), built fresh here so a context-loss rebuild
       // (`mountScene` re-running) gets its own new overlay + rim snapshot
       // the same as every other per-mount object above, and torn down by
-      // this generation's own `cleanup` below. Moon pool and gate lamp
-      // anchor on garden.tmj's actual 'pond'/'gate' zones rather than the
-      // day-night recipe's original mock-crop fractions (see
-      // DayNightOverlay.ts's header); the fallbacks below are only for a
-      // future map edit that renames or removes either zone, so the overlay
-      // never silently disappears instead of just landing slightly off.
-      // Sized to `mapWidthPx`/`mapHeightPx` (border-inclusive) rather than
-      // the map's own tile bounds — the border ring gets darkened/vignetted
-      // at night too, so the frame doesn't glow daylight against a night sky.
+      // this generation's own `cleanup` below. The moon pool anchors on
+      // garden.tmj's actual 'pond' zone rather than the day-night recipe's
+      // original mock-crop fraction (see DayNightOverlay.ts's header); the
+      // fallback below is only for a future map edit that renames or
+      // removes that zone, so the pool never silently disappears instead of
+      // just landing slightly off. Sized to `mapWidthPx`/`mapHeightPx`
+      // (border-inclusive) rather than the map's own tile bounds — the
+      // border ring gets darkened/vignetted at night too, so the frame
+      // doesn't glow daylight against a night sky.
       const zoneCenterPx = (zoneName: string, fallback: Point): Point => {
         const zone = map.getZone(zoneName);
         if (!zone) return fallback;
@@ -378,7 +378,13 @@ export function GardenScene(): JSX.Element {
         widthPx: mapWidthPx,
         heightPx: mapHeightPx,
         poolCenter: zoneCenterPx('pond', { x: mapWidthPx * 0.73, y: mapHeightPx * 0.39 }),
-        gateLampCenter: zoneCenterPx('gate', { x: mapWidthPx * 0.4531, y: mapHeightPx * 0.3611 }),
+        // Deliberately NOT snapped to garden.tmj's 'gate' zone (unlike the
+        // pool above): that zone sits bottom-center on this map, and
+        // clustering all 3 lamps into the bottom band would break the
+        // approved composition — the user iterated 4 times on this exact
+        // upper-middle-plus-two-corners layout. Composition fidelity to the
+        // approved mock wins over landmark snapping for this one light.
+        gateLampCenter: { x: mapWidthPx * 0.4531, y: mapHeightPx * 0.3611 },
         staticTiles: map.getContainer(),
         liveLayer: charLayer,
         staticTilesWidthPx: map.width * map.tileSize,

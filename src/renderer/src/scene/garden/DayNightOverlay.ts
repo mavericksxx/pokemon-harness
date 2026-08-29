@@ -6,11 +6,18 @@ import type { Point } from './TiledMapRenderer';
 // finalized in a canvas2D mock (garden-daynight.html, 4 design iterations)
 // before this port — every color/alpha/radius value below is lifted
 // straight from that mock, not re-derived. Two deliberate deviations from
-// the mock, both because the mock painted a small fixed test crop and this
-// overlay paints the REAL garden.tmj map:
-//  1) the moon pool and gate lamp anchor on this map's actual 'pond'/'gate'
-//     zones (GardenScene.tsx reads those and passes pixel centers in) rather
-//     than the mock's fixed fractions of its own crop.
+// the mock:
+//  1) the moon pool anchors on this map's actual 'pond' zone (GardenScene.tsx
+//     reads it and passes the pixel center in) rather than the mock's fixed
+//     fraction of its own smaller test crop — anchoring moonlight to real
+//     water is strictly better than a landmark-blind fraction. The 3 warm
+//     lamps do NOT get the same treatment: they stay at the mock's exact
+//     fractions (including the "gate arch" one) because this map's real
+//     'gate' zone sits bottom-center, and snapping to it would cluster all 3
+//     lamps into the bottom band — breaking the exact upper-middle-plus-two-
+//     corners composition the user iterated on 4 times. Composition fidelity
+//     wins over landmark-snapping for the lamps; it doesn't for the pool,
+//     which landed close to the mock's own position anyway.
 //  2) the sunset wash is a HORIZONTAL gradient (matching the mock's actual
 //     `gradeSunset` code, `createLinearGradient(0,0,w,0)`) even though the
 //     brief accompanying that mock describes it as "vertical" — the mock's
@@ -205,8 +212,10 @@ export interface DayNightOverlayOptions {
    *  garden.tmj's 'pond' zone and passes its pixel center in, rather than
    *  this overlay re-deriving a landmark position of its own. */
   poolCenter: Point;
-  /** Gate-arch lamp position, same coordinate space — garden.tmj's 'gate'
-   *  zone center. */
+  /** Gate-arch lamp position, same coordinate space — the approved mock's
+   *  own fraction (0.4531w, 0.3611h), NOT garden.tmj's 'gate' zone: see this
+   *  file's header comment for why the lamp composition wins over landmark
+   *  snapping here. */
   gateLampCenter: Point;
   /** The map's own root container (TiledMapRenderer.getContainer()), used
    *  once to bake the silver-rim RenderTexture. NOTE: this container's own
