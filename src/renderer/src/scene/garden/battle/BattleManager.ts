@@ -226,6 +226,36 @@ const CORNER_MARGIN = 3;
  *  turn ended" proxy, so there's nothing to guard against. */
 const MIN_ROAM_MS = 15_000;
 
+/** Absolute cap on how long a battler may sit `roaming` before it queues for
+ *  its completion battle unconditionally, ignoring `hasPendingAsyncSubagents`
+ *  entirely — the backstop for two failure modes that neither `MIN_ROAM_MS`/
+ *  `queueEligibleAt` nor `handleEnd`/`handleParentDone` can ever close on
+ *  their own: (1) a subagent that dies without ANY terminal notification
+ *  (e.g. killed by an API error) never decrements `pendingAsyncLaunches`, so
+ *  `hasPendingAsyncSubagents` reads true for that parent forever and the
+ *  `queueEligibleAt` re-check below never passes; (2) a RESUMED agent's
+ *  second completion notification is deduped by task-id
+ *  (taskNotificationWatcher.ts's `t.notified`) and silently swallowed, so
+ *  `handleEnd`'s "queue the oldest roaming sub" heuristic never fires for it
+ *  either. Either way the sub would otherwise sit in 'roaming' forever — a
+ *  card on the roster strip for an agent that's long gone (log-confirmed:
+ *  `subagentsMaterialized` staying permanently ahead of
+ *  `subagentsCleanedUp`). Real agents in this project routinely run 9-16
+ *  minutes and have hit ~26 in the extreme; set generously past that
+ *  extreme (not just "around" it) — a premature farewell battle for a
+ *  still-running agent is worse than a late one for a dead agent, and a
+ *  cap equal to or only slightly above the observed extreme would risk
+ *  firing on that exact legitimate case.
+ *
+ *  The proper long-term fix is real per-subagent identity: correlate a
+ *  `Task` PostToolUse's `agentId` back to the battler its matching PreToolUse
+ *  spawned, so a completion can be resolved to the sub that actually finished
+ *  instead of "the oldest roaming one" (`handleEnd`) or "give up and age it
+ *  out" (this constant). Out of scope here — no PostToolUse plumbing exists
+ *  for this yet — but this cap is a backstop for that gap, not a
+ *  replacement for it. */
+const MAX_ROAM_MS = 30 * 60_000;
+
 /** Gap enforced, in ms, between the end of one completion battle and the
  *  start of the next — GLOBALLY, across every parent (the queue in
  *  `pickNextQueued`/`nextBattleEarliestAt` is what makes the lock global,
@@ -721,6 +751,22 @@ export class BattleManager {
           Date.now() >= sub.queueEligibleAt &&
           !hasPendingAsyncSubagents(pb.parentId)
         ) {
+          this.queueForBattle(sub);
+        } else if (pb.wave === 'idle' && Date.now() - sub.roamingSince >= MAX_ROAM_MS) {
+          // Age-based self-queue (see MAX_ROAM_MS's own comment) — fires
+          // regardless of hasPendingAsyncSubagents, since that counter (and
+          // therefore queueEligibleAt above) can get stuck permanently for a
+          // subagent that died without a terminal notification, or whose
+          // real completion was deduped by task-id and swallowed. This is
+          // the source fix for the roster-leak bug: without it, either
+          // failure mode leaves this sub 'roaming' — and its card on the
+          // roster strip — forever.
+          safeLogDiagnostic('battle', 'warn', 'battler aged out of roaming — queuing for completion battle', {
+            parentId: pb.parentId,
+            key: sub.key,
+            species: sub.battler.species.id,
+            ageMs: Date.now() - sub.roamingSince
+          });
           this.queueForBattle(sub);
         }
       }

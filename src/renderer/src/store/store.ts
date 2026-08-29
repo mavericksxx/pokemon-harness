@@ -238,8 +238,18 @@ export const useStore = create<HarnessState>((set, get) => ({
   removeSession: (id) =>
     set((st) => {
       const sessions = st.sessions.filter((s) => s.id !== id);
+      // Cascade directly rather than relying solely on GardenScene's
+      // reconcile -> removeWalker -> forceEnd indirection to drop this
+      // session's battlers — that path only runs on the next scene
+      // reconcile tick, so a snapshot of `battlers` taken between this call
+      // and that tick would still list cards for a session that's already
+      // gone. BattleManager.forceEnd (called from that same indirection)
+      // still runs and is idempotent against this — removeBattler filters
+      // by key, so a battler already dropped here is simply a no-op there.
+      const battlers = st.battlers.filter((b) => b.parentId !== id);
       return {
         sessions,
+        battlers,
         selectedId: st.selectedId === id ? (sessions[0]?.id ?? null) : st.selectedId
       };
     }),
