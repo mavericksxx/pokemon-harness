@@ -182,6 +182,29 @@ body {
   padding-left: 12px;
 }
 
+/* Placeholder brand glyph (App.tsx) + `.brand` itself, grouped into one flex
+ * item so the icon-to-text gap can be its own tighter value than `.topbar`'s
+ * 10px item-to-item `gap` (SummonArceusButton etc. sit that far from `.brand`
+ * today; the icon reads as part of the wordmark, not another topbar item, so
+ * it needs to sit closer). `flex: 0 0 auto` for the same reason `.brand` has
+ * it on its own below — never let this whole group get compressed under
+ * sibling flex pressure. */
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
+/* 16px, not `.brand`'s own 12px type-scale step or `.topbar-icon-btn`'s 15px:
+ * a 16px box against this icon's 16-unit viewBox is an exact 1:1 unit-to-
+ * pixel mapping, so every pixel-grid row lands on a whole device pixel
+ * instead of being smeared by `crispEdges` rounding at a fractional scale. */
+.brand-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .brand {
   font-family: var(--font-display);
   font-size: var(--font-display-md-size);

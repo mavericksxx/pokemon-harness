@@ -10,6 +10,7 @@ import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
+import { PokeballIcon } from '@/components/icons';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { UsageChip } from '@/components/UsageChip';
@@ -131,14 +132,25 @@ export function App(): JSX.Element {
   return (
     <div className={`app${isFullScreen ? ' is-fullscreen' : ''}`}>
       <header className="topbar">
-        {/* Ship-cut item 1/6: brand mark is lowercase "pokéharness" — the
-            voice's own lowercase convention, extended to the one string
-            that's otherwise exempt from the sweep (design/tokens.ts has the
-            rule). Press Start 2P carries a real 'é' glyph (verified against
-            the bundled woff2's cmap) and it reads fine at this size; if that
-            ever changes, fall back to plain "pokeharness" here only — every
-            other surface (README, notifications, dialogs) keeps the accent. */}
-        <span className="brand">pokéharness</span>
+        {/* Placeholder brand glyph ("for now") to the wordmark's left — see
+            PokeballIcon's own doc comment in components/icons.tsx for why it
+            breaks that file's currentColor convention. Wrapped with `.brand`
+            in `.brand-lockup` (rather than relying on `.topbar`'s own 10px
+            gap, which is closer to the row's item-to-item spacing than the
+            tighter icon-to-its-own-label spacing this needs) so both are one
+            flex item that inherits the drag region and vertical centering
+            .brand always got from being a direct .topbar child. */}
+        <span className="brand-lockup">
+          <PokeballIcon className="brand-icon" />
+          {/* Ship-cut item 1/6: brand mark is lowercase "pokéharness" — the
+              voice's own lowercase convention, extended to the one string
+              that's otherwise exempt from the sweep (design/tokens.ts has the
+              rule). Press Start 2P carries a real 'é' glyph (verified against
+              the bundled woff2's cmap) and it reads fine at this size; if that
+              ever changes, fall back to plain "pokeharness" here only — every
+              other surface (README, notifications, dialogs) keeps the accent. */}
+          <span className="brand">pokéharness</span>
+        </span>
         {/* Arceus first (Phase 8.8/8.9/parity sweep) — he's global, not
             scoped to any one garden, so his chip leads the workspace row
             rather than sitting inside it. */}

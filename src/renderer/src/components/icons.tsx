@@ -2,7 +2,8 @@
  * Hand-drawn pixel-art chrome icons (ship-cut item 7: emoji purge — "I don't
  * want emojis anywhere in the app"). 16px grid (viewBox 0 0 16 16), single
  * `currentColor` fill so each icon inherits its button's text color and
- * theme automatically, `shapeRendering="crispEdges"` so the blocky pixel
+ * theme automatically — the one exception is `PokeballIcon` below, see its
+ * own doc comment for why — `shapeRendering="crispEdges"` so the blocky pixel
  * shapes don't get anti-aliased into a blur at this size — same visual
  * language as the rest of the chrome (Press Start 2P, hard-edged panels).
  *
@@ -251,6 +252,55 @@ export function DoubleChevronRightIcon(props: IconProps): JSX.Element {
   return (
     <PixelIcon {...props}>
       <polygon points="7,2 7,6 10,8 7,10 7,14 13,8" />
+    </PixelIcon>
+  );
+}
+
+/** Topbar wordmark's leading brand mark (placeholder icon, decorative only —
+ *  no click handler, aria-hidden via `PixelIcon`) — a small pokéball. Unlike
+ *  every other icon here, its cells carry explicit `fill` colors instead of
+ *  inheriting `currentColor`: a pokéball only reads as one with its real
+ *  red/dark-band/white palette, and it isn't a themed control (no hover/
+ *  active state to color-match), so a fixed palette beats a themed one. The
+ *  dark cells edging the bottom (white) half and ringing the center button
+ *  are drawn as their own 1px rects rather than folded into the white fill,
+ *  the same border-then-inset technique `TrainerCardIcon` above uses. */
+export function PokeballIcon(props: IconProps): JSX.Element {
+  const red = '#e8524a';
+  const dark = '#1a1a1a';
+  const light = '#f2ede0';
+  return (
+    <PixelIcon {...props}>
+      <rect x="6" y="1" width="4" height="1" fill={red} />
+      <rect x="4" y="2" width="8" height="1" fill={red} />
+      <rect x="3" y="3" width="10" height="1" fill={red} />
+      <rect x="2" y="4" width="12" height="1" fill={red} />
+      <rect x="2" y="5" width="12" height="1" fill={red} />
+      <rect x="1" y="6" width="14" height="1" fill={red} />
+      <rect x="6" y="6" width="4" height="1" fill={dark} />
+      <rect x="1" y="7" width="14" height="1" fill={dark} />
+      <rect x="7" y="7" width="2" height="1" fill={light} />
+      <rect x="1" y="8" width="14" height="1" fill={dark} />
+      <rect x="7" y="8" width="2" height="1" fill={light} />
+      <rect x="1" y="9" width="1" height="1" fill={dark} />
+      <rect x="2" y="9" width="12" height="1" fill={light} />
+      <rect x="14" y="9" width="1" height="1" fill={dark} />
+      <rect x="6" y="9" width="4" height="1" fill={dark} />
+      <rect x="2" y="10" width="1" height="1" fill={dark} />
+      <rect x="3" y="10" width="10" height="1" fill={light} />
+      <rect x="13" y="10" width="1" height="1" fill={dark} />
+      <rect x="2" y="11" width="1" height="1" fill={dark} />
+      <rect x="3" y="11" width="10" height="1" fill={light} />
+      <rect x="13" y="11" width="1" height="1" fill={dark} />
+      <rect x="3" y="12" width="1" height="1" fill={dark} />
+      <rect x="4" y="12" width="8" height="1" fill={light} />
+      <rect x="12" y="12" width="1" height="1" fill={dark} />
+      <rect x="4" y="13" width="1" height="1" fill={dark} />
+      <rect x="5" y="13" width="6" height="1" fill={light} />
+      <rect x="11" y="13" width="1" height="1" fill={dark} />
+      <rect x="6" y="14" width="1" height="1" fill={dark} />
+      <rect x="7" y="14" width="2" height="1" fill={light} />
+      <rect x="9" y="14" width="1" height="1" fill={dark} />
     </PixelIcon>
   );
 }
