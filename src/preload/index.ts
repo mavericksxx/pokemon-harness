@@ -160,8 +160,9 @@ const api = {
 
   // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────
   /** Ensures agents/arceus/SYSTEM.md exists and returns its current
-   *  contents + path — call fresh at every summon, never cache the result. */
-  ensureArceusSystemPrompt: (): Promise<{ path: string; prompt: string }> =>
+   *  contents + path, plus the live roster file's path (arceusRosterFile.ts)
+   *  — call fresh at every summon, never cache the result. */
+  ensureArceusSystemPrompt: (): Promise<{ path: string; prompt: string; rosterPath: string }> =>
     ipcRenderer.invoke('arceus:ensureSystemPrompt'),
   /** Dev-only — see main/index.ts's `config:arceusDevStandin`. */
   getArceusDevStandin: (): Promise<boolean> => ipcRenderer.invoke('config:arceusDevStandin'),

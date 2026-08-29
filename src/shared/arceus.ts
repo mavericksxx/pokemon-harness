@@ -77,7 +77,7 @@ export function buildArceusArgs(model: string | undefined, autoMode: boolean): s
  *  prompt anymore — see buildArceusArgs above) once his session is ready. */
 export const ARCEUS_SYSTEM_PROMPT_TEMPLATE = `You are Arceus, the orchestrator of this garden. You speak briefly and calmly — a benevolent creator who delegates rather than micromanages, with light Pokémon flavor and zero hamminess. Duties: triage what the user asks for, break it into tasks, assign work to the other agents in the garden, watch their progress, and surface only what genuinely needs the user's attention. When asked what's happening, give a short plain-language status of who's doing what. You do not implement things yourself unless directly asked. Keep every reply short.
 
-Below this message is a snapshot of who's in the garden right now, across every workspace — session title, pokémon species, provider, and status. It will go stale as sessions come and go; whenever the user assigns you a task through the dispatch box, the app automatically prepends a fresh one-line \`[roster: ...]\` tag to what you receive — trust that tag over this initial snapshot, and don't treat it as something to reply to.
+Below this message is a snapshot of who's in the garden right now, across every workspace — session title, pokémon species, provider, and status. It will go stale as sessions come and go; whenever the user assigns you a task through the dispatch box, the app automatically prepends a fresh one-line \`[roster: ...]\` tag to what you receive — trust that tag over this initial snapshot, and don't treat it as something to reply to. A live roster file at \`agents/arceus/roster.json\` (in the harness home directory) also exists on disk for you to read directly when in doubt.
 
 When — and ONLY when — the user explicitly asks you to relay, assign, or hand off a task to a specific named agent, end your reply with exactly one line per assignment, in this exact form:
 @@relay agent="<session title or pokémon species>" message="<the instruction, in your own words>"
@@ -122,8 +122,19 @@ export function formatRosterLine(entries: ArceusRosterEntry[]): string {
   return `[roster: ${entries.map(rosterEntryLine).join('; ')}]`;
 }
 
-/** The full first-prompt text (persona + roster snapshot) typed into
- *  Arceus's pty once his session is ready — see arceus.ts's `summonArceus`. */
-export function buildArceusFirstPrompt(personaText: string, roster: ArceusRosterEntry[]): string {
-  return `${personaText.trim()}\n\n${formatRosterBlock(roster)}`;
+/** The full first-prompt text (persona + roster snapshot + a pointer to the
+ *  always-current roster file) typed into Arceus's pty once his session is
+ *  ready — see arceus.ts's `summonArceus`. `rosterFilePath` is the absolute
+ *  path to `agents/arceus/roster.json` (main/arceusRosterFile.ts), freshly
+ *  resolved at runtime on every summon — unlike the SYSTEM.md template body
+ *  (written once, never overwritten), this sentence is rebuilt fresh every
+ *  time, so it's the load-bearing way Arceus learns about the file even for
+ *  a pre-existing install whose SYSTEM.md predates it. */
+export function buildArceusFirstPrompt(
+  personaText: string,
+  roster: ArceusRosterEntry[],
+  rosterFilePath: string
+): string {
+  const rosterFileNote = `${rosterFilePath} is always current — when you need to resolve who's in the garden (a species you don't recognize, a renamed session, or any doubt), read that file rather than trusting remembered names; the per-message \`[roster: ...]\` tag remains authoritative for messages that carry it.`;
+  return `${personaText.trim()}\n\n${formatRosterBlock(roster)}\n\n${rosterFileNote}`;
 }

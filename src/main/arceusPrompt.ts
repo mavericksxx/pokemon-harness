@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ARCEUS_SYSTEM_PROMPT_TEMPLATE } from '../shared/arceus';
+import { arceusRosterFilePath } from './arceusRosterFile';
 
 function arceusDir(harnessHomeDir: string): string {
   return join(harnessHomeDir, 'agents', 'arceus');
@@ -24,13 +25,20 @@ function arceusSystemPromptPath(harnessHomeDir: string): string {
  *  only) and returns its CURRENT on-disk contents plus its path — called
  *  fresh on every summon (see arceus.ts's renderer-side `summonArceus`),
  *  so a user's edit to the file takes effect the very next time Arceus is
- *  summoned, no app restart needed. */
-export async function ensureArceusSystemPrompt(harnessHomeDir: string): Promise<{ path: string; prompt: string }> {
+ *  summoned, no app restart needed. Also hands back the absolute path to
+ *  the live roster file (arceusRosterFile.ts) — piggybacked on this same
+ *  IPC round-trip rather than a new channel, since `summonArceus` already
+ *  calls this once per fresh summon and needs both paths at the same
+ *  moment, to build the first prompt (shared/arceus.ts's
+ *  `buildArceusFirstPrompt`). */
+export async function ensureArceusSystemPrompt(
+  harnessHomeDir: string
+): Promise<{ path: string; prompt: string; rosterPath: string }> {
   await mkdir(arceusDir(harnessHomeDir), { recursive: true });
   const p = arceusSystemPromptPath(harnessHomeDir);
   if (!existsSync(p)) {
     await writeFile(p, ARCEUS_SYSTEM_PROMPT_TEMPLATE, 'utf8');
   }
   const prompt = await readFile(p, 'utf8');
-  return { path: p, prompt };
+  return { path: p, prompt, rosterPath: arceusRosterFilePath(harnessHomeDir) };
 }

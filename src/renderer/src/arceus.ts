@@ -174,7 +174,7 @@ export function toRosterEntries(sessions: Session[]): ArceusRosterEntry[] {
  *  `SummonArceusDialog`'s first-ever summon, or `autoSummonArceus`'s fallback
  *  when there's nothing resumable (no saved id, or a dead `--resume`) — is
  *  the one path that should ever get this. */
-function armFirstPromptDelivery(personaText: string): void {
+function armFirstPromptDelivery(personaText: string, rosterFilePath: string): void {
   // Belt-and-suspenders: every spawn point already disarms a pending
   // delivery itself (see `disarmFirstPrompt`'s own comment) before this is
   // ever called, but a stale arm left over from a caller that doesn't is
@@ -197,7 +197,7 @@ function armFirstPromptDelivery(personaText: string): void {
     disarm();
     if (disarmFirstPrompt === disarm) disarmFirstPrompt = null;
     const roster = toRosterEntries(useStore.getState().sessions);
-    const prompt = buildArceusFirstPrompt(personaText, roster);
+    const prompt = buildArceusFirstPrompt(personaText, roster, rosterFilePath);
     void window.api.writePty(ARCEUS_SESSION_ID, wrapBracketedPaste(prompt) + '\r');
   };
 
@@ -241,13 +241,13 @@ function guardedSummon(run: () => Promise<void>): Promise<void> {
  *  `armFirstPromptDelivery` above. */
 export async function summonArceus(req: SummonArceusRequest): Promise<void> {
   return guardedSummon(async () => {
-    const { path, prompt } = await window.api.ensureArceusSystemPrompt();
+    const { path, prompt, rosterPath } = await window.api.ensureArceusSystemPrompt();
     if (!prompt.trim()) {
       throw new Error(`${path} is empty — write Arceus's instructions there and summon again.`);
     }
     const args = buildArceusArgs(req.model, req.autoMode);
     await spawnArceus(AGENT_PROVIDERS.claude.defaultCommand, args, 'claude', req);
-    armFirstPromptDelivery(prompt);
+    armFirstPromptDelivery(prompt, rosterPath);
   });
 }
 
