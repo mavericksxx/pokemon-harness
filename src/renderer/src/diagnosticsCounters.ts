@@ -27,6 +27,18 @@ export interface Counters {
   subagentsMaterialized: number;
   subagentsCleanedUp: number;
   battleSignalErrors: number;
+  /** Bumped once per Pixi ticker frame (GardenScene.tsx) — a monotonically
+   *  increasing renderer-alive signal, piggybacked on a loop that already
+   *  runs every frame rather than a new timer (garden-ui-crash triage,
+   *  2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md). Catches a
+   *  wedged/starved garden ticker (an uncaught throw escaping the ticker
+   *  callback, the tab/window losing rAF, etc.) while the setInterval
+   *  snapshot below keeps firing on schedule regardless. NOT a signal for
+   *  the webglcontextlost/restored listeners added alongside this — the
+   *  ticker's rAF keeps firing (and this keeps incrementing) straight
+   *  through a lost WebGL context, since only the GL calls inside a frame
+   *  go silent, not the frame itself. */
+  rendererTicks: number;
 }
 
 const counters: Counters = {
@@ -38,15 +50,39 @@ const counters: Counters = {
   subagentsSpawned: 0,
   subagentsMaterialized: 0,
   subagentsCleanedUp: 0,
-  battleSignalErrors: 0
+  battleSignalErrors: 0,
+  rendererTicks: 0
 };
 
 export function bumpCounter(key: keyof Counters): void {
   counters[key]++;
 }
 
-export function counterSnapshot(): Counters {
-  return { ...counters };
+/** Wall-clock time of the last `markRendererTick()` call — lets the 60s
+ *  snapshot below report how long it's been since the render loop actually
+ *  ticked. The snapshot's own setInterval is independent of the Pixi
+ *  ticker, so it keeps firing on schedule even if the ticker (and hence the
+ *  garden's rendering) has silently died — this is what turns that into a
+ *  visible gap in harness.log instead of a snapshot that looks the same
+ *  either way. */
+let lastRendererTickMs = Date.now();
+
+/** Call once per Pixi ticker frame (GardenScene.tsx) — an increment and a
+ *  `Date.now()`, cheap enough to run at 60Hz without a new timer. */
+export function markRendererTick(): void {
+  counters.rendererTicks++;
+  lastRendererTickMs = Date.now();
+}
+
+/** `rendererMsSinceLastTick` has a routine false positive: the Pixi ticker
+ *  is rAF-driven, and rAF itself stops for a minimized/occluded window
+ *  regardless of `backgroundThrottling: false` (that setting only covers
+ *  timer throttling). `hidden` is included alongside it so a reader can
+ *  tell "the window is just backgrounded" (hidden: true, expected) apart
+ *  from "the ticker is wedged while the window is actually on screen"
+ *  (hidden: false, worth investigating). */
+export function counterSnapshot(): Counters & { rendererMsSinceLastTick: number; hidden: boolean } {
+  return { ...counters, rendererMsSinceLastTick: Date.now() - lastRendererTickMs, hidden: document.hidden };
 }
 
 const SNAPSHOT_INTERVAL_MS = 60_000;

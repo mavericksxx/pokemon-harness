@@ -95,6 +95,17 @@ process.on('unhandledRejection', (reason) => {
   log('main', 'error', 'unhandledRejection', { message: err?.message ?? String(reason), stack: err?.stack });
 });
 
+// A GPU/utility/sandbox-helper subprocess dying leaves no trace anywhere
+// else — the main process stays alive and this app's own render-process-gone
+// handler (createWindow, below) only covers the renderer itself. This is the
+// missing witness the garden-ui-crash triage called out for hypothesis 1
+// (silent WebGL/GPU context loss): the GPU process crashing/getting killed
+// out from under the renderer is exactly what would produce that, so this is
+// log-only, not auto-relaunch — see the triage doc for context.
+app.on('child-process-gone', (_event, details) => {
+  log('main', 'error', 'child-process-gone', details);
+});
+
 let mainWindow: BrowserWindow | null = null;
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
