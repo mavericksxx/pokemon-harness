@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## unreleased
+
+- topbar usage mini-gauges are now visually distinguishable: each window's label gets a fixed identity color (5h sky-teal, 7d gold, 7d fable lilac — reusing two previously-unused palette accents), a 1px rule + wider gap separates adjacent gauges, and the redundant little gauge icon at the chip's left edge is hidden whenever real bars render (it returns in the icon-only fallback so the re-authenticate popover stays reachable). Urgency semantics unchanged — the % value and bar fill still carry the green/yellow/red tones
+
 ## v1.5.0 — 2026-08-29
 
 - session status, the approved composite design: every terminal panel (focus view AND the garden-split drawer) gets a slim statusline strip — model badge (gold-bordered for fable) with a "↺ changed from <model>" tick after mid-session model switches, a "context" HP-bar with N% and tokens, and a multitask ⇶ count fed by the live subagent battlers; roster cards gain the model badge + a full context HP-bar (upgrading the old 3px sliver); the topbar's plain "7d 72%" text chip becomes up to three pixel mini-gauges (5h / 7d / 7d fable, fable only when the account exposes it; codex fallback when claude is excluded), still one click target for the usage popover; and every roster card gets a trainer-card trigger opening a per-session stat popover (portrait, model, context, 5h/7d/7d fable, credits, multitask, reset time). Model + context ride the cost watcher's existing transcript tailing — the model string was already being computed and thrown away. Needs a visual QA pass: hp-bar sizing across surfaces, trigger badge placement (bottom-left, protruding — top-right collides with the status pill), and popover on-screen anchoring were verified by layout math only
