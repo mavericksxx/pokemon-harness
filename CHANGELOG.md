@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## unreleased
+## v1.4.0 — 2026-08-29
 
 - the garden-freeze crash caught by v1.3.0's own error logging is fixed: destroying a fainted battler while one of its battle effects was still animating nulled the effect's sprite, and the FX ticker's `active.filter(tick)` threw before it could remove the poisoned entry — so the throw recurred EVERY frame at the top of the battle update loop, silently freezing poof-ins and the battle queue (invisible pokemon again, by a brand-new route). Now battlers purge their own FX on destroy, the FX ticker skips destroyed targets and drops+logs any effect that still throws, and the update loop runs as three independently isolated phases so no single failure can starve the others
 - background/async subagents no longer battle prematurely: completion was keyed off the parent's Stop event, which assumed a Task blocks the parent's turn — false for async dispatches, so a battler could fight and faint seconds after spawning while its agent had minutes of work left (log-confirmed). A new task-notification watcher tails the parent transcript (same resume-safe pattern as the cost watcher), counts async launches by task-id, gates Stop-driven completion at both queueing sites, and concludes each battler only when ITS completion notification arrives; sync dispatches and the safety timers behave exactly as before, and if the watcher sees nothing the old behavior is the fallback
