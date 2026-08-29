@@ -94,6 +94,7 @@ export function SettingsPanel(): JSX.Element | null {
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
   const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
   const setUsageProviderEnabled = useAppSettingsStore((s) => s.setUsageProviderEnabled);
+  const setMainUsageProvider = useAppSettingsStore((s) => s.setMainUsageProvider);
   const setDiagnosticsLoggingEnabled = useAppSettingsStore((s) => s.setDiagnosticsLoggingEnabled);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
@@ -299,6 +300,25 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                         </span>
                       </span>
                     </label>
+
+                    <div className="settings-card-row">
+                      <span className="settings-row-label">main usage provider</span>
+                      <div className="segmented" role="group" aria-label="main usage provider">
+                        {(['auto', ...USAGE_PROVIDERS.map((p) => p.id)] as const).map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={appSettings.mainUsageProvider === id ? 'segmented-btn active' : 'segmented-btn'}
+                            aria-pressed={appSettings.mainUsageProvider === id}
+                            disabled={!appSettings.usageLimitsEnabled}
+                            onClick={() => setMainUsageProvider(id)}
+                          >
+                            {id === 'auto' ? 'auto' : USAGE_PROVIDERS.find((p) => p.id === id)?.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="settings-row-hint">which provider's limits the topbar shows by default</p>
                   </div>
 
                   <div

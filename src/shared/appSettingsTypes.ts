@@ -60,6 +60,18 @@ export interface AppSettings {
    *  credential read, no network call — same hygiene as the master toggle's
    *  off state, just scoped to one provider. */
   usageExcludedProviders: UsageProviderId[];
+  /** Which provider's numbers the topbar chip (and the trainer-card popover)
+   *  show by default — user request: "i mainly only use claude, so we keep
+   *  claude ... once i click to expand i should see by provider whichever
+   *  ones i've enabled. there should be an option in settings to set main
+   *  provider". 'auto' (default) is today's behavior unchanged: Claude when
+   *  it has usable data, else Codex (`autoUsageProvider`, usageWindows.ts)
+   *  — so existing users see no change until they pick one. Display-only:
+   *  never reaches usageService.ts, so it can't stop a provider from being
+   *  polled (that's `usageExcludedProviders`' job). Typed to `UsageProviderId`
+   *  rather than every `AgentProviderId` — Cursor/shell never produce a usage
+   *  snapshot (see usageTypes.ts), so they'd be permanently-dead options. */
+  mainUsageProvider: UsageProviderId | 'auto';
   /** Diagnostics opt-in (BACKLOG friend-testing readiness) — default ON: the
    *  current cohort is the user's own friends beta-testing, and the log
    *  never leaves the machine on its own (see diagnosticsTypes.ts). Off
@@ -78,5 +90,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 hideClaudeStatusline: false,
   usageLimitsEnabled: false,
   usageExcludedProviders: [],
+  mainUsageProvider: 'auto',
   diagnosticsLoggingEnabled: true
 };
