@@ -1,6 +1,8 @@
+import { Fragment } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
+import { SubagentRosterCard } from '@/components/SubagentRosterCard';
 
 /** Full-roster grid (Phase 8 §3/§7) — opened from the topbar button or the
  *  garden's signpost prop. Picking a card selects that session and switches
@@ -16,6 +18,7 @@ export function SessionsOverview(): JSX.Element | null {
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
+  const battlers = useStore((s) => s.battlers);
 
   if (!open) return null;
 
@@ -34,7 +37,19 @@ export function SessionsOverview(): JSX.Element | null {
         ) : (
           <div className="sessions-overview-grid">
             {sessions.map((s) => (
-              <AgentRosterCard key={s.id} session={s} selected={s.id === selectedId} onSelect={pick} />
+              <Fragment key={s.id}>
+                <AgentRosterCard session={s} selected={s.id === selectedId} onSelect={pick} />
+                {/* Subagent roster presence (Phase 4 Part B follow-up), same
+                    pattern as RosterStrip — every live battler this session
+                    spawned gets its own card grouped with its parent's.
+                    `onNavigate` closes this overlay the same way `pick`
+                    does for a parent card's own click. */}
+                {battlers
+                  .filter((b) => b.parentId === s.id)
+                  .map((b) => (
+                    <SubagentRosterCard key={b.key} battler={b} parent={s} onNavigate={() => setOpen(false)} />
+                  ))}
+              </Fragment>
             ))}
           </div>
         )}

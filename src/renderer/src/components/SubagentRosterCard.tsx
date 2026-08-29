@@ -6,6 +6,14 @@ import { speciesEntry } from '@/scene/garden/dexData';
 interface Props {
   battler: LiveBattler;
   parent: Session;
+  /** Fired unconditionally after the navigation logic below, regardless of
+   *  whether that logic actually had to select/switch anything — lets a
+   *  caller with its own state to unwind on navigation (SessionsOverview's
+   *  overlay, closed via `setOpen(false)`) do so even when the guard below
+   *  short-circuits because we're already on the parent in terminal view.
+   *  RosterStrip/FocusSidebar don't pass one; omitting it changes nothing
+   *  for them. */
+  onNavigate?: () => void;
 }
 
 /** A live subagent battler's own card in the roster strip (Phase 4 Part B
@@ -21,20 +29,21 @@ interface Props {
  *  drop into terminal view, the same two calls SessionsOverview.tsx's own
  *  `pick` makes, since that's where the CLI actually renders this
  *  subagent's progress rows. */
-export function SubagentRosterCard({ battler, parent }: Props): JSX.Element {
+export function SubagentRosterCard({ battler, parent, onNavigate }: Props): JSX.Element {
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
 
   const onClick = (): void => {
     const { selectedId, viewMode } = useStore.getState();
-    // Dead from RosterStrip today (it only renders in 'garden' view mode,
-    // never 'terminal'), but kept as a real no-op rather than assumed away —
-    // this card's onClick isn't tied to any one caller, and a future surface
-    // that renders it inside terminal view should get "already there" for
-    // free rather than an unnecessary re-select.
-    if (selectedId === parent.id && viewMode === 'terminal') return;
-    select(parent.id);
-    setViewMode('terminal');
+    // Now live from both FocusSidebar and SessionsOverview (both render in
+    // 'terminal' view mode) — a click there while already on the parent
+    // should still be a real no-op rather than an unnecessary re-select, so
+    // the guard stays even though it's no longer just future-proofing.
+    if (selectedId !== parent.id || viewMode !== 'terminal') {
+      select(parent.id);
+      setViewMode('terminal');
+    }
+    onNavigate?.();
   };
 
   const speciesName = (speciesEntry(battler.species)?.name ?? battler.species).toLowerCase();
