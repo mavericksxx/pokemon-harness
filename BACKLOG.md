@@ -50,6 +50,8 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 ## smaller known items
 
+- **garden UI crash ~04:13 GST 2026-08-29 (OPEN — triaged, NOT dispatched per user's limits)**: full evidence + hypotheses + questions in docs/triage/2026-08-29-garden-ui-crash.md. Short version: main process alive, no logged renderer JS error (error path provably works), no macOS crash report → leading suspect is silent WebGL/GPU context loss on the Pixi canvas; nothing listens for context-lost or render-process-gone today (instrumentation list in the dossier). v1.4.0 removes the per-frame FX throw-storm aggravator, so watch whether it recurs post-update before deep-diving.
+
 - **AGENT_ID env var may collide with the CLI's own (found 2026-08-29 during the battle fix, not yet acted on)**: in one hook capture, a subagent's tool-call hooks carried a different AGENT_ID value than the parent's — the CLI may set its own env var of the same name for subagent-scoped hook commands, which could misroute hook events. Investigate and, if real, rename our env var to something namespaced (e.g. POKEHARNESS_AGENT_ID).
 - **battle fix live verification (2026-08-29)**: the async-completion watcher was verified against headless `claude -p` captures; still unproven on a live interactive session — whether an idling session's transcript receives a completed async task's notification promptly (vs only on next user prompt). Watch the next real fan-out; log counters (battlesStarted vs notifications) will tell.
 
