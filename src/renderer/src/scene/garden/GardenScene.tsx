@@ -33,6 +33,7 @@ import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
+import { markRendererTick } from '@/diagnosticsCounters';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -113,6 +114,44 @@ export function GardenScene(): JSX.Element {
         return;
       }
       host.appendChild(app.canvas);
+
+      // WebGL/GPU context-loss instrumentation (garden-ui-crash triage,
+      // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md): a lost
+      // context used to leave the canvas silently dead with ZERO trace in
+      // harness.log — no renderer JS exception (nothing throws; lost-context
+      // GL calls are spec'd no-ops), no main-process signal, nothing. Pixi's
+      // own GlContextSystem already listens for these same two events on
+      // this canvas, calls `preventDefault()` on loss itself (required for
+      // the browser to ever restore it) and rebuilds every renderer system's
+      // GPU resources on restore, and the ticker below never stops ticking
+      // through any of this — so there's nothing to "resume" here beyond
+      // logging. This is purely the missing witness.
+      const CONTEXT_RESTORE_TIMEOUT_MS = 10_000;
+      const canvas = app.canvas;
+      let contextLostAt = 0;
+      let contextRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+      const onContextLost = (event: Event): void => {
+        event.preventDefault(); // required to allow the browser to restore it
+        contextLostAt = Date.now();
+        safeLogDiagnostic('gpu', 'error', 'webgl context lost', {
+          statusMessage: (event as WebGLContextEvent).statusMessage || undefined
+        });
+        contextRestoreTimer = setTimeout(() => {
+          contextRestoreTimer = null;
+          safeLogDiagnostic('gpu', 'error', 'webgl context lost, not restored after 10s', {});
+        }, CONTEXT_RESTORE_TIMEOUT_MS);
+      };
+      const onContextRestored = (): void => {
+        if (contextRestoreTimer) {
+          clearTimeout(contextRestoreTimer);
+          contextRestoreTimer = null;
+        }
+        safeLogDiagnostic('gpu', 'info', 'webgl context restored', {
+          downtimeMs: contextLostAt ? Date.now() - contextLostAt : null
+        });
+      };
+      canvas.addEventListener?.('webglcontextlost', onContextLost, false);
+      canvas.addEventListener?.('webglcontextrestored', onContextRestored, false);
 
       // Both art sets are loaded before the store subscription is wired: a
       // session can appear the instant it is, and addWalker must stay sync.
@@ -621,6 +660,7 @@ export function GardenScene(): JSX.Element {
       let loggedBattleUpdateThrow = false;
 
       app.ticker.add((ticker) => {
+        markRendererTick(); // renderer-alive heartbeat (see diagnosticsCounters.ts)
         const dt = Math.min(ticker.deltaMS / 1000, 0.1);
         map.update(dt * 1000);
         for (const rt of runtimes.values()) {
@@ -739,6 +779,9 @@ export function GardenScene(): JSX.Element {
       cleanup = (): void => {
         ro.disconnect();
         window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
+        canvas.removeEventListener?.('webglcontextlost', onContextLost);
+        canvas.removeEventListener?.('webglcontextrestored', onContextRestored);
+        if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
         unsubscribe();
         unsubscribeWorkspace();
         offRitual();
