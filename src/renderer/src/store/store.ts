@@ -29,6 +29,13 @@ export interface LiveBattler {
   parentId: string;
   /** Dex id, same shape as `Session.pokemon`. */
   species: string;
+  /** Epoch ms this battler entered the world (stamped by `addBattler`, the
+   *  same moment BattleManager's onBattlerSpawned fires). Per-subagent
+   *  context/token telemetry doesn't exist — a subagent's completion never
+   *  reaches costWatcher.ts's per-session cost:update stream — so
+   *  SubagentRosterCard shows elapsed time since spawn instead, as the one
+   *  real number available for a battler. */
+  spawnedAt: number;
 }
 
 export interface Toast {
@@ -96,6 +103,13 @@ interface HarnessState {
    *  Not workspace-scoped itself — RosterStrip filters by matching
    *  `parentId` against its own already-scoped session list. */
   battlers: LiveBattler[];
+  /** Set by SubagentRosterCard's click (garden/terminal split navigation) so
+   *  GardenScene's ticker pans the camera onto this battler's own sprite
+   *  instead of the parent walker it just selected — one-shot in effect
+   *  (holds until the next real selection, which `select` below clears it
+   *  on) rather than a persisted mode. Null = normal follow-the-selected-
+   *  session camera behavior. */
+  focusBattlerKey: string | null;
   viewMode: ViewMode;
   /** Garden's fraction of `.body-row`'s width, dragged via
    *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
@@ -136,7 +150,13 @@ interface HarnessState {
    *  falls back to the first restored session so a non-empty restore never
    *  leaves the drawer showing nothing. */
   restoreSessions(sessions: Session[], selectedId: string | null): void;
+  /** Clears `focusBattlerKey` too — see that field's own comment — so a
+   *  battler-focus left over from a subagent-card click doesn't survive a
+   *  genuinely new selection (a different roster card, a walker click, a
+   *  deselect). SubagentRosterCard sets `focusBattlerKey` back via
+   *  `setFocusBattlerKey` right after calling this. */
   select(id: string | null): void;
+  setFocusBattlerKey(key: string | null): void;
   setDrawerOpen(open: boolean): void;
   /** Switches the Phase 8 §1 layout and persists it (survives relaunch and
    *  the crash-recovery reload). */
@@ -156,10 +176,14 @@ interface HarnessState {
   pushToast(text: string, action?: Toast['action']): void;
   dismissToast(id: string): void;
   /** BattleManager's onBattlerSpawned bridge (GardenScene.tsx) — a wild
-   *  battler just materialized. */
-  addBattler(battler: LiveBattler): void;
+   *  battler just materialized. `spawnedAt` is stamped here (Date.now()),
+   *  not passed in — this call IS the moment of spawn as far as the store's
+   *  concerned. */
+  addBattler(battler: Omit<LiveBattler, 'spawnedAt'>): void;
   /** BattleManager's onBattlerRemoved bridge — a battler poofed out (or was
-   *  hard-torn-down with its parent session). No-op if already gone. */
+   *  hard-torn-down with its parent session). No-op if already gone. Also
+   *  clears `focusBattlerKey` if it named this battler, so the garden
+   *  camera doesn't keep re-checking a dead key every tick. */
   removeBattler(key: string): void;
 }
 
@@ -169,6 +193,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   drawerOpen: true,
   toasts: [],
   battlers: [],
+  focusBattlerKey: null,
   viewMode: loadViewMode(),
   gardenSplit: loadGardenSplit(),
   sessionsOverviewOpen: false,
@@ -213,7 +238,8 @@ export const useStore = create<HarnessState>((set, get) => ({
   restoreSessions: (sessions, selectedId) =>
     set({ sessions, selectedId: selectedId ?? sessions[0]?.id ?? null }),
 
-  select: (id) => set({ selectedId: id }),
+  select: (id) => set({ selectedId: id, focusBattlerKey: null }),
+  setFocusBattlerKey: (key) => set({ focusBattlerKey: key }),
   setDrawerOpen: (open) => set({ drawerOpen: open }),
   setViewMode: (mode) => {
     try {
@@ -245,6 +271,10 @@ export const useStore = create<HarnessState>((set, get) => ({
   },
   dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) })),
 
-  addBattler: (battler) => set((st) => ({ battlers: [...st.battlers, battler] })),
-  removeBattler: (key) => set((st) => ({ battlers: st.battlers.filter((b) => b.key !== key) }))
+  addBattler: (battler) => set((st) => ({ battlers: [...st.battlers, { ...battler, spawnedAt: Date.now() }] })),
+  removeBattler: (key) =>
+    set((st) => ({
+      battlers: st.battlers.filter((b) => b.key !== key),
+      focusBattlerKey: st.focusBattlerKey === key ? null : st.focusBattlerKey
+    }))
 }));

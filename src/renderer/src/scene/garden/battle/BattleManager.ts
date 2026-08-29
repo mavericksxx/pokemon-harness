@@ -445,6 +445,21 @@ export class BattleManager {
     return this.battles.get(parentId)?.currentAttack != null;
   }
 
+  /** World position of a live battler's sprite, by its store key (the same
+   *  key `onBattlerSpawned`/`onBattlerRemoved` mirror into `LiveBattler`) —
+   *  GardenScene's ticker uses this to pan the camera onto a subagent's own
+   *  pokemon (`focusBattlerKey`) instead of its parent's walker. Scans every
+   *  live parent's `subs` rather than a separate index — battler counts per
+   *  parent are small and this is only called once a frame while a focus is
+   *  active. Undefined once the battler is torn down. */
+  getBattlerPosition(key: string): { x: number; y: number } | undefined {
+    for (const pb of this.battles.values()) {
+      const sub = pb.subs.find((s) => s.key === key);
+      if (sub) return { x: sub.battler.container.x, y: sub.battler.container.y };
+    }
+    return undefined;
+  }
+
   /** Workspace scoping (Phase 8.7): toggles a parent's battle visuals on or
    *  off without touching the state machine — a battle for a session in an
    *  inactive workspace keeps running (roam/battle all still progress, same

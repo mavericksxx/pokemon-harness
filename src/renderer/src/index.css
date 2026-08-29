@@ -2532,6 +2532,15 @@ button.icon:active {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Same Chromium button/flex quirk `.roster-card-top`/`.roster-card-tool`
+   * above already document: a plain block child of the `<button>.roster-card`
+   * (a column flex container) doesn't reliably stretch to the button's
+   * content-box width, so without a definite width here the `flex: 1` on
+   * `.hp-bar` below has nothing real to grow into and the bar renders as a
+   * near-zero stub (user feedback: focus sidebar's context bar was a tiny
+   * dot instead of a full-width HP-bar). */
+  width: 100%;
+  min-width: 0;
 }
 
 .roster-card-ctx-row .hp-bar {
