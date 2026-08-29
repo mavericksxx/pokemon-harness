@@ -21,7 +21,6 @@ import type { SessionStatus } from '@shared/types';
 const SPEED = 44; // px/sec at tileSize 16
 const WANDER_MIN_DELAY = 1.5;
 const WANDER_MAX_DELAY = 4.5;
-const WANDER_RANGE = 5;
 
 /** Consecutive up-moving tiles before the back sheet kicks in, and consecutive
  *  non-up tiles before it drops back to front — two different thresholds so a
@@ -36,9 +35,6 @@ interface WalkerOptions {
   animation: PokemonAnimation;
   /** Where the walker first appears (the garden entrance). */
   startTile: { x: number; y: number };
-  /** The tile wandering orbits — the session's claimed station, so several
-   *  sessions loiter in their own patches instead of all piling on the gate. */
-  homeTile: { x: number; y: number };
   accentColor: number;
   label: string;
   /** Shared scene layers the evolution ceremony renders into — see
@@ -88,7 +84,6 @@ export class Walker {
   private backViewBias = 0;
 
   private status: SessionStatus = 'starting';
-  private homeTile: { x: number; y: number };
   private badgePulse = 0;
   private accentColor: number;
 
@@ -119,7 +114,6 @@ export class Walker {
   constructor(opts: WalkerOptions) {
     this.sessionId = opts.sessionId;
     this.map = opts.map;
-    this.homeTile = { ...opts.homeTile };
     this.locomotion = opts.animation.info.locomotion;
     this.dimLayer = opts.dimLayer;
     this.flashLayer = opts.flashLayer;
@@ -270,7 +264,7 @@ export class Walker {
   private canEnter = (x: number, y: number): boolean =>
     this.map.isWalkable(x, y) || (this.canFly && this.map.isWater(x, y));
 
-  /** Resume aimless strolling around the walker's home station. Any errand in
+  /** Resume aimless strolling, free-roaming anywhere on the map. Any errand in
    *  flight is truncated to its current step: dropping the path outright would
    *  strand the sprite between tiles, and running it to completion would make an
    *  idle session visibly finish work it is no longer doing. */
@@ -528,8 +522,8 @@ export class Walker {
 
     const cur = this.tile;
     for (let attempt = 0; attempt < 16; attempt++) {
-      const tx = this.homeTile.x + Math.floor(Math.random() * WANDER_RANGE * 2) - WANDER_RANGE;
-      const ty = this.homeTile.y + Math.floor(Math.random() * WANDER_RANGE * 2) - WANDER_RANGE;
+      const tx = Math.floor(Math.random() * this.map.width);
+      const ty = Math.floor(Math.random() * this.map.height);
       if ((tx === cur.x && ty === cur.y) || !this.canEnter(tx, ty)) continue;
       const path = findPath(this.map, cur, { x: tx, y: ty }, this.canEnter);
       if (!path || path.length === 0) continue;
