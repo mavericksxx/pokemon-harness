@@ -2,6 +2,12 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## unreleased
+
+- usage popover: the "5h" and "session limit" rows were the same window rendered twice — the API restates the 5h window in `limits[]` as `kind: "session"`, sometimes without a `resets_at`, and the dedupe treated the missing timestamp as a mismatch; restatements now collapse by `kind` and a missing timestamp is no longer counted as evidence of a different limit (model-scoped 7d sonnet/opus/fable rows still never collapse)
+- usage popover shows credit balances when the account has them: claude's `extra_usage` renders as a "credits" gauge row (it has a monthly max), codex's `credits.balance` (a field the old types silently dropped) as plain text only when credits exist; absent data means no row, and credits never influence the topbar chip's urgency tone
+- garden-ui-crash instrumentation (triage docs/triage/2026-08-29-garden-ui-crash.md): the pixi canvas now logs `webglcontextlost`/`webglcontextrestored` under a new `gpu` log area (with a 10s "not restored" alarm); recovery itself is deliberately log-only because pixi 8's GlContextSystem already preventDefaults and rebuilds all GPU resources on restore. Main logs `child-process-gone` (GPU/utility process deaths) with full details; the pre-existing `render-process-gone` handler + reload recovery is untouched. The 60s counters snapshot now carries a renderer heartbeat (`rendererTicks`, `rendererMsSinceLastTick`, `hidden`) bumped from the existing pixi ticker — no new timers — so a wedged renderer is distinguishable from a lost GPU context in the log next time
+
 ## v1.4.0 — 2026-08-29
 
 - the garden-freeze crash caught by v1.3.0's own error logging is fixed: destroying a fainted battler while one of its battle effects was still animating nulled the effect's sprite, and the FX ticker's `active.filter(tick)` threw before it could remove the poisoned entry — so the throw recurred EVERY frame at the top of the battle update loop, silently freezing poof-ins and the battle queue (invisible pokemon again, by a brand-new route). Now battlers purge their own FX on destroy, the FX ticker skips destroyed targets and drops+logs any effect that still throws, and the update loop runs as three independently isolated phases so no single failure can starve the others
