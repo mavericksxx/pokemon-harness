@@ -55,12 +55,16 @@ function formatAgo(updatedAt: number | undefined, now: number): string {
  *  which is on `providers.length`, not on this) — a Claude-only user whose
  *  token was rotated must still see the chip so they can reach the popover's
  *  actionable "re-authenticate" row; only the numeric label is conditional
- *  on this. */
+ *  on this. A credits/balance row (`spend` or `balanceOnly` set) is never a
+ *  candidate — it's a spend balance, not a rate limit, and letting it win
+ *  here would repurpose the chip's "how close to a real limit" meaning into
+ *  "how much of my monthly credit is gone", which isn't what it means today. */
 function tightestWindow(providers: UsageProviderSnapshot[]): UsageWindow | null {
   let tightest: UsageWindow | null = null;
   for (const p of providers) {
     if (p.state !== 'ok' && p.state !== 'stale') continue;
     for (const w of p.windows) {
+      if (w.spend || w.balanceOnly) continue;
       if (!tightest || w.usedPercent > tightest.usedPercent) tightest = w;
     }
   }
@@ -77,8 +81,22 @@ function fallbackTone(providers: UsageProviderSnapshot[]): GaugeTone {
 }
 
 /** One rate-limit gauge row — pixel HP-style bar (hard edges, 0-2px radius,
- *  charcoal ground / gold fill, matching the roster card's own gauge). */
+ *  charcoal ground / gold fill, matching the roster card's own gauge). A
+ *  `balanceOnly` row (Codex's credit balance — no known max, see
+ *  usageTypes.ts) skips the percent/bar entirely and just shows the label
+ *  plus its pre-formatted `balanceText`, per the "gauge if it has a max,
+ *  plain text if it's a balance" requirement. */
 function UsageWindowRow({ window: w, now }: { window: UsageWindow; now: number }): JSX.Element {
+  if (w.balanceOnly) {
+    return (
+      <div className="usage-window">
+        <div className="usage-window-head">
+          <span className="usage-window-label">{w.label}</span>
+        </div>
+        {w.balanceText && <div className="usage-window-foot">{w.balanceText}</div>}
+      </div>
+    );
+  }
   const tone = gaugeTone(w.usedPercent);
   const resetText = formatResetIn(w.resetsAt, now);
   return (

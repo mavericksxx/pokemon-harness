@@ -11,23 +11,35 @@
 export type UsageProviderId = 'claude' | 'codex';
 
 /** One rate-limit window/gauge — a session (5h) window, a weekly window, a
- *  model-scoped promotional window (e.g. "fable"), or (Claude only) a
- *  synthesized spend gauge from `extra_usage`. */
+ *  model-scoped promotional window (e.g. "fable"), or a credits/extra-usage
+ *  balance row (Claude's `extra_usage`, gauge; Codex's `credits.balance`,
+ *  plain text — see `spend`/`balanceOnly` below). */
 export interface UsageWindow {
   /** Short chip/bar label — '5h' | '7d' | '7d <model>' (e.g. '7d sonnet',
-   *  '7d fable') | a bare scope name (lowercased) | 'spend'. */
+   *  '7d fable') | a bare scope name (lowercased) | 'credits'. */
   label: string;
   /** 0-100, already clamped — every upstream response already reports this
    *  as a percentage (see the research doc's "no scaling" note for Claude;
-   *  Codex's `used_percent` is the same). */
+   *  Codex's `used_percent` is the same). Meaningless (0) when `balanceOnly`
+   *  is true — there's no known max to compute a percentage against. */
   usedPercent: number;
   /** Epoch ms, or null when the upstream response didn't carry a reset time
    *  (Claude's `resets_at` is ISO-8601; Codex's is epoch seconds — both
    *  normalized to ms here so the renderer never has to know which). */
   resetsAt: number | null;
-  /** Only present for the Claude `extra_usage` synthesized spend gauge —
-   *  amounts are in CENTS per the research doc. */
+  /** Only present for the Claude `extra_usage` credits gauge (has a known
+   *  monthly max, so it renders like the other gauges) — amounts are in
+   *  CENTS per the research doc. */
   spend?: { usedCents: number; limitCents: number; currency: string };
+  /** True for a credits/balance row with no known max (Codex's
+   *  `credits.balance`) — the renderer shows `balanceText` instead of a
+   *  gauge bar/percent. Never true alongside `spend`. */
+  balanceOnly?: boolean;
+  /** Human-readable balance text for a `balanceOnly` row. Unit is whatever
+   *  the upstream response uses — UNVERIFIED for Codex (research doc only
+   *  confirms a bare number, not a currency), so this is pre-formatted here
+   *  rather than the renderer assuming a currency/scale. */
+  balanceText?: string;
 }
 
 /** Distinguishes WHY a provider has no usable windows this poll, so the

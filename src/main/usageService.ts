@@ -183,14 +183,18 @@ interface ClaudeUsageResponse {
   }>;
 }
 
-/** Loose equality for two `resetsAt` values (both epoch-ms-or-null): exact
- *  `null === null` counts as a match, otherwise within a minute counts as
- *  "the same window" — the named-window and `limits[]` representations of
- *  the same underlying window come from independently-parsed ISO strings in
- *  the same response, so a sub-minute precision/truncation difference
- *  shouldn't defeat the dedupe below. */
-function resetsRoughlyMatch(a: number | null, b: number | null): boolean {
-  return a === null || b === null ? a === b : Math.abs(a - b) < 60_000;
+/** Whether two `resetsAt` values (both epoch-ms-or-null) genuinely conflict
+ *  — i.e. both are known timestamps more than a minute apart. A restatement
+ *  entry in `limits[]` can legitimately OMIT `resets_at` entirely (every
+ *  field here is optional per the research doc's "decode leniently" rule) —
+ *  root cause of a prior duplicate-row miss: the old check treated "one side
+ *  null, the other a real timestamp" as a mismatch, which let a session/
+ *  weekly restatement that simply doesn't repeat the reset time render as a
+ *  second row. Only two DIFFERING known timestamps count as a real conflict
+ *  now; a missing timestamp on either side is not evidence of anything. */
+function resetsConflict(a: number | null, b: number | null): boolean {
+  if (a === null || b === null) return false;
+  return Math.abs(a - b) >= 60_000;
 }
 
 /** CodexBar's `mapOAuthUsage` gauge-mapping rules (research doc §1), ported
@@ -232,24 +236,36 @@ function mapClaudeUsage(data: ClaudeUsageResponse): UsageWindow[] {
   // `limits[]` is additive per the research doc, but in practice its entries
   // frequently just restate a window already rendered above under a
   // different label — e.g. a "session"/"weekly" alias for `five_hour`/
-  // `seven_day` (user-reported duplicate rows: "5h 75%" AND "session 75%",
-  // same reset time). Dedupe by (resetsAt, usedPercent): a restatement of an
-  // already-added window always carries the same reset time and the same
-  // percentage. A model-scoped entry (`scope.model.display_name` present,
-  // e.g. the "Fable" promotional window) is NEVER treated as a restatement
-  // even if it happens to share both — early in a shared weekly window every
-  // model-scoped card can read the same 0%/same reset as the plain '7d' row,
-  // and that row must still render (it's real and distinct, not a duplicate).
+  // `seven_day` (user-reported duplicate rows: "5h 75%" AND "session 75%").
+  // A model-scoped entry (`scope.model.display_name` present, e.g. the
+  // "Fable" promotional window) is NEVER treated as a restatement even if it
+  // happens to share both signals below — early in a shared weekly window
+  // every model-scoped card can read the same 0%/same reset as the plain
+  // '7d' row, and that row must still render (it's real and distinct, not a
+  // duplicate). For everything else, a restatement is detected two ways:
+  //  1. `kind` names the window it restates directly ("session" → the '5h'
+  //     row, "weekly" → the '7d' row — research doc: "5h session =
+  //     `five_hour`") — the strongest signal, and the same field this
+  //     function already trusts enough to use as user-visible label text
+  //     below, so it costs no new trust.
+  //  2. Otherwise, percent round-matches an already-rendered window AND the
+  //     two reset times don't outright conflict (`resetsConflict` — a
+  //     restatement entry can legitimately omit `resets_at`, so a missing
+  //     timestamp on either side is never treated as a conflict, only two
+  //     differing known timestamps are).
   for (const limit of data.limits ?? []) {
     if (typeof limit?.percent !== 'number') continue;
     const resetsAt = isoToMs(limit.resets_at);
     const usedPercent = clampPercent(limit.percent);
     const modelName = limit.scope?.model?.display_name;
+    const kind = limit.kind?.toLowerCase() ?? '';
     const isRestatement =
       !modelName &&
-      windows.some(
-        (w) => resetsRoughlyMatch(w.resetsAt, resetsAt) && Math.round(w.usedPercent) === Math.round(usedPercent)
-      );
+      ((kind.includes('session') && windows.some((w) => w.label === '5h')) ||
+        (kind.includes('weekly') && windows.some((w) => w.label === '7d')) ||
+        windows.some(
+          (w) => Math.round(w.usedPercent) === Math.round(usedPercent) && !resetsConflict(w.resetsAt, resetsAt)
+        ));
     if (isRestatement) continue;
     const name = (modelName || limit.kind || 'limit').toLowerCase();
     // Only the one confirmed shape (research doc: `group: "weekly"` on the
@@ -260,10 +276,21 @@ function mapClaudeUsage(data: ClaudeUsageResponse): UsageWindow[] {
     windows.push({ label, usedPercent, resetsAt });
   }
 
-  if (windows.length === 0 && data.extra_usage?.is_enabled && typeof data.extra_usage.utilization === 'number') {
+  // Credit/extra-usage balance (user request: "add credit usage if
+  // applicable") — present whenever `extra_usage.is_enabled`, ADDITIONALLY
+  // to whatever rate-limit windows above (previously this only synthesized
+  // when every other window was absent, matching CodexBar's "no rate-limit
+  // data at all" fallback case — but a credits balance is informative even
+  // when 5h/7d windows ARE present, so it's no longer gated on that). Marked
+  // via `spend` so the renderer's tightest-window/chip-tone logic (which
+  // drives the topbar chip) can exclude it — this is a spend balance, not a
+  // rate limit, and shouldn't hijack the chip's "how close to a real limit"
+  // meaning. Absent entirely when `extra_usage` isn't present/enabled — no
+  // placeholder row.
+  if (data.extra_usage?.is_enabled && typeof data.extra_usage.utilization === 'number') {
     const eu = data.extra_usage;
     windows.push({
-      label: 'spend',
+      label: 'credits',
       usedPercent: clampPercent(eu.utilization),
       resetsAt: null,
       spend: {
@@ -477,6 +504,18 @@ interface CodexNetworkUsageResponse {
     primary_window?: CodexUsageWindowRaw;
     secondary_window?: CodexUsageWindowRaw;
   };
+  /** Plan-level credit balance (research doc §2 sample response) — no known
+   *  maximum in the response, so unlike Claude's `extra_usage` this can't be
+   *  rendered as a gauge; surfaced as a plain balance row instead (see
+   *  `balanceOnly` on UsageWindow). `balance`'s unit is UNVERIFIED — the
+   *  research doc's only sample (`"balance": 40.5`) doesn't say whether it's
+   *  dollars or another unit, so it's rendered as-is rather than assuming a
+   *  cents scale like Claude's fields. */
+  credits?: {
+    has_credits?: boolean;
+    unlimited?: boolean;
+    balance?: number;
+  };
 }
 
 function mapCodexNetworkUsage(data: CodexNetworkUsageResponse): UsageWindow[] {
@@ -494,6 +533,21 @@ function mapCodexNetworkUsage(data: CodexNetworkUsageResponse): UsageWindow[] {
   if (primary) windows.push(primary);
   const secondary = toWindow('secondary', data.rate_limit?.secondary_window);
   if (secondary) windows.push(secondary);
+
+  // Credit balance (user request: "add credit usage if applicable") — only
+  // when the account actually has a (non-unlimited) balance to report; a
+  // `false`/absent `has_credits`, an `unlimited` account, or a missing
+  // `balance` number all mean "nothing to show", not a zero/placeholder row.
+  const credits = data.credits;
+  if (credits?.has_credits === true && credits.unlimited !== true && typeof credits.balance === 'number') {
+    windows.push({
+      label: 'credits',
+      usedPercent: 0, // meaningless for a balanceOnly row — no known max to compute against
+      resetsAt: null,
+      balanceOnly: true,
+      balanceText: `${credits.balance} credits remaining`
+    });
+  }
   return windows;
 }
 
