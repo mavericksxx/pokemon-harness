@@ -126,11 +126,26 @@ const api = {
   },
   /** A real per-subagent completion (the parent transcript's own
    *  `<task-notification>`), whatever its status — hookRouter.ts forwards
-   *  this into the existing 'end' battle signal. */
-  onSubagentTaskNotification: (cb: (agentId: string) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, agentId: string): void => cb(agentId);
+   *  this into the existing 'end' battle signal. `taskId` (battler ↔ task-id
+   *  correlation fix) is the CLI-internal task-id this completion names, so
+   *  BattleManager can retire the exact battler stamped with it instead of
+   *  guessing the oldest roaming one. */
+  onSubagentTaskNotification: (cb: (agentId: string, taskId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, agentId: string, taskId: string): void => cb(agentId, taskId);
     ipcRenderer.on('battle:subagentTaskNotification', listener);
     return () => ipcRenderer.removeListener('battle:subagentTaskNotification', listener);
+  },
+  /** Battler ↔ task-id correlation (2026-08-29 fix) — links a `Task` (or
+   *  resume/continue) dispatch's `tool_use_id`, known at PreToolUse, to the
+   *  CLI-internal task-id `taskNotificationWatcher.ts` reads off the same
+   *  async-launch transcript line. See BattleManager.ts's `handleCorrelate`
+   *  for what the renderer does with the pair (stamp the spawned battler, or
+   *  re-materialize one for a resume). */
+  onTaskCorrelated: (cb: (agentId: string, toolUseId: string, taskId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, agentId: string, toolUseId: string, taskId: string): void =>
+      cb(agentId, toolUseId, taskId);
+    ipcRenderer.on('battle:taskCorrelated', listener);
+    return () => ipcRenderer.removeListener('battle:taskCorrelated', listener);
   },
 
   getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),

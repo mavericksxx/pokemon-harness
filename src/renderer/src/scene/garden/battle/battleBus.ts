@@ -22,11 +22,16 @@ export type BattleSignal =
    *  overwritten by the session's next tool call. Undefined for the regex-
    *  fallback path (ptyParser.ts, no tool_input to read a description from)
    *  — SubagentRosterCard.tsx falls back to species-as-title for those. */
-  | { type: 'spawn'; parentId: string; label?: string }
+  | { type: 'spawn'; parentId: string; label?: string; toolUseId?: string }
   /** A tool call actually ran while a battle is active — one attack beat. */
   | { type: 'attack'; parentId: string; tool: string }
-  /** One subagent finished (`SubagentStop`) — remove exactly one battler. */
-  | { type: 'end'; parentId: string }
+  /** One subagent finished — remove exactly one battler. `taskId` (battler ↔
+   *  task-id correlation fix), when present, names the exact CLI-internal
+   *  task-id that finished — `BattleManager.handleEnd` retires the battler
+   *  stamped with it, falling back to the oldest-roaming heuristic only for a
+   *  battler that never got stamped (see `handleCorrelate`/'correlate'
+   *  below). */
+  | { type: 'end'; parentId: string; taskId?: string }
   /** Regex-fallback heuristic only: the parent went idle/blocked with no clean
    *  per-subagent completion signal available — end the whole battle. */
   | { type: 'endAll'; parentId: string }
@@ -40,7 +45,17 @@ export type BattleSignal =
    *  proof for an async dispatch. See BattleManager.ts's file header and
    *  `handleParentDone` for why this replaces the old wall-clock completion
    *  fallback. */
-  | { type: 'parentDone'; parentId: string };
+  | { type: 'parentDone'; parentId: string }
+  /** Battler ↔ task-id correlation (2026-08-29 fix, taskNotificationWatcher.ts
+   *  `battle:taskCorrelated`): links a dispatch's `tool_use_id` (known at
+   *  spawn — see the `spawn` signal above) to the CLI-internal task-id a
+   *  later completion will name. `BattleManager.handleCorrelate` stamps the
+   *  battler that dispatch spawned, or — if none carries that `tool_use_id`
+   *  — treats it as a RESUME (the same task-id relaunched after its earlier
+   *  battler fully faded) and re-materializes one from remembered species/
+   *  label, guarding against a double-spawn if a stamped battler for that
+   *  task-id is already live. */
+  | { type: 'correlate'; parentId: string; toolUseId: string; taskId: string };
 
 type Listener = (signal: BattleSignal) => void;
 
