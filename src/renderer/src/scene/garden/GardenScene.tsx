@@ -5,8 +5,9 @@ import type { FederatedPointerEvent } from 'pixi.js';
 // renderer's CSP (no 'unsafe-eval') forbids. This is Pixi's own supported
 // no-eval path; it must be imported before an Application is created.
 import 'pixi.js/unsafe-eval';
-import { TiledMapRenderer, type TiledMap } from './TiledMapRenderer';
+import { TiledMapRenderer, type TiledMap, type Point } from './TiledMapRenderer';
 import { buildMapBorder, DEFAULT_GARDEN_BORDER } from './mapBorder';
+import { DayNightOverlay } from './DayNightOverlay';
 import { Camera } from './Camera';
 import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
@@ -350,6 +351,47 @@ export function GardenScene(): JSX.Element {
       const mapWidthPx = (map.width + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize;
       const mapHeightPx = (map.height + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize;
       camera.setMapSize(mapWidthPx, mapHeightPx);
+
+      // Day/night cycle (Backlog: "day/night animation pass") — ambient
+      // lighting overlay sitting above EVERYTHING in `world` (border, tiles,
+      // walkers alike), built fresh here so a context-loss rebuild
+      // (`mountScene` re-running) gets its own new overlay + rim snapshot
+      // the same as every other per-mount object above, and torn down by
+      // this generation's own `cleanup` below. The moon pool anchors on
+      // garden.tmj's actual 'pond' zone rather than the day-night recipe's
+      // original mock-crop fraction (see DayNightOverlay.ts's header); the
+      // fallback below is only for a future map edit that renames or
+      // removes that zone, so the pool never silently disappears instead of
+      // just landing slightly off. Sized to `mapWidthPx`/`mapHeightPx`
+      // (border-inclusive) rather than the map's own tile bounds — the
+      // border ring gets darkened/vignetted at night too, so the frame
+      // doesn't glow daylight against a night sky.
+      const zoneCenterPx = (zoneName: string, fallback: Point): Point => {
+        const zone = map.getZone(zoneName);
+        if (!zone) return fallback;
+        return {
+          x: (zone.x + zone.width / 2) * map.tileSize + borderPx,
+          y: (zone.y + zone.height / 2) * map.tileSize + borderPx
+        };
+      };
+      const dayNight = new DayNightOverlay({
+        widthPx: mapWidthPx,
+        heightPx: mapHeightPx,
+        poolCenter: zoneCenterPx('pond', { x: mapWidthPx * 0.73, y: mapHeightPx * 0.39 }),
+        // Deliberately NOT snapped to garden.tmj's 'gate' zone (unlike the
+        // pool above): that zone sits bottom-center on this map, and
+        // clustering all 3 lamps into the bottom band would break the
+        // approved composition — the user iterated 4 times on this exact
+        // upper-middle-plus-two-corners layout. Composition fidelity to the
+        // approved mock wins over landmark snapping for this one light.
+        gateLampCenter: { x: mapWidthPx * 0.4531, y: mapHeightPx * 0.3611 },
+        staticTiles: map.getContainer(),
+        liveLayer: charLayer,
+        staticTilesWidthPx: map.width * map.tileSize,
+        staticTilesHeightPx: map.height * map.tileSize,
+        staticTilesOffsetPx: { x: borderPx, y: borderPx }
+      });
+      dayNight.mount(app.renderer, world);
 
       // Free-look input (garden camera lock-on gap): `world` itself becomes
       // the interactive "background" catch-all — Pixi's hit test always
@@ -1055,6 +1097,7 @@ export function GardenScene(): JSX.Element {
           }
         }
         closingRitual.update(dt);
+        dayNight.update(dt);
 
         flushAccum += dt;
         if (flushAccum >= 1) {
@@ -1192,6 +1235,7 @@ export function GardenScene(): JSX.Element {
         battleManager.dispose();
         clearBattleFx();
         gardenCharm.destroy();
+        dayNight.destroy();
         app.destroy(true, { children: true });
       };
     };
