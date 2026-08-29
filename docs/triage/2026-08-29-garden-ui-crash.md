@@ -30,3 +30,18 @@ User report: "the garden UI just crashed rn (around 4:13-4:13am GST)". App: inst
 - A renderer heartbeat in the counters snapshot (last renderer frame ts) so main-side logs can show when the render loop stops.
 
 Note: the v1.4.0 release shipping today (FX purge + per-phase isolation) removes the throw-storm aggravator; the crash may not reproduce after the update. Keep this open until a clean week on 1.4.0.
+
+## CONFIRMED (2026-08-29, same day, later) — root cause caught live + recovery shipped
+
+Hypothesis 1 above is confirmed. The `webglcontextlost`/`webglcontextrestored` instrumentation dispatched off this file's "instrumentation the fix agent should add regardless of root cause" section shipped first and caught the real thing on its first day live, in harness.log:
+
+- `10:59:53Z` — `webgl context lost`
+- `11:00:03Z` — `webgl context lost, not restored after 10s`
+
+The context was never restored by the browser — Pixi's own `GlContextSystem` self-heals a restored context, but that only runs if `webglcontextrestored` actually fires, which it didn't here — so the canvas was left permanently white/dead with no further trace, exactly as this file's leading hypothesis predicted, until the user recovered it manually.
+
+**Fix (GardenScene.tsx):** the 10s "not restored" alarm now calls a `rebuild()` function instead of only logging. It tears down the dead Application via the scene's own existing teardown path (`currentCleanup` — the same function a component unmount calls: removes every listener including the `webglcontextlost`/`restored` pair themselves, disposes BattleManager/GardenCharm, destroys the Pixi Application with `removeView`) and then re-runs the scene's own existing mount path (`mountScene`, the prior `init` body unchanged) against a fresh `Application`/canvas — map + themed border, every session's walker (re-added via the normal store reconcile, so position resets to spawn/wander), selection/camera-follow, and live battlers (`BattleManager.respawnFromStore`, reading the store's `battlers` slice — species/parent preserved, lifecycle resets to roaming; a battler that can't be recreated is logged and dropped from the store rather than left as a spriteless roster card). Arceus's cosmos overlay needs no recovery of its own — it's a separate CSS/JS layer keyed off `hostRef`, not part of the Pixi scene being rebuilt.
+
+Guards: one in-flight rebuild max (a stray/duplicate signal while a rebuild is running just logs and no-ops); an attempt cap (2 automatic rebuilds) so a GPU stuck in a context-loss crash loop can't spin forever — past the cap, a plain "garden crashed — click to rebuild" overlay (ErrorBoundary.tsx's own fallback idiom, scoped to this one pane) takes over, its button re-arming the automatic budget for a deliberate manual retry.
+
+This closes the file's open item — no longer "keep this open until a clean week on 1.4.0"; the actual failure mode reproduced despite that release's throw-storm fix, and now has a real recovery path instead of only better logging.

@@ -507,6 +507,63 @@ export class BattleManager {
     this.battles.clear();
   }
 
+  /** Garden context-loss recovery (GardenScene.tsx's `rebuild`, 2026-08-29):
+   *  a fresh BattleManager starts with `this.battles` empty, but the store's
+   *  `battlers` slice may still list subagents that were alive when the old
+   *  renderer died — this recreates a roaming sprite for each one, reusing
+   *  the same battler-construction steps `handleSpawn` uses (just with a
+   *  known species instead of a random draw, and without re-adding to the
+   *  store, which already has these entries). Not a faithful restore of
+   *  lifecycle phase (mid-battle choreography, exact roam position, shiny
+   *  state) — every recovered battler simply starts fresh in 'roaming',
+   *  same latitude GardenScene's own walker rebuild takes ("position can
+   *  reset to spawn/wander — fine"). Returns the keys that could NOT be
+   *  recreated (parent's walker missing, or the species has no sprite) —
+   *  the caller drops those from the store rather than leaving a roster
+   *  card with no sprite behind it. */
+  respawnFromStore(entries: { key: string; parentId: string; species: string; label?: string }[]): string[] {
+    const failed: string[] = [];
+    for (const entry of entries) {
+      const rt = this.deps.getRuntime(entry.parentId);
+      const species = DEX_LIST.find((e) => e.id === entry.species && e.hasSprite);
+      if (!rt || !species) {
+        failed.push(entry.key);
+        continue;
+      }
+      let pb = this.battles.get(entry.parentId);
+      if (!pb) {
+        pb = this.createBattle(entry.parentId, rt.walker);
+        this.battles.set(entry.parentId, pb);
+      }
+      // Shiny isn't tracked in the store's `LiveBattler` slice, so a
+      // recovered battler always comes back non-shiny — the one known gap
+      // in this recovery path's fidelity.
+      const animation = this.deps.resolveAnimation(species.id, false);
+      const home = this.pickRoamHome(pb, pb.parentWalker.tile);
+      const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home });
+      this.deps.charLayer.addChild(battler.container);
+      const sub: SubBattler = {
+        key: entry.key,
+        battler,
+        lifecycle: 'roaming',
+        wanderHome: home,
+        wanderTimer: 0,
+        wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
+        roamingSince: Date.now(),
+        queuedSince: 0,
+        queueEligibleAt: null,
+        visibleLogged: false
+      };
+      pb.subs.push(sub);
+      if (!isBundled(species.id)) {
+        void this.deps.loadLazyAnimation(species.id, false).then((real) => {
+          if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+        });
+      }
+    }
+    return failed;
+  }
+
   /**
    * PHASE ISOLATION (2026-08-29, companion to the battleFx.ts fix): every
    * phase below — the global FX tick, the global queue pump, and each

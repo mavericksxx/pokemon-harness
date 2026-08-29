@@ -28,7 +28,7 @@ import { ARCEUS_SESSION_ID } from '@shared/arceus';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
-import { useStore, type Session } from '@/store/store';
+import { useStore, type LiveBattler, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
 import type { StationKind } from '@shared/types';
@@ -80,6 +80,16 @@ export function GardenScene(): JSX.Element {
   // imperative Pixi: this is the one piece of UI actually in the React tree
   // (see the JSX return below).
   const [ritualActive, setRitualActive] = useState(false);
+  // WebGL context-loss recovery (garden-ui-crash triage,
+  // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md): flips true only
+  // once the auto-rebuild attempt cap (below) is exhausted, showing a plain
+  // in-place fallback over the dead canvas — same "log it, offer a manual
+  // way out" idiom as ErrorBoundary.tsx's own render-error fallback.
+  // `manualRebuildRef` is how that fallback's button reaches the rebuild
+  // function living inside the imperative effect below (it's assigned there,
+  // once, before the initial mount).
+  const [crashed, setCrashed] = useState(false);
+  const manualRebuildRef = useRef<() => void>(() => {});
   // The cosmos warp — active (target = cosmos) exactly when Arceus is the
   // selected session. A pure derived value (no lifecycle to manage, unlike
   // `ritualActive` above), so it reads straight off the store rather than
@@ -94,11 +104,112 @@ export function GardenScene(): JSX.Element {
     const host = hostRef.current;
     if (!host) return;
 
-    const app = new Application();
-    let destroyed = false;
-    let cleanup: (() => void) | null = null;
+    // Rebuild plumbing (garden-ui-crash triage, 2026-08-29): `mountScene`
+    // below is exactly the old effect body (app init through the map/
+    // walkers/battle setup) — unchanged except that it now assigns its own
+    // teardown to `currentCleanup` instead of a variable local to the
+    // effect, so it can be re-invoked to tear down a dead renderer and build
+    // a fresh one in its place without a second, parallel init path.
+    // `rebuild` is the ONE place that actually does that: it reuses
+    // `currentCleanup` (the same function component-unmount would call —
+    // detaches every listener/ticker on the OLD canvas, including the
+    // webglcontextlost/restored pair added below, since a rebuilt
+    // Application means a brand-new canvas needing its own) and then calls
+    // `mountScene` again for the fresh Application. `rebuildInFlight` caps
+    // it at one in-flight rebuild — a second signal (e.g. a stray restore
+    // event) while one is already running just logs and no-ops rather than
+    // racing a second teardown/rebuild against the first.
+    //
+    // `rebuildAttempts` caps how many times the 10s alarm may trigger this
+    // AUTOMATICALLY per context-loss EVENT before giving up and showing the
+    // crash overlay — a genuine crash loop (losses within
+    // REBUILD_BUDGET_RESET_MS of the last attempt) keeps counting toward the
+    // same budget, but a loss that lands well after the last attempt (the
+    // rebuilt renderer ran fine for a while, then something unrelated —
+    // sleep/wake, a driver reset — took it out again) reads as a NEW event
+    // and gets a fresh budget rather than inheriting a stale count. The
+    // overlay's manual "rebuild" button also resets it outright, since
+    // that's a deliberate user retry either way.
+    let currentCleanup: (() => void) | null = null;
+    let rebuildInFlight = false;
+    let rebuildAttempts = 0;
+    let lastRebuildAttemptAt = 0;
+    const MAX_REBUILD_ATTEMPTS = 2;
+    const REBUILD_BUDGET_RESET_MS = 60_000;
+    // Snapshot of the store's `battlers` slice taken right before teardown —
+    // `currentCleanup()` below tears down the old BattleManager, and its
+    // `destroyBattle` calls `onBattlerRemoved` for every live battler
+    // (GardenScene wires that to `removeBattler`), so by the time the fresh
+    // `mountScene()` reconciles, the store's own `battlers` array is already
+    // empty. This is what `respawnFromStore` (below, inside `mountScene`)
+    // actually reads instead.
+    let pendingRespawn: LiveBattler[] = [];
 
-    const init = async (): Promise<void> => {
+    const rebuild = async (): Promise<void> => {
+      if (rebuildInFlight) {
+        safeLogDiagnostic('gpu', 'info', 'context-loss signal ignored — rebuild already in flight', {});
+        return;
+      }
+      if (lastRebuildAttemptAt && Date.now() - lastRebuildAttemptAt > REBUILD_BUDGET_RESET_MS) {
+        rebuildAttempts = 0;
+      }
+      if (rebuildAttempts >= MAX_REBUILD_ATTEMPTS) {
+        safeLogDiagnostic('gpu', 'error', 'garden rebuild attempts exhausted — showing crash overlay', {
+          attempts: rebuildAttempts
+        });
+        // Give up on this generation for real rather than leaving a dead
+        // renderer (and its ticker) running invisibly behind the overlay.
+        currentCleanup?.();
+        currentCleanup = null;
+        setCrashed(true);
+        return;
+      }
+      rebuildInFlight = true;
+      rebuildAttempts += 1;
+      lastRebuildAttemptAt = Date.now();
+      safeLogDiagnostic('gpu', 'error', 'webgl context not restored — rebuilding renderer', {
+        attempt: rebuildAttempts
+      });
+      try {
+        pendingRespawn = useStore.getState().battlers.slice();
+        currentCleanup?.();
+        currentCleanup = null;
+        await mountScene();
+        setCrashed(false);
+        safeLogDiagnostic('gpu', 'info', 'garden renderer rebuilt successfully', { attempt: rebuildAttempts });
+      } catch (e) {
+        safeLogDiagnostic('gpu', 'error', 'garden renderer rebuild failed', {
+          attempt: rebuildAttempts,
+          error: e instanceof Error ? (e.stack ?? e.message) : String(e)
+        });
+        setCrashed(true);
+      } finally {
+        rebuildInFlight = false;
+      }
+    };
+    // The crash overlay's own button (JSX below) — a deliberate user retry,
+    // so it gets a fresh automatic budget rather than staying permanently
+    // stuck at the cap from the earlier crash loop.
+    manualRebuildRef.current = (): void => {
+      rebuildAttempts = 0;
+      void rebuild();
+    };
+
+    const mountScene = async (): Promise<void> => {
+      const app = new Application();
+      let destroyed = false;
+      let cleanup: (() => void) | null = null;
+      // Assigned immediately (not after `init` resolves) so an unmount or a
+      // rebuild that lands while the async loads below are still in flight
+      // still reaches THIS generation's `destroyed`/`cleanup` — `cleanup`
+      // itself stays null until `init` finishes setting it up, at which
+      // point this closure already sees the live binding.
+      currentCleanup = (): void => {
+        destroyed = true;
+        cleanup?.();
+      };
+
+      const init = async (): Promise<void> => {
       await app.init({
         // Chrome ground (design/tokens.ts `ground[0]`), not a separate green —
         // any letterbox bars inside the canvas (map aspect != pane aspect)
@@ -127,13 +238,21 @@ export function GardenScene(): JSX.Element {
       // this canvas, calls `preventDefault()` on loss itself (required for
       // the browser to ever restore it) and rebuilds every renderer system's
       // GPU resources on restore, and the ticker below never stops ticking
-      // through any of this — so there's nothing to "resume" here beyond
-      // logging. This is purely the missing witness.
+      // through any of this — so a context the BROWSER actually restores
+      // needs nothing further here beyond logging.
+      //
+      // CONFIRMED PRODUCTION FAILURE (2026-08-29, harness.log 10:59:53Z-
+      // 11:00:03Z): that assumption only covers the case the browser DOES
+      // restore it — here it never did, and Pixi's self-heal never got a
+      // chance to run, leaving a permanently dead canvas with nothing to
+      // recover it. The 10s alarm below now calls `rebuild()` (defined
+      // above this scene's mount function) instead of only logging.
       const CONTEXT_RESTORE_TIMEOUT_MS = 10_000;
       const canvas = app.canvas;
       let contextLostAt = 0;
       let contextRestoreTimer: ReturnType<typeof setTimeout> | null = null;
       const onContextLost = (event: Event): void => {
+        if (destroyed) return; // this generation is already being torn down
         event.preventDefault(); // required to allow the browser to restore it
         contextLostAt = Date.now();
         safeLogDiagnostic('gpu', 'error', 'webgl context lost', {
@@ -142,9 +261,19 @@ export function GardenScene(): JSX.Element {
         contextRestoreTimer = setTimeout(() => {
           contextRestoreTimer = null;
           safeLogDiagnostic('gpu', 'error', 'webgl context lost, not restored after 10s', {});
+          void rebuild();
         }, CONTEXT_RESTORE_TIMEOUT_MS);
       };
       const onContextRestored = (): void => {
+        if (destroyed) {
+          // Stale event from a generation already torn down (e.g. a rebuild
+          // already underway) — the listener normally can't outlive its own
+          // removeEventListener call in `cleanup`, but this is the same
+          // "subsequent signals no-op with a log row" guard `rebuild` itself
+          // uses, kept here too for defense-in-depth.
+          safeLogDiagnostic('gpu', 'info', 'context restored signal ignored — this generation already torn down', {});
+          return;
+        }
         if (contextRestoreTimer) {
           clearTimeout(contextRestoreTimer);
           contextRestoreTimer = null;
@@ -829,6 +958,36 @@ export function GardenScene(): JSX.Element {
       const unsubscribeWorkspace = useWorkspaceStore.subscribe(applyState);
       applyState();
 
+      // Context-loss recovery (garden-ui-crash triage, 2026-08-29): on a
+      // normal first mount `pendingRespawn` is always empty (nothing has
+      // battled yet), so this is a no-op then — it only does real work
+      // coming out of `rebuild()`, which snapshots the store's `battlers`
+      // slice into `pendingRespawn` BEFORE tearing down the old
+      // BattleManager (whose teardown removes every one of them from the
+      // store as a side effect — see `pendingRespawn`'s own comment above).
+      // Reuses BattleManager's own spawn machinery (`respawnFromStore`)
+      // rather than a parallel one; species/parent is preserved, lifecycle
+      // resets to roaming (same "position can reset to spawn/wander"
+      // latitude the walker rebuild above takes). A battler that can't be
+      // faithfully respawned (its parent's walker is gone, or its species
+      // has no sprite) is logged and left out of the store rather than
+      // re-added as a roster card with no sprite behind it; every other one
+      // is re-added (`addBattler` stamps a fresh `spawnedAt` — the
+      // subagent card's elapsed-time readout restarts from this rebuild,
+      // not the battler's original spawn).
+      const toRespawn = pendingRespawn;
+      pendingRespawn = [];
+      const unrespawnable = new Set(battleManager.respawnFromStore(toRespawn));
+      for (const battler of toRespawn) {
+        if (unrespawnable.has(battler.key)) {
+          safeLogDiagnostic('battle-spawn', 'warn', 'battler could not be respawned after garden rebuild — dropped', {
+            key: battler.key
+          });
+        } else {
+          useStore.getState().addBattler(battler);
+        }
+      }
+
       // Evolution's threshold check needs accumulated working-ms, which only
       // needs to be accurate to about a second — flushing every frame would
       // mean a store write (and an applyState reconcile) 60 times a second.
@@ -1037,11 +1196,13 @@ export function GardenScene(): JSX.Element {
       };
     };
 
-    void init();
+    await init();
+    };
+
+    void mountScene();
 
     return () => {
-      destroyed = true;
-      cleanup?.();
+      currentCleanup?.();
     };
   }, []);
 
@@ -1064,6 +1225,34 @@ export function GardenScene(): JSX.Element {
           <div className="garden-frame-shadow" />
         </div>
         <ArceusWarp hostRef={hostRef} ascended={ascended} />
+        {crashed && (
+          // Auto-rebuild attempt cap hit (garden-ui-crash triage,
+          // 2026-08-29) — same "log it, offer a manual way out" idiom as
+          // ErrorBoundary.tsx's own render-error fallback, just scoped to
+          // this one pane instead of the whole app. The Pixi host's own
+          // canvas is already gone at this point (the last rebuild's
+          // cleanup destroyed it with `removeView`), so this just needs to
+          // fill the space it left.
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              color: '#ddd',
+              background: '#1a1a1a',
+              fontFamily: 'system-ui, sans-serif'
+            }}
+          >
+            <p>garden crashed — click to rebuild</p>
+            <button type="button" onClick={() => manualRebuildRef.current()}>
+              rebuild
+            </button>
+          </div>
+        )}
       </div>
       <div className={ritualActive ? 'garden-sunset-overlay active' : 'garden-sunset-overlay'} aria-hidden="true" />
     </div>
