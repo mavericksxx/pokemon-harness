@@ -4,6 +4,10 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
 ## unreleased
 
+- clicking a subagent card now lands where the action is: the garden/terminal split opens (drawer forced open) with the parent session selected and the camera panning to — and continuously following — the subagent's own pokemon (falls back to the parent once the battler poofs). Free-look is properly cancelled even when the parent was already selected
+- subagent cards show a live "alive — running Xm" elapsed line. Per-subagent context/tokens turned out to be deliberately impossible, not just missing: the cost watcher explicitly skips `isSidechain` transcript lines, so a subagent's own context is never parsed — showing the parent's number would have been a lie, so we show real elapsed time instead
+- focus-sidebar context bar no longer collapses to a ~4px stub (the row was missing the `width:100%; min-width:0` pair the neighboring rows already carry for a known Chromium button-flex quirk)
+
 - topbar usage mini-gauges are now visually distinguishable: each window's label gets a fixed identity color (5h sky-teal, 7d gold, 7d fable lilac — reusing two previously-unused palette accents), a 1px rule + wider gap separates adjacent gauges, and the redundant little gauge icon at the chip's left edge is hidden whenever real bars render (it returns in the icon-only fallback so the re-authenticate popover stays reachable). Urgency semantics unchanged — the % value and bar fill still carry the green/yellow/red tones
 
 ## v1.5.0 — 2026-08-29
