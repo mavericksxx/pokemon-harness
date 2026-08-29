@@ -401,6 +401,14 @@ export function GardenScene(): JSX.Element {
       // `subscribe`, below) never fires a cry/bounce for a selection nobody
       // just picked — only an actual change after mount does.
       let lastSelectedId: string | null = useStore.getState().selectedId;
+      // A subagent-card click can leave `selectedId` unchanged (its parent
+      // was already selected) — the `selectedId !== lastSelectedId` check
+      // below (which cancels free-look on a real selection change) would
+      // then never fire, so a battler focus set while the camera is
+      // free-looking (panned/zoomed away) would silently do nothing.
+      // Tracked separately so free-look cancels on the focus key's OWN
+      // transition too, below.
+      let lastFocusBattlerKey: string | null = useStore.getState().focusBattlerKey;
 
       const entrance = map.getSpawnPoint(ENTRANCE_SPAWN) ?? { x: 2, y: 2 };
 
@@ -935,8 +943,30 @@ export function GardenScene(): JSX.Element {
           gardenCharm.tick(sessions, walkersById);
         }
 
-        const selectedId = useStore.getState().selectedId;
+        const { selectedId, focusBattlerKey } = useStore.getState();
         const focus = selectedId ? runtimes.get(selectedId) : undefined;
+        // Subagent-card click (SubagentRosterCard.tsx): pan onto the
+        // battler's OWN sprite instead of the parent walker `focus` above
+        // resolves to — `getBattlerPosition` is already in the same
+        // charLayer-local space `walker.worldX/worldY` are (both containers
+        // are direct children of `charLayer`), so no extra conversion.
+        // Undefined once the battler's gone (poofed/session ended) — falls
+        // back to the normal follow-the-selection behavior below, and clears
+        // the stale key so this stops re-checking it every frame.
+        const battlerPos = focusBattlerKey ? battleManager.getBattlerPosition(focusBattlerKey) : undefined;
+        if (focusBattlerKey && !battlerPos) useStore.getState().setFocusBattlerKey(null);
+        // Cancel free-look on the focus key's OWN transition to non-null —
+        // NOT unconditionally whenever `battlerPos` resolves, which would
+        // kill free-look on every single frame a battler focus happens to
+        // be live (fighting a drag gesture that re-engages it the very next
+        // frame). This is the subagent-card-click equivalent of `applyState`
+        // canceling free-look on a `selectedId` change above — needed
+        // because a click whose parent is already selected never trips that
+        // check (see `lastFocusBattlerKey`'s own comment).
+        if (focusBattlerKey !== lastFocusBattlerKey) {
+          lastFocusBattlerKey = focusBattlerKey;
+          if (focusBattlerKey) camera.setFreeLook(false);
+        }
         // Free-look (a drag/wheel gesture, or a click on empty ground) owns
         // the camera until the next selection change — skip both automatic
         // paths below while it's active, or a gesture would be overridden
@@ -947,7 +977,8 @@ export function GardenScene(): JSX.Element {
           // itself, so a focus target needs the same `borderPx` offset
           // `content` was given above to land on the walker's actual on-
           // screen position instead of drifting by one border thickness.
-          if (focus) camera.focusOn(focus.walker.worldX + borderPx, focus.walker.worldY - 12 + borderPx, 2.4);
+          if (battlerPos) camera.focusOn(battlerPos.x + borderPx, battlerPos.y - 12 + borderPx, 2.4);
+          else if (focus) camera.focusOn(focus.walker.worldX + borderPx, focus.walker.worldY - 12 + borderPx, 2.4);
           else camera.fitToScreen();
         }
         camera.update();
