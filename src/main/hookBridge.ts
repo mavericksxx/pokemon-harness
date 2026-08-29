@@ -32,6 +32,7 @@ import {
   isKnownHookEvent,
   normalizeToolName,
   toolTargetFromInput,
+  type DelegateHookSignal,
   type HookEvent,
   type HookPayload
 } from '../shared/hookEvents';
@@ -53,6 +54,16 @@ export const HOOK_SOCK_ENV = 'POKE_HOOK_SOCK';
  *  constant) and reader (the regenerated shim) can never disagree. */
 export const AGENT_ID_ENV = 'POKEHARNESS_AGENT_ID';
 
+/** External-codex-delegate feature — env vars an orchestrator sets on its own
+ *  `codex exec` launch (never on a harness-spawned pty, which knows nothing
+ *  about delegates). Codex spawns each hook invocation as a child process of
+ *  that `codex exec`, so these inherit into the shim's env exactly the same
+ *  way AGENT_ID_ENV does for a real harness session — read at hook-run time,
+ *  below. `DELEGATE_PARENT_ENV` names the harness session id the delegate
+ *  battler attaches to; `DELEGATE_LABEL_ENV` is an optional card title. */
+export const DELEGATE_PARENT_ENV = 'POKEHARNESS_DELEGATE_PARENT';
+export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
+
 const SHIM_FILENAME = 'cth-hook.cjs';
 
 /** The generated shim script. Deliberately dumb: read stdin, add
@@ -68,7 +79,14 @@ const SHIM_FILENAME = 'cth-hook.cjs';
  *  unrelated to this app's session id. Stamping into `agent_id` collided
  *  with that and misrouted every subagent-scoped event to a channel the
  *  renderer never subscribes to (see HookBridge.handle below). Always
- *  overwritten, never guarded — this field name is ours alone. */
+ *  overwritten, never guarded — this field name is ours alone.
+ *
+ *  Also stamps `harness_delegate_parent`/`harness_delegate_label` from
+ *  DELEGATE_PARENT_ENV/DELEGATE_LABEL_ENV, read at hook-run time exactly
+ *  like `harness_agent_id` above — null on every ordinary harness session
+ *  (those two vars are never set on a harness-spawned pty), present only
+ *  when this exact hook invocation's own env carries them (an external
+ *  `codex exec` delegate run — see HookBridge.handleDelegate). */
 const HOOK_SHIM = `#!/usr/bin/env node
 'use strict';
 const net = require('net');
@@ -79,6 +97,8 @@ process.stdin.on('end', () => {
   let payload = {};
   try { payload = JSON.parse(data || '{}'); } catch (_) {}
   payload.harness_agent_id = process.env.${AGENT_ID_ENV} || null;
+  payload.harness_delegate_parent = process.env.${DELEGATE_PARENT_ENV} || null;
+  payload.harness_delegate_label = process.env.${DELEGATE_LABEL_ENV} || null;
   const sock = process.env.${HOOK_SOCK_ENV};
   if (!sock) { process.exit(0); }
   let resp = '';
@@ -113,7 +133,14 @@ export class HookBridge {
      *  (idempotent — see costWatcher.ts) isn't tied to any one hook event.
      *  Optional so this class stays usable standalone (tests, other
      *  callers) without a cost watcher in the loop. */
-    private onRawPayload?: (agentId: string, transcriptPath: string | undefined) => void
+    private onRawPayload?: (agentId: string, transcriptPath: string | undefined) => void,
+    /** External-codex-delegate feature — validates a delegate's
+     *  `POKEHARNESS_DELEGATE_PARENT` actually names a live harness session
+     *  before `handleDelegate` forwards anything to the renderer, so a
+     *  stale/typo'd parent id can't spawn an orphaned battler. Optional so
+     *  this class stays usable standalone (tests, other callers) without a
+     *  live PtyManager in the loop, same reasoning as `onRawPayload` above. */
+    private isKnownSession?: (id: string) => boolean
   ) {
     this.binDir = join(userDataDir, 'hooks-bin');
     this.shimFile = join(this.binDir, SHIM_FILENAME);
@@ -315,7 +342,17 @@ export class HookBridge {
   private handle(p: HookPayload): unknown {
     const agentId = p.harness_agent_id ?? undefined;
     const eventName = p.hook_event_name ?? 'Unknown';
-    if (!agentId) return {}; // no session to route to — drop silently
+    if (!agentId) {
+      // No known harness session on this payload — either a genuinely
+      // unrelated hook firing (dropped, as before this feature existed) or
+      // an external-codex-delegate run (POKEHARNESS_AGENT_ID is never set
+      // on those, by definition — see this file's header). Delegate
+      // identity travels via the separate `harness_delegate_*` fields the
+      // shim stamps above, so it's handled on its own path rather than
+      // falling through the ordinary agentId-keyed logic below.
+      this.handleDelegate(p, eventName);
+      return {};
+    }
     this.onRawPayload?.(agentId, p.transcript_path);
     if (!isKnownHookEvent(eventName)) return {};
 
@@ -341,5 +378,55 @@ export class HookBridge {
     }
     // Never gate/deny — this app's hooks are observation-only.
     return {};
+  }
+
+  /** External-codex-delegate feature — routes a delegate's SessionStart/Stop
+   *  to the renderer on its own `hooks:delegate` channel, deliberately never
+   *  `hooks:event:<agentId>`: that channel is the PARENT's own hook stream
+   *  (hookRouter.ts's SessionStart/Stop cases reset its status/tool display
+   *  and, for Stop, end its real battles), and a delegate landing there
+   *  would corrupt it exactly the way BACKLOG's "subagent events on the
+   *  parent's channel" watch item describes for Claude subagents. Also never
+   *  calls `onRawPayload` — that registers a transcript path against the
+   *  named agentId's cost/context HUD (costWatcher.ts), and a delegate has
+   *  no agentId of its own to register under; using the PARENT's id would
+   *  wrongly attribute the codex transcript to the parent's HUD. */
+  private handleDelegate(p: HookPayload, eventName: string): void {
+    const parentId = p.harness_delegate_parent ?? undefined;
+    if (!parentId) return; // a genuinely unrelated hook firing — drop silently
+    if (eventName !== 'SessionStart' && eventName !== 'Stop') {
+      // Every other delegate event (PreToolUse, PostToolUse, Notification,
+      // ...) is a logged no-op, never routed anywhere — item 3's guard.
+      log('hooks', 'info', 'delegate hook event dropped (not SessionStart/Stop)', {
+        parentId,
+        event: eventName
+      });
+      return;
+    }
+    if (!this.isKnownSession?.(parentId)) {
+      log('hooks', 'warn', 'delegate hook event — unknown/dead parent session, dropped', {
+        parentId,
+        event: eventName
+      });
+      return;
+    }
+    const label = p.harness_delegate_label?.trim() || 'codex delegate';
+    // Codex's own hook payload field names are UNVERIFIED (this app can
+    // never spawn a real `codex` session to capture one — see this file's
+    // constraints) — `session_id` is assumed by analogy with Claude's own
+    // payload shape above. Falls back to a parent+label key so dedupe/retire
+    // (renderer's hookRouter.ts) still work even if codex's payload doesn't
+    // carry one, at the cost of colliding two concurrent same-label
+    // delegates under one parent.
+    const codexSessionId = p.session_id?.trim() || `delegate:${parentId}:${label}`;
+    const signal: DelegateHookSignal = { parentId, event: eventName, codexSessionId, label };
+    const wc = this.getWebContents();
+    if (wc && !wc.isDestroyed()) {
+      try {
+        wc.send('hooks:delegate', signal);
+      } catch {
+        /* window tore down mid-send */
+      }
+    }
   }
 }

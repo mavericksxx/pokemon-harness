@@ -155,14 +155,25 @@ const arceusRelay = new ArceusRelayWatcher(
 // the real, evidence-backed reason `Stop` alone can no longer be trusted as
 // subagent-completion proof for an async `Task`/`Agent` dispatch.
 const taskNotificationWatcher = new TaskNotificationWatcher(() => mainWindow?.webContents ?? null);
-const hookBridge = new HookBridge(
+// Explicit type annotation (unlike `arceusRelay` above, which needs none):
+// the delegate-validation callback below returns `boolean`, not `void`, so
+// TS must actually resolve `ptyManager`'s type to check it — and `ptyManager`
+// in turn is constructed with `hookBridge` as its own first argument, a real
+// mutual cycle the `void`-returning callbacks above never triggered. The
+// annotation breaks the cycle by fixing `hookBridge`'s type up front.
+const hookBridge: HookBridge = new HookBridge(
   app.getPath('userData'),
   () => mainWindow?.webContents ?? null,
   (agentId, transcriptPath) => {
     costWatcher.onHookPayload(agentId, transcriptPath);
     arceusRelay.onHookPayload(agentId, transcriptPath);
     taskNotificationWatcher.onHookPayload(agentId, transcriptPath);
-  }
+  },
+  // External-codex-delegate feature — same forward-reference trick as
+  // `arceusRelay` above: `ptyManager` isn't constructed until the next line,
+  // but this arrow function only evaluates it when a delegate hook actually
+  // arrives, by which point it's long since initialized.
+  (id) => ptyManager.hasSession(id)
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));

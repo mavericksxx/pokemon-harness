@@ -10,7 +10,7 @@
  * silence — the documented "hooks go quiet on an old CLI version" case —
  * given a generous grace window so it never trips during ordinary work.
  */
-import type { HookEvent } from '@shared/hookEvents';
+import type { DelegateHookSignal, HookEvent } from '@shared/hookEvents';
 import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
@@ -99,6 +99,65 @@ window.api.onTaskCorrelated((agentId, toolUseId, taskId) => {
       sessionId: agentId,
       error: err instanceof Error ? (err.stack ?? err.message) : String(err)
     });
+  }
+});
+
+// External-codex-delegate feature — codexSessionId → true while a battler
+// spawned by its SessionStart is still live, so a codex retry firing
+// SessionStart a second time can't double-spawn (item 3's dedupe
+// requirement), and a Stop with no matching entry is a logged no-op instead
+// of an 'end' signal fired at nothing. Cleared on Stop, so a genuinely later
+// delegate reusing the same codexSessionId (or the same parent+label
+// fallback key — see hookBridge.ts's `handleDelegate`) can spawn again.
+const seenDelegateStarts = new Set<string>();
+
+window.api.onDelegateHookEvent((signal: DelegateHookSignal) => {
+  if (signal.event === 'SessionStart') {
+    if (seenDelegateStarts.has(signal.codexSessionId)) return; // codex retry — already spawned
+    seenDelegateStarts.add(signal.codexSessionId);
+    // Reuses the exact spawn->correlate pairing a real `Task` dispatch goes
+    // through (battleBus.ts's 'spawn'/'correlate' signals), stamping the
+    // codex session id as both `toolUseId` and `taskId` up front since,
+    // unlike a Task dispatch, the delegate's one true identity is already
+    // known at spawn time — no separate correlation event will ever arrive.
+    // `handleSpawn` materializes synchronously (BattleManager.ts), so the
+    // battler already carries `toolUseId` by the time `handleCorrelate`
+    // looks for it here.
+    try {
+      emitBattleSignal({ type: 'spawn', parentId: signal.parentId, label: signal.label, toolUseId: signal.codexSessionId });
+      emitBattleSignal({
+        type: 'correlate',
+        parentId: signal.parentId,
+        toolUseId: signal.codexSessionId,
+        taskId: signal.codexSessionId
+      });
+    } catch (err) {
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle-delegate', 'error', 'emitBattleSignal threw', {
+        parentId: signal.parentId,
+        codexSessionId: signal.codexSessionId,
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
+    }
+  } else {
+    if (!seenDelegateStarts.has(signal.codexSessionId)) {
+      safeLogDiagnostic('battle-delegate', 'info', 'delegate Stop with no matching battler — no-op', {
+        parentId: signal.parentId,
+        codexSessionId: signal.codexSessionId
+      });
+      return;
+    }
+    seenDelegateStarts.delete(signal.codexSessionId);
+    try {
+      emitBattleSignal({ type: 'end', parentId: signal.parentId, taskId: signal.codexSessionId });
+    } catch (err) {
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle-delegate', 'error', 'emitBattleSignal threw', {
+        parentId: signal.parentId,
+        codexSessionId: signal.codexSessionId,
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
+    }
   }
 });
 
