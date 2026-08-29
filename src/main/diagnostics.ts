@@ -19,7 +19,14 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } f
 import { join } from 'node:path';
 import type { LogLevel } from '../shared/diagnosticsTypes';
 
-const MAX_BYTES = 2 * 1024 * 1024;
+// Friend-testing readiness: bumped from 2MB to 20MB. The export bundle
+// (main/diagnosticsExport.ts) ships the last ~2MB of harness.log — at the
+// old 2MB rotation size, a rotation right before a crash could leave the
+// live file nearly empty and the bundle would miss the very session the
+// bug happened in. 20MB keeps that tail meaningfully non-empty in the
+// common case; worst case on disk is 60MB across the 3 kept files, which is
+// fine for a week of beta testing.
+const MAX_BYTES = 20 * 1024 * 1024;
 /** Total files kept: harness.log (current) + .1 + .2. */
 const MAX_FILES = 3;
 
@@ -33,6 +40,21 @@ let logFile: string | null = null;
 /** Errors logged (level 'error') this process — the Settings panel's
  *  "recent errors" count (see appSettings:getDiagnosticsInfo in index.ts). */
 let recentErrorCount = 0;
+
+/** Diagnostics opt-in (BACKLOG friend-testing readiness) — default true, set
+ *  from `appSettings.diagnosticsLoggingEnabled` at boot and on every save
+ *  (main/index.ts). Gates non-error verbosity only: `log()` below always
+ *  writes `level: 'error'` entries regardless of this flag — errors are
+ *  cheap and losing them defeats the point of a bug-report log. Off just
+ *  stops the routine chatter (counters snapshots, battle-spawn events,
+ *  divergence warnings, etc.) from filling the file during a week of
+ *  testing. Never gates the log file/directory's existence — see
+ *  `ensureLogDir` in main/index.ts's `whenReady`, which is unconditional. */
+let loggingEnabled = true;
+
+export function setDiagnosticsLoggingEnabled(enabled: boolean): void {
+  loggingEnabled = enabled;
+}
 
 /** Point future writes at `<harnessHomeDir>/logs` — call once at boot, and
  *  again whenever the harness home directory setting changes (same pattern
@@ -49,6 +71,13 @@ export function initDiagnostics(harnessHomeDir: string): void {
  *  called (shouldn't happen — see index.ts). */
 export function getLogDir(): string | null {
   return logDir;
+}
+
+/** Current resolved harness.log path — export bundle's tail-read
+ *  (main/diagnosticsExport.ts). Null under the same conditions as
+ *  `getLogDir`. */
+export function getLogFilePath(): string | null {
+  return logFile;
 }
 
 export function getRecentErrorCount(): number {
@@ -100,6 +129,10 @@ function serializeEntry(entry: Record<string, unknown>): string {
 export function log(area: string, level: LogLevel, message: string, data?: unknown): void {
   if (level === 'error') recentErrorCount++;
   mirrorToConsole(level, area, message, data);
+  // Opt-in gate: errors always get written; everything else is skipped
+  // while the user has turned diagnostics logging off (see `loggingEnabled`
+  // doc comment above).
+  if (!loggingEnabled && level !== 'error') return;
   try {
     if (!logDir || !logFile) return; // initDiagnostics hasn't run yet — console mirror above is all we can do
     let size = 0;

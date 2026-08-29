@@ -827,9 +827,24 @@ export function GardenScene(): JSX.Element {
       // harness.log at 60Hz the way a bare per-frame console.error used to
       // spam devtools with nothing captured at all.
       let loggedBattleUpdateThrow = false;
+      // Ticker-wide throw guard (BACKLOG friend-testing readiness) — the
+      // per-parent battle isolation below only covers battleManager.update();
+      // an uncaught throw anywhere ELSE in this callback (map/walker update,
+      // the evolution/charm block, camera) would propagate out of the
+      // listener and skip Pixi's own render call for the rest of this tick,
+      // same "dead black screen" failure mode battleManager's own comment
+      // describes — and with zero trace in harness.log, since this is the
+      // garden's one ticker, not something any other try/catch here covers.
+      // Logged once, not every frame, same rationale as
+      // loggedBattleUpdateThrow above. `markRendererTick()` runs before this
+      // try so the 60s counters snapshot's heartbeat still looks alive even
+      // while every frame after it throws — this log line is the only other
+      // witness to that.
+      let loggedTickerThrow = false;
 
       app.ticker.add((ticker) => {
         markRendererTick(); // renderer-alive heartbeat (see diagnosticsCounters.ts)
+        try {
         const dt = Math.min(ticker.deltaMS / 1000, 0.1);
         map.update(dt * 1000);
         for (const rt of runtimes.values()) {
@@ -936,6 +951,15 @@ export function GardenScene(): JSX.Element {
           else camera.fitToScreen();
         }
         camera.update();
+        } catch (e) {
+          console.error('[garden] ticker threw — skipping this frame:', e);
+          if (!loggedTickerThrow) {
+            loggedTickerThrow = true;
+            safeLogDiagnostic('garden', 'error', 'garden ticker threw outside battle isolation — skipping this frame', {
+              error: e instanceof Error ? (e.stack ?? e.message) : String(e)
+            });
+          }
+        }
       });
 
       const ro = new ResizeObserver(syncCanvasToHost);

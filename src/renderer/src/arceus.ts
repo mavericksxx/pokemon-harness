@@ -29,6 +29,7 @@ import {
 } from '@shared/arceus';
 import { useStore, type Session } from '@/store/store';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
+import { safeLogDiagnostic } from '@/diagnosticsClient';
 
 export interface SummonArceusRequest {
   cwd: string;
@@ -395,6 +396,13 @@ export async function autoSummonArceus(): Promise<AutoSummonOutcome> {
     return 'summoned';
   } catch (err) {
     console.error('[arceus] auto-summon failed:', err);
+    // Already toasted to the user (main.tsx's boot()) but that's UI-only —
+    // this is what makes "arceus won't come back" traceable in harness.log
+    // (BACKLOG friend-testing readiness).
+    safeLogDiagnostic('arceus', 'error', 'auto-summon failed', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
     return 'failed';
   }
 }

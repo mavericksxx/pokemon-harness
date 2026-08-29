@@ -17,3 +17,9 @@ export interface DiagnosticsInfo {
    *  over IPC and logged through the same `log()` call. */
   recentErrorCount: number;
 }
+
+/** Result of the Settings panel's "export diagnostics bundle" button (see
+ *  main/diagnosticsExport.ts) — `canceled` covers the user backing out of
+ *  the save dialog, distinct from `error` so the UI doesn't show a scary
+ *  failure message for a plain cancel. */
+export type ExportDiagnosticsResult = { ok: true; path: string } | { ok: false; canceled: true } | { ok: false; error: string };

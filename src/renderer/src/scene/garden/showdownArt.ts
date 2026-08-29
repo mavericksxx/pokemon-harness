@@ -17,6 +17,7 @@ import { Texture } from 'pixi.js';
 import { loadPixelTexture } from './imageTexture';
 import { sliceFrames } from './spriteSheet';
 import manifest from '@assets/showdown/manifest.json';
+import { safeLogDiagnostic } from '@/diagnosticsClient';
 
 /** How a species gets around, which decides whether it can cross the pond. */
 export type Locomotion = 'walk' | 'fly' | 'levitate';
@@ -63,7 +64,12 @@ const ENTRIES: ManifestEntry[] = (Array.isArray(RAW.pokemon) ? RAW.pokemon : Obj
   // directory listing.
   .sort((a, b) => a.dex - b.dex || a.name.localeCompare(b.name));
 
-if (ENTRIES.length === 0) console.error('[showdown] manifest produced no Pokemon');
+if (ENTRIES.length === 0) {
+  console.error('[showdown] manifest produced no Pokemon');
+  // Catastrophic (no sprite would ever render) and easy to miss in a bug
+  // report otherwise — BACKLOG friend-testing readiness.
+  safeLogDiagnostic('showdown', 'error', 'manifest produced no Pokemon', undefined);
+}
 
 // Sheets are found rather than listed, so the roster is the manifest's alone.
 // The path is relative (not via the @assets alias) because Vite resolves glob
@@ -248,6 +254,12 @@ export async function loadPokemonAnimations(): Promise<Map<string, PokemonAnimat
         // One missing sheet must not take the whole garden down with it, but it
         // must be findable — say which species and why, then stand a pokeball in.
         console.error(`[showdown] ${entry.name}: sheet failed to load —`, err);
+        // The pokeball fallback below is a visible, reportable bug ("my
+        // pokemon looks like a pokeball") — worth a trace in harness.log
+        // (BACKLOG friend-testing readiness).
+        safeLogDiagnostic('showdown', 'error', `${entry.name}: sheet failed to load — falling back to pokeball`, {
+          message: err instanceof Error ? err.message : String(err)
+        });
         const front = pokeballFrameSet();
         const fallback: PokemonAnimation = {
           info: { ...info, frameWidth: front.frameWidth, frameHeight: front.frameHeight },

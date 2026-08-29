@@ -94,6 +94,7 @@ export function SettingsPanel(): JSX.Element | null {
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
   const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
   const setUsageProviderEnabled = useAppSettingsStore((s) => s.setUsageProviderEnabled);
+  const setDiagnosticsLoggingEnabled = useAppSettingsStore((s) => s.setDiagnosticsLoggingEnabled);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -153,6 +154,16 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
       clearInterval(id);
     };
   }, [open]);
+
+  // Export diagnostics bundle (BACKLOG friend-testing readiness) — same
+  // busy/status pattern as the "about" section's update-check button below.
+  const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done' | 'error' | 'canceled'>('idle');
+  const exportBundle = async (): Promise<void> => {
+    setExportStatus('exporting');
+    const res = await window.api.exportDiagnosticsBundle();
+    if (res.ok) setExportStatus('done');
+    else setExportStatus('canceled' in res && res.canceled ? 'canceled' : 'error');
+  };
 
   // Esc closes, matching the sessions overview / new-session modals.
   useEffect(() => {
@@ -479,7 +490,22 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
 
               {activeSection === 'diagnostics' && (
                 <div className="settings-card">
-                  <p className="hint">local-only — this never leaves your machine.</p>
+                  <p className="hint">local-only — logs stay on this machine and are only shared if you export them below.</p>
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.diagnosticsLoggingEnabled}
+                      onChange={(e) => setDiagnosticsLoggingEnabled(e.target.checked)}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">diagnostics logging</span>
+                      <span className="settings-row-hint">
+                        {appSettings.diagnosticsLoggingEnabled
+                          ? 'logging the routine stuff (counters, battle events) alongside errors.'
+                          : 'off: routine logging is paused. errors are always captured — they\'re cheap, and losing them defeats the point of a bug report.'}
+                      </span>
+                    </span>
+                  </label>
                   <dl className="settings-config-list">
                     <dt>app version</dt>
                     <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
@@ -496,9 +522,16 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       title={diagnosticsInfo?.logDir ?? ''}
                     />
                     <button type="button" onClick={() => void window.api.openLogsFolder()}>
-                      open logs
+                      open logs folder
                     </button>
                   </div>
+                  <div className="row settings-version-row">
+                    <button type="button" onClick={() => void exportBundle()} disabled={exportStatus === 'exporting'}>
+                      {exportStatus === 'exporting' ? 'exporting…' : 'export diagnostics bundle'}
+                    </button>
+                  </div>
+                  {exportStatus === 'done' && <p className="hint">saved — revealed in Finder.</p>}
+                  {exportStatus === 'error' && <p className="hint">export failed — try again, or use "open logs folder" instead.</p>}
                 </div>
               )}
             </div>
