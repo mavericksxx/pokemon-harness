@@ -18,6 +18,7 @@ import { HookBridge } from './hookBridge';
 import { CostWatcher } from './costWatcher';
 import { UsageService } from './usageService';
 import { ArceusRelayWatcher } from './arceusRelay';
+import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
@@ -131,12 +132,17 @@ const arceusRelay = new ArceusRelayWatcher(
   () => sessionRegistry,
   () => mainWindow?.webContents ?? null
 );
+// Bug B fix (2026-08-29) — see taskNotificationWatcher.ts's own header for
+// the real, evidence-backed reason `Stop` alone can no longer be trusted as
+// subagent-completion proof for an async `Task`/`Agent` dispatch.
+const taskNotificationWatcher = new TaskNotificationWatcher(() => mainWindow?.webContents ?? null);
 const hookBridge = new HookBridge(
   app.getPath('userData'),
   () => mainWindow?.webContents ?? null,
   (agentId, transcriptPath) => {
     costWatcher.onHookPayload(agentId, transcriptPath);
     arceusRelay.onHookPayload(agentId, transcriptPath);
+    taskNotificationWatcher.onHookPayload(agentId, transcriptPath);
   }
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
@@ -693,6 +699,7 @@ app.whenReady().then(async () => {
   hookBridge.start();
   costWatcher.start();
   arceusRelay.start();
+  taskNotificationWatcher.start();
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
 hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
@@ -743,6 +750,7 @@ app.on('before-quit', (e) => {
   costWatcher.stop();
 usageService.setEnabled(false);
   arceusRelay.stop();
+  taskNotificationWatcher.stop();
 });
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
@@ -753,6 +761,7 @@ ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
 );
 ipcMain.handle('pty:kill', (_e, id: string) => {
   costWatcher.unregisterSession(id);
+  taskNotificationWatcher.unregisterSession(id);
   return ptyManager.kill(id);
 });
 ipcMain.handle('pty:list', () => ptyManager.list());

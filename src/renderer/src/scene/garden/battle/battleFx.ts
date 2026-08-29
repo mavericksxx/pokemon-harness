@@ -5,6 +5,8 @@
  * EvolutionCeremony internals.
  */
 import { Container, Graphics, Text } from 'pixi.js';
+import { bumpCounter } from '@/diagnosticsCounters';
+import { safeLogDiagnostic } from '@/diagnosticsClient';
 
 /** A brief white flash over a hit target — added as a transient child of its
  *  container, sized to roughly cover the sprite, then removed. */
@@ -25,7 +27,7 @@ export function spawnHitFlash(container: Container, width: number, height: numbe
     }
     return false;
   };
-  registerFx(tick);
+  registerFx(container, tick);
 }
 
 /** A handful of small stars bursting outward and fading — the victory pose's
@@ -61,7 +63,7 @@ export function spawnSparkleBurst(container: Container): void {
     }
     return false;
   };
-  registerFx(tick);
+  registerFx(container, tick);
 }
 
 /** Floating text that drifts up and fades — the battle's "«Species» used
@@ -100,7 +102,7 @@ export function spawnMoveText(container: Container, text: string, aboveY: number
     }
     return false;
   };
-  registerFx(tick);
+  registerFx(container, tick);
 }
 
 /** Discrete sizes a shiny sparkle's four-point star steps through — mirrors
@@ -168,7 +170,7 @@ export function spawnShinySparkle(container: Container, aboveY: number): void {
     }
     return false;
   };
-  registerFx(tick);
+  registerFx(container, tick);
 }
 
 /** The classic "trainer spotted you" alert: a small white bubble with a bold
@@ -226,22 +228,106 @@ export function spawnExclaimBubble(container: Container, aboveY: number, onDone?
     }
     return false;
   };
-  registerFx(tick);
+  registerFx(container, tick);
 }
 
 // A tiny shared ticker for these fire-and-forget effects, so callers never
 // need to remember to poll them each frame themselves. `tickBattleFx` is
 // called once per frame from BattleManager.update().
 type FxTick = (dt: number) => boolean; // returns true when finished
-let active: FxTick[] = [];
 
-function registerFx(tick: FxTick): void {
-  active.push(tick);
+/** `owner` is the `container` an effect's own display objects were added to
+ *  (e.g. a Battler's or Walker's own `.container`) — tracked per entry (not
+ *  just per tick fn) specifically so a destroyed owner's leftover FX can be
+ *  found and dropped, and so `tickBattleFx` can skip a tick whose owner (and
+ *  therefore whose own display objects, added as its children) is already
+ *  destroyed WITHOUT having to call it at all. See `purgeBattleFxFor` and the
+ *  root-cause writeup below (2026-08-29 production crash — see
+ *  BattleManager.ts's file header). */
+interface FxEntry {
+  owner: Container;
+  tick: FxTick;
+}
+let active: FxEntry[] = [];
+
+/** Logged at most once (not per-frame/per-entry) — mirrors GardenScene.tsx's
+ *  own `loggedBattleUpdateThrow` one-shot pattern — since the per-entry
+ *  try/catch below already self-heals every time regardless of whether this
+ *  has already logged. */
+let fxErrorLogged = false;
+
+function registerFx(owner: Container, tick: FxTick): void {
+  active.push({ owner, tick });
 }
 
+/**
+ * ROOT CAUSE (2026-08-29 production crash — harness.log
+ * 2026-08-28T23:37:20Z, `TypeError: Cannot set properties of null (setting
+ * 'y')` inside a `tick` closure, thrown from this function's own `.filter`
+ * callback): an FX's own display object (e.g. `spawnMoveText`'s `Text`) is a
+ * CHILD of `owner` — when `owner.destroy({ children: true })` runs (Battler
+ * .destroy(), reached from BattleManager's `reapSubs`/`destroyBattle`) while
+ * that FX is still mid-animation (a challenger's own "used Task!" text runs
+ * 1.4s; the poof-out + reap window that can call `destroy()` is under 1.1s
+ * after the text spawns — see Battler.ts POOF_OUT_MS), Pixi's own
+ * `Container.destroy()` sets `this._position = null` on every destroyed
+ * child, so that FX's own next `tick` call (still setting `.y` on the now-
+ * destroyed child) throws. Before this fix, that throw escaped `Array.filter`
+ * inside `tickBattleFx`, which aborted the reassignment `active =
+ * active.filter(...)` entirely — the poisoned entry was NEVER removed, so
+ * next frame's `tickBattleFx` (and therefore `BattleManager.update`, which
+ * calls it as the very first thing) threw again, EVERY frame, forever (the
+ * one `harness.log` entry is log-dedup — see GardenScene.tsx's
+ * `loggedBattleUpdateThrow` — not a one-shot failure; the underlying throw
+ * recurred every tick, which is why `battlesStarted`/`subagentsCleanedUp`
+ * froze for the rest of that session while `subagentsMaterialized` kept
+ * climbing).
+ *
+ * Three-layer fix (belt and braces — cleanup paths may multiply):
+ *   1. `Battler.destroy()` now calls `purgeBattleFxFor(this.container)`
+ *      FIRST, so an FX tied to a battler that's being destroyed is dropped
+ *      before it ever gets the chance to outlive its own display object.
+ *   2. Defensive here regardless: an entry whose `owner` is already
+ *      destroyed is dropped WITHOUT calling its tick at all (its own display
+ *      objects were destroyed as `owner`'s children, so there's nothing left
+ *      to animate).
+ *   3. Still defensive beyond that: any tick that throws anyway (a future FX
+ *      whose target isn't a direct child of the container it was registered
+ *      against, say) is caught, dropped, and logged once — self-healing every
+ *      time regardless of whether it's already logged, so this can never
+ *      wedge again the way the unguarded `.filter` did.
+ */
 export function tickBattleFx(dt: number): void {
   if (active.length === 0) return;
-  active = active.filter((tick) => !tick(dt));
+  const next: FxEntry[] = [];
+  for (const entry of active) {
+    if (entry.owner.destroyed) continue; // layer 2 — see doc comment above
+    let done: boolean;
+    try {
+      done = entry.tick(dt);
+    } catch (err) {
+      // layer 3 — see doc comment above
+      bumpCounter('battleSignalErrors');
+      if (!fxErrorLogged) {
+        fxErrorLogged = true;
+        safeLogDiagnostic('battle', 'error', 'battle FX tick threw — dropping this effect', {
+          error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+        });
+      }
+      continue; // drop the offending entry; never re-add it
+    }
+    if (!done) next.push(entry);
+  }
+  active = next;
+}
+
+/** Drops every in-flight FX whose display objects were added under `owner` —
+ *  called from `Battler.destroy()` (layer 1 of the fix above) before it
+ *  destroys `owner` itself, so a still-animating FX (e.g. a challenger's own
+ *  move text) never outlives the container it was ticking. */
+export function purgeBattleFxFor(owner: Container): void {
+  if (active.length === 0) return;
+  active = active.filter((e) => e.owner !== owner);
 }
 
 /** Force-clear every in-flight effect — used when the garden itself tears
