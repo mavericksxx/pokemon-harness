@@ -62,6 +62,15 @@ export interface HookPayload {
    *  spawn a real interactive `claude` session — see hookRouter.ts) — trusted
    *  on the strength of the public docs instead. */
   tool_use_id?: string;
+  /** External-codex-delegate feature — set only when the hook-invoking
+   *  process inherited `POKEHARNESS_DELEGATE_PARENT`/`POKEHARNESS_DELEGATE_
+   *  LABEL` from its own env (see hookBridge.ts's HOOK_SHIM). A normal
+   *  harness-spawned pty never sets those two vars, so these are only ever
+   *  present on a `codex exec` the orchestrator launched with them set.
+   *  Stamped `harness_delegate_*`, mirroring `harness_agent_id`'s naming so
+   *  it can never collide with anything Claude/codex's own payload carries. */
+  harness_delegate_parent?: string | null;
+  harness_delegate_label?: string | null;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */
@@ -83,6 +92,31 @@ export interface HookEvent {
    *  can later correlate this exact dispatch to the CLI-internal task-id a
    *  completion names (see BattleManager.ts's `handleCorrelate`). */
   toolUseId?: string;
+}
+
+/** External-codex-delegate feature — a delegate's SessionStart or Stop,
+ *  forwarded on its own IPC channel (`hooks:delegate`, never `hooks:event:
+ *  <agentId>`) so it can never be mistaken for the attaching parent
+ *  session's own hook traffic — see hookBridge.ts's `handleDelegate`. Every
+ *  other delegate hook event (PreToolUse, PostToolUse, ...) is dropped at
+ *  the bridge and never reaches the renderer at all (item 3's guard against
+ *  a subagent/delegate event landing on a channel that isn't theirs). */
+export interface DelegateHookSignal {
+  /** The harness session id the delegate attaches to
+   *  (`POKEHARNESS_DELEGATE_PARENT`). */
+  parentId: string;
+  event: 'SessionStart' | 'Stop';
+  /** Codex's own `session_id` off the raw payload when present, else a
+   *  synthesized `delegate:<parentId>:<label>` fallback — the real codex
+   *  hook payload field name is UNVERIFIED (this app can never spawn a real
+   *  `codex` session to capture one; see hookBridge.ts's `handleDelegate`
+   *  for the full caveat). Used as the battler's exact identity (spawn's
+   *  `toolUseId`, correlate's `taskId`) so SessionStart/Stop always resolve
+   *  to the SAME battler, including across a duplicate SessionStart (a
+   *  codex retry). */
+  codexSessionId: string;
+  /** `POKEHARNESS_DELEGATE_LABEL`, or `'codex delegate'` when unset/blank. */
+  label: string;
 }
 
 const KNOWN_EVENTS: ReadonlySet<string> = new Set<HookEventName>([

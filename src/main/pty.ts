@@ -172,6 +172,14 @@ export class PtyManager {
     }
   }
 
+  /** External-codex-delegate feature (HookBridge.handleDelegate) — whether a
+   *  session id names a currently-live pty, so a delegate's
+   *  `POKEHARNESS_DELEGATE_PARENT` can be validated before anything spawns
+   *  for it. */
+  hasSession(id: string): boolean {
+    return this.sessions.has(id);
+  }
+
   write(id: string, data: string): PtyResult {
     const s = this.sessions.get(id);
     if (!s) return { ok: false, error: `no pty: ${id}` };

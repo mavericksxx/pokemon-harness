@@ -12,7 +12,7 @@ import type {
   SpawnPtyOptions,
   SpriteView
 } from '../shared/types';
-import type { HookEvent } from '../shared/hookEvents';
+import type { DelegateHookSignal, HookEvent } from '../shared/hookEvents';
 import type { AudioSettings } from '../shared/audioTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
@@ -53,6 +53,15 @@ const api = {
     const listener = (_e: IpcRendererEvent, evt: HookEvent): void => cb(evt);
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
+  },
+  /** External-codex-delegate feature — a `codex exec` delegate's
+   *  SessionStart/Stop (see hookBridge.ts's `handleDelegate`). Single global
+   *  channel, same reasoning as `onAsyncSubagentLaunch` below: no one parent
+   *  "owns" this the way `onHookEvent`/`onCostUpdate` are scoped per-id. */
+  onDelegateHookEvent: (cb: (signal: DelegateHookSignal) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, signal: DelegateHookSignal): void => cb(signal);
+    ipcRenderer.on('hooks:delegate', listener);
+    return () => ipcRenderer.removeListener('hooks:delegate', listener);
   },
   /** Non-null for a while after a renderer crash's auto-reload — see
    *  main/index.ts's `render-process-gone` handler and `pendingCrashInfo`'s
