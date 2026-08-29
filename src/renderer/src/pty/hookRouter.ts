@@ -64,22 +64,38 @@ window.api.onAsyncSubagentLaunch((agentId) => {
   pendingAsyncLaunches.set(agentId, (pendingAsyncLaunches.get(agentId) ?? 0) + 1);
 });
 
-window.api.onSubagentTaskNotification((agentId) => {
+window.api.onSubagentTaskNotification((agentId, taskId) => {
   const n = pendingAsyncLaunches.get(agentId) ?? 0;
   if (n > 0) pendingAsyncLaunches.set(agentId, n - 1);
   // A real per-subagent completion, whatever its status — reuses the
-  // existing 'end' signal and BattleManager.handleEnd's "queue the oldest
-  // roaming sub for this parent" heuristic, since no exact per-battler id
-  // survives to this point either way (see taskNotificationWatcher.ts's
-  // header). The sole source of 'end' now — see the `SubagentStop` case
-  // below for why that hook no longer also feeds it. Isolated in its own
-  // try/catch, same reasoning as every other emitBattleSignal call site in
-  // this file.
+  // existing 'end' signal, now carrying the exact CLI-internal task-id
+  // (battler ↔ task-id correlation fix) so BattleManager.handleEnd retires
+  // the battler actually stamped with it, falling back to the old "queue the
+  // oldest roaming sub for this parent" heuristic only for a battler that
+  // never got stamped. The sole source of 'end' now — see the `SubagentStop`
+  // case below for why that hook no longer also feeds it. Isolated in its
+  // own try/catch, same reasoning as every other emitBattleSignal call site
+  // in this file.
   try {
-    emitBattleSignal({ type: 'end', parentId: agentId });
+    emitBattleSignal({ type: 'end', parentId: agentId, taskId });
   } catch (err) {
     bumpCounter('battleSignalErrors');
     safeLogDiagnostic('battle-task-notification', 'error', 'emitBattleSignal threw', {
+      sessionId: agentId,
+      error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+    });
+  }
+});
+
+// Battler ↔ task-id correlation (2026-08-29 fix) — see battleBus.ts's
+// 'correlate' signal and BattleManager.ts's `handleCorrelate` for what this
+// pair drives (exact-id stamping, plus resume re-materialization).
+window.api.onTaskCorrelated((agentId, toolUseId, taskId) => {
+  try {
+    emitBattleSignal({ type: 'correlate', parentId: agentId, toolUseId, taskId });
+  } catch (err) {
+    bumpCounter('battleSignalErrors');
+    safeLogDiagnostic('battle-correlate', 'error', 'emitBattleSignal threw', {
       sessionId: agentId,
       error: err instanceof Error ? (err.stack ?? err.message) : String(err)
     });
@@ -164,8 +180,16 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
           // signal itself, not read back from the store below: `update()`
           // right after this will overwrite `session.toolTarget` again on
           // this session's very next tool call, so capturing it here is the
-          // only reliable moment.
-          emitBattleSignal({ type: 'spawn', parentId: sessionId, label: evt.toolTarget || undefined });
+          // only reliable moment. `evt.toolUseId` (battler ↔ task-id
+          // correlation fix) is this exact dispatch's `tool_use_id` — the one
+          // identity available at spawn time, before any CLI-internal
+          // task-id exists (see hookEvents.ts's `HookPayload.tool_use_id`).
+          emitBattleSignal({
+            type: 'spawn',
+            parentId: sessionId,
+            label: evt.toolTarget || undefined,
+            toolUseId: evt.toolUseId
+          });
         } catch (err) {
           bumpCounter('battleSignalErrors');
           safeLogDiagnostic('battle-spawn', 'error', 'emitBattleSignal threw', {
@@ -256,10 +280,12 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // captures (one tagged it with the PARENT's own harness agentId, the
       // other with the CLI's internal subagent id instead — which routes to
       // an IPC channel no renderer listens on, see hookBridge.ts's per-
-      // agentId `wc.send`), and `handleEnd`'s "queue the oldest roaming sub"
-      // heuristic has no way to tell "this is the SAME completion the
-      // transcript watcher already reported" from "this is a genuinely
-      // different subagent finishing" — double-firing 'end' for one real
+      // agentId `wc.send`), and it carries no CLI-internal task-id `handleEnd`
+      // could retire by — even with the battler ↔ task-id correlation fix
+      // (BattleManager.ts), an untagged `SubagentStop` has no way to tell
+      // "this is the SAME completion the transcript watcher already
+      // reported" from "this is a genuinely different subagent finishing" —
+      // double-firing 'end' for one real
       // completion would queue an unrelated, still-working sibling's
       // battler, exactly the premature-death bug this whole fix exists to
       // remove. The transcript-based `onSubagentTaskNotification` listener

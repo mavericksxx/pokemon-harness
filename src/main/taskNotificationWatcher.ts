@@ -80,14 +80,29 @@
  *     still be in flight for that parent. A genuinely synchronous dispatch
  *     (if one exists) never triggers this event at all, so `Stop` keeps
  *     concluding it exactly as before this fix.
- *   - `battle:subagentTaskNotification` (agentId) — a real completion
+ *   - `battle:subagentTaskNotification` (agentId, taskId) — a real completion
  *     (whatever its `<status>` — a failed/cancelled subagent is still done,
  *     so this deliberately does NOT require `<status>completed</status>`).
  *     hookRouter.ts forwards this straight into the existing `'end'` battle
- *     signal, reusing `BattleManager.handleEnd`'s established "no exact
- *     per-subagent id survives to here — queue the oldest roaming sub for
- *     this parent" best-effort heuristic (same position `SubagentStop`
- *     already occupies), rather than inventing new per-battler correlation.
+ *     signal, now carrying the exact CLI-internal task-id so
+ *     `BattleManager.handleEnd` can retire the battler actually stamped with
+ *     it, falling back to the old "queue the oldest roaming sub for this
+ *     parent" heuristic only when no battler was ever stamped (see the
+ *     battler ↔ task-id correlation fix below).
+ *   - `battle:taskCorrelated` (agentId, toolUseId, taskId) — battler ↔
+ *     task-id correlation (2026-08-29 fix): links a dispatch's `tool_use_id`
+ *     (known at PreToolUse, carried through the `spawn` battle signal — see
+ *     battleBus.ts) to the CLI-internal task-id this file reads off the same
+ *     async-launch transcript entry (`extractToolUseId`). BattleManager's
+ *     `handleCorrelate` either stamps the battler that dispatch already
+ *     spawned, or — if no live battler carries that `tool_use_id` — treats it
+ *     as a RESUME (the same task-id dispatched async again after its earlier
+ *     battler fully faded) and re-materializes one from remembered species/
+ *     label. The RESUME half only works because a task-id already sitting in
+ *     `notified` (its prior completion fully consumed) is un-guarded the
+ *     moment it launches async again, above — otherwise the resumed run's own
+ *     completion would be silently deduped and the re-materialized battler
+ *     would roam forever (BACKLOG "resumed agents are invisible").
  *
  * Sidechain-excluded (`isSidechain: true`) same as costWatcher.ts/
  * arceusRelay.ts's own exclusion — those entries belong to a SUBAGENT's own
@@ -150,6 +165,34 @@ interface TranscriptEntry {
 export function extractAsyncLaunchId(entry: TranscriptEntry): string | null {
   const tur = entry.toolUseResult;
   if (tur && tur.isAsync === true && typeof tur.agentId === 'string' && tur.agentId) return tur.agentId;
+  return null;
+}
+
+/** The `tool_use_id` off the `tool_result` content block sibling to
+ *  `toolUseResult` on the SAME transcript entry an async launch is detected
+ *  from — Anthropic's own tool_use/tool_result correlation id, matching the
+ *  `tool_use_id` field Claude Code's PreToolUse/PostToolUse hook payloads
+ *  carry for that identical tool call (see shared/hookEvents.ts's
+ *  `HookPayload.tool_use_id`). This is the link between a `Task` (or a later
+ *  resume/continue call)'s `tool_use_id` — known at PreToolUse, before any
+ *  CLI-internal task-id exists — and the `toolUseResult.agentId` this file
+ *  already reads, which only shows up here once the dispatch lands in the
+ *  transcript. Battler correlation (BattleManager.ts's `handleCorrelate`)
+ *  depends on this; if it ever comes back null in practice (transcript shape
+ *  differs from the standard tool_use/tool_result layout assumed here —
+ *  UNVERIFIED against a live capture, since this app can't spawn a real
+ *  interactive `claude` session, see hookRouter.ts), correlation simply never
+ *  lands for that dispatch and BattleManager falls back to its pre-existing
+ *  oldest-roaming heuristic — nothing breaks, it just degrades to today's
+ *  behavior for that one battler. */
+export function extractToolUseId(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    if (block && typeof block === 'object') {
+      const b = block as { type?: unknown; tool_use_id?: unknown };
+      if (b.type === 'tool_result' && typeof b.tool_use_id === 'string' && b.tool_use_id) return b.tool_use_id;
+    }
+  }
   return null;
 }
 
@@ -282,24 +325,49 @@ export class TaskNotificationWatcher {
 
     const launchId = extractAsyncLaunchId(entry);
     if (launchId) {
+      // RESUME correlation (battler ↔ task-id fix, 2026-08-29): a task-id
+      // already sitting in `notified` launching async again means its prior
+      // completion was already fully consumed (queued/fought its completion
+      // battle — see BattleManager.ts's `handleEnd`) by the time this line
+      // was ever written, since transcript lines are only read once (byte-
+      // offset tailing, never replayed) — so un-guarding it here can't
+      // resurrect an already-handled notification, it only lets the CLI's
+      // documented "same task-id may notify more than once" case notify for
+      // REAL the next time (the resumed run's own completion). Without this,
+      // that second notification would be silently swallowed by the dedupe
+      // below and the resumed battler would roam forever (BACKLOG "resumed
+      // agents are invisible").
+      if (t.notified.has(launchId)) t.notified.delete(launchId);
       t.pending.add(launchId);
       this.emit('battle:asyncLaunch', agentId);
+
+      // Battler ↔ task-id correlation: link this dispatch's tool_use_id
+      // (known at PreToolUse, before `launchId` existed) to the CLI-internal
+      // task-id now available. Renderer decides what to do with the pair —
+      // stamp the matching roaming battler (ordinary case) or re-materialize
+      // one from memory (a resume whose battler already faded) — see
+      // BattleManager.ts's `handleCorrelate`.
+      const toolUseId = extractToolUseId(entry.message?.content);
+      if (toolUseId) this.emit('battle:taskCorrelated', agentId, toolUseId, launchId);
     }
 
     const text = extractUserContentText(entry.message?.content);
     for (const taskId of extractTaskNotificationIds(text)) {
-      if (t.notified.has(taskId)) continue; // resumed subagent — already handled
+      if (t.notified.has(taskId)) continue; // already-consumed completion for this task-id — dedupe
       t.notified.add(taskId);
       t.pending.delete(taskId);
-      this.emit('battle:subagentTaskNotification', agentId);
+      this.emit('battle:subagentTaskNotification', agentId, taskId);
     }
   }
 
-  private emit(channel: 'battle:asyncLaunch' | 'battle:subagentTaskNotification', agentId: string): void {
+  private emit(channel: 'battle:asyncLaunch', agentId: string): void;
+  private emit(channel: 'battle:subagentTaskNotification', agentId: string, taskId: string): void;
+  private emit(channel: 'battle:taskCorrelated', agentId: string, toolUseId: string, taskId: string): void;
+  private emit(channel: string, agentId: string, ...rest: string[]): void {
     const wc = this.getWebContents();
     if (!wc || wc.isDestroyed()) return;
     try {
-      wc.send(channel, agentId);
+      wc.send(channel, agentId, ...rest);
     } catch {
       /* window tore down mid-send */
     }

@@ -46,6 +46,22 @@ export interface HookPayload {
    *  `onRawPayload` constructor param rather than reconstructing the
    *  munged-cwd transcript directory name itself. */
   transcript_path?: string;
+  /** Anthropic's own tool_use/tool_result correlation id for this exact tool
+   *  invocation (e.g. `toolu_01ABC...`) — confirmed via Claude Code's public
+   *  hooks docs (code.claude.com/docs/en/hooks: "The `tool_name`,
+   *  `tool_input`, and `tool_use_id` fields are event-specific", with a
+   *  worked PreToolUse example showing `tool_use_id` alongside `tool_name`/
+   *  `tool_input`), present on both PreToolUse and PostToolUse. NOT the same
+   *  id as the CLI-internal subagent `agentId`/task-id that only shows up
+   *  later in the parent transcript's `toolUseResult` (taskNotification
+   *  Watcher.ts) — this is the standard Anthropic API id that a `tool_use`
+   *  content block and its later `tool_result` block both carry, which is
+   *  what lets that same watcher link the two together (see its
+   *  `extractToolUseId`). Unverified against a live capture of this exact
+   *  field name in this app's own transcripts (this app is never allowed to
+   *  spawn a real interactive `claude` session — see hookRouter.ts) — trusted
+   *  on the strength of the public docs instead. */
+  tool_use_id?: string;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */
@@ -61,6 +77,12 @@ export interface HookEvent {
    *  present — captured so a SessionStart can stash it on the SessionRecord
    *  for disk-persisted `claude --resume` respawns (Phase 8.5 #1). */
   claudeSessionId?: string;
+  /** `tool_use_id` off the raw payload (see `HookPayload.tool_use_id`) — for
+   *  a `Task` PreToolUse this is the one identity available at spawn time,
+   *  threaded into the `spawn` battle signal (battleBus.ts) so BattleManager
+   *  can later correlate this exact dispatch to the CLI-internal task-id a
+   *  completion names (see BattleManager.ts's `handleCorrelate`). */
+  toolUseId?: string;
 }
 
 const KNOWN_EVENTS: ReadonlySet<string> = new Set<HookEventName>([

@@ -86,14 +86,38 @@
  * Rather than build on either hook event directly, `onSubagentTaskNotification`
  * reads the parent's TRANSCRIPT instead (reliably tagged, since it's
  * registered per this app's own harness agentId) and is now the sole
- * trigger for `handleEnd`'s "queue the oldest roaming sub" heuristic —
- * `SubagentStop` (`handleEnd`'s other caller, hookRouter.ts) is still wired
- * but no longer forwards into a battle signal, specifically to avoid
- * double-firing 'end' for one real completion (which would prematurely
- * conclude an unrelated, still-working sibling). This still matches publicly
- * tracked upstream issues (e.g. anthropics/claude-code #25147, #27755,
- * #33049 — background/subagent completion signals unreliable) in spirit:
- * real, but not safe to build load-bearing per-subagent identity on.
+ * trigger for `handleEnd`. `SubagentStop` (`handleEnd`'s other caller,
+ * hookRouter.ts) is still wired but no longer forwards into a battle signal,
+ * specifically to avoid double-firing 'end' for one real completion (which
+ * would prematurely conclude an unrelated, still-working sibling). This
+ * still matches publicly tracked upstream issues (e.g. anthropics/claude-code
+ * #25147, #27755, #33049 — background/subagent completion signals
+ * unreliable) in spirit: real, but not safe to build load-bearing
+ * per-subagent identity on BY ITSELF.
+ *
+ * BATTLER ↔ TASK-ID CORRELATION (2026-08-29 fix, supersedes "queue the
+ * oldest roaming sub" as `handleEnd`'s primary path): the missing identity
+ * turned out not to need either unreliable hook — Claude Code's documented
+ * `tool_use_id` (present on both PreToolUse and PostToolUse; see
+ * shared/hookEvents.ts's `HookPayload.tool_use_id`) is the standard
+ * Anthropic tool_use/tool_result correlation id, and the SAME transcript
+ * entry taskNotificationWatcher.ts already reads for `toolUseResult.agentId`
+ * also carries it (as the sibling `tool_result` block's own `tool_use_id` —
+ * see that file's `extractToolUseId`). That's enough to link a `Task`
+ * dispatch's `tool_use_id` (known at PreToolUse, threaded through the
+ * `spawn` battle signal — battleBus.ts) to the CLI-internal task-id a later
+ * completion names, with no new hook needed. `handleCorrelate` stamps the
+ * matching battler; `handleEnd` retires by that exact stamp, falling back to
+ * "oldest roaming" only when no battler was ever stamped (correlation raced
+ * ahead, or predates this fix). The one part of this chain NOT verified
+ * against a live transcript capture (this app can't spawn a real interactive
+ * `claude` session — see hookRouter.ts's own header) is the assumption that
+ * the `tool_result` block's `tool_use_id` really does sit alongside
+ * `toolUseResult` on that entry, exactly as the standard Anthropic API
+ * message shape implies; if that assumption is wrong for some transcript
+ * variant, `extractToolUseId` returns null and correlation simply never
+ * lands for that one dispatch — no crash, just today's oldest-roaming
+ * fallback for that battler.
  *
  * CAVEAT: both live captures used `claude -p` (headless) rather than this
  * app's real interactive pty spawn — same HookBridge/transcript mechanism,
@@ -233,12 +257,19 @@ const MIN_ROAM_MS = 15_000;
  *  their own: (1) a subagent that dies without ANY terminal notification
  *  (e.g. killed by an API error) never decrements `pendingAsyncLaunches`, so
  *  `hasPendingAsyncSubagents` reads true for that parent forever and the
- *  `queueEligibleAt` re-check below never passes; (2) a RESUMED agent's
- *  second completion notification is deduped by task-id
- *  (taskNotificationWatcher.ts's `t.notified`) and silently swallowed, so
- *  `handleEnd`'s "queue the oldest roaming sub" heuristic never fires for it
- *  either. Either way the sub would otherwise sit in 'roaming' forever — a
- *  card on the roster strip for an agent that's long gone (log-confirmed:
+ *  `queueEligibleAt` re-check below never passes — the battler ↔ task-id
+ *  correlation fix (below) doesn't touch this case at all, since there's no
+ *  completion to correlate; (2) a RESUMED agent's second completion
+ *  notification USED TO BE deduped by task-id (taskNotificationWatcher.ts's
+ *  `t.notified`) and silently swallowed — now fixed at the source (that
+ *  watcher un-guards a task-id from `notified` the moment it sees the same
+ *  id dispatch async again, and `handleCorrelate` re-materializes the
+ *  battler from `retiredTaskInfo`'s remembered species/label) — but only for
+ *  as long as this manager's own in-memory `retiredTaskInfo` still holds that
+ *  task-id (an app restart between the original completion and the resume
+ *  loses it, same as every other purely in-memory piece of battle state).
+ *  Either way the sub would otherwise sit in 'roaming' forever — a card on
+ *  the roster strip for an agent that's long gone (log-confirmed:
  *  `subagentsMaterialized` staying permanently ahead of
  *  `subagentsCleanedUp`). Real agents in this project routinely run 9-16
  *  minutes and have hit ~26 in the extreme; set generously past that
@@ -247,13 +278,14 @@ const MIN_ROAM_MS = 15_000;
  *  cap equal to or only slightly above the observed extreme would risk
  *  firing on that exact legitimate case.
  *
- *  The proper long-term fix is real per-subagent identity: correlate a
- *  `Task` PostToolUse's `agentId` back to the battler its matching PreToolUse
- *  spawned, so a completion can be resolved to the sub that actually finished
- *  instead of "the oldest roaming one" (`handleEnd`) or "give up and age it
- *  out" (this constant). Out of scope here — no PostToolUse plumbing exists
- *  for this yet — but this cap is a backstop for that gap, not a
- *  replacement for it. */
+ *  Real per-subagent identity now exists (`handleCorrelate`, fed by
+ *  taskNotificationWatcher.ts's `battle:taskCorrelated` — a dispatch's
+ *  `tool_use_id`, known at PreToolUse, linked to the CLI-internal task-id a
+ *  completion names), so `handleEnd` resolves a completion to the sub that
+ *  actually finished instead of "the oldest roaming one" whenever that
+ *  correlation landed. This cap remains the backstop for whatever it still
+ *  can't close — failure mode (1) above, or any battler whose correlation
+ *  never arrived at all — not a replacement for it. */
 const MAX_ROAM_MS = 30 * 60_000;
 
 /** Gap enforced, in ms, between the end of one completion battle and the
@@ -291,6 +323,26 @@ interface SubBattler {
   key: string;
   battler: Battler;
   lifecycle: 'roaming' | 'queued' | 'battling' | 'leaving';
+  /** The spawning dispatch's own `description`/`subagent_type` (see
+   *  battleBus.ts's `spawn` signal) — kept on the sub (not just forwarded to
+   *  the store) so a RESUME can re-materialize a battler with the same label
+   *  (`handleCorrelate`'s `retiredTaskInfo`). */
+  label?: string;
+  /** This battler's spawning dispatch's `tool_use_id` (battler ↔ task-id
+   *  correlation fix) — the one identity available at spawn time, before any
+   *  CLI-internal task-id exists. Null for the regex-fallback path
+   *  (ptyParser.ts, no hook payload to read one from) and for a garden
+   *  context-loss recovery (`respawnFromStore`, no correlation survives a
+   *  renderer rebuild). Cleared to irrelevance once `taskId` is stamped —
+   *  kept around only so `handleCorrelate` can find this sub by it. */
+  toolUseId: string | null;
+  /** The CLI-internal task-id (`toolUseResult.agentId`) this battler's
+   *  dispatch was correlated to, once `handleCorrelate` links its
+   *  `toolUseId` to a completion's task-id — see the file header's battler ↔
+   *  task-id correlation fix. Null until stamped; a battler that's never
+   *  stamped (correlation raced ahead, or predates this fix) still falls
+   *  back to `handleEnd`'s oldest-roaming heuristic exactly as before. */
+  taskId: string | null;
   /** Where this battler roams — chosen once at spawn (`pickRoamHome`) and
    *  never recomputed; a battler never re-enters roaming after its one
    *  completion battle. */
@@ -460,6 +512,15 @@ export class BattleManager {
    *  cooldown gap enforced after every wave concludes. 0 initially (nothing
    *  has battled yet, so nothing to cool down from). */
   private nextBattleEarliestAt = 0;
+  /** Battler ↔ task-id correlation fix (2026-08-29) — species/label memory
+   *  for every task-id `handleEnd` has ever retired, keyed by the CLI-
+   *  internal task-id. Consulted by `handleCorrelate` when a task-id
+   *  dispatches async again with no live battler carrying it: a RESUME,
+   *  which should poof the same pokemon back in rather than staying
+   *  invisible (BACKLOG "resumed agents are invisible"). Never pruned —
+   *  bounded by how many subagents a session actually completes, not by
+   *  anything unbounded. */
+  private retiredTaskInfo = new Map<string, { species: string; label?: string }>();
 
   constructor(private deps: BattleDeps) {
     this.unsubscribe = onBattleSignal((sig) => this.onSignal(sig));
@@ -576,6 +637,13 @@ export class BattleManager {
         key: entry.key,
         battler,
         lifecycle: 'roaming',
+        label: entry.label,
+        // No correlation survives a renderer rebuild — this sub falls back
+        // to handleEnd's oldest-roaming heuristic if its real completion
+        // notification arrives after recovery, same as any other never-
+        // stamped battler.
+        toolUseId: null,
+        taskId: null,
         wanderHome: home,
         wanderTimer: 0,
         wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
@@ -790,13 +858,13 @@ export class BattleManager {
   private onSignal(sig: BattleSignal): void {
     switch (sig.type) {
       case 'spawn':
-        this.handleSpawn(sig.parentId, sig.label);
+        this.handleSpawn(sig.parentId, sig.label, sig.toolUseId);
         break;
       case 'attack':
         this.handleAttack(sig.parentId, sig.tool);
         break;
       case 'end':
-        this.handleEnd(sig.parentId);
+        this.handleEnd(sig.parentId, sig.taskId);
         break;
       case 'endAll':
         this.handleEndAll(sig.parentId);
@@ -804,10 +872,13 @@ export class BattleManager {
       case 'parentDone':
         this.handleParentDone(sig.parentId);
         break;
+      case 'correlate':
+        this.handleCorrelate(sig.parentId, sig.toolUseId, sig.taskId);
+        break;
     }
   }
 
-  private handleSpawn(parentId: string, label?: string): void {
+  private handleSpawn(parentId: string, label?: string, toolUseId?: string): void {
     const rt = this.deps.getRuntime(parentId);
     if (!rt) return;
     let pb = this.battles.get(parentId);
@@ -832,6 +903,9 @@ export class BattleManager {
       key: `${parentId}#${pb.nextSeq++}`,
       battler,
       lifecycle: 'roaming',
+      label,
+      toolUseId: toolUseId ?? null,
+      taskId: null,
       wanderHome: home,
       wanderTimer: 0,
       wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
@@ -895,23 +969,148 @@ export class BattleManager {
     // own scripted progression (not real signals) decides when it's done.
   }
 
-  /** SubagentStop, when it actually arrives (see file header — unreliable,
-   *  used opportunistically). No per-subagent id survives to this point, so
-   *  this queues the OLDEST currently-roaming subagent for the parent — the
-   *  best available guess, same "no real correlation, do something
-   *  reasonable" position the regex-fallback path (`endAll`) is already in.
-   *  Bypasses `MIN_ROAM_MS` — this signal names one specific subagent's real
-   *  completion, not a coarse per-turn proxy, so there's nothing to guard
-   *  against. */
-  private handleEnd(parentId: string): void {
+  /** A real per-subagent completion (`onSubagentTaskNotification`, see file
+   *  header). Battler ↔ task-id correlation fix (2026-08-29): when `taskId`
+   *  names the CLI-internal task-id that finished, retires the EXACT roaming
+   *  battler already stamped with it (`handleCorrelate`) — recording its
+   *  species/label in `retiredTaskInfo` first, so a later RESUME can
+   *  re-materialize the same pokemon. Falls back to queuing the OLDEST
+   *  currently-roaming subagent for the parent — the same "no real
+   *  correlation, do something reasonable" position the regex-fallback path
+   *  (`endAll`) is already in — only when no battler was ever stamped with
+   *  `taskId` (correlation raced ahead of this notification, or this battler
+   *  predates the fix), or when no `taskId` is available at all (shouldn't
+   *  happen for this signal's one real caller today, but kept honest for any
+   *  future caller). Bypasses `MIN_ROAM_MS` either way — this signal names
+   *  one specific subagent's real completion, not a coarse per-turn proxy,
+   *  so there's nothing to guard against. */
+  private handleEnd(parentId: string, taskId?: string): void {
     const pb = this.battles.get(parentId);
     if (!pb) return;
+    if (taskId) {
+      const stamped = pb.subs.find((s) => s.taskId === taskId && s.lifecycle === 'roaming');
+      if (stamped) {
+        this.retiredTaskInfo.set(taskId, { species: stamped.battler.species.id, label: stamped.label });
+        this.queueForBattle(stamped);
+        return;
+      }
+    }
     let oldest: SubBattler | null = null;
     for (const sub of pb.subs) {
       if (sub.lifecycle !== 'roaming') continue;
       if (!oldest || sub.roamingSince < oldest.roamingSince) oldest = sub;
     }
-    if (oldest) this.queueForBattle(oldest);
+    if (oldest) {
+      // Best-effort even in the fallback path: without recording SOMETHING
+      // under `taskId`, a genuine later resume of this exact task-id would
+      // find no memory to re-materialize from and stay invisible — the same
+      // gap this whole fix exists to close, just for the narrower case of a
+      // battler that was never stamped. The tradeoff is recording the wrong
+      // species if `oldest` isn't actually the sub that finished (possible
+      // under concurrency) — accepted, since the alternative is certain
+      // invisibility rather than a possibly-wrong pokemon on resume.
+      if (taskId) this.retiredTaskInfo.set(taskId, { species: oldest.battler.species.id, label: oldest.label });
+      this.queueForBattle(oldest);
+    }
+  }
+
+  /** Battler ↔ task-id correlation (2026-08-29 fix) — see battleBus.ts's
+   *  'correlate' signal and taskNotificationWatcher.ts's `battle:
+   *  taskCorrelated` for where the pair comes from. Two outcomes:
+   *   1. ORDINARY: the dispatch that owns `toolUseId` already spawned a
+   *      battler (`handleSpawn`) and is just waiting to be told its
+   *      CLI-internal task-id — stamp it, so `handleEnd` can retire it
+   *      exactly instead of guessing.
+   *   2. RESUME: no live battler carries `toolUseId` at all — the same
+   *      task-id dispatched async again after its earlier battler already
+   *      fully faded (only possible because taskNotificationWatcher.ts
+   *      un-guards a task-id from its dedupe set the moment it sees this
+   *      exact relaunch). Re-materializes a fresh roaming battler from
+   *      `retiredTaskInfo`'s remembered species/label — same species,
+   *      poofing back in — stamped directly with `taskId` (no need to wait
+   *      for a fresh spawn->correlate round trip; it's already known here).
+   *      UNVERIFIED assumption this whole branch rests on (no live capture
+   *      of a real resume/SendMessage relaunch — this app can't spawn a real
+   *      interactive `claude` session): that a resume actually writes a
+   *      FRESH `toolUseResult.isAsync` transcript line carrying the SAME
+   *      `agentId`, the way a completely independent dispatch would. The
+   *      CLI's own "same task-id may notify more than once" note (see
+   *      taskNotificationWatcher.ts's header) only documents the
+   *      NOTIFICATION side re-firing, not that the LAUNCH side re-fires too
+   *      — if a resume turns out not to produce a new async-launch line for
+   *      that agentId, this branch is simply never reached; the resumed
+   *      run's eventual second completion still isn't swallowed (the
+   *      `notified` un-guard is independent of this), it just falls through
+   *      `handleEnd` to the oldest-roaming fallback instead of a proper
+   *      respawn — a real but strictly narrower version of the original bug.
+   *  NOTE: `pb` may not exist here — a resume can arrive after the original
+   *  battler's completion battle concluded and this parent's `ParentBattle`
+   *  was reaped from `this.battles` entirely (`update`'s `finishedParents`
+   *  cleanup) — exactly the state the BACKLOG repro describes ("a completed
+   *  async agent is CONTINUED"). Only the RESUME branch may create one (same
+   *  `!rt` guard `handleSpawn` uses); the STAMP branch below needs an
+   *  existing `pb` since there's nothing to stamp otherwise.
+   *  Guards against double-spawn: if ANY live sub — including one mid-poof
+   *  (`'leaving'`) — already carries `taskId`, this is a duplicate/no-op:
+   *  the original is still alive (or still finishing its exit), or already
+   *  correctly stamped. */
+  private handleCorrelate(parentId: string, toolUseId: string, taskId: string): void {
+    let pb = this.battles.get(parentId);
+    if (pb?.subs.some((s) => s.taskId === taskId)) return;
+    const bySpawn = pb?.subs.find((s) => s.toolUseId === toolUseId && s.taskId === null);
+    if (bySpawn) {
+      bySpawn.taskId = taskId;
+      // Recorded here too (not just in handleEnd) so a battler that exits
+      // via a path other than handleEnd (handleEndAll, forceConcludeWave,
+      // the MAX_ROAM_MS age-out self-queue) still leaves resume-respawn
+      // memory behind.
+      this.retiredTaskInfo.set(taskId, { species: bySpawn.battler.species.id, label: bySpawn.label });
+      return;
+    }
+
+    const info = this.retiredTaskInfo.get(taskId);
+    if (!info) return; // never seen this task-id before — nothing to resume from
+    const species = DEX_LIST.find((e) => e.id === info.species && e.hasSprite);
+    if (!species) return;
+    const rt = this.deps.getRuntime(parentId);
+    if (!rt) return; // parent session's own walker is gone — nothing to roam beside
+    if (!pb) {
+      pb = this.createBattle(parentId, rt.walker);
+      this.battles.set(parentId, pb);
+    }
+    const animation = this.deps.resolveAnimation(species.id, false);
+    const home = this.pickRoamHome(pb, pb.parentWalker.tile);
+    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home });
+    this.deps.charLayer.addChild(battler.container);
+    const sub: SubBattler = {
+      key: `${parentId}#${pb.nextSeq++}`,
+      battler,
+      lifecycle: 'roaming',
+      label: info.label,
+      toolUseId,
+      taskId,
+      wanderHome: home,
+      wanderTimer: 0,
+      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
+      roamingSince: Date.now(),
+      queuedSince: 0,
+      queueEligibleAt: null,
+      visibleLogged: false
+    };
+    pb.subs.push(sub);
+    this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label: info.label });
+    bumpCounter('subagentsMaterialized');
+    safeLogDiagnostic('battle-spawn', 'info', 'battler re-materialized for a resumed subagent', {
+      parentId,
+      species: species.id,
+      taskId,
+      tile: home
+    });
+    if (!isBundled(species.id)) {
+      void this.deps.loadLazyAnimation(species.id, false).then((real) => {
+        if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+      });
+    }
   }
 
   /** The parent session's own turn fully ended (`Stop`, via hookRouter.ts).
