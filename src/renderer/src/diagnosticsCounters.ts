@@ -104,7 +104,18 @@ const SPAWN_MATERIALIZE_DIVERGENCE_MS = 5 * 60 * 1000;
  *  has no upper bound this file can reason about. This threshold is
  *  therefore no longer a tight "should reconcile within X" invariant — it's
  *  a coarse, generous smoke-test tripwire for something genuinely stuck
- *  (e.g. a wedged battle queue), not for an ordinary long-running subagent. */
+ *  (e.g. a wedged battle queue), not for an ordinary long-running subagent.
+ *  Done/retired follow-up (2026-08-29): a SECOND legitimate reason for this
+ *  gap now exists on top of that — a battler that lost its completion
+ *  battle no longer counts as cleaned up at all until the user explicitly
+ *  despawns it (BattleManager.ts's `retired` lifecycle), so a session with
+ *  several done-but-undismissed pokemon sitting in the garden can widen this
+ *  gap indefinitely with nothing stuck whatsoever. Left at 6h rather than
+ *  disabled or reworked into a per-lifecycle-state counter (out of scope for
+ *  that follow-up) — a real wedge still trips this threshold, it's just no
+ *  longer the ONLY explanation for a persistent gap the way it used to be;
+ *  a future false-positive report against this specific warning should
+ *  check for undismissed `retired` cards before assuming a real leak. */
 const SUBAGENT_LIFECYCLE_DIVERGENCE_MS = 6 * 60 * 60 * 1000;
 
 interface DivergingPair {

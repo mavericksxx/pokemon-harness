@@ -45,6 +45,22 @@ export interface LiveBattler {
    *  SubagentRosterCard shows elapsed time since spawn instead, as the one
    *  real number available for a battler. */
   spawnedAt: number;
+  /** Done/retired follow-up: true once this battler lost its completion
+   *  battle (or aged out into one) and went off-duty — mirrored from
+   *  BattleManager's own `retired` lifecycle via the `onBattlerDone` bridge
+   *  (GardenScene.tsx). SubagentRosterCard shows a green done status and a
+   *  despawn action while true. Flips back to false (`reviveRetired`,
+   *  BattleManager.ts) if a resumed task-id revives this exact battler in
+   *  place instead of a duplicate spawning. Always present (not optional) —
+   *  every construction site (`addBattler`'s default, `respawnFromStore`'s
+   *  pass-through) sets it explicitly. */
+  done: boolean;
+  /** Epoch ms this battler most recently became `done` — stamped by
+   *  `setBattlerDone(key, true)`, cleared back to undefined on revival. The
+   *  one number SubagentRosterCard needs to freeze its "done — ran Xm"
+   *  readout instead of it continuing to climb after the subagent has
+   *  actually finished. */
+  doneAt?: number;
 }
 
 export interface Toast {
@@ -119,6 +135,9 @@ interface HarnessState {
    *  on) rather than a persisted mode. Null = normal follow-the-selected-
    *  session camera behavior. */
   focusBattlerKey: string | null;
+  /** Pending despawn requests (SubagentRosterCard's despawn button) — see
+   *  `requestDespawnBattler`/`drainDespawnBattlerKeys` below. */
+  despawnBattlerKeys: string[];
   viewMode: ViewMode;
   /** Garden's fraction of `.body-row`'s width, dragged via
    *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
@@ -187,13 +206,32 @@ interface HarnessState {
   /** BattleManager's onBattlerSpawned bridge (GardenScene.tsx) — a wild
    *  battler just materialized. `spawnedAt` is stamped here (Date.now()),
    *  not passed in — this call IS the moment of spawn as far as the store's
-   *  concerned. */
-  addBattler(battler: Omit<LiveBattler, 'spawnedAt'>): void;
+   *  concerned. `done`/`doneAt` are optional here (defaults to `false`/
+   *  undefined) so a fresh spawn's payload — which never carries either —
+   *  doesn't need to fake them, while the garden-rebuild respawn path (which
+   *  DOES already know a battler's `done` state, from the pre-teardown
+   *  snapshot) can pass them straight through unchanged. */
+  addBattler(battler: Omit<LiveBattler, 'spawnedAt' | 'done'> & { done?: boolean; doneAt?: number }): void;
   /** BattleManager's onBattlerRemoved bridge — a battler poofed out (or was
    *  hard-torn-down with its parent session). No-op if already gone. Also
    *  clears `focusBattlerKey` if it named this battler, so the garden
    *  camera doesn't keep re-checking a dead key every tick. */
   removeBattler(key: string): void;
+  /** BattleManager's onBattlerDone bridge (GardenScene.tsx) — flips
+   *  `LiveBattler.done` both directions: `true` when a battler loses its
+   *  completion battle (or ages out into one) and retires off-duty, `false`
+   *  when a resumed task-id revives that same battler in place. Stamps/
+   *  clears `doneAt` to match. No-op if the key is already gone (a despawn
+   *  raced ahead of this). */
+  setBattlerDone(key: string, done: boolean): void;
+  /** Despawn requests queued by SubagentRosterCard's despawn button, drained
+   *  once per frame by GardenScene's ticker (`drainDespawnBattlerKeys`) and
+   *  handed to BattleManager.despawnBattler — a queue, not a single slot, so
+   *  two cards dismissed in the same frame can't clobber each other. */
+  requestDespawnBattler(key: string): void;
+  /** Atomically returns and clears the queue above — called once per frame
+   *  from GardenScene's ticker, never from React. */
+  drainDespawnBattlerKeys(): string[];
 }
 
 export const useStore = create<HarnessState>((set, get) => ({
@@ -203,6 +241,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   toasts: [],
   battlers: [],
   focusBattlerKey: null,
+  despawnBattlerKeys: [],
   viewMode: loadViewMode(),
   gardenSplit: loadGardenSplit(),
   sessionsOverviewOpen: false,
@@ -290,10 +329,23 @@ export const useStore = create<HarnessState>((set, get) => ({
   },
   dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) })),
 
-  addBattler: (battler) => set((st) => ({ battlers: [...st.battlers, { ...battler, spawnedAt: Date.now() }] })),
+  addBattler: (battler) =>
+    set((st) => ({
+      battlers: [...st.battlers, { ...battler, done: battler.done ?? false, spawnedAt: Date.now() }]
+    })),
   removeBattler: (key) =>
     set((st) => ({
       battlers: st.battlers.filter((b) => b.key !== key),
       focusBattlerKey: st.focusBattlerKey === key ? null : st.focusBattlerKey
-    }))
+    })),
+  setBattlerDone: (key, done) =>
+    set((st) => ({
+      battlers: st.battlers.map((b) => (b.key === key ? { ...b, done, doneAt: done ? Date.now() : undefined } : b))
+    })),
+  requestDespawnBattler: (key) => set((st) => ({ despawnBattlerKeys: [...st.despawnBattlerKeys, key] })),
+  drainDespawnBattlerKeys: () => {
+    const keys = get().despawnBattlerKeys;
+    if (keys.length > 0) set({ despawnBattlerKeys: [] });
+    return keys;
+  }
 }));

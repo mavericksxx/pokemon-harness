@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/store/store';
 import type { LiveBattler, Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
+import { PokeballIcon } from '@/components/icons';
 import { speciesEntry } from '@/scene/garden/dexData';
 
 /** Same local re-render tick TrainerCard.tsx's popover uses for its "resets
@@ -71,12 +72,22 @@ function formatElapsed(ms: number): string {
  *  alongside the parent line, mirroring AgentRosterCard's title-then-species
  *  layout instead of reading species-first like a session of its own. Falls
  *  back to species-as-title (this card's original layout) for the
- *  regex-fallback path, where no label exists. */
+ *  regex-fallback path, where no label exists.
+ *
+ *  Done/retired follow-up: a battler that lost its completion battle no
+ *  longer poofs away — it stays on the strip, off-duty, until dismissed. A
+ *  `done` battler shows a green status (compact: `.roster-card-dot.done`;
+ *  full: the elapsed line freezes at "done — ran Xm" instead of continuing
+ *  to climb) and a despawn button (both variants — icon-only in compact,
+ *  same treatment AgentRosterCard's compact swap button already uses)
+ *  that plays a pokéball-recall animation in the garden, then removes it
+ *  for good. */
 export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'full' }: Props): JSX.Element {
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const setFocusBattlerKey = useStore((s) => s.setFocusBattlerKey);
+  const requestDespawnBattler = useStore((s) => s.requestDespawnBattler);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -99,11 +110,20 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
 
   const speciesName = (speciesEntry(battler.species)?.name ?? battler.species).toLowerCase();
   const label = battler.label;
+  const done = battler.done;
 
-  const elapsedText = `running ${formatElapsed(now - battler.spawnedAt)}`;
+  // Frozen at `doneAt` once done (falls back to `now` for the brief window
+  // before `doneAt` lands, same tick `done` itself does) — a done battler's
+  // elapsed readout must stop climbing once the subagent has actually
+  // finished, not keep counting the off-duty wandering time on top of it.
+  const elapsedText = done
+    ? `done — ran ${formatElapsed((battler.doneAt ?? now) - battler.spawnedAt)}`
+    : `alive — running ${formatElapsed(now - battler.spawnedAt)}`;
   const baseTitle = label
     ? `${label} — ${speciesName}, subagent of ${parent.title}`
     : `${speciesName} — subagent of ${parent.title}`;
+
+  const onDespawn = (): void => requestDespawnBattler(battler.key);
 
   return (
     <div className="roster-card-wrap">
@@ -125,6 +145,10 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
                 <PokemonFace name={battler.species} box={18} />
               </span>
               <span className="roster-card-title-compact">{label || speciesName}</span>
+              {/* Was omitted entirely pre-done-follow-up ("a battler has
+                  exactly one status, so a dot would be pure noise") — now
+                  there are two (alive/done), so the dot earns its keep. */}
+              <span className={`roster-card-dot ${done ? 'done' : 'working'}`} aria-hidden="true" />
             </div>
             <div className="roster-card-parent-compact">↳ {parent.title}</div>
             {/* No real per-subagent telemetry exists to fill this (see the
@@ -155,15 +179,29 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
               </span>
               {/* Reusing `.summon-arceus-dot` — the same standalone status-color
                   dot ArceusRosterCard's topbar chip uses, not a copy/paste of the
-                  wrong class: a battler has exactly one status worth showing
-                  ("alive"), so it's hardcoded to the 'working' color rather than
-                  tracking `session.status`'s full state machine. */}
-              <span className="summon-arceus-dot working" aria-hidden="true" />
+                  wrong class: a battler has exactly two statuses worth showing
+                  (alive/done), so this tracks `done` rather than
+                  `session.status`'s full state machine. */}
+              <span className={`summon-arceus-dot ${done ? 'done' : 'working'}`} aria-hidden="true" />
             </div>
-            <div className="roster-card-tool">alive — {elapsedText}</div>
+            <div className="roster-card-tool">{elapsedText}</div>
           </>
         )}
       </button>
+
+      {/* Despawn action (done/retired follow-up) — offered only once the
+          subagent is actually done; a live one just keeps working. Sibling
+          of the card `<button>` above, same reasoning as AgentRosterCard's
+          `.roster-card-swap` (a button can't nest another button). Recall
+          animation plays in the garden (battleFx.ts's
+          `spawnPokeballRecall`); the card disappears once BattleManager's
+          `onBattlerRemoved` fires at the end of it. */}
+      {done && (
+        <button type="button" className="roster-card-despawn" title="despawn" onClick={onDespawn}>
+          <PokeballIcon />
+          despawn
+        </button>
+      )}
     </div>
   );
 }

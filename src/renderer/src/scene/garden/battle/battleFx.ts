@@ -231,6 +231,138 @@ export function spawnExclaimBubble(container: Container, aboveY: number, onDone?
   registerFx(container, tick);
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** A small pokéball, drawn centered on its own local origin — same red/dark-
+ *  band/white palette and border-then-inset technique as icons.tsx's
+ *  `PokeballIcon` (that one's a fixed-size SVG for chrome; this is a
+ *  scalable Graphics primitive for the garden). Explicit `moveTo` before
+ *  each half-circle `arc` (rather than relying on an implicit start point)
+ *  since `g.fill()` starts a fresh path afterward — the top arc sweeps
+ *  Math.PI -> 0 (through the TOP in Pixi/canvas's shared y-down coordinate
+ *  space) for red, the bottom arc sweeps 0 -> Math.PI (through the BOTTOM)
+ *  for white. */
+function drawPokeballGraphic(g: Graphics, r: number): void {
+  g.clear();
+  g.moveTo(-r, 0).arc(0, 0, r, Math.PI, 0).fill({ color: 0xe5484d });
+  g.moveTo(r, 0).arc(0, 0, r, 0, Math.PI).fill({ color: 0xf2f2f2 });
+  g.rect(-r, -r * 0.12, r * 2, r * 0.24).fill({ color: 0x1b1b1b });
+  g.circle(0, 0, r * 0.32).fill({ color: 0x1b1b1b });
+  g.circle(0, 0, r * 0.16).fill({ color: 0xf2f2f2 });
+  g.circle(0, 0, r).stroke({ width: Math.max(1, r * 0.14), color: 0x1b1b1b });
+}
+
+/** Pokéball recall — the despawn action's animation (SubagentRosterCard's
+ *  despawn button, `done` battlers only): a red/white flash over the
+ *  sprite, the sprite itself shrinks away into a pokéball that holds its
+ *  own size throughout (added as a sibling of the shrinking `spriteContainer`
+ *  so it never shrinks along with it), the ball blinks a few times, then
+ *  vanishes — `onDone` fires right there, once, for the caller to actually
+ *  tear the battler down. `container`/`spriteContainer` mirror `Battler`'s
+ *  own split (its outer container the ball/flash are added to, its inner
+ *  sprite container that actually shrinks) — see `Battler.startRecall`.
+ *
+ *  prefers-reduced-motion: skips the whole tween — the flash renders for
+ *  exactly one frame (so it's still visible, not added-then-removed within
+ *  the same synchronous tick and never composited), then `onDone` fires
+ *  immediately, per spec: "instant remove with a single flash frame". */
+export function spawnPokeballRecall(
+  container: Container,
+  spriteContainer: Container,
+  spriteHeight: number,
+  onDone: () => void
+): void {
+  const flash = new Graphics();
+  const flashSize = Math.max(16, spriteHeight * 0.9);
+  flash.roundRect(-flashSize / 2, -spriteHeight, flashSize, spriteHeight, 3).fill({ color: 0xffffff, alpha: 0.85 });
+  flash.zIndex = 99999;
+  container.addChild(flash);
+
+  if (prefersReducedMotion()) {
+    let shown = false;
+    const tick = (): boolean => {
+      if (!shown) {
+        shown = true; // let this frame actually render before tearing down
+        return false;
+      }
+      container.removeChild(flash);
+      flash.destroy();
+      onDone();
+      return true;
+    };
+    registerFx(container, tick);
+    return;
+  }
+
+  const ball = new Graphics();
+  const r = Math.max(5, spriteHeight * 0.16);
+  drawPokeballGraphic(ball, r);
+  ball.y = -spriteHeight / 2;
+  ball.zIndex = 100000;
+  ball.alpha = 0;
+  container.addChild(ball);
+
+  const FLASH_MS = 140;
+  const SHRINK_MS = 240;
+  const HOLD_MS = 160;
+  const BLINK_MS = 220;
+  const BLINK_STEP_MS = 55;
+
+  let phase: 'flash' | 'shrink' | 'hold' | 'blink' = 'flash';
+  let elapsed = 0;
+  let blinkTimer = 0;
+  let blinkOn = true;
+
+  const tick = (dt: number): boolean => {
+    elapsed += dt * 1000;
+    if (phase === 'flash') {
+      const t = Math.min(1, elapsed / FLASH_MS);
+      flash.alpha = 0.85 * (1 - t);
+      ball.alpha = t;
+      if (t >= 1) {
+        container.removeChild(flash);
+        flash.destroy();
+        phase = 'shrink';
+        elapsed = 0;
+      }
+      return false;
+    }
+    if (phase === 'shrink') {
+      const t = Math.min(1, elapsed / SHRINK_MS);
+      spriteContainer.scale.set(Math.max(0.001, 1 - t));
+      if (t >= 1) {
+        phase = 'hold';
+        elapsed = 0;
+      }
+      return false;
+    }
+    if (phase === 'hold') {
+      if (elapsed >= HOLD_MS) {
+        phase = 'blink';
+        elapsed = 0;
+      }
+      return false;
+    }
+    // 'blink'
+    blinkTimer += dt * 1000;
+    if (blinkTimer >= BLINK_STEP_MS) {
+      blinkTimer = 0;
+      blinkOn = !blinkOn;
+      ball.alpha = blinkOn ? 1 : 0.25;
+    }
+    if (elapsed >= BLINK_MS) {
+      container.removeChild(ball);
+      ball.destroy();
+      onDone();
+      return true;
+    }
+    return false;
+  };
+  registerFx(container, tick);
+}
+
 // A tiny shared ticker for these fire-and-forget effects, so callers never
 // need to remember to poll them each frame themselves. `tickBattleFx` is
 // called once per frame from BattleManager.update().

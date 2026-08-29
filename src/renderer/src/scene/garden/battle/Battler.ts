@@ -4,7 +4,7 @@ import type { PokemonAnimation } from '../showdownArt';
 import type { TiledMapRenderer } from '../TiledMapRenderer';
 import type { DexEntry } from '../dexData';
 import { findPath } from '../pathfinding';
-import { purgeBattleFxFor, spawnMoveText } from './battleFx';
+import { purgeBattleFxFor, spawnMoveText, spawnPokeballRecall } from './battleFx';
 
 const SPEED = 44; // px/sec — matches Walker's SPEED so approach reads the same
 const POOF_IN_MS = 260;
@@ -48,6 +48,9 @@ export class Battler {
 
   private poofPhase: 'in' | 'live' | 'out' | 'gone' = 'in';
   private poofElapsed = 0;
+  /** Guards `startRecall` against being triggered twice on the same battler
+   *  (a double-click on the despawn button). */
+  private recalling = false;
 
   constructor(opts: {
     map: TiledMapRenderer;
@@ -139,6 +142,23 @@ export class Battler {
     if (this.poofPhase === 'out' || this.poofPhase === 'gone') return;
     this.poofPhase = 'out';
     this.poofElapsed = 0;
+  }
+
+  /** Pokéball recall — the despawn action's own animation (done/retired
+   *  battlers only, see BattleManager.ts's `despawnBattler`), distinct from
+   *  `startPoofOut`'s plain uniform shrink (used for `handleEndAll`'s coarse
+   *  cleanup). Passes `this.sprite.container` (not `this.container`) as the
+   *  thing that actually shrinks, so `spawnPokeballRecall`'s ball — added as
+   *  a sibling under `this.container` — can hold its own size throughout
+   *  instead of shrinking away along with the sprite. `onDone` fires once,
+   *  when the whole sequence completes (or after one flash frame under
+   *  prefers-reduced-motion); the caller destroys this battler only then,
+   *  not on any `poofPhase`/`isPoofedOut` state — this animation runs on its
+   *  own clock. */
+  startRecall(onDone: () => void): void {
+    if (this.recalling) return;
+    this.recalling = true;
+    spawnPokeballRecall(this.container, this.sprite.container, this.drawnHeight, onDone);
   }
 
   update(dt: number): void {

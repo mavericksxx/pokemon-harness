@@ -650,7 +650,8 @@ export function GardenScene(): JSX.Element {
         // above), so this is the one place that actually writes battler
         // presence into the zustand store.
         onBattlerSpawned: (battler) => useStore.getState().addBattler(battler),
-        onBattlerRemoved: (key) => useStore.getState().removeBattler(key)
+        onBattlerRemoved: (key) => useStore.getState().removeBattler(key),
+        onBattlerDone: (key, done) => useStore.getState().setBattlerDone(key, done)
       });
 
       // Phase 8 §7 — garden charm: berry-bush errands, idle chatter, and the
@@ -1023,14 +1024,18 @@ export function GardenScene(): JSX.Element {
       // store as a side effect — see `pendingRespawn`'s own comment above).
       // Reuses BattleManager's own spawn machinery (`respawnFromStore`)
       // rather than a parallel one; species/parent is preserved, lifecycle
-      // resets to roaming (same "position can reset to spawn/wander"
-      // latitude the walker rebuild above takes). A battler that can't be
+      // resets to roaming — or, done/retired follow-up, to 'retired' when
+      // the pre-teardown snapshot's own `done` was true, since a rebuild
+      // must not silently un-retire a battler the user hasn't despawned
+      // (same "position can reset to spawn/wander" latitude the walker
+      // rebuild above takes for everything else). A battler that can't be
       // faithfully respawned (its parent's walker is gone, or its species
       // has no sprite) is logged and left out of the store rather than
       // re-added as a roster card with no sprite behind it; every other one
       // is re-added (`addBattler` stamps a fresh `spawnedAt` — the
       // subagent card's elapsed-time readout restarts from this rebuild,
-      // not the battler's original spawn).
+      // not the battler's original spawn — `done`/`doneAt` pass through
+      // unchanged either way, straight from the snapshot).
       const toRespawn = pendingRespawn;
       pendingRespawn = [];
       const unrespawnable = new Set(battleManager.respawnFromStore(toRespawn));
@@ -1161,6 +1166,16 @@ export function GardenScene(): JSX.Element {
           for (const [id, rt] of runtimes) walkersById.set(id, rt.walker);
           gardenCharm.tick(sessions, walkersById);
         }
+
+        // Despawn requests (SubagentRosterCard's despawn button, done
+        // battlers only) — queued in the store since a React click can't
+        // reach BattleManager directly (it lives inside this effect, not
+        // anywhere React can import it); drained here, once per frame, same
+        // "React sets a store flag, the ticker consumes it" pattern
+        // `focusBattlerKey` below already uses. `despawnBattler` itself is
+        // idempotent (double-despawn guard), so draining late by a frame or
+        // two is harmless.
+        for (const key of useStore.getState().drainDespawnBattlerKeys()) battleManager.despawnBattler(key);
 
         const { selectedId, focusBattlerKey } = useStore.getState();
         const focus = selectedId ? runtimes.get(selectedId) : undefined;

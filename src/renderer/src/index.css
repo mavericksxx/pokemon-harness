@@ -296,9 +296,11 @@ body {
  * his roster card is gone): same status-color tokens `.status::before` uses
  * for the roster-card badge dot, but standalone (no badge background/text —
  * the word itself lives in the chip's tooltip instead, see
- * SummonArceusButton.tsx). Only rendered while he's live, so no `.done`
- * variant — `live` (SummonArceusButton.tsx) is already false once his
- * session status is 'done', and the dot only renders when `live`. */
+ * SummonArceusButton.tsx). Arceus's OWN chip never needs `.done` — `live`
+ * (SummonArceusButton.tsx) is already false once his session status is
+ * 'done', and the dot only renders when `live` — but the class is reused by
+ * SubagentRosterCard's full variant (done/retired follow-up), which DOES
+ * need it, hence the `.done` rule below. */
 .summon-arceus-dot {
   width: 7px;
   height: 7px;
@@ -320,6 +322,12 @@ body {
 }
 .summon-arceus-dot.napping {
   background: var(--status-idle);
+}
+/* Done/retired follow-up — SubagentRosterCard's full-variant dot now tracks
+ * `done` (alive/done) instead of always reading 'working', so it needs the
+ * one status-color variant Arceus's own usage never did. */
+.summon-arceus-dot.done {
+  background: var(--status-done);
 }
 
 /* ── Garden chips (Phase 8.7, inlined into the topbar — parity sweep) ───────
@@ -2985,6 +2993,64 @@ button.icon:active {
 .roster-card-swap:hover {
   color: var(--accent-text);
   border-color: var(--accent);
+}
+
+/* ── Subagent despawn button (done/retired follow-up, SubagentRosterCard.tsx)
+ * ── Same bottom-right hover-revealed pill as `.roster-card-swap` above
+ * (SubagentRosterCard has no swap button of its own to collide with), just
+ * its own class since the action/icon/danger-tinted hover are different.
+ * Rendered only once a battler is `done`, so there's no risk of it ever
+ * needing to coexist with anything else in this corner. */
+.roster-card-despawn {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--font-body-sm-size);
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  opacity: 0;
+  transition:
+    opacity 90ms steps(2, end),
+    transform 90ms steps(2, end);
+}
+
+/* Compact card (110px wide) — icon-only square, same technique
+ * `.roster-card-swap`'s own compact rule uses (font-size:0 collapses the
+ * label's text run; the icon needs an explicit px size since PixelIcon's
+ * `1em` SVG dimensions would otherwise collapse to 0 right along with it). */
+.roster-card-wrap:has(.roster-card-compact) .roster-card-despawn {
+  gap: 0;
+  padding: 0;
+  width: 24px;
+  font-size: 0;
+}
+.roster-card-wrap:has(.roster-card-compact) .roster-card-despawn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.roster-card-wrap:hover .roster-card-despawn,
+.roster-card-despawn:focus-visible {
+  opacity: 1;
+}
+
+.roster-card-wrap:hover .roster-card-despawn {
+  transform: translateY(-1px);
+}
+
+/* Danger-tinted hover, not the accent `.roster-card-swap` uses — despawning
+ * is destructive/final (the pokéball recall, then the card is gone for
+ * good), so it gets the app's existing danger tone instead. */
+.roster-card-despawn:hover {
+  color: var(--danger);
+  border-color: var(--danger-border);
 }
 
 /* ── Trainer-card popover trigger (session-status feature, TrainerCard.tsx)

@@ -178,6 +178,46 @@
  * The evolution ceremony's exclusivity is respected by simply not touching
  * a walker's container while `walker.isEvolving` — the ceremony reparents
  * it, and fighting over its transform would corrupt both.
+ *
+ * DONE POKEMON STAY UNTIL DISMISSED (user-approved change, 2026-08-29):
+ * `roaming -> queued -> battling -> leaving -> gone` above is now the losing
+ * challenger's path ONLY through `handleEndAll`'s coarse "parent went idle
+ * with no clean signal" cleanup (unchanged — a roaming sub that never even
+ * reached a completion battle still just poofs). LOSING an actual completion
+ * battle (`concludeWave`/`forceConcludeWave`) now ends at a new terminal
+ * lifecycle, `retired`, instead: `retireSub` walks the sub back to its own
+ * `wanderHome` and hands it right back to `updateRoaming` (same idle-wander
+ * code roaming already uses — see `updateOneBattle`'s sub loop), so it reads
+ * as an ordinary off-duty pokemon rather than one about to vanish, dimmed to
+ * `alpha = 0.75` as the one cheap, pixel-scale-legible "off duty" cue. It
+ * never re-queues (`retired` is excluded from every MIN_ROAM_MS/MAX_ROAM_MS
+ * check) and is never reaped by `reapSubs` — it stays in `pb.subs`, and
+ * therefore on the roster strip, until a player explicitly despawns it
+ * (`despawnBattler`, SubagentRosterCard's own despawn button), which plays a
+ * pokéball-recall animation (`Battler.startRecall`/battleFx.ts's
+ * `spawnPokeballRecall`) before the same terminal bookkeeping `reapSubs`
+ * would otherwise have done (`subagentsCleanedUp`, `onBattlerRemoved`). A
+ * hard parent teardown (`forceEnd`/`dispose` -> `destroyBattle`) still sweeps
+ * up `retired` (and even mid-despawn `despawning`) subs unconditionally,
+ * same as any other lifecycle — no orphaned cards survive a killed session.
+ * `done` (store-side, mirrored via the new `onBattlerDone(key, boolean)` DI
+ * callback) is the one new piece of cross-cutting state this adds; see
+ * `retireSub`/`reviveRetired`/`despawnBattler` below and store.ts's
+ * `LiveBattler.done`/`setBattlerDone`. A RESUME of a task-id whose battler is
+ * still sitting `retired` (not yet despawned) revives that exact battler in
+ * place (`handleCorrelate` -> `reviveRetired`) rather than spawning a
+ * duplicate — see `handleCorrelate`'s own updated doc comment.
+ * KNOWN GAP where two of the above don't fully compose: `retiredTaskInfo` is
+ * per-BattleManager-instance (never persisted), and `respawnFromStore`
+ * correctly restores a retired battler as `retired` (garden-rebuild
+ * recovery) but always with `taskId: null` (no correlation survives a
+ * rebuild — same pre-existing limitation every other respawned battler
+ * already had). So a webgl rebuild's retired battler looks right on-screen,
+ * but a LATER resume of its original task-id can no longer find it via
+ * `handleCorrelate`'s stamped-sub check and falls all the way through to the
+ * pre-existing "never seen this task-id, nothing to resume from" no-op —
+ * an accepted degradation (rare: rebuild AND a later resume of that exact
+ * task-id), not a defect in the revive logic itself.
  */
 import { Container } from 'pixi.js';
 import type { Walker } from '../Walker';
@@ -322,7 +362,13 @@ const BATTLER_SPEED_PX_S = 44;
 interface SubBattler {
   key: string;
   battler: Battler;
-  lifecycle: 'roaming' | 'queued' | 'battling' | 'leaving';
+  /** 'retired': lost its completion battle (or aged out into one) and is now
+   *  off-duty — resumes ordinary wandering (`updateRoaming`), never re-
+   *  queues, stays until despawned. 'despawning': a player-initiated pokéball
+   *  recall is in flight (`despawnBattler`) — its own completion callback
+   *  does the final removal, NOT `reapSubs` (see that method's own comment).
+   *  'leaving' is now reached only via `handleEndAll`'s coarse cleanup. */
+  lifecycle: 'roaming' | 'queued' | 'battling' | 'leaving' | 'retired' | 'despawning';
   /** The spawning dispatch's own `description`/`subagent_type` (see
    *  battleBus.ts's `spawn` signal) — kept on the sub (not just forwarded to
    *  the store) so a RESUME can re-materialize a battler with the same label
@@ -454,6 +500,13 @@ export interface BattleDeps {
    *  (destroyBattle) both call this, so it's the complete mirror of
    *  onBattlerSpawned above regardless of how a battler's life ends. */
   onBattlerRemoved: (key: string) => void;
+  /** Fires whenever a battler's `done` state changes — `true` the moment it
+   *  loses its completion battle (or ages out into one) and becomes
+   *  `retired`, `false` if a resumed task-id later revives that same battler
+   *  in place (`reviveRetired`) instead of spawning a duplicate. One
+   *  bidirectional callback rather than two, since both directions are the
+   *  same store patch (`LiveBattler.done`) with the boolean flipped. */
+  onBattlerDone: (key: string, done: boolean) => void;
 }
 
 function tileKey(t: { x: number; y: number }): string {
@@ -606,13 +659,18 @@ export class BattleManager {
    *  known species instead of a random draw, and without re-adding to the
    *  store, which already has these entries). Not a faithful restore of
    *  lifecycle phase (mid-battle choreography, exact roam position, shiny
-   *  state) — every recovered battler simply starts fresh in 'roaming',
+   *  state) — every recovered battler simply starts fresh in 'roaming' (or,
+   *  since the done/retired follow-up, 'retired' when the store's own
+   *  `done` flag for it is true — a done battler's off-duty status must
+   *  survive a rebuild, not silently resurrect it into an active roamer),
    *  same latitude GardenScene's own walker rebuild takes ("position can
    *  reset to spawn/wander — fine"). Returns the keys that could NOT be
    *  recreated (parent's walker missing, or the species has no sprite) —
    *  the caller drops those from the store rather than leaving a roster
    *  card with no sprite behind it. */
-  respawnFromStore(entries: { key: string; parentId: string; species: string; label?: string }[]): string[] {
+  respawnFromStore(
+    entries: { key: string; parentId: string; species: string; label?: string; done?: boolean }[]
+  ): string[] {
     const failed: string[] = [];
     for (const entry of entries) {
       const rt = this.deps.getRuntime(entry.parentId);
@@ -633,10 +691,11 @@ export class BattleManager {
       const home = this.pickRoamHome(pb, pb.parentWalker.tile);
       const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home });
       this.deps.charLayer.addChild(battler.container);
+      if (entry.done) battler.container.alpha = 0.75; // same off-duty cue retireSub applies live
       const sub: SubBattler = {
         key: entry.key,
         battler,
-        lifecycle: 'roaming',
+        lifecycle: entry.done ? 'retired' : 'roaming',
         label: entry.label,
         // No correlation survives a renderer rebuild — this sub falls back
         // to handleEnd's oldest-roaming heuristic if its real completion
@@ -837,6 +896,11 @@ export class BattleManager {
           });
           this.queueForBattle(sub);
         }
+      } else if (sub.lifecycle === 'retired') {
+        // Off-duty, done follow-up: the exact same idle wander 'roaming'
+        // uses — it just never runs the queue-eligibility checks above, so a
+        // retired battler can wander forever without ever fighting again.
+        this.updateRoaming(sub, dt);
       }
       sub.battler.update(dt);
       if (!sub.visibleLogged && !sub.battler.isSpawning) {
@@ -1053,10 +1117,22 @@ export class BattleManager {
    *  Guards against double-spawn: if ANY live sub — including one mid-poof
    *  (`'leaving'`) — already carries `taskId`, this is a duplicate/no-op:
    *  the original is still alive (or still finishing its exit), or already
-   *  correctly stamped. */
+   *  correctly stamped. ONE exception (done/retired follow-up, 2026-08-29):
+   *  a sub that's `'retired'` (done, off-duty, still on the map — not yet
+   *  despawned) is NOT a live duplicate to guard against, it's the exact
+   *  battler this resume should revive in place — `reviveRetired` flips it
+   *  back to `'roaming'` (done=false) instead of the RESUME branch further
+   *  down spawning a second, duplicate pokemon for the same task-id. A sub
+   *  that's `'despawning'` (a pokéball recall already in flight) still hits
+   *  the plain no-op below — reviving mid-recall would fight its own
+   *  teardown. */
   private handleCorrelate(parentId: string, toolUseId: string, taskId: string): void {
     let pb = this.battles.get(parentId);
-    if (pb?.subs.some((s) => s.taskId === taskId)) return;
+    const stampedElsewhere = pb?.subs.find((s) => s.taskId === taskId);
+    if (stampedElsewhere) {
+      if (stampedElsewhere.lifecycle === 'retired') this.reviveRetired(stampedElsewhere);
+      return;
+    }
     const bySpawn = pb?.subs.find((s) => s.toolUseId === toolUseId && s.taskId === null);
     if (bySpawn) {
       bySpawn.taskId = taskId;
@@ -1155,12 +1231,17 @@ export class BattleManager {
    *  prompt it's about to resume from, and upgrading that case to a visible
    *  walk-up-and-battle would be exactly the false-positive premature death
    *  this rework is fixing elsewhere, not a new "completion" signal to
-   *  extend. */
+   *  extend. Done/retired follow-up: a `'retired'` (done, off-duty) or
+   *  `'despawning'` (recall already in flight) sub is explicitly skipped
+   *  too, same as one already `'leaving'` — this signal fires on a merely
+   *  BLOCKED parent as often as a genuinely done one (see above), so it must
+   *  never be the thing that silently poofs away a battler the user hasn't
+   *  chosen to despawn yet. */
   private handleEndAll(parentId: string): void {
     const pb = this.battles.get(parentId);
     if (!pb) return;
     for (const sub of pb.subs) {
-      if (sub.lifecycle === 'leaving') continue;
+      if (sub.lifecycle === 'leaving' || sub.lifecycle === 'retired' || sub.lifecycle === 'despawning') continue;
       sub.lifecycle = 'leaving';
       sub.battler.startPoofOut();
     }
@@ -1614,14 +1695,14 @@ export class BattleManager {
     if (pb.waveElapsedMs >= ENDING_MS) this.concludeWave(pb);
   }
 
-  /** The wave is over — its one challenger loses and poofs away for good.
-   *  Frees the global lock for the next queued battle (after the cooldown
-   *  gap) and lets the parent resume its own life. */
+  /** The wave is over — its one challenger loses and, since the done/retired
+   *  follow-up, goes `'retired'` rather than poofing away for good (see
+   *  `retireSub`). Frees the global lock for the next queued battle (after
+   *  the cooldown gap) and lets the parent resume its own life. */
   private concludeWave(pb: ParentBattle): void {
     for (const sub of pb.waveRing) {
       if (sub.lifecycle !== 'battling') continue;
-      sub.lifecycle = 'leaving';
-      sub.battler.startPoofOut();
+      this.retireSub(sub);
     }
     pb.waveRing = [];
     pb.wave = 'idle';
@@ -1634,17 +1715,16 @@ export class BattleManager {
 
   /** Defensive equivalent of `concludeWave` for a wave that's stuck or whose
    *  processing just threw (see `update`'s per-parent try/catch and the hard
-   *  cap in `updateOneBattle`) — same end state (the challenger poofs away,
-   *  the parent's stance releases, the global lock frees) but doesn't
-   *  assume anything about the wave's current phase or the battler's
-   *  internal state, since this runs from contexts where either could be
-   *  corrupted. */
+   *  cap in `updateOneBattle`) — same end state (the challenger retires
+   *  off-duty, the parent's stance releases, the global lock frees) but
+   *  doesn't assume anything about the wave's current phase or the
+   *  battler's internal state, since this runs from contexts where either
+   *  could be corrupted. */
   private forceConcludeWave(pb: ParentBattle): void {
     for (const sub of pb.waveRing) {
       if (sub.lifecycle !== 'battling') continue;
-      sub.lifecycle = 'leaving';
       try {
-        sub.battler.startPoofOut();
+        this.retireSub(sub);
       } catch {
         /* best-effort — the battler itself may be what's corrupted */
       }
@@ -1671,6 +1751,82 @@ export class BattleManager {
     }
   }
 
+  /** Losing a completion battle no longer poofs a sub away for good (user-
+   *  approved change, 2026-08-29) — it goes `'retired'`: dimmed to
+   *  `alpha = 0.75` (cheap, subtle, reads as "off duty" at pixel scale
+   *  without a second sprite/tint pass), sent walking back toward its own
+   *  `wanderHome` (best-effort — `goTo` silently no-ops if that's
+   *  unreachable from wherever the battle left it, same latitude every
+   *  other roam call in this file already takes), and handed to
+   *  `updateRoaming` from here on (see `updateOneBattle`'s sub loop) with no
+   *  further queue-eligibility checks ever applying to it again. Stays in
+   *  `pb.subs` — and therefore on the roster strip — until `despawnBattler`
+   *  removes it. */
+  private retireSub(sub: SubBattler): void {
+    sub.lifecycle = 'retired';
+    sub.battler.container.alpha = 0.75;
+    sub.wanderTimer = 0;
+    sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
+    sub.battler.goTo(sub.wanderHome);
+    this.deps.onBattlerDone(sub.key, true);
+  }
+
+  /** The other half of `retireSub` — a resumed task-id whose battler is
+   *  still sitting `'retired'` (done, on the map, not yet despawned) is
+   *  revived in place instead of `handleCorrelate`'s RESUME branch spawning
+   *  a duplicate. Back to `'roaming'`, full opacity, a fresh `roamingSince`
+   *  (so MAX_ROAM_MS/MIN_ROAM_MS clock this run's OWN roam, not however long
+   *  it already sat retired). Deliberately leaves the store's `spawnedAt`
+   *  alone (that's `setBattlerDone`/`addBattler`'s concern, not this one) —
+   *  this is the same battler picking its work back up, not a fresh spawn,
+   *  so its roster card keeps counting from its original spawn once
+   *  `setBattlerDone(key, false)` clears `doneAt`. */
+  private reviveRetired(sub: SubBattler): void {
+    sub.lifecycle = 'roaming';
+    sub.battler.container.alpha = 1;
+    sub.roamingSince = Date.now();
+    sub.queueEligibleAt = null;
+    sub.queuedSince = 0;
+    this.deps.onBattlerDone(sub.key, false);
+  }
+
+  /** Explicit player action (SubagentRosterCard's despawn button, offered
+   *  only for a `done` battler): plays the pokéball-recall animation
+   *  (`Battler.startRecall`/battleFx.ts's `spawnPokeballRecall`) and only
+   *  THEN does the same terminal bookkeeping `reapSubs`/`destroyBattle`
+   *  elsewhere in this file do (`subagentsCleanedUp`, `onBattlerRemoved`) —
+   *  driven by the recall's own completion callback rather than
+   *  `isPoofedOut`, since this is its own animation on its own clock, not
+   *  `startPoofOut`'s. A no-op if this battler is already mid-recall
+   *  (double-click guard) or no longer exists (already gone). If a parent
+   *  teardown (`forceEnd`/`dispose`) reaches this sub before the recall
+   *  finishes, `destroyBattle` sweeps it up unconditionally regardless of
+   *  lifecycle — this callback then simply never fires, no double-remove.
+   *  The callback below calls `sub.battler.destroy()` from INSIDE an FX tick
+   *  (it's `spawnPokeballRecall`'s own `onDone`, invoked by `tickBattleFx`'s
+   *  loop) — safe: `destroy()` -> `purgeBattleFxFor` reassigns battleFx.ts's
+   *  `active` array, but `tickBattleFx`'s own `for...of` is iterating the
+   *  ORIGINAL array reference and only commits `active = next` once that
+   *  loop finishes, so the reassignment mid-iteration is simply superseded;
+   *  any other FX still registered against this now-destroyed container
+   *  (there shouldn't be one, but if there were) gets dropped next frame via
+   *  that loop's own `entry.owner.destroyed` guard either way. */
+  despawnBattler(key: string): void {
+    for (const pb of this.battles.values()) {
+      const sub = pb.subs.find((s) => s.key === key);
+      if (!sub) continue;
+      if (sub.lifecycle === 'despawning') return;
+      sub.lifecycle = 'despawning';
+      sub.battler.startRecall(() => {
+        pb.subs = pb.subs.filter((s) => s !== sub);
+        sub.battler.destroy();
+        bumpCounter('subagentsCleanedUp');
+        this.deps.onBattlerRemoved(sub.key);
+      });
+      return;
+    }
+  }
+
   /** Periodic local roam around `sub`'s home tile — mirrors Walker.ts's own
    *  idle wander (updateWander) exactly, just against a Battler instead of a
    *  Walker. */
@@ -1690,6 +1846,10 @@ export class BattleManager {
     }
   }
 
+  // Only ever reaps 'leaving' subs (handleEndAll's own poof path) —
+  // 'retired' stays here on purpose until despawned, and 'despawning'
+  // removes itself via its own recall-completion callback (despawnBattler),
+  // not this poll.
   private reapSubs(pb: ParentBattle): void {
     if (!pb.subs.some((s) => s.lifecycle === 'leaving' && s.battler.isPoofedOut)) return;
     pb.subs = pb.subs.filter((sub) => {
