@@ -52,12 +52,25 @@ export function selectArceus(): void {
   useStore.getState().select(ARCEUS_SESSION_ID);
 }
 
+/** Cancels a pending `armFirstPromptDelivery` (below) — set by that function
+ *  while its hook listener/fallback timer are still armed, cleared once it
+ *  fires. Called from every place a NEW pty gets spawned under
+ *  `ARCEUS_SESSION_ID` (`spawnArceus` here and `tryResumeArceus` further
+ *  down) so a prior summon's still-pending delivery can never fire against a
+ *  conversation it wasn't meant for — e.g. a fresh summon's Arceus dies
+ *  inside the 10s fallback window and the user resumes or re-summons before
+ *  it elapses; without this, that stale listener types the persona into
+ *  whatever pty now answers to this id, dev-standin shell included. */
+let disarmFirstPrompt: (() => void) | null = null;
+
 async function spawnArceus(
   command: string,
   args: string[],
   provider: AgentProviderId,
   req: SummonArceusRequest
 ): Promise<void> {
+  disarmFirstPrompt?.();
+  disarmFirstPrompt = null;
   // A previous, now-finished Arceus record (status 'done') is replaced
   // outright — addSession below would otherwise push a SECOND entry under
   // the same id rather than updating the existing one.
@@ -140,9 +153,9 @@ export function toRosterEntries(sessions: Session[]): ArceusRosterEntry[] {
 /** Arms delivery of the persona + roster snapshot as Arceus's first typed
  *  prompt. FRESH SUMMONS ONLY — this is called from `summonArceus` alone,
  *  never from `spawnArceus` itself (shared by both real and dev-standin
- *  paths) or from any restore path, which is what keeps a resumed Arceus
- *  from getting his persona typed at him a second time as if it were a new
- *  user message:
+ *  paths) or from any restore/resume path, which is what keeps a resumed
+ *  Arceus from getting his persona typed at him a second time as if it were
+ *  a new user message:
  *   - a same-process reload/crash recovery re-adopts an already-running pty
  *     via `createTerminal(id, provider, replay)` (main.tsx's boot()) and
  *     never calls `summonArceus` at all;
@@ -151,21 +164,37 @@ export function toRosterEntries(sessions: Session[]): ArceusRosterEntry[] {
  *     returns `['--resume', claudeSessionId]` for a claude session with a
  *     captured id — never re-passing the persona either, and never routed
  *     through this file at all (that respawn happens main-side, before the
- *     renderer's `restoreSessions` even reattaches the terminal).
+ *     renderer's `restoreSessions` even reattaches the terminal);
+ *   - `autoSummonArceus`'s own mid-run re-summon (his process exited but the
+ *     app itself is still up) tries `tryResumeArceus` FIRST when the not-live
+ *     record it already has still carries a `claudeSessionId`, which also
+ *     never calls `summonArceus`.
  *  So `summonArceus` — reached only for a genuinely fresh conversation, from
- *  `SummonArceusDialog`'s first-ever summon, `autoSummonArceus`'s silent
- *  re-summon when he isn't live, or the topbar chip — is the one path that
- *  should ever get this. */
+ *  `SummonArceusDialog`'s first-ever summon, or `autoSummonArceus`'s fallback
+ *  when there's nothing resumable (no saved id, or a dead `--resume`) — is
+ *  the one path that should ever get this. */
 function armFirstPromptDelivery(personaText: string): void {
+  // Belt-and-suspenders: every spawn point already disarms a pending
+  // delivery itself (see `disarmFirstPrompt`'s own comment) before this is
+  // ever called, but a stale arm left over from a caller that doesn't is
+  // still cancelled rather than left to fire later.
+  disarmFirstPrompt?.();
+
   let delivered = false;
   let offHook: (() => void) | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const deliver = (): void => {
+  const disarm = (): void => {
     if (delivered) return;
     delivered = true;
     offHook?.();
     if (timer !== null) clearTimeout(timer);
+  };
+
+  const deliver = (): void => {
+    if (delivered) return;
+    disarm();
+    if (disarmFirstPrompt === disarm) disarmFirstPrompt = null;
     const roster = toRosterEntries(useStore.getState().sessions);
     const prompt = buildArceusFirstPrompt(personaText, roster);
     void window.api.writePty(ARCEUS_SESSION_ID, wrapBracketedPaste(prompt) + '\r');
@@ -175,6 +204,33 @@ function armFirstPromptDelivery(personaText: string): void {
     if (evt.event === 'SessionStart') deliver();
   });
   timer = setTimeout(deliver, FIRST_PROMPT_FALLBACK_MS);
+  disarmFirstPrompt = disarm;
+}
+
+/** Serializes every fresh-summon call (`summonArceus` and its dev-standin
+ *  sibling below) against one another. Without this, two overlapping callers
+ *  — e.g. `main.tsx`'s boot-time `autoSummonArceus()` (fired but not
+ *  awaited, so the topbar chip and roster card are already clickable while
+ *  it's still in flight) racing a user's own click, or the chip and roster
+ *  card clicked in quick succession — can both pass the "arceus isn't live
+ *  yet" check before either one's `addSession` lands, then both call
+ *  `spawnArceus`: the second one's `existing` cleanup tears down the first's
+ *  terminal/session and spawns its own pty under the same `ARCEUS_SESSION_ID`
+ *  out from under the first call's still-armed `armFirstPromptDelivery`
+ *  listener (that listener isn't cleaned up until ITS OWN `deliver()` fires).
+ *  Both listeners then race to type the persona into the one surviving pty —
+ *  the persona gets typed twice into a single fresh conversation. Queuing
+ *  overlapping callers onto the SAME in-flight promise instead of letting
+ *  each start its own summon closes that gap at its one shared choke point. */
+let summonInFlight: Promise<void> | null = null;
+
+function guardedSummon(run: () => Promise<void>): Promise<void> {
+  if (summonInFlight) return summonInFlight;
+  const p = run().finally(() => {
+    if (summonInFlight === p) summonInFlight = null;
+  });
+  summonInFlight = p;
+  return p;
 }
 
 /** Real summon — a genuine `claude` session, spawned PLAIN (no
@@ -183,20 +239,24 @@ function armFirstPromptDelivery(personaText: string): void {
  *  typed in as his first prompt once his session reports ready — see
  *  `armFirstPromptDelivery` above. */
 export async function summonArceus(req: SummonArceusRequest): Promise<void> {
-  const { path, prompt } = await window.api.ensureArceusSystemPrompt();
-  if (!prompt.trim()) {
-    throw new Error(`${path} is empty — write Arceus's instructions there and summon again.`);
-  }
-  const args = buildArceusArgs(req.model, req.autoMode);
-  await spawnArceus(AGENT_PROVIDERS.claude.defaultCommand, args, 'claude', req);
-  armFirstPromptDelivery(prompt);
+  return guardedSummon(async () => {
+    const { path, prompt } = await window.api.ensureArceusSystemPrompt();
+    if (!prompt.trim()) {
+      throw new Error(`${path} is empty — write Arceus's instructions there and summon again.`);
+    }
+    const args = buildArceusArgs(req.model, req.autoMode);
+    await spawnArceus(AGENT_PROVIDERS.claude.defaultCommand, args, 'claude', req);
+    armFirstPromptDelivery(prompt);
+  });
 }
 
 /** Dev-only stand-in — see this file's header. Gated at the call site
  *  (SummonArceusDialog) on `config:arceusDevStandin`, not here. */
 export async function summonArceusDevStandin(req: SummonArceusRequest): Promise<void> {
-  const shell = await window.api.getDefaultShell();
-  await spawnArceus(shell, [], 'shell', req);
+  return guardedSummon(async () => {
+    const shell = await window.api.getDefaultShell();
+    await spawnArceus(shell, [], 'shell', req);
+  });
 }
 
 // ─── Summon-once (Phase 8.9) ────────────────────────────────────────────────
@@ -205,11 +265,14 @@ export async function summonArceusDevStandin(req: SummonArceusRequest): Promise<
 // is the only thing that WRITES agents/arceus/summon.json. Every later
 // launch (main.tsx boot(), and the topbar chip if he's ever not live) reads
 // it back and re-summons him silently. Note (BACKLOG item 3): this silent
-// re-summon is only free when it resumes a disk-persisted session
-// (sessionRespawn.ts's `--resume`, main-side, never routed through
-// `summonArceus`) — a genuinely FRESH re-summon now sends the persona as a
-// real first prompt (`armFirstPromptDelivery` above) and so does cost a
-// turn, same as any other fresh Arceus conversation.
+// re-summon is only free when it resumes an existing conversation — a
+// disk-persisted session at app boot (sessionRespawn.ts's `--resume`,
+// main-side, never routed through `summonArceus`) or a mid-run one
+// (`autoSummonArceus`'s own `tryResumeArceus`, above `autoSummonArceus`
+// below) — a genuinely FRESH re-summon (nothing resumable, or a dead
+// `--resume`) now sends the persona as a real first prompt
+// (`armFirstPromptDelivery` above) and so does cost a turn, same as any
+// other fresh Arceus conversation.
 export function loadArceusSummonConfig(): Promise<ArceusSummonConfig | null> {
   return window.api.getArceusSummonConfig();
 }
@@ -230,20 +293,105 @@ export function resetArceusSummonConfig(): Promise<void> {
 
 export type AutoSummonOutcome = 'summoned' | 'no-config' | 'failed';
 
+/** Grace period a mid-run `--resume` gets before this app trusts it really
+ *  landed — mirrors main's own `sessionRespawn.ts` `RESUME_GRACE_MS`, used
+ *  there for the identical reason (an invalid/expired session id makes the
+ *  CLI print an error and exit almost immediately, which a bare successful
+ *  spawn can't detect). Duplicated as a plain constant rather than shared:
+ *  `sessionRespawn.ts` is main-only. */
+const RESUME_GRACE_MS = 4000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Continues an existing, not-currently-live Arceus conversation via
+ *  `claude --resume <id>` under the same fixed `ARCEUS_SESSION_ID`, instead
+ *  of starting a brand-new one — the ONLY thing that keeps a mid-run
+ *  re-summon (his process exited but the app itself never restarted, so
+ *  main's own boot-time `--resume` in sessionRespawn.ts never got a chance
+ *  to run) from silently abandoning a resumable conversation for a fresh one
+ *  with the persona typed in again. `autoSummonArceus` below is the only
+ *  caller, and only tries this when the not-live record it already has still
+ *  carries a `claudeSessionId` (set once by hookRouter.ts's SessionStart
+ *  case and never cleared).
+ *
+ *  Deliberately does NOT go through `spawnArceus`: that helper always tears
+ *  down and rebuilds the terminal (right for a genuinely fresh conversation,
+ *  wrong here) — a session that merely went 'done' mid-run keeps its
+ *  terminal (terminalRegistry.ts's exit handler only ever updates `status`),
+ *  so `createTerminal`'s own `entries.has` guard makes the call below a
+ *  no-op unless something already disposed it. Never arms
+ *  `armFirstPromptDelivery` — the persona is already in this conversation's
+ *  history.
+ *
+ *  Returns whether the resume is still alive after the grace period; `false`
+ *  (spawn failure, or a dead resume caught by the grace period) tells
+ *  `autoSummonArceus` to fall through to a genuine fresh summon instead —
+ *  same "dead resume ⇒ fresh summon with persona IS correct" rule the
+ *  boot-time path already follows. */
+async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<boolean> {
+  // Cancels any first-prompt delivery still armed from an earlier fresh
+  // summon whose process died before its own arm fired/expired — otherwise
+  // that listener would fire against THIS resumed conversation once the new
+  // pty's SessionStart arrives, typing the persona into a chat that already
+  // has it (see `disarmFirstPrompt`'s own comment).
+  disarmFirstPrompt?.();
+  disarmFirstPrompt = null;
+  createTerminal(ARCEUS_SESSION_ID, 'claude');
+  const res = await window.api.spawnPty({
+    id: ARCEUS_SESSION_ID,
+    cwd,
+    command: AGENT_PROVIDERS.claude.defaultCommand,
+    args: ['--resume', claudeSessionId],
+    cols: 100,
+    rows: 30,
+    provider: 'claude'
+  });
+  if (!res.ok) return false;
+  // `exitCode` is cleared too — it's the PREVIOUS (dead) process's, and would
+  // otherwise read as stale info about a session that hasn't exited this time.
+  useStore.getState().updateSession(ARCEUS_SESSION_ID, { status: 'idle', cwd: res.cwd ?? cwd, exitCode: undefined });
+  await sleep(RESUME_GRACE_MS);
+  return arceusRecord()?.status !== 'done';
+}
+
 /** Summons Arceus from the saved config, picking real vs. dev-standin the
  *  same way SummonArceusDialog does. Used both at launch (main.tsx boot(),
  *  when he isn't among the restored sessions) and from the topbar chip
  *  (SummonArceusButton, when he's saved-but-not-live). Never throws —
  *  `'failed'` covers claude missing from PATH, a dead `--resume` AND a
  *  failed fresh spawn, or any other spawn error; the caller turns that into
- *  a quiet toast, never a dialog. */
+ *  a quiet toast, never a dialog.
+ *
+ *  Tries a mid-run `--resume` (`tryResumeArceus` above) before ever falling
+ *  back to a fresh summon — the not-live record already in the store (if
+ *  any) is the one source of truth for whether a resumable conversation
+ *  exists, same signal main's own boot-time restore keys off, so the
+ *  decision never depends on which caller (chip, roster card, or boot)
+ *  reached here. */
 export async function autoSummonArceus(): Promise<AutoSummonOutcome> {
   const config = await loadArceusSummonConfig();
   if (!config) return 'no-config';
   try {
     const devStandin = await window.api.getArceusDevStandin();
-    if (devStandin) await summonArceusDevStandin(config);
-    else await summonArceus(config);
+    if (devStandin) {
+      await summonArceusDevStandin(config);
+      return 'summoned';
+    }
+    // Same `provider === 'claude'` guard sessionRespawn.ts's `shouldResume`
+    // uses — a dev-standin record is a plain shell and would never carry a
+    // `claudeSessionId` anyway, but this keeps the check exact rather than
+    // relying on that being incidentally true.
+    const existing = arceusRecord();
+    if (
+      existing?.provider === 'claude' &&
+      existing.claudeSessionId &&
+      (await tryResumeArceus(existing.cwd, existing.claudeSessionId))
+    ) {
+      return 'summoned';
+    }
+    await summonArceus(config);
     return 'summoned';
   } catch (err) {
     console.error('[arceus] auto-summon failed:', err);
