@@ -8,9 +8,10 @@
  * copying, tracing, or embedding any part of that reference image.
  *
  * Generated ONCE at module load as a small (low-res) canvas, exported as a
- * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) stretches
- * it to fill the pane with `image-rendering: pixelated`, so every source
- * pixel becomes a chunky block. Deterministic (a small seeded PRNG, not
+ * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) scales it
+ * up to fill the pane with `background-size: cover` (crops rather than
+ * distorts on off-ratio panes) plus `image-rendering: pixelated`, so every
+ * source pixel becomes a chunky block. Deterministic (a small seeded PRNG, not
  * `Math.random()`) so the backdrop is the SAME every time this module
  * loads, not reshuffled on every launch.
  *
@@ -22,15 +23,16 @@
  * the band math lands.
  */
 
-/** 2.5x the original 128x80 (backlog item: "cosmos view looks too zoomed
- *  in") — finer effective pixel grain once stretched to fill the pane.
- *  Generated once at module load and cached (see `nebulaDataUrl` below), so
- *  the bigger raster costs nothing per-frame; still well under
- *  window-size*devicePixelRatio, nowhere near absurd. Every pixel-space
- *  constant below that scaled WITH this resolution bump (the coarse dither
- *  block, the feature-star coordinates) is called out at its own
- *  definition — see RES_SCALE. */
-const RES_SCALE = 2.5;
+/** 5x the original 128x80 (backlog item: "cosmos view looks too zoomed in"
+ *  — a first pass already bumped this to 2.5x, but feedback said it still
+ *  reads zoomed in, so this is a second, bigger jump). Finer effective
+ *  pixel grain once scaled to fill the pane. Generated once at module load
+ *  and cached (see `nebulaDataUrl` below), so the bigger raster costs
+ *  nothing per-frame; still well under window-size*devicePixelRatio,
+ *  nowhere near absurd. Every pixel-space constant below that scales WITH
+ *  this resolution bump (the coarse dither block, the feature-star
+ *  coordinates) is called out at its own definition — see RES_SCALE. */
+const RES_SCALE = 5;
 const WIDTH = Math.round(128 * RES_SCALE);
 const HEIGHT = Math.round(80 * RES_SCALE);
 
@@ -92,8 +94,12 @@ const BAND_B = { x: 1.15, y: 0.65 };
 const PEAK_T = 0.25;
 /** Perpendicular falloff, fraction of the canvas diagonal — tight enough
  *  that the corners (and the area behind Arceus) actually read as dark,
- *  rather than the whole frame washing out toward the core. */
-const BAND_WIDTH = 0.055;
+ *  rather than the whole frame washing out toward the core. ~2/3 of the
+ *  original 0.055 (backlog item: "backdrop looks zoomed in, not like the
+ *  reference" — the band itself was reading as a wall filling the frame)
+ *  so more deep-indigo sky/corners show and the band reads as one feature
+ *  in a bigger frame rather than the whole frame. */
+const BAND_WIDTH = 0.055 * (2 / 3);
 /** Haze (violet, cooler than the core) extends further than the core
  *  itself before giving way to flat indigo — a wider multiple of
  *  BAND_WIDTH than the core's own falloff. */
@@ -238,14 +244,14 @@ const ARCEUS_NEBULA_SEED_SALT = 7;
 const STAR_COLORS = ['#ffffff', '#bfe8ff', '#ffd9a8', '#ffb8f0'];
 
 function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
-  // Denser starfield: count is an absolute number spread across the whole
-  // canvas (on-screen star SPACING scales with it directly, independent of
-  // RES_SCALE, which only shrinks each star's own footprint) — 90 -> 350 is
-  // ~3.9x the count, ~1.97x tighter on-screen spacing (sqrt(350/90)), while
-  // each star's on-screen area is only 0.16x (RES_SCALE^-2) its old size,
-  // so total lit-pixel coverage still drops to roughly 0.62x the original —
-  // smaller, individually finer stars, packed closer together.
-  const count = 350;
+  // Star count scaled with canvas AREA this time (RES_SCALE 2.5 -> 5 is a
+  // 4x area jump, (5/2.5)^2) rather than the smaller ~3.9x bump used for
+  // the previous RES_SCALE step — each star's own footprint is still a
+  // fixed 1x1 canvas pixel (unscaled, see the fillRect below), so scaling
+  // the count with area keeps on-screen star DENSITY (lit pixels per pane
+  // area) exactly constant while the individual stars read finer at the
+  // higher resolution, instead of the sky thinning out.
+  const count = 1400;
   for (let i = 0; i < count; i++) {
     const x = Math.floor(rng() * WIDTH);
     const y = Math.floor(rng() * HEIGHT);
