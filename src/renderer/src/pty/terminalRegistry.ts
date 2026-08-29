@@ -259,7 +259,19 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
   // test explicitly pointed at a synthetic transcript via
   // `registerCostTestPath`.
   const offCost = window.api.onCostUpdate(sessionId, (update) => {
-    useStore.getState().updateSession(sessionId, { cost: update });
+    // Session-status statusline strip's "↺ changed from <prev>" tick
+    // (session-status feature) — diff the incoming model against the
+    // PREVIOUS update's model (not the tick's own prior value) so a change
+    // is only ever detected once, right when it happens; `modelChangedFrom`
+    // itself then persists unedited across every later update whose model
+    // matches the new one, per the tick's own "stays until next change"
+    // spec. Skipped on the very first update for a session (`prevModel`
+    // undefined) — that's this session's baseline model, not a change.
+    const session = useStore.getState().sessions.find((s) => s.id === sessionId);
+    const prevModel = session?.cost?.model;
+    const modelChangedFrom =
+      prevModel && update.model && update.model !== prevModel ? prevModel : session?.modelChangedFrom;
+    useStore.getState().updateSession(sessionId, { cost: update, modelChangedFrom });
   });
 
   entries.set(sessionId, {

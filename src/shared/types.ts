@@ -141,6 +141,16 @@ export interface SessionRecord {
    *  the gauge's own "don't render" signal — no separate provider check
    *  needed in AgentRosterCard. */
   cost?: SessionCostUpdate;
+  /** Session-status statusline strip's "↺ changed from <prev>" tick
+   *  (session-status feature) — the raw model string this session was
+   *  running under just BEFORE its most recent `cost:update` model change,
+   *  set by terminalRegistry.ts's `onCostUpdate` handler when it diffs an
+   *  incoming update's `model` against `cost.model`'s previous value. Once
+   *  set, it persists across further updates that don't change the model
+   *  again (the tick stays visible "until next change" per spec) — only a
+   *  DIFFERENT subsequent model change overwrites it; the model staying the
+   *  same never clears it. Undefined until the first mid-session change. */
+  modelChangedFrom?: string;
   /** Which workspace (shared/workspaceTypes.ts) this session belongs to
    *  (Phase 8.7) — additive and optional so pre-8.7 persisted sessions
    *  migrate for free: absent means the implicit `DEFAULT_WORKSPACE_ID`.

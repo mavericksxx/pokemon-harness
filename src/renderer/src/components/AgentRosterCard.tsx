@@ -9,7 +9,9 @@ import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { formatToolTarget } from '@/design/toolTargetLabel';
 import { LoopIcon, SwapIcon } from '@/components/icons';
-import { CostGauge } from '@/components/CostGauge';
+import { ModelBadge } from '@/components/ModelBadge';
+import { TrainerCard } from '@/components/TrainerCard';
+import { gaugeTone } from '@/design/gaugeTone';
 import { swapSessionPokemon } from '@/sessions';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
@@ -56,6 +58,10 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
   // non-claude session (or a claude session whose transcript hasn't been
   // parsed yet), which is the gauge's own "don't render" signal.
   const cost = session.cost;
+  // Session-status feature — the context row's HP-bar percent/tone, computed
+  // once here rather than inside the JSX below.
+  const contextPct = cost ? Math.round(Math.min(1, cost.contextTokens / cost.contextWindow) * 100) : 0;
+  const contextTone = gaugeTone(contextPct);
 
   const classes = ['roster-card', selected && 'selected'].filter(Boolean).join(' ');
 
@@ -118,8 +124,31 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           </div>
         )}
 
-        {cost && <CostGauge cost={cost} />}
+        {cost?.model && (
+          <div className="roster-card-badges">
+            <ModelBadge model={cost.model} changedFrom={session.modelChangedFrom} />
+          </div>
+        )}
+
+        {cost && (
+          <div className="roster-card-ctx-row">
+            <span className="roster-card-ctx-label">context</span>
+            <div className="hp-bar">
+              <div
+                className={`hp-bar-fill${contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
+                style={{ width: `${contextPct}%` }}
+              />
+            </div>
+            <span className="roster-card-ctx-label">{contextPct}%</span>
+          </div>
+        )}
       </button>
+
+      {/* Trainer-card popover trigger (session-status feature) — a sibling of
+          the card `<button>` above, same reasoning as `.roster-card-swap`
+          below (a button can't nest another button); TrainerCard.tsx owns
+          its own stopPropagation so opening it never also selects the card. */}
+      <TrainerCard session={session} />
 
       {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
           find/hit (screenshot complaint) — now a labeled pill hover-revealed
