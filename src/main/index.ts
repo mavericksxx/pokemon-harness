@@ -18,6 +18,7 @@ import { HookBridge } from './hookBridge';
 import { CostWatcher } from './costWatcher';
 import { UsageService } from './usageService';
 import { ArceusRelayWatcher } from './arceusRelay';
+import { writeArceusRosterFile } from './arceusRosterFile';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
@@ -843,6 +844,9 @@ handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string
   // that's now idle (or drops it if that target closed/finished in the
   // meantime). Cheap no-op when nothing is queued.
   arceusRelay.onSessionsChecked(sessions);
+  // Regenerates agents/arceus/roster.json (self-serve roster Arceus can read
+  // with his own tools) — cheap no-op when nothing roster-relevant changed.
+  writeArceusRosterFile(harnessHomeDir, sessions);
 });
 
 // Boot-time pull, for both a crash-triggered reload and a plain dev Cmd+R:
@@ -959,8 +963,15 @@ handle('harnessHome:getResolvedPath', () => harnessHomeDir);
 // Ensures agents/arceus/SYSTEM.md exists (seeding it from the template on
 // first call only) and returns its CURRENT contents — called fresh on every
 // summon, never cached here or renderer-side, so an edit to the file takes
-// effect on the very next summon. See arceusPrompt.ts.
-handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harnessHomeDir));
+// effect on the very next summon. See arceusPrompt.ts. Also writes
+// roster.json from the current `sessionRegistry` before returning its path,
+// so the file the renderer is about to hand Arceus as "always current"
+// actually exists at that moment rather than depending on a
+// `sessions:checkpoint` having already fired first.
+handle('arceus:ensureSystemPrompt', async () => {
+  writeArceusRosterFile(harnessHomeDir, sessionRegistry);
+  return ensureArceusSystemPrompt(harnessHomeDir);
+});
 // Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds
 // above): this app must never spawn a REAL claude session for its own
 // testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
