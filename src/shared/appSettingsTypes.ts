@@ -86,6 +86,19 @@ export interface AppSettings {
    *  chatter) from being written; error-level entries are always captured
    *  regardless of this setting — see main/diagnostics.ts's `log()`. */
   diagnosticsLoggingEnabled: boolean;
+  /** External-codex-delegate feature's missing first hop (BACKLOG) — whether
+   *  main/index.ts is allowed to merge a pokeharness entry into codex's own
+   *  `$CODEX_HOME/hooks.json` (main/codexHooks.ts's `ensureCodexHooks`) so a
+   *  delegate `codex exec` can actually reach this app's hook shim. Default
+   *  ON: merging is additive and idempotent (existing entries — e.g. another
+   *  tool's — are preserved byte-faithfully, never overwritten), and codex
+   *  itself still requires a one-time interactive trust approval before the
+   *  hook ever runs (see codexHooks.ts's header), so turning this on writes
+   *  no live capability by itself. Off skips the merge entirely — no file
+   *  write of any kind — for a user who wants zero footprint in their codex
+   *  config. No settings-panel toggle yet (BACKLOG); edit app-settings.json
+   *  directly to opt out. */
+  codexDelegateHooks: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -99,5 +112,6 @@ hideClaudeStatusline: false,
   usageLimitsEnabled: false,
   usageExcludedProviders: [],
   mainUsageProvider: 'auto',
-  diagnosticsLoggingEnabled: true
+  diagnosticsLoggingEnabled: true,
+  codexDelegateHooks: true
 };
