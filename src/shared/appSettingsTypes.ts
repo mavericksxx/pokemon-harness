@@ -60,6 +60,13 @@ export interface AppSettings {
    *  credential read, no network call — same hygiene as the master toggle's
    *  off state, just scoped to one provider. */
   usageExcludedProviders: UsageProviderId[];
+  /** Diagnostics opt-in (BACKLOG friend-testing readiness) — default ON: the
+   *  current cohort is the user's own friends beta-testing, and the log
+   *  never leaves the machine on its own (see diagnosticsTypes.ts). Off
+   *  stops routine/verbose entries (counters snapshots, battle-spawn
+   *  chatter) from being written; error-level entries are always captured
+   *  regardless of this setting — see main/diagnostics.ts's `log()`. */
+  diagnosticsLoggingEnabled: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -70,5 +77,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   harnessHomeDir: null,
 hideClaudeStatusline: false,
   usageLimitsEnabled: false,
-  usageExcludedProviders: []
+  usageExcludedProviders: [],
+  diagnosticsLoggingEnabled: true
 };

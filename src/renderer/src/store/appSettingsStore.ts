@@ -40,6 +40,11 @@ setHideClaudeStatusline(v: boolean): void;
    *  `appSettings:saveSettings` handler is what actually reaches
    *  usageService.ts's `setExcludedProviders` off this value. */
   setUsageProviderEnabled(provider: UsageProviderId, enabled: boolean): void;
+  /** Diagnostics opt-in (BACKLOG friend-testing readiness) — same
+   *  persist-immediately pattern as every other setter here; main's
+   *  `appSettings:saveSettings` handler reaches
+   *  diagnostics.ts's `setDiagnosticsLoggingEnabled` off this value. */
+  setDiagnosticsLoggingEnabled(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -114,6 +119,12 @@ setHideClaudeStatusline: (v) => {
         ? current
         : [...current, provider];
     const settings = { ...get().settings, usageExcludedProviders };
+    set({ settings });
+    persist(settings);
+  },
+
+  setDiagnosticsLoggingEnabled: (v) => {
+    const settings = { ...get().settings, diagnosticsLoggingEnabled: v };
     set({ settings });
     persist(settings);
   },

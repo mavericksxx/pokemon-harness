@@ -32,7 +32,14 @@ import { ensureArceusSystemPrompt } from './arceusPrompt';
 import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from './arceusSummonConfig';
 import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
 import { checkForUpdate } from './updateCheck';
-import { getLogDir, getRecentErrorCount, initDiagnostics, log } from './diagnostics';
+import {
+  getLogDir,
+  getRecentErrorCount,
+  initDiagnostics,
+  log,
+  setDiagnosticsLoggingEnabled
+} from './diagnostics';
+import { buildDiagnosticsBundle, defaultBundleFilename } from './diagnosticsExport';
 import type {
   DiskRestoreInfo,
   LazySpriteMeta,
@@ -48,7 +55,7 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
-import type { LogLevel } from '../shared/diagnosticsTypes';
+import type { ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -723,6 +730,19 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
   initDiagnostics(harnessHomeDir);
+  setDiagnosticsLoggingEnabled(appSettings.diagnosticsLoggingEnabled);
+  // The log file's existence must never depend on the diagnostics toggle
+  // (BACKLOG friend-testing readiness) — the "app started" line below is
+  // itself an 'info' entry, so it's a no-op while the toggle starts OFF,
+  // and this mkdir is what still guarantees `logs/` exists on a fresh
+  // install in that case (otherwise the folder is only created lazily on
+  // first WRITE — see diagnostics.ts's own comment).
+  try {
+    const dir = getLogDir();
+    if (dir) mkdirSync(dir, { recursive: true });
+  } catch {
+    /* best-effort, same as every other diagnostics I/O guard */
+  }
   // One line per launch — also guarantees `logs/` actually exists on disk
   // (the folder is otherwise created lazily on first write) so the Settings
   // panel's "open logs" button isn't a no-op on a fresh install.
@@ -764,32 +784,57 @@ usageService.setEnabled(false);
   taskNotificationWatcher.stop();
 });
 
+// ─── IPC failure capture (BACKLOG friend-testing readiness) ────────────────
+// A thrown/rejected `ipcMain.handle` listener is caught INSIDE Electron's own
+// invoke bridge and turned into a rejection on the renderer's `invoke()` call
+// — it never reaches this process's `uncaughtException`/`unhandledRejection`
+// handlers above, so a bug in any one of the ~50 handlers below had zero
+// trace in harness.log until now. Every registration in this file goes
+// through this thin wrapper instead of `ipcMain.handle` directly so a throw
+// surfaces here once, without touching any handler's own body; the original
+// rejection still propagates to the caller exactly as before (the `throw`
+// below), so no existing renderer-side error handling changes.
+type IpcListener = Parameters<typeof ipcMain.handle>[1];
+function handle(channel: string, fn: IpcListener): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await fn(event, ...args);
+    } catch (e) {
+      log('ipc', 'error', `handler threw: ${channel}`, {
+        message: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : undefined
+      });
+      throw e;
+    }
+  });
+}
+
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
-ipcMain.handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts));
-ipcMain.handle('pty:write', (_e, id: string, data: string) => ptyManager.write(id, data));
-ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
+handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts));
+handle('pty:write', (_e, id: string, data: string) => ptyManager.write(id, data));
+handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
   ptyManager.resize(id, cols, rows)
 );
-ipcMain.handle('pty:kill', (_e, id: string) => {
+handle('pty:kill', (_e, id: string) => {
   costWatcher.unregisterSession(id);
   taskNotificationWatcher.unregisterSession(id);
   return ptyManager.kill(id);
 });
-ipcMain.handle('pty:list', () => ptyManager.list());
-ipcMain.handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
+handle('pty:list', () => ptyManager.list());
+handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
 
 // ─── Crash recovery ─────────────────────────────────────────────────────────
 // See the `render-process-gone` handler in createWindow(): the freshly-booted
 // renderer calls this once it's actually mounted, rather than main pushing it
 // over a one-shot event the renderer might not be listening for yet. A plain
 // read, not a destructive one — see pendingCrashInfo's own comment for why.
-ipcMain.handle('app:getCrashInfo', () => pendingCrashInfo);
+handle('app:getCrashInfo', () => pendingCrashInfo);
 
 // Renderer → main mirror, called on every session-list or selection change
 // (see `startRegistrySync` in src/renderer/src/sessions.ts) — see
 // sessionRegistry's own comment above for why this replaces wholesale rather
 // than upserting.
-ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string | null) => {
+handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string | null) => {
   notifyStatusTransitions(sessions, selectedId);
   sessionRegistry = sessions;
   lastSelectedId = selectedId;
@@ -807,7 +852,7 @@ ipcMain.handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId
 // sitting in sessionRegistry from before the exit; ptyManager.list() is the
 // authority here, not the mirror). Same liveness check for selectedId: no
 // point reselecting a tab that isn't coming back.
-ipcMain.handle('sessions:restore', async () => {
+handle('sessions:restore', async () => {
   // Awaits the launch-time disk restore (a no-op once it's already settled,
   // which is the common case by the time the renderer gets this far) so this
   // never races ahead of `restoreFromDisk` and sees a still-empty registry —
@@ -823,7 +868,7 @@ ipcMain.handle('sessions:restore', async () => {
 
 // Boot-time pull for the "restored N sessions" toast (Phase 8.5 #1) — see
 // `diskRestoreConsumed`'s own comment for why this is clear-on-read.
-ipcMain.handle('app:getDiskRestoreInfo', async () => {
+handle('app:getDiskRestoreInfo', async () => {
   const info = await diskRestorePromise;
   if (diskRestoreConsumed || info.count === 0) return null;
   diskRestoreConsumed = true;
@@ -835,13 +880,13 @@ ipcMain.handle('app:getDiskRestoreInfo', async () => {
 // 'unsafe-eval' script-src beyond self and no external connect-src, so it can
 // neither fetch Showdown directly nor reach outside contextBridge to touch
 // userData. Decoding/re-encoding happens renderer-side (it has a canvas).
-ipcMain.handle('sprites:getCached', (_e, id: string, view: SpriteView, shiny: boolean) =>
+handle('sprites:getCached', (_e, id: string, view: SpriteView, shiny: boolean) =>
   getCachedSprite(id, view, shiny)
 );
-ipcMain.handle('sprites:fetchGif', (_e, id: string, view: SpriteView, shiny: boolean) =>
+handle('sprites:fetchGif', (_e, id: string, view: SpriteView, shiny: boolean) =>
   fetchSpriteGif(id, view, shiny)
 );
-ipcMain.handle(
+handle(
   'sprites:saveCache',
   (_e, id: string, view: SpriteView, shiny: boolean, png: ArrayBuffer, meta: LazySpriteMeta) =>
     saveCachedSprite(id, view, shiny, png, meta)
@@ -853,22 +898,22 @@ ipcMain.handle(
 // or Showdown's cry endpoint; it also owns the userData disk cache and the
 // settings JSON (see audioSettings.ts — no other persistence precedent
 // existed in this app to follow instead).
-ipcMain.handle('audio:getSettings', () => loadAudioSettings());
-ipcMain.handle('audio:saveSettings', (_e, settings: AudioSettings) => saveAudioSettings(settings));
+handle('audio:getSettings', () => loadAudioSettings());
+handle('audio:saveSettings', (_e, settings: AudioSettings) => saveAudioSettings(settings));
 // `id` is any mini-player catalog id (musicCatalog.ts), not just the 9
 // original curated MusicTrackIds — see musicCache.ts's header.
-ipcMain.handle('audio:ensureTrack', (_e, id: string) => ensureMusicTrack(id));
-ipcMain.handle('audio:ensureCry', (_e, id: string) => ensureCry(id));
+handle('audio:ensureTrack', (_e, id: string) => ensureMusicTrack(id));
+handle('audio:ensureCry', (_e, id: string) => ensureCry(id));
 // Background catalog-warm (mini-player generation filter) — see
 // musicCache.ts's single-flight coordination.
-ipcMain.handle('audio:prefetchTrack', (_e, id: string) => prefetchTrack(id));
-ipcMain.handle('audio:cancelPrefetch', () => cancelPrefetch());
-ipcMain.handle('audio:cacheStatus', () => getCacheStatus());
+handle('audio:prefetchTrack', (_e, id: string) => prefetchTrack(id));
+handle('audio:cancelPrefetch', () => cancelPrefetch());
+handle('audio:cacheStatus', () => getCacheStatus());
 
 // ─── General app settings (parity sweep: theme, auto-permission mode,
 // keep-awake, recent folders) — same rationale as audio settings above.
-ipcMain.handle('appSettings:getSettings', () => loadAppSettings());
-ipcMain.handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
+handle('appSettings:getSettings', () => loadAppSettings());
+handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
   keepAwakeEnabled = settings.keepAwake;
   syncKeepAwake();
 hookBridge.setHideStatusline(settings.hideClaudeStatusline);
@@ -880,6 +925,9 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
   // the boot path above.
   usageService.setExcludedProviders(settings.usageExcludedProviders);
   usageService.setEnabled(settings.usageLimitsEnabled);
+  // Diagnostics opt-in (BACKLOG friend-testing readiness) — takes effect on
+  // this very save, same immediacy as the usage-limits toggle above.
+  setDiagnosticsLoggingEnabled(settings.diagnosticsLoggingEnabled);
 
   // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
   // actually changed, and never touches anything at the OLD location (the
@@ -905,14 +953,14 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
 // Pulled once at boot (main.tsx) to display the CURRENT resolved path in
 // Settings even when the setting itself is null (i.e. "use the default") —
 // only main can resolve that default (needs os.homedir()).
-ipcMain.handle('harnessHome:getResolvedPath', () => harnessHomeDir);
+handle('harnessHome:getResolvedPath', () => harnessHomeDir);
 
 // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────────
 // Ensures agents/arceus/SYSTEM.md exists (seeding it from the template on
 // first call only) and returns its CURRENT contents — called fresh on every
 // summon, never cached here or renderer-side, so an edit to the file takes
 // effect on the very next summon. See arceusPrompt.ts.
-ipcMain.handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harnessHomeDir));
+handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harnessHomeDir));
 // Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds
 // above): this app must never spawn a REAL claude session for its own
 // testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
@@ -921,30 +969,30 @@ ipcMain.handle('arceus:ensureSystemPrompt', () => ensureArceusSystemPrompt(harne
 // arceus.ts `summonArceusDevStandin`) — everything BUT the real spawn (the
 // cosmos ascent, alpha card, dispatch box, persistence, cross-workspace
 // presence) is then exercisable live.
-ipcMain.handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
+handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
 
 // ─── Arceus summon-once (Phase 8.9) ────────────────────────────────────────
 // See arceusSummonConfig.ts's own header — this file's mere existence gates
 // the setup dialog vs. a silent auto-summon on every later launch.
-ipcMain.handle('arceus:loadSummonConfig', () => loadArceusSummonConfig(harnessHomeDir));
-ipcMain.handle('arceus:saveSummonConfig', (_e, config: ArceusSummonConfig) =>
+handle('arceus:loadSummonConfig', () => loadArceusSummonConfig(harnessHomeDir));
+handle('arceus:saveSummonConfig', (_e, config: ArceusSummonConfig) =>
   saveArceusSummonConfig(harnessHomeDir, config)
 );
-ipcMain.handle('arceus:resetSummonConfig', () => resetArceusSummonConfig(harnessHomeDir));
+handle('arceus:resetSummonConfig', () => resetArceusSummonConfig(harnessHomeDir));
 
 // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────────
 // Every handler here returns the FULL current snapshot (not just the one
 // field that changed) so the renderer always hydrates from one authoritative
 // source instead of patching its local copy — most load-bearing for delete,
 // where main may have to pick a new active workspace itself.
-ipcMain.handle('workspaces:list', async () => {
+handle('workspaces:list', async () => {
   // workspaceRegistry is populated inside restoreFromDisk() — await the same
   // promise sessions:restore does so this never races ahead of it.
   await diskRestorePromise;
   return workspaceRegistry;
 });
 
-ipcMain.handle('workspaces:create', (_e, name: string, primaryFolder: string) => {
+handle('workspaces:create', (_e, name: string, primaryFolder: string) => {
   const id = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const workspace: WorkspaceRecord = {
     id,
@@ -959,7 +1007,7 @@ ipcMain.handle('workspaces:create', (_e, name: string, primaryFolder: string) =>
   return { ok: true, ...workspaceRegistry };
 });
 
-ipcMain.handle('workspaces:rename', (_e, id: string, name: string) => {
+handle('workspaces:rename', (_e, id: string, name: string) => {
   const trimmed = name.trim();
   if (trimmed) {
     workspaceRegistry = {
@@ -971,7 +1019,7 @@ ipcMain.handle('workspaces:rename', (_e, id: string, name: string) => {
   return { ok: true, ...workspaceRegistry };
 });
 
-ipcMain.handle('workspaces:setActive', (_e, id: string) => {
+handle('workspaces:setActive', (_e, id: string) => {
   if (workspaceRegistry.workspaces.some((w) => w.id === id) && id !== workspaceRegistry.activeWorkspaceId) {
     workspaceRegistry = { ...workspaceRegistry, activeWorkspaceId: id };
     saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
@@ -979,7 +1027,7 @@ ipcMain.handle('workspaces:setActive', (_e, id: string) => {
   return { ok: true, ...workspaceRegistry };
 });
 
-ipcMain.handle('workspaces:delete', (_e, id: string) => {
+handle('workspaces:delete', (_e, id: string) => {
   if (workspaceRegistry.workspaces.length <= 1) {
     return { ok: false, error: "can't delete your only workspace.", ...workspaceRegistry };
   }
@@ -1016,30 +1064,30 @@ ipcMain.handle('workspaces:delete', (_e, id: string) => {
 // ─── Config ─────────────────────────────────────────────────────────────────
 // The renderer is sandboxed and cannot reliably read process.env itself; main
 // definitely can. Lets POKE_EVOLVE_SECONDS accelerate evolution for demos/tests.
-ipcMain.handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? null);
+handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? null);
 // Phase 5 §1: POKE_SHINY_ODDS overrides the 1-in-N shiny roll (e.g. "1" =
 // always shiny, for demos/tests).
-ipcMain.handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
+handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
 // Phase 8.5 Wave B item 3 §3 — the "plain shell" provider's actual command:
 // the user's own interactive shell, which only main can read off $SHELL.
-ipcMain.handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
+handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
 
 // ─── App version + updates (ship-cut item 4) ───────────────────────────────
-ipcMain.handle('app:getVersion', () => app.getVersion());
-ipcMain.handle('app:openExternal', (_e, url: string) => shell.openExternal(url));
+handle('app:getVersion', () => app.getVersion());
+handle('app:openExternal', (_e, url: string) => shell.openExternal(url));
 // Settings panel's "check now" — unlike the background 24h check
 // (`scheduleUpdateChecks`), this reports its result either way (including
 // "you're up to date"), since a user who clicked the button is owed an
 // answer, not silence.
-ipcMain.handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
+handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
 
 // ─── Usage limits (BACKLOG "next up" item 1) ───────────────────────────────
 // `getSnapshot` is a plain cache read (never triggers a fetch) — the
 // renderer's boot-time hydrate and the toggle's own "off" cleanup both use
 // it. `refresh` is the popover-open trigger, throttled inside the service
 // itself (see usageService.ts's MANUAL_REFRESH_MIN_INTERVAL_MS).
-ipcMain.handle('usage:getSnapshot', () => usageService.getSnapshot());
-ipcMain.handle('usage:refresh', () => usageService.refreshNow());
+handle('usage:getSnapshot', () => usageService.getSnapshot());
+handle('usage:refresh', () => usageService.refreshNow());
 
 // ─── Diagnostics (BACKLOG item 1) — local-only, nothing here leaves the
 // machine. ───────────────────────────────────────────────────────────────
@@ -1048,10 +1096,10 @@ ipcMain.handle('usage:refresh', () => usageService.refreshNow());
 // through the same `log()` hookBridge/pty/uncaughtException use, so the
 // Settings panel's "errors this session" count covers renderer-origin
 // errors too.
-ipcMain.handle('diagnostics:log', (_e, area: string, level: LogLevel, message: string, data?: unknown) =>
+handle('diagnostics:log', (_e, area: string, level: LogLevel, message: string, data?: unknown) =>
   log(area, level, message, data)
 );
-ipcMain.handle('diagnostics:getInfo', () => ({
+handle('diagnostics:getInfo', () => ({
   appVersion: app.getVersion(),
   electronVersion: process.versions.electron,
   logDir: getLogDir(),
@@ -1062,7 +1110,7 @@ ipcMain.handle('diagnostics:getInfo', () => ({
 // so the button still does something reasonable rather than silently no-op.
 // The `log()` in whenReady() already creates the folder on every normal
 // boot, but mkdirSync here too in case nothing has actually logged yet.
-ipcMain.handle('diagnostics:openLogs', () => {
+handle('diagnostics:openLogs', () => {
   const dir = getLogDir() ?? harnessHomeDir;
   try {
     mkdirSync(dir, { recursive: true });
@@ -1071,10 +1119,32 @@ ipcMain.handle('diagnostics:openLogs', () => {
   }
   return shell.openPath(dir);
 });
+// "Export diagnostics bundle" (BACKLOG friend-testing readiness) — a
+// dead-simple share flow for a non-technical tester: save-dialog, then
+// reveal the finished zip in Finder so "send it to me" is just attaching
+// that file. See diagnosticsExport.ts for what's inside and what's redacted.
+handle('diagnostics:exportBundle', async (): Promise<ExportDiagnosticsResult> => {
+  const win = mainWindow;
+  const dialogOpts = {
+    defaultPath: defaultBundleFilename(new Date()),
+    filters: [{ name: 'Zip', extensions: ['zip'] }]
+  };
+  const res = win ? await dialog.showSaveDialog(win, dialogOpts) : await dialog.showSaveDialog(dialogOpts);
+  if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+  try {
+    await buildDiagnosticsBundle(res.filePath, await loadAppSettings());
+    shell.showItemInFolder(res.filePath);
+    return { ok: true, path: res.filePath };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    log('diagnostics', 'error', 'export bundle failed', { message });
+    return { ok: false, error: message };
+  }
+});
 
 // ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
-ipcMain.handle('terminal:getSettings', () => loadTerminalSettings());
-ipcMain.handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
+handle('terminal:getSettings', () => loadTerminalSettings());
+handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
   saveTerminalSettings(settings)
 );
 
@@ -1084,7 +1154,7 @@ ipcMain.handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
 // never allowed to spawn a real `claude` for testing (see hookRouter.ts), so
 // verifying the watcher means pointing it at a synthetic transcript from a
 // plain bash session instead.
-ipcMain.handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: string) =>
+handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: string) =>
   costWatcher.registerSession(agentId, transcriptPath)
 );
 
@@ -1097,7 +1167,7 @@ ipcMain.handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: st
 // first so it passes through the quit-intercept guard uninterrupted, even if
 // sessions are still technically live (the ritual doesn't itself kill them;
 // `before-quit`'s existing `ptyManager.killAll()` does).
-ipcMain.handle('app:quit', () => {
+handle('app:quit', () => {
   quitConfirmed = true;
   app.quit();
 });
@@ -1105,13 +1175,13 @@ ipcMain.handle('app:quit', () => {
 // "kill it & quit" — the quit dialog's destructive action (parity sweep item
 // 2). Bypasses the sunset ritual entirely; `before-quit`'s existing flush +
 // killAll still runs.
-ipcMain.handle('app:forceQuit', () => {
+handle('app:forceQuit', () => {
   quitConfirmed = true;
   app.quit();
 });
 
 // ─── Dialog ─────────────────────────────────────────────────────────────────
-ipcMain.handle('dialog:chooseFolder', async () => {
+handle('dialog:chooseFolder', async () => {
   const win = mainWindow;
   const opts = { properties: ['openDirectory', 'createDirectory'] as const };
   const res = win

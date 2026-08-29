@@ -83,13 +83,21 @@ export class PtyManager {
 
   spawn(opts: SpawnPtyOptions): PtyResult {
     const cwd = expandTilde(opts.cwd);
-    if (!existsSync(cwd)) return { ok: false, error: `cwd does not exist: ${cwd}` };
+    if (!existsSync(cwd)) {
+      // Surfaced to the user in NewSessionDialog's own error text, but that's
+      // UI-only — until now a spawn failure never reached harness.log, so a
+      // "it wouldn't start" bug report had nothing to trace (BACKLOG
+      // friend-testing readiness).
+      log('pty', 'error', 'spawn failed: cwd does not exist', { id: opts.id, cwd });
+      return { ok: false, error: `cwd does not exist: ${cwd}` };
+    }
 
     // A respawn reusing a live id would orphan the old child. Kill it first.
     if (this.sessions.has(opts.id)) this.kill(opts.id);
 
     const { path: file, found } = resolveCommand(opts.command);
     if (!found) {
+      log('pty', 'error', 'spawn failed: command not found on PATH', { id: opts.id, command: opts.command });
       return { ok: false, error: `command not found on PATH: ${opts.command}` };
     }
 
@@ -155,6 +163,11 @@ export class PtyManager {
 
       return { ok: true, cwd };
     } catch (e) {
+      log('pty', 'error', 'spawn threw', {
+        id: opts.id,
+        command: opts.command,
+        message: e instanceof Error ? e.message : String(e)
+      });
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }

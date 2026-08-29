@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useStore } from './store/store';
 import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
 import { autoSummonArceus, startArceusRelayToasts } from './arceus';
@@ -266,13 +267,24 @@ async function boot(): Promise<void> {
     }
   } catch (err) {
     console.error('[boot] crash/reload recovery failed — starting with an empty garden', err);
+    safeLogDiagnostic('renderer', 'error', 'boot() crash/reload recovery failed — starting with an empty garden', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    });
   } finally {
     // Deliberately NOT wrapped in StrictMode: the Pixi application and the
     // PTY subscriptions are real, non-idempotent resources, and StrictMode's
     // dev-only double mount would build two gardens.
     // Non-null: TS doesn't carry the module-scope `if (!rootEl) throw`
     // guard's narrowing into this nested function; the guard above already ran.
-    createRoot(rootEl!).render(<App />);
+    // ErrorBoundary (BACKLOG friend-testing readiness) — a React render-phase
+    // throw anywhere below this used to unmount the whole app with zero
+    // trace in harness.log; see that component's own header.
+    createRoot(rootEl!).render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
   }
 }
 

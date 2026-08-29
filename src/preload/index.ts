@@ -20,7 +20,7 @@ import type { AppSettings } from '../shared/appSettingsTypes';
 import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
-import type { DiagnosticsInfo, LogLevel } from '../shared/diagnosticsTypes';
+import type { DiagnosticsInfo, ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
 import type { UsageSnapshot } from '../shared/usageTypes';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
@@ -246,6 +246,10 @@ const api = {
    *  own shell.openPath contract) — not currently surfaced in the UI, same
    *  as every other fire-and-forget button in this panel. */
   openLogsFolder: (): Promise<string> => ipcRenderer.invoke('diagnostics:openLogs'),
+  /** Settings panel's "export diagnostics bundle" button — save-dialog +
+   *  reveal-in-Finder happen main-side; see main/diagnosticsExport.ts for
+   *  what's inside and what's redacted. */
+  exportDiagnosticsBundle: (): Promise<ExportDiagnosticsResult> => ipcRenderer.invoke('diagnostics:exportBundle'),
 
   // ─── Usage limits (BACKLOG "next up" item 1) — read-only while the
   // settings toggle is on; see main/usageService.ts's header for the "zero
