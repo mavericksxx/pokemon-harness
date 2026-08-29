@@ -116,32 +116,46 @@ export function AgentRosterCard({ session, selected, onSelect }: Props): JSX.Ele
           </em>
         </div>
 
-        {toolText && <div className="roster-card-tool">{toolText}</div>}
+        {/* Strip height jitter fix (parity sweep item 1) — every row below is
+            now ALWAYS mounted (never conditionally omitted), so a card's own
+            natural height is fixed from its very first render instead of
+            growing/shrinking as `toolText`/`hint`/`cost` arrive or clear
+            later. `.roster-card-row-hidden` (index.css) just hides the
+            content via `visibility: hidden`, which keeps the row's layout
+            box (and therefore the card's height) exactly as if it were
+            populated — the whole point being that late data FILLS reserved
+            space instead of ADDING new space, which is what was reflowing
+            the strip (`.roster-strip`'s `align-items: stretch` re-stretches
+            every card to match whichever one just grew). */}
+        <div className={toolText ? 'roster-card-tool' : 'roster-card-tool roster-card-row-hidden'}>
+          {toolText || ' '}
+        </div>
 
-        {hint && (
-          <div className="roster-card-evo" title={hint.label}>
-            <div className="roster-card-evo-fill" style={{ width: `${Math.round(hint.pct * 100)}%` }} />
-          </div>
-        )}
+        <div className={hint ? 'roster-card-evo' : 'roster-card-evo roster-card-row-hidden'} title={hint?.label}>
+          <div className="roster-card-evo-fill" style={{ width: `${hint ? Math.round(hint.pct * 100) : 0}%` }} />
+        </div>
 
-        {cost?.model && (
-          <div className="roster-card-badges">
+        <div className={cost?.model ? 'roster-card-badges' : 'roster-card-badges roster-card-row-hidden'}>
+          {cost?.model ? (
             <ModelBadge model={cost.model} changedFrom={session.modelChangedFrom} />
-          </div>
-        )}
+          ) : (
+            // Placeholder sized exactly like a real ModelBadge (same class,
+            // same font/padding/border) so the row reserves the badge's own
+            // height rather than collapsing to 0 with no child at all.
+            <span className="model-badge">&nbsp;</span>
+          )}
+        </div>
 
-        {cost && (
-          <div className="roster-card-ctx-row">
-            <span className="roster-card-ctx-label">context</span>
-            <div className="hp-bar">
-              <div
-                className={`hp-bar-fill${contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-                style={{ width: `${contextPct}%` }}
-              />
-            </div>
-            <span className="roster-card-ctx-label">{contextPct}%</span>
+        <div className={cost ? 'roster-card-ctx-row' : 'roster-card-ctx-row roster-card-row-hidden'}>
+          <span className="roster-card-ctx-label">context</span>
+          <div className="hp-bar">
+            <div
+              className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
+              style={{ width: `${cost ? contextPct : 0}%` }}
+            />
           </div>
-        )}
+          <span className="roster-card-ctx-label">{cost ? `${contextPct}%` : ' '}</span>
+        </div>
       </button>
 
       {/* Trainer-card popover trigger (session-status feature) — a sibling of

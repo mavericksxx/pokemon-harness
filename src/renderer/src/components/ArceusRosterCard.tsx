@@ -3,6 +3,7 @@ import { PokemonFace } from '@/components/PokemonFace';
 import { arceusIsLive, autoSummonArceus, selectArceus } from '@/arceus';
 import { ARCEUS_DEX_ID, ARCEUS_SESSION_ID, ARCEUS_TITLE } from '@shared/arceus';
 import { sessionStatusLabel } from '@/design/sessionLabel';
+import { StarIcon } from '@/components/icons';
 
 /**
  * Arceus's own permanent card in the bottom roster strip — unlike every
@@ -54,7 +55,14 @@ export function ArceusRosterCard(): JSX.Element {
             <PokemonFace name={ARCEUS_DEX_ID} box={32} />
           </span>
           <span className="roster-card-id">
-            <span className="roster-card-name">{ARCEUS_TITLE.toLowerCase()}</span>
+            <span className="roster-card-name">
+              {/* Ceremonial-plaque star (parity sweep item 6) — beside the
+                  name, not on the sprite/frame, so it reads as part of his
+                  title rather than another badge competing with the shiny
+                  star or trainer-card corner trigger. */}
+              <StarIcon className="roster-card-arceus-star" aria-hidden="true" />
+              {ARCEUS_TITLE.toLowerCase()}
+            </span>
           </span>
           {live && session && (
             <span

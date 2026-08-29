@@ -601,6 +601,13 @@ button.icon:active {
   flex: 1;
   display: flex;
   min-height: 0;
+  /* Positioning context for `.garden-drawer-edge-tab` (parity sweep item 4 —
+   * docked to this row's own right edge while the terminal drawer is
+   * closed). No other descendant relies on this NOT being one — every
+   * `position: fixed` element elsewhere in the tree anchors off the
+   * viewport regardless (fixed positioning isn't affected by an ancestor's
+   * plain `position: relative`, only by a transformed/filtered one). */
+  position: relative;
 }
 
 /* Diorama mat: the garden is the game screen, this is its console shell —
@@ -1228,8 +1235,17 @@ button.icon:active {
   gap: 6px;
 }
 
+/* Parity sweep item 5 — user report: "really thin, hard to see". Scoped
+ * to THIS mount only (not the shared `.hp-bar` primitive itself, which the
+ * topbar's mini gauges/roster card/trainer-card popover also use at the
+ * original 6px) — SessionStatusStrip.tsx is mounted once and covers both
+ * the terminal-focus header and the garden-split drawer's terminal panel
+ * (same component, same DOM path), so this one override reaches both
+ * surfaces. Roughly double the shared primitive's 6px height, and a bit
+ * wider too — a taller bar at the old 60px read stubby, not just thin. */
 .status-strip .hp-bar {
-  width: 60px;
+  width: 90px;
+  height: 12px;
 }
 
 .status-strip-divider {
@@ -2241,25 +2257,6 @@ button.icon:active {
   transform: translate(1px, 1px);
 }
 
-/* View-switcher button rendered for a view that isn't reachable right now
- * (e.g. the terminal-panel toggle outside 'garden' mode). Kept in the DOM
- * — same box, same border width — with only color/cursor swapped, so the
- * group's button count (and therefore its width) never changes. Not the
- * native `disabled` attribute: that suppresses :hover/:focus-visible, which
- * would silence this button's `.tip` tooltip. */
-.view-switcher-btn-unavailable {
-  color: var(--muted);
-  cursor: not-allowed;
-}
-
-.view-switcher-btn-unavailable:hover {
-  border-color: transparent;
-}
-
-.view-switcher-btn-unavailable:active {
-  transform: none;
-}
-
 /* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5) ──── */
 /* Horizontal strip replacing the old left sidebar (`.roster-sidebar`) — a
  * fixed-height band under the garden/terminal row, scrolling sideways once
@@ -2279,6 +2276,20 @@ button.icon:active {
 .roster-strip .roster-card-wrap {
   width: 220px;
   flex: none;
+  /* Parity sweep item 1 — a deterministic floor for the strip's own height
+   * band (this file's pre-existing "fixed-height band" comment above never
+   * actually had one). Sized for AgentRosterCard's full state — top row,
+   * tool, evolution hint, model badges, context row — now that every one of
+   * those rows is unconditionally mounted (see `.roster-card-row-hidden`
+   * below) rather than popping in/out, so a fully-populated card never
+   * exceeds this floor and `align-items: stretch` never has anything new to
+   * stretch the row to. Belt-and-braces alongside that fix, not a
+   * replacement for it — a shorter card (Arceus, a subagent) just stretches
+   * up to this floor via the strip's existing `align-items: stretch`, same
+   * as it already did against the tallest sibling. `min-height`, not
+   * `height` — an underestimate grows the band once rather than clipping
+   * against `.roster-strip`'s `overflow-y: hidden`. */
+  min-height: 150px;
 }
 
 .roster-strip-new {
@@ -2382,23 +2393,73 @@ button.icon:active {
   box-shadow: 0 0 0 2px var(--accent-text);
 }
 
-/* Arceus's roster card (ArceusRosterCard.tsx) — a permanent gold frame marks
- * him as distinct from an ordinary session card even at rest, unselected
- * (ordinary cards only get a gold-ish ring once selected — see `.selected`
- * above). A soft outer glow on top of the solid border keeps it readable as
- * "special" rather than just "a different border color" at this size. */
+/* Arceus's roster card (ArceusRosterCard.tsx) — parity sweep item 6: a plain
+ * gold border read as just another `.selected` ring (`--gold` and
+ * `--accent-text` are literally the same hex, #e8b740 — user report: "the
+ * god looks like just another selected pokemon"). Distinguishing him from
+ * selection has to be STRUCTURAL, not "more gold":
+ *   - a genuine double-line frame (the card's own solid border plus an
+ *     inset line one px in, with a background-colored gap between them —
+ *     `.selected`'s ring above is a single line sitting OUTSIDE the border)
+ *   - stepped pixel corner brackets (`::before`/`::after` below), an L-shaped
+ *     notch motif no selection state anywhere in this app uses
+ *   - a warm gold-tinted ground inside the card, not just its edge
+ * `.selected` still layers its own outside ring on top of all of this (see
+ * `.roster-card-arceus.selected` below) — a selected Arceus reads as "the
+ * ceremonial plaque, now also picked", both states legible at once. */
 .roster-card-arceus {
   border-color: var(--gold);
   border-left-color: var(--gold);
-  box-shadow: 0 0 0 1px var(--gold), 0 0 10px rgba(232, 183, 64, 0.35);
+  background: linear-gradient(rgba(232, 183, 64, 0.08), rgba(232, 183, 64, 0.08)), var(--panel-2);
+  box-shadow:
+    inset 0 0 0 1px var(--gold),
+    0 0 10px rgba(232, 183, 64, 0.35);
 }
 
 .roster-card-arceus:hover {
   border-color: var(--gold);
 }
 
+/* Stepped corner brackets — top-left/bottom-right only (a common "reticle
+ * corner" pixel-UI motif; decorating all four would compete with the sprite
+ * and swap button already anchored at the other two). Solid L-shaped blocks
+ * via `clip-path`, not a stroke, to stay crisp at this size. */
+.roster-card-arceus::before,
+.roster-card-arceus::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--gold);
+  clip-path: polygon(0 0, 100% 0, 100% 35%, 35% 35%, 35% 100%, 0 100%);
+  pointer-events: none;
+}
+
+.roster-card-arceus::before {
+  top: -3px;
+  left: -3px;
+}
+
+.roster-card-arceus::after {
+  bottom: -3px;
+  right: -3px;
+  transform: rotate(180deg);
+}
+
 .roster-card-arceus.selected {
-  box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(232, 183, 64, 0.45);
+  box-shadow:
+    inset 0 0 0 1px var(--gold),
+    0 0 0 2px var(--accent-text),
+    0 0 12px rgba(232, 183, 64, 0.45);
+}
+
+.roster-card-arceus-star {
+  color: var(--gold);
+  width: 10px;
+  height: 10px;
+  margin-right: 3px;
+  vertical-align: -1px;
+  flex: none;
 }
 
 /* Subagent battler card (Phase 4 Part B follow-up, SubagentRosterCard.tsx) —
@@ -2489,6 +2550,16 @@ button.icon:active {
    * overflow/ellipsis to apply at all. */
   width: 100%;
   min-width: 0;
+}
+
+/* Parity sweep item 1 — a row toggled between "not rendered" and "rendered"
+ * as its data arrived/cleared, which grew or shrank the card's own natural
+ * height and re-triggered `.roster-strip`'s `align-items: stretch` across
+ * every other card in the row. AgentRosterCard.tsx now always mounts these
+ * rows; this just hides one's content while keeping its box (and therefore
+ * the card's height) exactly as populated. */
+.roster-card-row-hidden {
+  visibility: hidden;
 }
 
 .roster-card-evo {
@@ -2771,9 +2842,26 @@ button.icon:active {
 .sessions-overview-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* Parity sweep item 3 — CSS Grid's default `align-items: stretch` sizes
+   * each ROW independently, so a card sharing a row with a taller session
+   * card stretched tall while the same card type alone on its own row (no
+   * taller sibling) stayed short — the exact inconsistency reported
+   * (screenshot: one subagent card full-height, another small one row
+   * down). `start` stops any card from stretching to its row's tallest
+   * neighbor; combined with the `height: auto` override below (same idiom
+   * `.focus-sidebar` already uses for its own vertical list), every card
+   * sizes to its own natural content height, which item 1's placeholder-row
+   * fix now keeps constant per card type — so the same type reads the same
+   * height everywhere in this grid, regardless of which row it lands on. */
+  align-items: start;
   gap: 8px;
   max-height: 60vh;
   overflow-y: auto;
+}
+
+.sessions-overview-grid .roster-card-wrap,
+.sessions-overview-grid .roster-card {
+  height: auto;
 }
 
 /* ── Settings dialog (settings redesign: side panel → centered dialog) ─────
@@ -3120,6 +3208,64 @@ textarea,
 .garden-split-handle:active .garden-split-line,
 body.is-splitting .garden-split-line {
   background: var(--gold);
+}
+
+/* Parity sweep item 4 — the "hide terminal" tab riding the divider itself.
+ * Wider than the 6px hit area it sits on (20px, centered on it via the
+ * negative left offset) so it's a comfortable click target and actually
+ * legible, not just the bare 6px line. Vertically centered in the row via
+ * `top: 50%` + `translateY` rather than `align-items` on the handle (the
+ * handle's own height already comes from `.body-row`'s stretch; this just
+ * rides wherever that ends up). */
+.garden-split-collapse-tab {
+  position: absolute;
+  top: 50%;
+  left: -7px;
+  width: 20px;
+  height: 40px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.garden-split-collapse-tab:hover {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+/* Parity sweep item 4 — the other half of the toggle: docked to the row's
+ * own right edge (GardenDrawerEdgeTab.tsx), rendered only while the drawer
+ * is closed (GardenSplitHandle.tsx isn't even mounted then — App.tsx only
+ * renders it alongside an open drawer, so there's no divider to ride).
+ * Same shape/sizing as the collapse tab above, mirrored to point the other
+ * way, so the two read as one control living on whichever edge is current. */
+.garden-drawer-edge-tab {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 20px;
+  height: 40px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-right: none;
+  color: var(--muted);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.garden-drawer-edge-tab:hover {
+  color: var(--gold);
+  border-color: var(--gold);
 }
 
 /* Drag-time hygiene (toggled on <body> by GardenSplitHandle.tsx's

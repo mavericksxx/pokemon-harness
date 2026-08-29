@@ -52,7 +52,16 @@ function formatElapsed(ms: number): string {
  *  subagent's progress rows actually stream — it has no terminal of its
  *  own) and pans the garden camera onto the battler's own sprite
  *  (`focusBattlerKey`, consumed by GardenScene's ticker), so the click lands
- *  on both "where its output is" and "where it physically is" at once. */
+ *  on both "where its output is" and "where it physically is" at once.
+ *
+ *  Title line (parity sweep item 7 — investigated whether a real name/
+ *  description exists for a battler at spawn time: it does, the spawning
+ *  `Task`'s own `description`/`subagent_type`, see `LiveBattler.label`'s own
+ *  comment) — when present, it's the title line here, species moved down
+ *  alongside the parent line, mirroring AgentRosterCard's title-then-species
+ *  layout instead of reading species-first like a session of its own. Falls
+ *  back to species-as-title (this card's original layout) for the
+ *  regex-fallback path, where no label exists. */
 export function SubagentRosterCard({ battler, parent, onNavigate }: Props): JSX.Element {
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
@@ -79,6 +88,7 @@ export function SubagentRosterCard({ battler, parent, onNavigate }: Props): JSX.
   };
 
   const speciesName = (speciesEntry(battler.species)?.name ?? battler.species).toLowerCase();
+  const label = battler.label;
 
   return (
     <div className="roster-card-wrap">
@@ -86,15 +96,25 @@ export function SubagentRosterCard({ battler, parent, onNavigate }: Props): JSX.
         type="button"
         className="roster-card roster-card-subagent"
         onClick={onClick}
-        title={`${speciesName} — subagent of ${parent.title}`}
+        title={
+          label
+            ? `${label} — ${speciesName}, subagent of ${parent.title}`
+            : `${speciesName} — subagent of ${parent.title}`
+        }
       >
         <div className="roster-card-top">
           <span className="roster-card-face">
             <PokemonFace name={battler.species} box={32} />
           </span>
           <span className="roster-card-id">
-            <span className="roster-card-name">{speciesName}</span>
-            <span className="roster-card-species">↳ {parent.title}</span>
+            {/* Session-card parity (item 7) — title line is the real name
+                when one exists (the spawning Task's own description), species
+                and parent folded into the second line together; falls back
+                to the original species-as-title layout when it doesn't. */}
+            <span className="roster-card-name">{label || speciesName}</span>
+            <span className="roster-card-species">
+              {label ? `${speciesName} · ↳ ${parent.title}` : `↳ ${parent.title} · subagent`}
+            </span>
           </span>
           {/* Reusing `.summon-arceus-dot` — the same standalone status-color
               dot ArceusRosterCard's topbar chip uses, not a copy/paste of the

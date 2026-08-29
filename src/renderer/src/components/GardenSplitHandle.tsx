@@ -7,6 +7,7 @@ import {
   HANDLE_PX,
   TERMINAL_MIN_PX
 } from '@/gardenSplit';
+import { DoubleChevronRightIcon } from '@/components/icons';
 
 /** Draggable divider between the garden and the terminal drawer, mounted by
  *  App.tsx between them in `.body-row` only in 'garden' view mode with the
@@ -36,9 +37,21 @@ import {
  *  selectedId]`, not the split, so a drag never re-attaches the terminal or
  *  touches its WebGL context. Live ticks pass `persist: false` to the
  *  store — only pointerup/double-click bank the ratio to localStorage, so a
- *  drag doesn't hit disk every frame. */
+ *  drag doesn't hit disk every frame.
+ *
+ *  Parity sweep item 4 — also carries the "hide terminal" half of the
+ *  garden-split toggle: a `»` tab riding the divider itself (user report:
+ *  the topbar's own show/hide icon was too easy to lose track of — losing
+ *  the terminal pane read as losing the whole split view). The `«` "show
+ *  it again" half lives docked to the row's own right edge instead
+ *  (GardenDrawerEdgeTab.tsx, rendered by App.tsx only while the drawer is
+ *  closed — this component isn't mounted at all then, since App.tsx only
+ *  renders it alongside an open drawer). `onPointerDown`'s own
+ *  `stopPropagation` keeps a click on the tab from also registering as a
+ *  drag-start on the divider beneath it. */
 export function GardenSplitHandle(): JSX.Element {
   const setGardenSplit = useStore((s) => s.setGardenSplit);
+  const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const draggingRef = useRef(false);
   const rowRectRef = useRef<DOMRect | null>(null);
   const grabOffsetRef = useRef(0);
@@ -133,6 +146,21 @@ export function GardenSplitHandle(): JSX.Element {
       onDoubleClick={() => setGardenSplit(DEFAULT_GARDEN_SPLIT, true)}
     >
       <span className="garden-split-line" aria-hidden="true" />
+      <button
+        type="button"
+        className="garden-split-collapse-tab tip"
+        data-tip="hide terminal"
+        aria-label="hide terminal panel"
+        // Both handlers stop propagation — a click here must never also
+        // register as a divider drag-start (pointerdown) or reset the split
+        // ratio (the divider's own onDoubleClick, above) on a fast double-
+        // click.
+        onPointerDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onClick={() => setDrawerOpen(false)}
+      >
+        <DoubleChevronRightIcon />
+      </button>
     </div>
   );
 }
