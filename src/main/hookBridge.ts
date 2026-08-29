@@ -10,10 +10,11 @@
  * Mechanism: on a claude spawn, we write a per-session `settings.json` whose
  * `hooks` block runs a tiny generated Node shim (`cth-hook.cjs`) for every
  * wired event. The shim reads the hook's JSON payload on stdin, stamps it
- * with `AGENT_ID` (set on the child's env — see pty.ts), and forwards it over
- * a Unix domain socket this class listens on. We normalize the payload and
- * push it to the renderer over `hooks:event:<agentId>`; the shim always gets
- * `{}` back (this app never denies/gates a tool call at the hook boundary).
+ * with `POKEHARNESS_AGENT_ID` (set on the child's env — see pty.ts), and
+ * forwards it over a Unix domain socket this class listens on. We normalize
+ * the payload and push it to the renderer over `hooks:event:<agentId>`; the
+ * shim always gets `{}` back (this app never denies/gates a tool call at the
+ * hook boundary).
  *
  * The shim itself is invoked by Claude via a bare `sh -c` with a stripped
  * PATH — a plain `node "<script>"` command 127s on a machine whose node only
@@ -37,8 +38,20 @@ import {
 
 /** Env var the shim reads to find the UDS to dial. */
 export const HOOK_SOCK_ENV = 'POKE_HOOK_SOCK';
-/** Env var the shim stamps onto every payload as `harness_agent_id`. */
-export const AGENT_ID_ENV = 'AGENT_ID';
+/** Env var the shim stamps onto every payload as `harness_agent_id`.
+ *
+ *  Namespaced as `POKEHARNESS_AGENT_ID` (not the bare `AGENT_ID` this used
+ *  pre-BACKLOG-item-3): a live hook capture showed a subagent's tool-call
+ *  hooks carrying a DIFFERENT value for `AGENT_ID` than the parent's,
+ *  suggesting Claude Code itself may set its own env var of that name for
+ *  subagent-scoped hook commands — which would silently clobber ours and
+ *  misroute events. Prefixing makes the collision impossible regardless of
+ *  whether that CLI behavior is ever confirmed. Safe to rename outright with
+ *  no dual-read compat shim: the shim script that reads this is rewritten
+ *  unconditionally by `ensureFiles()` on every app start, before any pty can
+ *  spawn (see `app.whenReady` in index.ts), so setter (pty.ts, via this
+ *  constant) and reader (the regenerated shim) can never disagree. */
+export const AGENT_ID_ENV = 'POKEHARNESS_AGENT_ID';
 
 const SHIM_FILENAME = 'cth-hook.cjs';
 
@@ -152,11 +165,18 @@ export class HookBridge {
         let payload: HookPayload = {};
         try {
           payload = JSON.parse(buf.slice(0, nl));
-        } catch {
+        } catch (e) {
           // Malformed line — respond empty rather than hang the shim.
           // Capped: this is the one place raw, agent-controlled content
-          // enters the diagnostics log.
-          log('hooks', 'warn', 'malformed hook payload — dropped', { raw: buf.slice(0, nl).slice(0, 500) });
+          // enters the diagnostics log, and it can carry user prompt/file
+          // text — log a short breadcrumb (parse error, length, a 120-char
+          // prefix) rather than the raw payload.
+          const raw = buf.slice(0, nl);
+          log('hooks', 'warn', 'malformed hook payload — dropped', {
+            error: e instanceof Error ? e.message : String(e),
+            length: raw.length,
+            prefix: raw.slice(0, 120)
+          });
         }
         let res: unknown = {};
         try {

@@ -43,11 +43,11 @@ let recentErrorCount = 0;
 
 /** Diagnostics opt-in (BACKLOG friend-testing readiness) — default true, set
  *  from `appSettings.diagnosticsLoggingEnabled` at boot and on every save
- *  (main/index.ts). Gates non-error verbosity only: `log()` below always
- *  writes `level: 'error'` entries regardless of this flag — errors are
- *  cheap and losing them defeats the point of a bug-report log. Off just
- *  stops the routine chatter (counters snapshots, battle-spawn events,
- *  divergence warnings, etc.) from filling the file during a week of
+ *  (main/index.ts). Gates info verbosity only: `log()` below always
+ *  writes `level: 'error'` and `level: 'warn'` entries regardless of this
+ *  flag — errors and warns are cheap and losing them defeats the point of a
+ *  bug-report log. Off just stops the routine chatter (counters snapshots,
+ *  battle-spawn events, etc.) from filling the file during a week of
  *  testing. Never gates the log file/directory's existence — see
  *  `ensureLogDir` in main/index.ts's `whenReady`, which is unconditional. */
 let loggingEnabled = true;
@@ -129,10 +129,12 @@ function serializeEntry(entry: Record<string, unknown>): string {
 export function log(area: string, level: LogLevel, message: string, data?: unknown): void {
   if (level === 'error') recentErrorCount++;
   mirrorToConsole(level, area, message, data);
-  // Opt-in gate: errors always get written; everything else is skipped
-  // while the user has turned diagnostics logging off (see `loggingEnabled`
-  // doc comment above).
-  if (!loggingEnabled && level !== 'error') return;
+  // Opt-in gate: errors and warns always get written (warns are diagnostic
+  // gold — pty nonzero exits, hookBridge drops, usageService failures,
+  // counters divergence); only info chatter is skipped while the user
+  // has turned diagnostics logging off (see `loggingEnabled` doc comment
+  // above).
+  if (!loggingEnabled && level !== 'error' && level !== 'warn') return;
   try {
     if (!logDir || !logFile) return; // initDiagnostics hasn't run yet — console mirror above is all we can do
     let size = 0;

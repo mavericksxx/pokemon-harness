@@ -501,8 +501,8 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       <span className="settings-row-label">diagnostics logging</span>
                       <span className="settings-row-hint">
                         {appSettings.diagnosticsLoggingEnabled
-                          ? 'logging the routine stuff (counters, battle events) alongside errors.'
-                          : 'off: routine logging is paused. errors are always captured — they\'re cheap, and losing them defeats the point of a bug report.'}
+                          ? 'logging the routine stuff (counters, battle events) alongside errors and warnings.'
+                          : 'off: routine logging is paused. errors and warnings are always captured — they\'re cheap, and losing them defeats the point of a bug report.'}
                       </span>
                     </span>
                   </label>
