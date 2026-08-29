@@ -50,6 +50,10 @@ export interface TiledTilesetTile {
 
 export interface TiledTilesetRef {
   firstgid: number;
+  /** Tiled's tileset name (garden.tmj), e.g. `'kenney-tiny-town'` — used by
+   *  mapBorder.ts to resolve a MapBorderConfig's tile specs by name rather
+   *  than a raw gid. */
+  name?: string;
   source?: string;
   image?: string;
   columns?: number;

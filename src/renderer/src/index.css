@@ -2195,6 +2195,25 @@ button.icon:active {
   box-shadow: 0 0 0 2px var(--accent-text);
 }
 
+/* Arceus's roster card (ArceusRosterCard.tsx) — a permanent gold frame marks
+ * him as distinct from an ordinary session card even at rest, unselected
+ * (ordinary cards only get a gold-ish ring once selected — see `.selected`
+ * above). A soft outer glow on top of the solid border keeps it readable as
+ * "special" rather than just "a different border color" at this size. */
+.roster-card-arceus {
+  border-color: var(--gold);
+  border-left-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold), 0 0 10px rgba(232, 183, 64, 0.35);
+}
+
+.roster-card-arceus:hover {
+  border-color: var(--gold);
+}
+
+.roster-card-arceus.selected {
+  box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(232, 183, 64, 0.45);
+}
+
 .roster-card-top {
   display: flex;
   align-items: center;
