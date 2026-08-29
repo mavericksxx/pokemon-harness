@@ -102,19 +102,24 @@ window.api.onTaskCorrelated((agentId, toolUseId, taskId) => {
   }
 });
 
-// External-codex-delegate feature — codexSessionId → true while a battler
-// spawned by its SessionStart is still live, so a codex retry firing
+// External-codex-delegate feature — codexSessionId -> parentId while a
+// battler spawned by its SessionStart is still live, so a codex retry firing
 // SessionStart a second time can't double-spawn (item 3's dedupe
 // requirement), and a Stop with no matching entry is a logged no-op instead
 // of an 'end' signal fired at nothing. Cleared on Stop, so a genuinely later
 // delegate reusing the same codexSessionId (or the same parent+label
-// fallback key — see hookBridge.ts's `handleDelegate`) can spawn again.
-const seenDelegateStarts = new Set<string>();
+// fallback key — see hookBridge.ts's `handleDelegate`) can spawn again. Also
+// swept by `clearHookAuthority` below: if the parent session dies before the
+// delegate's Stop arrives, hookBridge.ts's `isKnownSession` check drops that
+// Stop entirely (no known parent to route it to) and this map would
+// otherwise hold the key forever — the value is the parentId precisely so
+// that teardown can find and remove it.
+const seenDelegateStarts = new Map<string, string>();
 
 window.api.onDelegateHookEvent((signal: DelegateHookSignal) => {
   if (signal.event === 'SessionStart') {
     if (seenDelegateStarts.has(signal.codexSessionId)) return; // codex retry — already spawned
-    seenDelegateStarts.add(signal.codexSessionId);
+    seenDelegateStarts.set(signal.codexSessionId, signal.parentId);
     // Reuses the exact spawn->correlate pairing a real `Task` dispatch goes
     // through (battleBus.ts's 'spawn'/'correlate' signals), stamping the
     // codex session id as both `toolUseId` and `taskId` up front since,
@@ -167,6 +172,15 @@ window.api.onDelegateHookEvent((signal: DelegateHookSignal) => {
 export function clearHookAuthority(sessionId: string): void {
   lastHookAt.delete(sessionId);
   pendingAsyncLaunches.delete(sessionId);
+  // External-codex-delegate feature — a torn-down parent's Stop never
+  // reaches the renderer (hookBridge.ts's `isKnownSession` drops it once the
+  // parent's pty is gone), so without this sweep a delegate spawned under it
+  // would leak its dedupe-map entry forever. The battler itself is fine
+  // either way (killing a session drops its battlers directly, and
+  // MAX_ROAM_MS backstops anything that survives that).
+  for (const [codexSessionId, parentId] of seenDelegateStarts) {
+    if (parentId === sessionId) seenDelegateStarts.delete(codexSessionId);
+  }
 }
 
 export function handleHookEvent(sessionId: string, evt: HookEvent): void {
