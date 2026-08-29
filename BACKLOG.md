@@ -52,9 +52,9 @@ Then: user QA pass → `node tools/release.cjs minor` → v1.1.0.
 
 - **garden UI crash ~04:13 GST 2026-08-29 (instrumentation SHIPPED 2026-08-29, see CHANGELOG unreleased — now a WATCH item)**: dossier at docs/triage/2026-08-29-garden-ui-crash.md. GPU context-loss logging (new `gpu` area), child-process-gone logging, and a renderer heartbeat in the counters snapshot are all in; pixi 8 self-heals restored contexts so no custom rebuild was needed. If the crash recurs, harness.log will now say WHICH failure mode it was (gpu context loss vs wedged ticker vs renderer death). Still useful when it recurs: user's answers to the two dossier questions (what it looked like; self-recovered vs recovered via action ~04:38).
 
-- **arceus in the agent bar (requested 2026-08-29, dispatched)**: arceus should appear in the bottom agent/roster bar with a special golden frame, and — as the god pokemon — shows up in every session/garden that is created.
+- **arceus in the agent bar — SHIPPED (2026-08-29, see CHANGELOG unreleased)**: gold-framed always-present card in the roster strip. Scope note: deliberately NOT added to FocusSidebar/SessionsOverview (bottom bar only, as asked) — extend later if wanted.
 
-- **themed map borders (requested 2026-08-29, dispatched)**: the default garden map needs a border in the theme of the map (and any future maps each get a border in their own theme — carry this requirement into the per-garden backdrop designs/build).
+- **themed map borders — SHIPPED for default garden (2026-08-29, see CHANGELOG unreleased)**: bush/hedge ring outside the fence, per-map border config (`DEFAULT_GARDEN_BORDER` in mapBorder.ts) ready for future maps. Needs user visual QA: fit zoom now a few % further out; ring crosses the south gate opening (no cut — acceptable?). Future backdrop maps must each ship their own border theme (requirement carried into the backdrops design item).
 
 - **usage section update — SHIPPED (2026-08-29, see CHANGELOG unreleased)**: 5h/session dedupe fixed by root cause (kind-based restatement matching), credit rows added for claude (`extra_usage` gauge) and codex (`credits.balance`, plain text). Follow-up note: codex credit balance UNIT is unverified from a primary source (rendered as a bare number, no `$`) — confirm against a real codex account response someday.
 
