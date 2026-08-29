@@ -5,6 +5,9 @@ import { useStore } from '@/store/store';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import type { UsageProviderSnapshot, UsageWindow } from '@shared/usageTypes';
 import { GaugeIcon } from '@/components/icons';
+import { gaugeTone, type GaugeTone } from '@/design/gaugeTone';
+import { formatResetIn, formatAgo } from '@/design/usageFormat';
+import { primaryUsageProvider } from '@/design/usageWindows';
 
 /** How often the popover's own "resets in Xh Ym" / "as of Xm ago" readouts
  *  re-render while open — this is a local re-render tick only, NOT a fetch
@@ -12,39 +15,19 @@ import { GaugeIcon } from '@/components/icons';
  *  open — see usageService.ts's MANUAL_REFRESH_MIN_INTERVAL_MS). */
 const COUNTDOWN_TICK_MS = 30_000;
 
-type GaugeTone = 'normal' | 'warn' | 'danger';
-
-/** Pokémon-style HP-bar thresholds (restyle, user feedback): <50% used still
- *  reads as healthy (green/'normal'), 50-79% is the caution band (amber/
- *  'warn'), 80%+ is the danger band (red/'danger') — this also drives the
- *  topbar chip's own tone (`fallbackTone` below is the ONLY other source of
- *  chip tone, for when there's no numeric window to grade), so the chip now
- *  turns amber/red at these same 50/80 points too. */
-function gaugeTone(usedPercent: number): GaugeTone {
-  if (usedPercent >= 80) return 'danger';
-  if (usedPercent >= 50) return 'warn';
-  return 'normal';
-}
-
-/** Humanized "resets in" — under 1h → "Xm", under 24h → "Xh Ym", 24h+ →
- *  "Xd Yh" (user feedback: raw "resets in 93h 26m" / "resets in 416h 57m"
- *  reads as a bug, not a duration). */
-function formatResetIn(resetsAt: number | null, now: number): string | null {
-  if (resetsAt == null) return null;
-  const diffMs = resetsAt - now;
-  if (diffMs <= 0) return 'resets soon';
-  const totalMin = Math.round(diffMs / 60_000);
-  const totalHours = Math.floor(totalMin / 60);
-  if (totalHours < 1) return `resets in ${totalMin}m`;
-  if (totalHours < 24) return `resets in ${totalHours}h ${totalMin % 60}m`;
-  const days = Math.floor(totalHours / 24);
-  return `resets in ${days}d ${totalHours % 24}h`;
-}
-
-function formatAgo(updatedAt: number | undefined, now: number): string {
-  if (!updatedAt) return '';
-  const diffMin = Math.max(0, Math.round((now - updatedAt) / 60_000));
-  return diffMin <= 0 ? 'as of just now' : `as of ${diffMin}m ago`;
+/** The chip's three mini-gauges (session-status composite design, item 1) —
+ *  '5h' / '7d' / '7d fable' off whichever provider `primaryUsageProvider`
+ *  picks, in that fixed order; a label the provider doesn't have (most
+ *  commonly '7d fable' — only Claude's `limits[]` ever produces it) is just
+ *  omitted rather than shown empty. Never a credits/spend row — same
+ *  "not a rate limit" exclusion `tightestWindow` below already applies. */
+function miniGauges(providers: UsageProviderSnapshot[]): UsageWindow[] {
+  const provider = primaryUsageProvider(providers);
+  if (!provider) return [];
+  const pick = (label: string): UsageWindow | undefined =>
+    provider.windows.find((w) => w.label === label && !w.balanceOnly && !w.spend);
+  const gauges = [pick('5h'), pick('7d'), pick('7d fable')].filter((w): w is UsageWindow => !!w);
+  return gauges;
 }
 
 /** The single tightest (highest used%) window across every provider that
@@ -222,6 +205,12 @@ export function UsageChip(): JSX.Element | null {
 
   const tone = tightest ? gaugeTone(tightest.usedPercent) : fallbackTone(snapshot.providers);
   const tip = tightest ? 'provider usage limits' : 'provider usage — needs attention';
+  // Session-status composite design, item 1 — up to three chip-form mini
+  // gauges (5h / 7d / 7d fable) instead of the old single text readout;
+  // degrades to whichever provider `miniGauges` picks (Claude, else Codex),
+  // and to icon-only when neither has a numeric window (mirrors the old
+  // `{tightest && ...}` gate exactly).
+  const gauges = miniGauges(snapshot.providers);
 
   return (
     <div className="usage-popover">
@@ -235,9 +224,22 @@ export function UsageChip(): JSX.Element | null {
         onClick={() => setOpen((v) => !v)}
       >
         <GaugeIcon />
-        {tightest && (
-          <span className="usage-chip-text">
-            {tightest.label} {Math.round(tightest.usedPercent)}%
+        {gauges.length > 0 && (
+          <span className="usage-chip-gauges">
+            {gauges.map((w) => {
+              const gaugeToneValue = gaugeTone(w.usedPercent);
+              return (
+                <span key={w.label} className={`usage-chip-gauge usage-chip-gauge--${gaugeToneValue}`}>
+                  <span className="hp-bar">
+                    <span
+                      className={`hp-bar-fill${gaugeToneValue !== 'normal' ? ` ${gaugeToneValue}` : ''}`}
+                      style={{ width: `${Math.round(w.usedPercent)}%` }}
+                    />
+                  </span>
+                  {w.label} <b>{Math.round(w.usedPercent)}%</b>
+                </span>
+              );
+            })}
           </span>
         )}
       </button>

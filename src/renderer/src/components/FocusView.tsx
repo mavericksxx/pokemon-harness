@@ -4,6 +4,7 @@ import { ArceusDispatchBox } from '@/components/ArceusDispatchBox';
 import { FocusHeader } from '@/components/FocusHeader';
 import { FocusComposer } from '@/components/FocusComposer';
 import { FocusTerminalHead } from '@/components/FocusTerminalHead';
+import { SessionStatusStrip } from '@/components/SessionStatusStrip';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
 import { stopSession } from '@/sessions';
 import { sessionStatusLabel } from '@/design/sessionLabel';
@@ -86,6 +87,7 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
 
       <div className={focus ? 'terminal-panel terminal-panel-focus' : 'terminal-panel'}>
         <FocusTerminalHead label={session.title} />
+        <SessionStatusStrip session={session} />
         <div className="terminal-mount-wrap">
           <div className="terminal-mount" ref={mountRef} />
           {findOpen && <TerminalFindBar sessionId={session.id} onClose={onCloseFind} />}

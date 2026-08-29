@@ -220,6 +220,24 @@ export function GaugeIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Session-status trainer-card popover trigger (AgentRosterCard.tsx corner
+ *  badge) — a small trading-card silhouette with a star, standing in for the
+ *  approved mockup's 🎴 per this file's own emoji-purge rule above. */
+export function TrainerCardIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="3" y="1" width="10" height="1" />
+      <rect x="3" y="14" width="10" height="1" />
+      <rect x="3" y="1" width="1" height="14" />
+      <rect x="12" y="1" width="1" height="14" />
+      <rect x="7" y="5" width="2" height="1" />
+      <rect x="6" y="6" width="4" height="1" />
+      <rect x="6" y="7" width="4" height="1" />
+      <rect x="7" y="8" width="2" height="1" />
+    </PixelIcon>
+  );
+}
+
 /** Topbar theme toggle's "switch to light mode" state — a crescent, drawn as
  *  one filled blob with a second, offset blob's cells left out (rather than
  *  painted over) to cut the sliver. */

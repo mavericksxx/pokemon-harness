@@ -1168,6 +1168,95 @@ button.icon:active {
   white-space: nowrap;
 }
 
+/* ── Model badge + "changed" tick — shared building block (session-status
+ * feature, ModelBadge.tsx) between the statusline strip below, the roster
+ * card (AgentRosterCard.tsx), and the trainer-card popover (TrainerCard.tsx).
+ * ─────────────────────────────────────────────────────────────────────── */
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: 1;
+  padding: 4px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--gold);
+  white-space: nowrap;
+  text-transform: lowercase;
+}
+
+/* Fable is the one promotional model worth calling out at a glance — a gold
+ * border instead of the ordinary `--line` frame, same "gold = special"
+ * convention `.roster-card-arceus` already uses. */
+.model-badge-fable {
+  border-color: var(--gold);
+}
+
+.model-changed-tick {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--status-working);
+  white-space: nowrap;
+}
+
+/* ── Statusline strip (session-status feature, SessionStatusStrip.tsx) —
+ * mounted directly under the terminal panel's own mini header
+ * (FocusTerminalHead.tsx) inside FocusView.tsx, which is the SAME render
+ * path for both the focus/'terminal' view mode's terminal panel and the
+ * garden/gardenFull drawer's terminal panel — see FocusView.tsx's own header
+ * comment for why one mount point covers both surfaces. Deliberately NOT
+ * gated by `.terminal-panel-focus` the way `.terminal-panel-head` is (that
+ * rule hides the mini header outside 'terminal' view mode to save space) —
+ * this strip must stay visible in the garden drawer too. */
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 9px;
+  background: var(--bg-terminal);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.status-strip-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-strip .hp-bar {
+  width: 60px;
+}
+
+.status-strip-divider {
+  color: var(--muted-dim);
+}
+
+.status-strip-ctx-num {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.multitask-glyph {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.multitask-glyph.on {
+  color: var(--status-done);
+}
+
+.multitask-glyph.off {
+  color: var(--muted-dim);
+}
+
 /* Wraps `.terminal-mount` so the find bar (item 3 §1) can position itself
  * absolutely over the terminal without affecting its flex sizing. */
 .terminal-mount-wrap {
@@ -1730,16 +1819,52 @@ button.icon:active {
   border: 1px solid transparent;
 }
 
-.usage-chip-text {
-  font-variant-numeric: tabular-nums;
-}
-
 .usage-chip--warn {
   color: var(--status-working);
 }
 
 .usage-chip--danger {
   color: var(--status-blocked);
+}
+
+/* Chip-form mini gauges (session-status composite design, item 1) — up to
+ * three "[hp-bar] label N%" chips (5h / 7d / 7d fable) inside the SAME
+ * `.usage-chip` button as before, replacing its old plain-text readout; the
+ * button itself stays the one click target that opens `.usage-popover-panel`
+ * below, unchanged. */
+.usage-chip-gauges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-chip-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-chip-gauge .hp-bar {
+  width: 22px;
+}
+
+.usage-chip-gauge b {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.usage-chip-gauge--warn b {
+  color: var(--status-working);
+}
+
+.usage-chip-gauge--danger b {
+  color: var(--status-blocked);
+}
+
+.usage-chip-gauge--normal b {
+  color: var(--status-done);
 }
 
 .usage-provider {
@@ -1790,9 +1915,48 @@ button.icon:active {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Pixel HP-bar — shared compact gauge primitive (session-status feature)
+ * ──────────────────────────────────────────────────────────────────────────
+ * Same pixel-bar look as `.usage-bar` below (bg-terminal ground, hard 1px
+ * frame, striped status-toned fill) but a plain, un-padded building block
+ * for surfaces that need SEVERAL of these in a compact row: the topbar
+ * chip's mini gauges (`.usage-chip-gauge` above), the statusline strip
+ * (`.status-strip`), the roster card's context row, and the trainer-card
+ * popover. `.usage-bar`/`.usage-bar-fill` stay as they are for the existing
+ * usage popover — this is a separate, smaller-height sibling, not a
+ * replacement. */
+.hp-bar {
+  /* `inline-block` (not the default `inline`) — a couple of call sites
+   * (UsageChip.tsx's topbar mini-gauges) use a `<span>` for this rather than
+   * a `<div>`, and an inline box ignores width/height entirely. */
+  display: inline-block;
+  height: 6px;
+  padding: 1px;
+  background: var(--bg-terminal);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+
+.hp-bar-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--status-done);
+  background-image: repeating-linear-gradient(to right, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 4px);
+  transition: width 400ms steps(2, end);
+}
+
+.hp-bar-fill.warn {
+  background-color: var(--status-working);
+}
+
+.hp-bar-fill.danger {
+  background-color: var(--status-blocked);
+}
+
 /* Pokémon-style HP-bar housing — chunky, hard-edged, 1px border frame around
  * the fill (restyle, user feedback: "generic thin bars" → HP-bar look).
- * Taller than `.roster-card-gauge`'s thin accent (this is the panel's own
+ * Taller than `.roster-card-ctx-row`'s thin accent (this is the panel's own
  * focal gauge) and the padding is the housing's inner bezel — the fill sits
  * inset from the frame rather than flush against it. */
 .usage-bar {
@@ -2316,24 +2480,46 @@ button.icon:active {
   background: var(--accent);
 }
 
-/* Cost & context HUD (Phase 8.5 Wave B item 1) — a thin gauge flush along the
- * card's own bottom edge, distinct from the evo-progress bar above (which
- * sits inline in the card's padded flow). Tooltip (title attr) carries the
- * "~41k / 200k context (approx.) · $0.38" figures. */
-.roster-card-gauge {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: transparent;
-  overflow: hidden;
-}
-
+/* Cost & context HUD (Phase 8.5 Wave B item 1) — `.roster-card-gauge-fill`
+ * is CostGauge.tsx's inner fill div, hardcoded regardless of which outer
+ * container class its caller passes. FocusHeader.tsx's own CostGauge usage
+ * (`className="focus-header-gauge"`, above) still renders it inline in its
+ * header row; AgentRosterCard.tsx no longer calls CostGauge at all (see the
+ * roster-card-badges/-ctx-row block below), so the DEFAULT outer container
+ * this fill used to sit in (`.roster-card-gauge`, an absolute sliver flush
+ * along the card's bottom edge) has no caller left and was removed. */
 .roster-card-gauge-fill {
   height: 100%;
   background: var(--muted);
   transition: width 400ms steps(2, end);
+}
+
+/* ── Roster card model badge + context row (session-status feature) —
+ * replaces AgentRosterCard.tsx's old CostGauge sliver above with an in-flow
+ * row matching the approved mockup's roster-card crop: a model badge (+
+ * changed tick) row, then "context [hp-bar] N%". ── */
+.roster-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.roster-card-ctx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.roster-card-ctx-row .hp-bar {
+  flex: 1;
+}
+
+.roster-card-ctx-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 /* ── Roster card "change pokemon" swap action (added: update-session-pokemon;
@@ -2403,6 +2589,146 @@ button.icon:active {
 .roster-card-swap:hover {
   color: var(--accent-text);
   border-color: var(--accent);
+}
+
+/* ── Trainer-card popover trigger (session-status feature, TrainerCard.tsx)
+ * ── A small persistent corner badge, unlike `.roster-card-swap` above it's
+ * NOT hover-gated (a read-only info popover carries none of the accidental-
+ * click risk that drove that button's hover-reveal). Bottom-LEFT, protruding
+ * OUTSIDE the card's own border box (negative offsets, same idiom
+ * `.roster-card-shiny` already uses off the sprite face) rather than resting
+ * on top of any of the card's own in-flow content — deliberately not
+ * top-right, which `.roster-card-swap`'s own comment above already flags as
+ * colliding with the status badge in the card's top row. */
+.roster-card-trainer-trigger {
+  position: absolute;
+  bottom: -6px;
+  left: -6px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--gold);
+  font-size: 10px;
+  z-index: 2;
+}
+
+.roster-card-trainer-trigger:hover {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+/* Deliberately NOT `position: relative` — the trigger button below is
+ * positioned absolute against `.roster-card-wrap` (the nearest ANCESTOR
+ * that already has `position: relative`, same one `.roster-card-swap`
+ * anchors against), not against this span; giving this its own positioning
+ * context would anchor it to a zero-size wrapper instead. The popover
+ * panel itself is `position: fixed` (see `.trainer-card-panel`) and doesn't
+ * anchor off anything in this tree. */
+.trainer-card-popover {
+  display: contents;
+}
+
+.trainer-card-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+/* `position: fixed`, NOT `absolute` anchored off `.roster-card-wrap` like
+ * `.roster-card-swap` — unlike the topbar's `.usage-popover-panel`/
+ * `.audio-popover-panel` (no clipping ancestor above them), every mount site
+ * for THIS popover sits inside an `overflow: hidden`/`auto` scroll
+ * container (`.roster-strip`, `.focus-sidebar`, `.sessions-overview-grid`),
+ * which would clip an absolutely-positioned panel opening outside its
+ * card's own box. `position: fixed` escapes that clipping entirely (no
+ * transformed/filtered ancestor sits between here and the viewport on any
+ * of the three mount paths); TrainerCard.tsx measures the trigger badge's
+ * `getBoundingClientRect()` on open and supplies `left`/`bottom` as an
+ * inline style, so this rule only carries the panel's static chrome. */
+.trainer-card-panel {
+  position: fixed;
+  z-index: 20;
+  width: 224px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+  overflow: hidden;
+}
+
+.trainer-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.trainer-card-sprite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.trainer-card-id {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.trainer-card-title {
+  font-size: var(--font-body-sm-size);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.trainer-card-sub {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.trainer-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.trainer-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trainer-stat-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trainer-stat-head span:last-child {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.trainer-card-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--muted-dim);
+  font-size: 10.5px;
+  color: var(--muted);
 }
 
 /* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */
