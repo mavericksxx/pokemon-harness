@@ -2214,6 +2214,15 @@ button.icon:active {
   box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(232, 183, 64, 0.45);
 }
 
+/* Subagent battler card (Phase 4 Part B follow-up, SubagentRosterCard.tsx) —
+ * same `.roster-card` shell/size as an ordinary session card; the dashed
+ * border (including the left accent stripe) is the one visual cue marking it
+ * as a transient battler rather than a live, independently-controllable
+ * session. */
+.roster-card-subagent {
+  border-style: dashed;
+}
+
 .roster-card-top {
   display: flex;
   align-items: center;

@@ -359,6 +359,16 @@ export interface BattleDeps {
   /** Called every time a wave concludes and no new one starts right away —
    *  i.e. whenever the parent is free to resume its own normal life. */
   onBattleEnd: (parentId: string) => void;
+  /** Fires the instant a wild battler actually enters the world (already
+   *  added to charLayer, same moment `subagentsMaterialized` bumps) — the
+   *  bridge GardenScene uses to mirror battler presence into the zustand
+   *  store for the roster strip's subagent cards. */
+  onBattlerSpawned: (battler: { key: string; parentId: string; species: string }) => void;
+  /** Fires the instant a battler is fully torn down — the normal poof-then-
+   *  cleanup path (reapSubs) and the hard force-end/dispose path
+   *  (destroyBattle) both call this, so it's the complete mirror of
+   *  onBattlerSpawned above regardless of how a battler's life ends. */
+  onBattlerRemoved: (key: string) => void;
 }
 
 function tileKey(t: { x: number; y: number }): string {
@@ -710,6 +720,7 @@ export class BattleManager {
       visibleLogged: false
     };
     pb.subs.push(sub);
+    this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id });
     // "Materialized" (vs. hookRouter.ts's "spawned" bump on the Task tool
     // call itself) — this is the point a real battler enters the world,
     // already added to charLayer above; the gap between the two counters is
@@ -1365,6 +1376,7 @@ export class BattleManager {
       if (sub.lifecycle !== 'leaving' || !sub.battler.isPoofedOut) return true;
       sub.battler.destroy();
       bumpCounter('subagentsCleanedUp');
+      this.deps.onBattlerRemoved(sub.key);
       return false;
     });
   }
@@ -1376,6 +1388,7 @@ export class BattleManager {
     for (const sub of pb.subs) {
       sub.battler.destroy();
       bumpCounter('subagentsCleanedUp');
+      this.deps.onBattlerRemoved(sub.key);
     }
     pb.parentWalker.setForcedBackView(false);
   }
