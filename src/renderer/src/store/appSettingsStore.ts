@@ -40,6 +40,10 @@ setHideClaudeStatusline(v: boolean): void;
    *  `appSettings:saveSettings` handler is what actually reaches
    *  usageService.ts's `setExcludedProviders` off this value. */
   setUsageProviderEnabled(provider: UsageProviderId, enabled: boolean): void;
+  /** Which provider's numbers the topbar chip/trainer-card show by default
+   *  (settings' usage section). Same persist-immediately pattern as
+   *  `setUsageLimitsEnabled` above; display-only, no main-side reach. */
+  setMainUsageProvider(provider: UsageProviderId | 'auto'): void;
   /** Diagnostics opt-in (BACKLOG friend-testing readiness) — same
    *  persist-immediately pattern as every other setter here; main's
    *  `appSettings:saveSettings` handler reaches
@@ -119,6 +123,12 @@ setHideClaudeStatusline: (v) => {
         ? current
         : [...current, provider];
     const settings = { ...get().settings, usageExcludedProviders };
+    set({ settings });
+    persist(settings);
+  },
+
+  setMainUsageProvider: (provider) => {
+    const settings = { ...get().settings, mainUsageProvider: provider };
     set({ settings });
     persist(settings);
   },

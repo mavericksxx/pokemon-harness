@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import type { Session } from '@/store/store';
+import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useUsageStore } from '@/store/usageStore';
 import type { UsageWindow } from '@shared/usageTypes';
 import { PokemonFace } from '@/components/PokemonFace';
@@ -9,7 +10,7 @@ import { ModelBadge } from '@/components/ModelBadge';
 import { TrainerCardIcon } from '@/components/icons';
 import { formatContextCompact } from '@/components/CostGauge';
 import { gaugeTone } from '@/design/gaugeTone';
-import { primaryUsageProvider, usageWindow, usageCreditsWindow } from '@/design/usageWindows';
+import { selectedUsageProvider, usageWindow, usageCreditsWindow } from '@/design/usageWindows';
 import { formatResetIn, formatAgo } from '@/design/usageFormat';
 
 /** Same local re-render tick UsageChip.tsx's own popover uses for its
@@ -86,6 +87,7 @@ function TrainerCardPanel({
 }): JSX.Element {
   const [now, setNow] = useState(() => Date.now());
   const snapshot = useUsageStore((s) => s.snapshot);
+  const mainUsageProvider = useAppSettingsStore((s) => s.settings.mainUsageProvider);
   const runningCount = useStore((s) => s.battlers.filter((b) => b.parentId === session.id).length);
 
   useEffect(() => {
@@ -95,11 +97,15 @@ function TrainerCardPanel({
   }, []);
 
   const cost = session.cost;
-  const provider = primaryUsageProvider(snapshot.providers);
-  const fiveHour = usageWindow(snapshot.providers, '5h');
-  const sevenDay = usageWindow(snapshot.providers, '7d');
-  const sevenDayFable = usageWindow(snapshot.providers, '7d fable');
-  const credits = usageCreditsWindow(snapshot.providers);
+  // Same `mainUsageProvider` resolution UsageChip.tsx's mini-gauges use, so
+  // this card's provider, its windows, and its "as of Xm ago" freshness
+  // readout (`freshText` below) always agree on which provider they're
+  // reading — settings → usage → "main usage provider".
+  const provider = selectedUsageProvider(snapshot.providers, mainUsageProvider);
+  const fiveHour = usageWindow(snapshot.providers, '5h', mainUsageProvider);
+  const sevenDay = usageWindow(snapshot.providers, '7d', mainUsageProvider);
+  const sevenDayFable = usageWindow(snapshot.providers, '7d fable', mainUsageProvider);
+  const credits = usageCreditsWindow(snapshot.providers, mainUsageProvider);
   const resetWindow = sevenDay ?? fiveHour;
   const resetText = resetWindow ? formatResetIn(resetWindow.resetsAt, now) : null;
   const freshText = provider ? formatAgo(provider.updatedAt, now) : null;

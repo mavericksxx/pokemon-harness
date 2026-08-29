@@ -7,7 +7,8 @@ import type { UsageProviderSnapshot, UsageWindow } from '@shared/usageTypes';
 import { GaugeIcon } from '@/components/icons';
 import { gaugeTone, type GaugeTone } from '@/design/gaugeTone';
 import { formatResetIn, formatAgo } from '@/design/usageFormat';
-import { primaryUsageProvider } from '@/design/usageWindows';
+import { selectedUsageProvider } from '@/design/usageWindows';
+import type { UsageProviderId } from '@shared/usageTypes';
 
 /** How often the popover's own "resets in Xh Ym" / "as of Xm ago" readouts
  *  re-render while open — this is a local re-render tick only, NOT a fetch
@@ -16,13 +17,20 @@ import { primaryUsageProvider } from '@/design/usageWindows';
 const COUNTDOWN_TICK_MS = 30_000;
 
 /** The chip's three mini-gauges (session-status composite design, item 1) —
- *  '5h' / '7d' / '7d fable' off whichever provider `primaryUsageProvider`
- *  picks, in that fixed order; a label the provider doesn't have (most
- *  commonly '7d fable' — only Claude's `limits[]` ever produces it) is just
- *  omitted rather than shown empty. Never a credits/spend row — same
- *  "not a rate limit" exclusion `tightestWindow` below already applies. */
-function miniGauges(providers: UsageProviderSnapshot[]): UsageWindow[] {
-  const provider = primaryUsageProvider(providers);
+ *  '5h' / '7d' / '7d fable' off whichever provider `selectedUsageProvider`
+ *  resolves `mainUsageProvider` to, in that fixed order; a label the
+ *  provider doesn't have (most commonly '7d fable' — only Claude's
+ *  `limits[]` ever produces it) is just omitted rather than shown empty.
+ *  Never a credits/spend row — same "not a rate limit" exclusion
+ *  `tightestWindow` below already applies.
+ *
+ *  `mainUsageProvider` prefers the user's chosen provider but
+ *  `selectedUsageProvider` falls back to the auto pick when that provider
+ *  has no usable data yet — the chip must not go blank just because the
+ *  chosen provider is still loading (or was excluded via
+ *  `usageExcludedProviders`). */
+function miniGauges(providers: UsageProviderSnapshot[], mainUsageProvider: UsageProviderId | 'auto'): UsageWindow[] {
+  const provider = selectedUsageProvider(providers, mainUsageProvider);
   if (!provider) return [];
   const pick = (label: string): UsageWindow | undefined =>
     provider.windows.find((w) => w.label === label && !w.balanceOnly && !w.spend);
@@ -183,6 +191,7 @@ export function UsageChip(): JSX.Element | null {
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const usageLimitsEnabled = useAppSettingsStore((s) => s.settings.usageLimitsEnabled);
+  const mainUsageProvider = useAppSettingsStore((s) => s.settings.mainUsageProvider);
   const snapshot = useUsageStore((s) => s.snapshot);
 
   useEffect(() => {
@@ -216,10 +225,11 @@ export function UsageChip(): JSX.Element | null {
   const tip = tightest ? 'provider usage limits' : 'provider usage — needs attention';
   // Session-status composite design, item 1 — up to three chip-form mini
   // gauges (5h / 7d / 7d fable) instead of the old single text readout;
-  // degrades to whichever provider `miniGauges` picks (Claude, else Codex),
-  // and to icon-only when neither has a numeric window (mirrors the old
-  // `{tightest && ...}` gate exactly).
-  const gauges = miniGauges(snapshot.providers);
+  // degrades to whichever provider `miniGauges` resolves `mainUsageProvider`
+  // to (the user's pick, else auto: Claude, else Codex), and to icon-only
+  // when neither has a numeric window (mirrors the old `{tightest && ...}`
+  // gate exactly).
+  const gauges = miniGauges(snapshot.providers, mainUsageProvider);
 
   return (
     <div className="usage-popover">
