@@ -15,6 +15,22 @@ const ACCENTS = [0xffd166, 0x8ecae6, 0xff8fa3, 0xb5e48c, 0xc8a2ff, 0xffb27a];
 /** Auto-dismiss delay for a toast, ms. */
 const TOAST_DURATION_MS = 4500;
 
+/** A live subagent battler, mirrored into the store just far enough for the
+ *  roster strip to render a card for it (Phase 4 Part B follow-up —
+ *  "subagent battlers in the bottom agent bar"). The battler itself lives
+ *  entirely in BattleManager/Pixi; this is a one-way bridge (BattleManager's
+ *  onBattlerSpawned/onBattlerRemoved deps, wired in GardenScene.tsx), not a
+ *  second source of truth — nothing here ever drives the simulation back. */
+export interface LiveBattler {
+  /** BattleManager's own per-battler id (`${parentId}#${seq}`) — stable for
+   *  this battler's whole lifetime, used as the React list key. */
+  key: string;
+  /** The session whose Task tool call spawned this battler. */
+  parentId: string;
+  /** Dex id, same shape as `Session.pokemon`. */
+  species: string;
+}
+
 export interface Toast {
   id: string;
   text: string;
@@ -76,6 +92,10 @@ interface HarnessState {
   selectedId: string | null;
   drawerOpen: boolean;
   toasts: Toast[];
+  /** Live subagent battlers, across every parent session (see `LiveBattler`).
+   *  Not workspace-scoped itself — RosterStrip filters by matching
+   *  `parentId` against its own already-scoped session list. */
+  battlers: LiveBattler[];
   viewMode: ViewMode;
   /** Garden's fraction of `.body-row`'s width, dragged via
    *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
@@ -135,6 +155,12 @@ interface HarnessState {
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
   dismissToast(id: string): void;
+  /** BattleManager's onBattlerSpawned bridge (GardenScene.tsx) — a wild
+   *  battler just materialized. */
+  addBattler(battler: LiveBattler): void;
+  /** BattleManager's onBattlerRemoved bridge — a battler poofed out (or was
+   *  hard-torn-down with its parent session). No-op if already gone. */
+  removeBattler(key: string): void;
 }
 
 export const useStore = create<HarnessState>((set, get) => ({
@@ -142,6 +168,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   selectedId: null,
   drawerOpen: true,
   toasts: [],
+  battlers: [],
   viewMode: loadViewMode(),
   gardenSplit: loadGardenSplit(),
   sessionsOverviewOpen: false,
@@ -216,5 +243,8 @@ export const useStore = create<HarnessState>((set, get) => ({
     set((st) => ({ toasts: [...st.toasts, { id, text, action }] }));
     window.setTimeout(() => get().dismissToast(id), TOAST_DURATION_MS);
   },
-  dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) }))
+  dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) })),
+
+  addBattler: (battler) => set((st) => ({ battlers: [...st.battlers, battler] })),
+  removeBattler: (key) => set((st) => ({ battlers: st.battlers.filter((b) => b.key !== key) }))
 }));

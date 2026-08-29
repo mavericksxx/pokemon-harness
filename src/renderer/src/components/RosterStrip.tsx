@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { ArceusRosterCard } from '@/components/ArceusRosterCard';
+import { SubagentRosterCard } from '@/components/SubagentRosterCard';
 
 interface Props {
   onNewSession(): void;
@@ -31,12 +32,23 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const sessions = useMemo(() => activeWorkspaceSessions.filter((s) => !s.isArceus), [activeWorkspaceSessions]);
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
+  const battlers = useStore((s) => s.battlers);
 
   return (
     <div className="roster-strip">
       <ArceusRosterCard />
       {sessions.map((s) => (
-        <AgentRosterCard key={s.id} session={s} selected={s.id === selectedId} onSelect={select} />
+        <Fragment key={s.id}>
+          <AgentRosterCard session={s} selected={s.id === selectedId} onSelect={select} />
+          {/* Subagent roster presence (Phase 4 Part B follow-up) — every live
+              battler this session spawned gets its own card, immediately
+              after its parent's, so it reads as belonging to it. */}
+          {battlers
+            .filter((b) => b.parentId === s.id)
+            .map((b) => (
+              <SubagentRosterCard key={b.key} battler={b} parent={s} />
+            ))}
+        </Fragment>
       ))}
       <button type="button" className="roster-strip-new" onClick={onNewSession}>
         + new agent

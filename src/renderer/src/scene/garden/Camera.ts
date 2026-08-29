@@ -20,6 +20,12 @@ export class Camera {
   private mapWidth = 640;
   private mapHeight = 480;
   private manualOverride = false;
+  /** True once the user has panned/zoomed away from whatever focusOn/
+   *  fitToScreen last set — GardenScene's ticker stops calling either while
+   *  this is set, so a drag/wheel gesture isn't immediately overridden on
+   *  the very next frame. Cleared on every selection change (including
+   *  deselect), never by time or motion alone — see GardenScene.tsx. */
+  private freeLook = false;
 
   constructor(container: Container) {
     this.container = container;
@@ -33,7 +39,22 @@ export class Camera {
   setViewSize(width: number, height: number): void {
     this.viewWidth = width;
     this.viewHeight = height;
-    if (!this.manualOverride) this.fitToScreen();
+    if (!this.manualOverride && !this.freeLook) this.fitToScreen();
+  }
+
+  isFreeLook(): boolean {
+    return this.freeLook;
+  }
+
+  /** Cancels free-look so the ticker's automatic focusOn/fitToScreen resumes
+   *  next frame — called on every selection change (garden click deselect,
+   *  Escape, picking a session), never on a timer. */
+  setFreeLook(v: boolean): void {
+    this.freeLook = v;
+  }
+
+  getZoom(): number {
+    return this.currentZoom;
   }
 
   private getMinZoom(): number {
@@ -55,6 +76,61 @@ export class Camera {
     this.targetX = worldX;
     this.targetY = worldY;
     this.targetZoom = Math.max(this.getMinZoom(), Math.min(4, zoom ?? this.currentZoom));
+  }
+
+  /** Clamp a candidate center point the same way `update()` clamps the
+   *  rendered container position (below) — shared by `pan`/`zoomAt` so
+   *  neither can drift the camera's target past the map edges. */
+  private clampCenter(x: number, y: number, zoom: number): { x: number; y: number } {
+    const halfW = this.viewWidth / (2 * zoom);
+    const halfH = this.viewHeight / (2 * zoom);
+    const cx = this.mapWidth <= halfW * 2 ? this.mapWidth / 2 : Math.min(this.mapWidth - halfW, Math.max(halfW, x));
+    const cy = this.mapHeight <= halfH * 2 ? this.mapHeight / 2 : Math.min(this.mapHeight - halfH, Math.max(halfH, y));
+    return { x: cx, y: cy };
+  }
+
+  /** Pan by a world-space delta (drag on empty ground). Written straight to
+   *  `current*` as well as `target*` — unlike focusOn/fitToScreen, a grab
+   *  gesture needs to track the pointer exactly; lerping it would make the
+   *  ground visibly lag the cursor. Breaks the camera into free-look. */
+  pan(dxWorld: number, dyWorld: number): void {
+    this.freeLook = true;
+    const c = this.clampCenter(this.targetX + dxWorld, this.targetY + dyWorld, this.targetZoom);
+    this.targetX = c.x;
+    this.targetY = c.y;
+    this.currentX = c.x;
+    this.currentY = c.y;
+  }
+
+  /** Zoom toward/away from a screen-space point (wheel/pinch), keeping that
+   *  point visually fixed under the cursor. Like `pan`, written straight to
+   *  `current*` too — anchoring from a still-lerping position would make the
+   *  cursor's point drift instead of staying pinned on a continuous wheel
+   *  gesture. Breaks the camera into free-look. */
+  zoomAt(screenX: number, screenY: number, factor: number): void {
+    this.freeLook = true;
+    // Based on `targetZoom` (the settled intent), not `currentZoom` (which
+    // can still be lerping toward it — e.g. mid-approach into a just-picked
+    // session's 2.4x focus) — basing this on a still-in-flight value would
+    // make the very first wheel notch after a selection/deselect snap the
+    // zoom back to wherever the lerp happened to be instead of stepping from
+    // where the camera is actually headed. The cursor-anchor math below
+    // still reads `current*`, correctly: that's what's ACTUALLY on screen
+    // right now, which is what must stay pinned under the cursor.
+    const newZoom = Math.max(this.getMinZoom(), Math.min(4, this.targetZoom * factor));
+    const worldX = this.currentX + (screenX - this.viewWidth / 2) / this.currentZoom;
+    const worldY = this.currentY + (screenY - this.viewHeight / 2) / this.currentZoom;
+    const c = this.clampCenter(
+      worldX - (screenX - this.viewWidth / 2) / newZoom,
+      worldY - (screenY - this.viewHeight / 2) / newZoom,
+      newZoom
+    );
+    this.targetX = c.x;
+    this.targetY = c.y;
+    this.targetZoom = newZoom;
+    this.currentX = c.x;
+    this.currentY = c.y;
+    this.currentZoom = newZoom;
   }
 
   update(): void {

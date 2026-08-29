@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Application, Container } from 'pixi.js';
+import { Application, Container, Rectangle } from 'pixi.js';
+import type { FederatedPointerEvent } from 'pixi.js';
 // Pixi 8 compiles shader/uniform code with `new Function` by default, which the
 // renderer's CSP (no 'unsafe-eval') forbids. This is Pixi's own supported
 // no-eval path; it must be imported before an Application is created.
@@ -35,6 +36,7 @@ import { ground, hexToNumber } from '@/design/tokens';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { markRendererTick } from '@/diagnosticsCounters';
+import { isClosingTimeActive } from '@/closingTime';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -216,10 +218,137 @@ export function GardenScene(): JSX.Element {
       );
 
       const camera = new Camera(world);
-      camera.setMapSize(
-        (map.width + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize,
-        (map.height + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize
-      );
+      const mapWidthPx = (map.width + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize;
+      const mapHeightPx = (map.height + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize;
+      camera.setMapSize(mapWidthPx, mapHeightPx);
+
+      // Free-look input (garden camera lock-on gap): `world` itself becomes
+      // the interactive "background" catch-all — Pixi's hit test always
+      // checks children first, so a click/drag that actually lands on a
+      // walker (Walker.ts sets its own container `eventMode: 'static'`) or a
+      // gardenCharm hotspot (well/signpost) still resolves `event.target` to
+      // THAT object, not `world`; only an otherwise-unclaimed point (bare
+      // ground, the decorative border) resolves to `world`. That's the
+      // signal every handler below uses to tell "empty ground" apart from
+      // "something already interactive".
+      world.eventMode = 'static';
+      world.hitArea = new Rectangle(0, 0, mapWidthPx, mapHeightPx);
+
+      // Drag-to-pan: a press that starts on empty ground (see the `world`
+      // hit-testing comment above) either pans the camera (moved past
+      // DRAG_THRESHOLD_PX) or, on release with no real movement, deselects
+      // — the same click that would otherwise do nothing now doubles as
+      // "look at the whole map". Coordinates are tracked in canvas-space
+      // (CSS px, matching `camera`'s viewWidth/viewHeight) throughout: the
+      // drag start comes from Pixi's `event.global` (already canvas-space),
+      // continued tracking uses native `pointermove`/`pointerup` on
+      // `window` — not Pixi's own global-move events — so a drag that
+      // leaves the canvas mid-gesture (or ends there) is never silently
+      // dropped.
+      const DRAG_THRESHOLD_PX = 4;
+      let dragState: {
+        // Captured once at drag start, not re-read every move — a
+        // `getBoundingClientRect()` per pointermove would be a synchronous
+        // layout read at mouse-move frequency, exactly the kind of
+        // per-frame cost this app's CPU budget can't afford.
+        rect: DOMRect;
+        startX: number;
+        startY: number;
+        lastX: number;
+        lastY: number;
+        moved: boolean;
+      } | null = null;
+
+      const onWorldPointerDown = (e: FederatedPointerEvent): void => {
+        // Only the primary (left) button starts a pan/deselect gesture, and
+        // only when the press itself landed on `world` — a walker or charm
+        // hotspot handles its own click and this gesture stays out of it.
+        if (e.button !== 0 || e.target !== world) return;
+        dragState = {
+          rect: canvas.getBoundingClientRect(),
+          startX: e.global.x,
+          startY: e.global.y,
+          lastX: e.global.x,
+          lastY: e.global.y,
+          moved: false
+        };
+      };
+      world.on('pointerdown', onWorldPointerDown);
+
+      const onWindowPointerMove = (e: PointerEvent): void => {
+        if (!dragState) return;
+        // The button was released (or the gesture cancelled) without this
+        // window ever seeing the up event — e.g. released outside the app
+        // window. Without this check a stray hover afterward would pan with
+        // no button held.
+        if (e.buttons === 0) {
+          dragState = null;
+          return;
+        }
+        const x = e.clientX - dragState.rect.left;
+        const y = e.clientY - dragState.rect.top;
+        if (!dragState.moved) {
+          const totalDx = x - dragState.startX;
+          const totalDy = y - dragState.startY;
+          if (Math.hypot(totalDx, totalDy) < DRAG_THRESHOLD_PX) return;
+          dragState.moved = true;
+        }
+        const dx = x - dragState.lastX;
+        const dy = y - dragState.lastY;
+        dragState.lastX = x;
+        dragState.lastY = y;
+        const zoom = camera.getZoom();
+        camera.pan(-dx / zoom, -dy / zoom);
+      };
+      window.addEventListener('pointermove', onWindowPointerMove);
+
+      const endDrag = (e: PointerEvent): void => {
+        // Only a completed left-button press-then-release with no real
+        // movement counts as the "click empty ground to deselect" gesture —
+        // a right-click release (which never started a drag: `button !== 0`
+        // short-circuits onWorldPointerDown above) must not deselect either.
+        if (dragState && !dragState.moved && e.button === 0) {
+          // Breaks follow into free-look too, same as a real pan, so the
+          // whole-map view this lands on via `fitToScreen` isn't
+          // immediately re-overridden.
+          camera.setFreeLook(false);
+          useStore.getState().select(null);
+        }
+        dragState = null;
+      };
+      window.addEventListener('pointerup', endDrag);
+      window.addEventListener('pointercancel', endDrag);
+
+      // Wheel/trackpad-pinch zoom, centered on the cursor. `deltaY` sign:
+      // scrolling "up"/pinching out is negative — that should zoom IN, hence
+      // the negation in the exponent. Wheel events are far rarer than
+      // pointermove, so a fresh `getBoundingClientRect()` per event here
+      // isn't the cost the drag path above needs to avoid.
+      const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+      const onWheel = (e: WheelEvent): void => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+        camera.zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
+      };
+      canvas.addEventListener('wheel', onWheel, { passive: false });
+
+      // Escape deselects (same free-look reset as a background click) while
+      // the garden is the visible view — 'terminal' mode hides the garden
+      // entirely, so Escape there has nothing to do here. Closing-time's own
+      // Escape handler (App.tsx) owns Escape while a closing ritual is
+      // active; this defers to it rather than double-handling the same key.
+      const onKeyDown = (e: KeyboardEvent): void => {
+        if (e.key !== 'Escape' || isClosingTimeActive()) return;
+        const { viewMode, selectedId } = useStore.getState();
+        if (viewMode !== 'garden' && viewMode !== 'gardenFull') return;
+        // Nothing selected AND not free-looking means the view is already at
+        // rest (fitToScreen) — nothing for Escape to do.
+        if (selectedId == null && !camera.isFreeLook()) return;
+        camera.setFreeLook(false);
+        useStore.getState().select(null);
+      };
+      window.addEventListener('keydown', onKeyDown);
 
       // The canvas/camera's ONE source of truth for "how big is the pane
       // right now" — re-measures `host.clientWidth/Height` fresh rather
@@ -332,7 +461,13 @@ export function GardenScene(): JSX.Element {
           // incidental store change to trigger applyState.
           const session = useStore.getState().sessions.find((s) => s.id === parentId);
           if (session) applyManualSwap(session, rt);
-        }
+        },
+        // Subagent roster presence (RosterStrip.tsx's SubagentRosterCard) —
+        // BattleManager stays store-agnostic (see its own DI-style deps
+        // above), so this is the one place that actually writes battler
+        // presence into the zustand store.
+        onBattlerSpawned: (battler) => useStore.getState().addBattler(battler),
+        onBattlerRemoved: (key) => useStore.getState().removeBattler(key)
       });
 
       // Phase 8 §7 — garden charm: berry-bush errands, idle chatter, and the
@@ -547,6 +682,14 @@ export function GardenScene(): JSX.Element {
         // deselecting plays nothing.
         if (selectedId !== lastSelectedId) {
           lastSelectedId = selectedId;
+          // Any actual selection change — a new pick or a deselect — cancels
+          // free-look so the ticker's automatic focusOn/fitToScreen resumes
+          // (re-follow: "selecting a session resumes follow exactly as
+          // today"). The background-click/Escape handlers above also reset
+          // this directly, since THEY can fire while `selectedId` is already
+          // null (free-looking with nothing selected), a transition this
+          // check alone would never see.
+          camera.setFreeLook(false);
           if (selectedId) {
             const session = sessions.find((s) => s.id === selectedId);
             const rt = runtimes.get(selectedId);
@@ -779,13 +922,19 @@ export function GardenScene(): JSX.Element {
 
         const selectedId = useStore.getState().selectedId;
         const focus = selectedId ? runtimes.get(selectedId) : undefined;
-        // `walker.worldX/worldY` are local to `content` (the map's own
-        // untranslated coordinate space) — `camera` positions `world`
-        // itself, so a focus target needs the same `borderPx` offset
-        // `content` was given above to land on the walker's actual on-
-        // screen position instead of drifting by one border thickness.
-        if (focus) camera.focusOn(focus.walker.worldX + borderPx, focus.walker.worldY - 12 + borderPx, 2.4);
-        else camera.fitToScreen();
+        // Free-look (a drag/wheel gesture, or a click on empty ground) owns
+        // the camera until the next selection change — skip both automatic
+        // paths below while it's active, or a gesture would be overridden
+        // the very next frame.
+        if (!camera.isFreeLook()) {
+          // `walker.worldX/worldY` are local to `content` (the map's own
+          // untranslated coordinate space) — `camera` positions `world`
+          // itself, so a focus target needs the same `borderPx` offset
+          // `content` was given above to land on the walker's actual on-
+          // screen position instead of drifting by one border thickness.
+          if (focus) camera.focusOn(focus.walker.worldX + borderPx, focus.walker.worldY - 12 + borderPx, 2.4);
+          else camera.fitToScreen();
+        }
         camera.update();
       });
 
@@ -813,6 +962,12 @@ export function GardenScene(): JSX.Element {
         canvas.removeEventListener?.('webglcontextlost', onContextLost);
         canvas.removeEventListener?.('webglcontextrestored', onContextRestored);
         if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
+        world.off('pointerdown', onWorldPointerDown);
+        window.removeEventListener('pointermove', onWindowPointerMove);
+        window.removeEventListener('pointerup', endDrag);
+        window.removeEventListener('pointercancel', endDrag);
+        canvas.removeEventListener('wheel', onWheel);
+        window.removeEventListener('keydown', onKeyDown);
         unsubscribe();
         unsubscribeWorkspace();
         offRitual();
