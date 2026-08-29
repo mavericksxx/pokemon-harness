@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## unreleased
+
+- sunset phase removed from the day/night cycle (user verdict after seeing it live: the orange wash muted the map). The cycle is now a single day↔night blend: morning ramps night out 5:20–8:30am, evening ramps night in 6:30–8:50pm, day stays completely untinted in between, and night is unchanged. All sunset code (wash, contact shadows, sun beam, glint, its vignette) deleted outright with a do-not-re-add note in the header. Side effect of the wider morning ramp: lamps still glow ~40% around 7am before fading out — early-morning lamplight, reads as intended
+
 ## v1.6.0 — 2026-08-29
 
 - the garden now lives through a real day/night cycle (the user-approved v4 "living lights" design, 4 artifact iterations): local-time keyframes (dawn 5.3–6.7, day 8.5–16, sunset 17.5–19.7, night from 20.8) recomputed every 60s. Night is the asymmetric blue multiply wash that finally reads as night (blue becomes the dominant channel on grass, ground at ~half day brightness), with a static moon pool anchored on the real pond, a 1px silver moonlit rim baked from the tile layers only, a night vignette, and three warm practical lights that flicker, breathe, and sway per-frame (two-sine, time-average equal to the approved static look; lamp positions kept at the mock's exact composition). Sunset is the gold→red→magenta horizontal wash with contact shadows and a low sun beam. Overlays are border-inclusive, cost three sprite updates per frame, survive a webgl rebuild, honor prefers-reduced-motion, and a QA override (`localStorage poke:daynightHourOverride`) forces any phase instantly
