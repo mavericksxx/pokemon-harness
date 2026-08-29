@@ -65,6 +65,12 @@ export const DELEGATE_PARENT_ENV = 'POKEHARNESS_DELEGATE_PARENT';
 export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
 
 const SHIM_FILENAME = 'cth-hook.cjs';
+/** Codex-flavored sibling shim's filename (see `CODEX_HOOK_SHIM` below) —
+ *  also the substring codexHooks.ts matches on to recognize "this is our own
+ *  hooks.json entry, from THIS install" regardless of the exact absolute
+ *  launcher/shim path (which embeds `userData` and so differs between a dev
+ *  and a packaged build). */
+export const CODEX_SHIM_FILENAME = 'cth-hook-codex.cjs';
 
 /** The generated shim script. Deliberately dumb: read stdin, add
  *  harness_agent_id from env, forward to the socket, print whatever comes
@@ -112,10 +118,67 @@ process.stdin.on('end', () => {
 });
 `;
 
+/** Codex-flavored sibling shim (main/codexHooks.ts's `ensureCodexHooks` wires
+ *  this into codex's own `$CODEX_HOME/hooks.json`, not any Claude settings
+ *  file) — a translator, not a copy of HOOK_SHIM above, for one
+ *  deliberate reason: it NEVER stamps `harness_agent_id`.
+ *
+ *  A delegate `codex exec` is launched from inside a harness `claude` pty
+ *  (the "orchestrator" — see DELEGATE_PARENT_ENV's own doc comment), which
+ *  means it inherits that pty's ENTIRE environment as its own process env,
+ *  including that pty's own `POKEHARNESS_AGENT_ID` — confirmed against
+ *  codex's source (openai/codex @ 0.150.1, codex-rs/hooks/src/registry.rs:
+ *  `Hooks::new` snapshots `std::env::vars_os()` once at codex startup, and
+ *  codex-rs/protocol/src/shell_environment.rs's `scrub_non_inheritable_env_
+ *  vars` only strips a short fixed list of codex-internal auth/identity
+ *  vars — nothing of ours — so a hook subprocess DOES see whatever env the
+ *  `codex exec` process itself launched with, unfiltered by codex's separate
+ *  `shell_environment_policy`, which only governs the model's own shell-tool
+ *  calls). If this shim stamped `harness_agent_id` the same way HOOK_SHIM
+ *  does, every codex delegate event would carry the ORCHESTRATOR's own
+ *  agentId, and HookBridge.handle's `if (!agentId)` branch would route it
+ *  onto the orchestrator's own `hooks:event:<agentId>` channel instead of
+ *  `handleDelegate` below — corrupting the parent's own status/battle state
+ *  with a codex session's events, exactly what `handleDelegate`'s routing
+ *  exists to prevent. Leaving `harness_agent_id` unset (undefined, not even
+ *  null) is what makes `HookBridge.handle`'s early check treat every codex
+ *  payload as delegate-or-unrelated, never as a harness session's own event.
+ *
+ *  Field names on the payload this reads (`hook_event_name`, `session_id`)
+ *  need no translation — confirmed identical to Claude's via codex's own
+ *  generated JSON schemas (codex-rs/hooks/schema/generated/session-start.
+ *  command.input.schema.json, stop.command.input.schema.json: both list
+ *  `hook_event_name` and `session_id` as required string fields) — so this
+ *  shim only needs to ADD the two delegate fields, never rename anything. */
+const CODEX_HOOK_SHIM = `#!/usr/bin/env node
+'use strict';
+const net = require('net');
+let data = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => { data += d; });
+process.stdin.on('end', () => {
+  let payload = {};
+  try { payload = JSON.parse(data || '{}'); } catch (_) {}
+  payload.harness_delegate_parent = process.env.${DELEGATE_PARENT_ENV} || null;
+  payload.harness_delegate_label = process.env.${DELEGATE_LABEL_ENV} || null;
+  const sock = process.env.${HOOK_SOCK_ENV};
+  if (!sock) { process.exit(0); }
+  let resp = '';
+  const done = (code) => { if (resp) process.stdout.write(resp); process.exit(code); };
+  const c = net.createConnection(sock, () => c.write(JSON.stringify(payload) + '\\n'));
+  c.setEncoding('utf8');
+  c.on('data', (d) => { resp += d; });
+  c.on('end', () => done(0));
+  c.on('error', () => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+});
+`;
+
 export class HookBridge {
   private server: Server | null = null;
   private readonly binDir: string;
   private readonly shimFile: string;
+  private readonly codexShimFile: string;
   private readonly launcherFile: string;
   readonly sockPath: string;
   /** BACKLOG "next up" item 2 — mirrors index.ts's `keepAwakeEnabled` module
@@ -144,15 +207,21 @@ export class HookBridge {
   ) {
     this.binDir = join(userDataDir, 'hooks-bin');
     this.shimFile = join(this.binDir, SHIM_FILENAME);
+    this.codexShimFile = join(this.binDir, CODEX_SHIM_FILENAME);
     this.launcherFile = join(this.binDir, process.platform === 'win32' ? 'poke-node.cmd' : 'poke-node');
     this.sockPath = join(userDataDir, 'hooks.sock');
   }
 
-  /** Write the shim + bundled-node launcher. Idempotent, refreshed every call
-   *  so a code change always takes effect on the next app start. */
+  /** Write the shim(s) + bundled-node launcher. Idempotent, refreshed every
+   *  call so a code change always takes effect on the next app start. Writes
+   *  the codex-flavored shim unconditionally, same as the claude one — it's
+   *  an inert file on disk until codexHooks.ts's `ensureCodexHooks` actually
+   *  wires it into codex's hooks.json (itself gated on `codexDelegateHooks`
+   *  and codex being installed), so writing it here has no behavior cost. */
   ensureFiles(): void {
     mkdirSync(this.binDir, { recursive: true });
     writeFileSync(this.shimFile, HOOK_SHIM, 'utf8');
+    writeFileSync(this.codexShimFile, CODEX_HOOK_SHIM, 'utf8');
     try {
       if (process.platform === 'win32') {
         writeFileSync(
@@ -256,6 +325,17 @@ export class HookBridge {
    *  `sh -c`. */
   private hookCommand(): string {
     return `"${this.launcherFile}" "${this.shimFile}"`;
+  }
+
+  /** Same shape as `hookCommand()` above but for the codex-flavored shim, and
+   *  public: unlike the claude one (only ever used from `prepareSession`
+   *  below), this is consumed from codexHooks.ts, outside this class — that
+   *  file owns merging codex's own `hooks.json`, but reuses this class's
+   *  already-solved bundled-node launcher (see HOOK_SHIM's own header for
+   *  why a plain `node "<script>"` command isn't reliable here) rather than
+   *  re-deriving it. */
+  codexHookCommand(): string {
+    return `"${this.launcherFile}" "${this.codexShimFile}"`;
   }
 
   /** Per-session Claude Code settings routing every wired hook through the
@@ -411,13 +491,18 @@ export class HookBridge {
       return;
     }
     const label = p.harness_delegate_label?.trim() || 'codex delegate';
-    // Codex's own hook payload field names are UNVERIFIED (this app can
-    // never spawn a real `codex` session to capture one — see this file's
-    // constraints) — `session_id` is assumed by analogy with Claude's own
-    // payload shape above. Falls back to a parent+label key so dedupe/retire
-    // (renderer's hookRouter.ts) still work even if codex's payload doesn't
-    // carry one, at the cost of colliding two concurrent same-label
-    // delegates under one parent.
+    // Codex's own hook payload field name for this IS `session_id`, same as
+    // Claude's — confirmed against codex's generated JSON schemas (openai/
+    // codex @ 0.150.1, codex-rs/hooks/schema/generated/session-start.command.
+    // input.schema.json and stop.command.input.schema.json both require it),
+    // resolving the "UNVERIFIED, assumed by analogy" caveat this comment used
+    // to carry (see CODEX_HOOK_SHIM's own header in this file, and
+    // codexHooks.ts, for the fuller citation). The parent+label fallback
+    // below is kept as defensive code — `session_id` is a required field on
+    // every codex hook payload per that schema, so in practice this branch
+    // is provably unreachable against a spec-conforming codex build, but
+    // costs nothing to keep for a payload this app hasn't itself captured
+    // live (still true — see this file's constraints).
     const codexSessionId = p.session_id?.trim() || `delegate:${parentId}:${label}`;
     const signal: DelegateHookSignal = { parentId, event: eventName, codexSessionId, label };
     const wc = this.getWebContents();

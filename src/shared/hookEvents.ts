@@ -107,10 +107,13 @@ export interface DelegateHookSignal {
   parentId: string;
   event: 'SessionStart' | 'Stop';
   /** Codex's own `session_id` off the raw payload when present, else a
-   *  synthesized `delegate:<parentId>:<label>` fallback — the real codex
-   *  hook payload field name is UNVERIFIED (this app can never spawn a real
-   *  `codex` session to capture one; see hookBridge.ts's `handleDelegate`
-   *  for the full caveat). Used as the battler's exact identity (spawn's
+   *  synthesized `delegate:<parentId>:<label>` fallback — `session_id` is
+   *  confirmed to be codex's real field name for this (openai/codex @
+   *  0.150.1's generated JSON schemas, codex-rs/hooks/schema/generated/
+   *  session-start.command.input.schema.json + stop.command.input.schema.
+   *  json both require it), so the fallback below is defensive code rather
+   *  than a live gap — see hookBridge.ts's `handleDelegate` for the full
+   *  citation. Used as the battler's exact identity (spawn's
    *  `toolUseId`, correlate's `taskId`) so SessionStart/Stop always resolve
    *  to the SAME battler, including across a duplicate SessionStart (a
    *  codex retry). */

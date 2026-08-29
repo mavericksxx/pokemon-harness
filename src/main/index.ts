@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
 import { HookBridge } from './hookBridge';
+import { CODEX_HOOKS_NOTICE_TEXT, ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
 import { UsageService } from './usageService';
 import { ArceusRelayWatcher } from './arceusRelay';
@@ -698,6 +699,14 @@ let diskRestorePromise: Promise<DiskRestoreInfo> = Promise.resolve({ count: 0, n
  *  re-toast the same launch-time restore. */
 let diskRestoreConsumed = false;
 
+/** External-codex-delegate feature's missing first hop — set once at boot
+ *  (below) from `ensureCodexHooks`'s own return value, true only the launch
+ *  that actually changed `$CODEX_HOME/hooks.json` (see codexHooks.ts's
+ *  header for why every OTHER launch — including one where the merge is
+ *  simply gated off — leaves this false, same "consumed once" shape as
+ *  `diskRestoreConsumed` above). */
+let codexHooksNoticePending = false;
+
 // ─── Tier-1 update check (ship-cut item 4) ─────────────────────────────────
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -733,6 +742,15 @@ app.whenReady().then(async () => {
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
 hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
+  // External-codex-delegate feature's missing first hop — only when the user
+  // hasn't opted out AND codex is actually installed (never write config for
+  // a CLI that isn't even on this machine). Gated on `ptyManager.
+  // isCommandAvailable`, the exact same PATH-resolution `pty:available`'s IPC
+  // handler below uses, so "is codex there" never disagrees between this and
+  // an actual spawn attempt.
+  if (appSettings.codexDelegateHooks && ptyManager.isCommandAvailable('codex')) {
+    codexHooksNoticePending = ensureCodexHooks(hookBridge).changed;
+  }
   // Per-provider include/exclude BEFORE the master toggle: setEnabled(true)
   // below can trigger an immediate poll, and that poll's `includedProviders`
   // check needs to already reflect this setting, not the all-included
@@ -888,6 +906,15 @@ handle('app:getDiskRestoreInfo', async () => {
   if (diskRestoreConsumed || info.count === 0) return null;
   diskRestoreConsumed = true;
   return info;
+});
+
+// Boot-time pull for the one-time "codex will ask to approve this hook"
+// notice — same clear-on-read shape as `app:getDiskRestoreInfo` above (and
+// for the same reason: a plain dev Cmd+R after boot must not re-toast it).
+handle('app:getCodexHooksNotice', () => {
+  if (!codexHooksNoticePending) return null;
+  codexHooksNoticePending = false;
+  return CODEX_HOOKS_NOTICE_TEXT;
 });
 
 // ─── Lazy sprite cache (Phase 3 §2) ────────────────────────────────────────

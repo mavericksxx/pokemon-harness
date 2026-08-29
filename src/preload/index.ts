@@ -84,6 +84,12 @@ const api = {
    *  `diskRestoreConsumed`. Pulled on boot the same way `getCrashInfo` is. */
   getDiskRestoreInfo: (): Promise<DiskRestoreInfo | null> =>
     ipcRenderer.invoke('app:getDiskRestoreInfo'),
+  /** Non-null exactly once, right after a launch that merged a fresh
+   *  pokeharness entry into codex's own hooks.json (external-codex-delegate
+   *  feature) — see main/codexHooks.ts and main/index.ts's
+   *  `codexHooksNoticePending`. Pulled on boot the same way
+   *  `getDiskRestoreInfo` above is. */
+  getCodexHooksNotice: (): Promise<string | null> => ipcRenderer.invoke('app:getCodexHooksNotice'),
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
 

@@ -212,6 +212,7 @@ async function boot(): Promise<void> {
       crashInfo,
       { sessions: restored, selectedId },
       diskRestoreInfo,
+      codexHooksNotice,
       appSettings,
       harnessHomePath,
       workspaceSnapshot,
@@ -223,6 +224,10 @@ async function boot(): Promise<void> {
       // sessions (Phase 8.5 #1) — mutually exclusive with `crashInfo` (that's
       // a same-process renderer reload; this is a fresh app launch).
       window.api.getDiskRestoreInfo(),
+      // External-codex-delegate feature — non-null exactly once, on the
+      // launch that merged a fresh pokeharness entry into codex's hooks.json
+      // (main/codexHooks.ts). Independent of the restore/crash toasts above.
+      window.api.getCodexHooksNotice(),
       // Parity sweep: theme / auto-permission-mode / keep-awake / recent
       // folders. Resolved and applied BEFORE the first render (below) so
       // nothing paints with the dark default for a light-theme user — same
@@ -281,6 +286,10 @@ async function boot(): Promise<void> {
         .getState()
         .pushToast(`reconnected ${restored.length} session${restored.length === 1 ? '' : 's'} after reload.`);
     }
+
+    // External-codex-delegate feature — independent of the restore/crash
+    // toast above (both can fire on the same launch).
+    if (codexHooksNotice) useStore.getState().pushToast(codexHooksNotice);
 
     // Summon-once (Phase 8.9) — "arceus already restores across relaunches
     // when his session survives" (a live `claude --resume` above, present
