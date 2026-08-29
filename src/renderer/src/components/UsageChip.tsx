@@ -30,6 +30,15 @@ function miniGauges(providers: UsageProviderSnapshot[]): UsageWindow[] {
   return gauges;
 }
 
+/** Per-window identity color for the mini-gauge LABEL only (user feedback:
+ *  "hard to distinguish the three bars" — a fixed color by window label, not
+ *  urgency; `gaugeTone` below still owns the %/fill color unchanged). */
+function usageWindowClass(label: string): 'w5h' | 'wfable' | 'w7d' {
+  if (label === '5h') return 'w5h';
+  if (label === '7d fable') return 'wfable';
+  return 'w7d';
+}
+
 /** The single tightest (highest used%) window across every provider that
  *  currently has real data ('ok' fresh, or 'stale' last-known-good under a
  *  429 gate) — null when no provider has a number to show yet (still
@@ -223,20 +232,26 @@ export function UsageChip(): JSX.Element | null {
         aria-haspopup="dialog"
         onClick={() => setOpen((v) => !v)}
       >
-        <GaugeIcon />
+        {/* Redundant next to three real bars — kept only for the icon-only
+         * fallback state (no numeric windows) so the chip still reads as
+         * clickable for the re-authenticate flow. */}
+        {gauges.length === 0 && <GaugeIcon />}
         {gauges.length > 0 && (
           <span className="usage-chip-gauges">
             {gauges.map((w) => {
               const gaugeToneValue = gaugeTone(w.usedPercent);
               return (
-                <span key={w.label} className={`usage-chip-gauge usage-chip-gauge--${gaugeToneValue}`}>
+                <span
+                  key={w.label}
+                  className={`usage-chip-gauge usage-chip-gauge--${gaugeToneValue} usage-chip-gauge--${usageWindowClass(w.label)}`}
+                >
                   <span className="hp-bar">
                     <span
                       className={`hp-bar-fill${gaugeToneValue !== 'normal' ? ` ${gaugeToneValue}` : ''}`}
                       style={{ width: `${Math.round(w.usedPercent)}%` }}
                     />
                   </span>
-                  {w.label} <b>{Math.round(w.usedPercent)}%</b>
+                  <span className="usage-chip-gauge-label">{w.label}</span> <b>{Math.round(w.usedPercent)}%</b>
                 </span>
               );
             })}

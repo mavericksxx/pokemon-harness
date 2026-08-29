@@ -1835,7 +1835,7 @@ button.icon:active {
 .usage-chip-gauges {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .usage-chip-gauge {
@@ -1844,6 +1844,14 @@ button.icon:active {
   gap: 4px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Separator between adjacent gauges (user feedback: "hard to distinguish the
+ * three bars") — same border token as `.usage-provider + .usage-provider`'s
+ * own rule-between-repeated-items pattern above, just vertical here. */
+.usage-chip-gauge + .usage-chip-gauge {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
 }
 
 .usage-chip-gauge .hp-bar {
@@ -1865,6 +1873,21 @@ button.icon:active {
 
 .usage-chip-gauge--normal b {
   color: var(--status-done);
+}
+
+/* Per-window identity color, LABEL ONLY — the %/fill above stay on the
+ * urgency tone system (`gaugeTone`); this is a separate, fixed-by-label
+ * color so the three gauges are visually distinguishable at a glance. */
+.usage-chip-gauge--w5h .usage-chip-gauge-label {
+  color: var(--accent-sky);
+}
+
+.usage-chip-gauge--w7d .usage-chip-gauge-label {
+  color: var(--gold);
+}
+
+.usage-chip-gauge--wfable .usage-chip-gauge-label {
+  color: var(--accent-lilac);
 }
 
 .usage-provider {
