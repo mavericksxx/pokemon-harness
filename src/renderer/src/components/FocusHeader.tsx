@@ -16,8 +16,8 @@ interface Props {
  *  SAME fields and same telemetry AgentRosterCard.tsx already shows (no new
  *  telemetry, per the decided spec) — CostGauge.tsx and the `.status` badge
  *  markup are shared with that card rather than re-derived here. Renders for
- *  Arceus too (his session record has every field this needs); only
- *  FocusComposer hides for him — see FocusView.tsx.
+ *  Arceus too (his session record has every field this needs); only his own
+ *  dispatch box below the terminal is Arceus-only — see FocusView.tsx.
  *
  *  Munder Difflin restyle (backlog item): same fields/data as before, laid
  *  out to match the inspo's command-center header — a bordered avatar tile,

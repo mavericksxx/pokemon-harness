@@ -65,8 +65,45 @@ window.api.onUsageSnapshot((snapshot) => useUsageStore.getState().hydrate(snapsh
 // counters, both independent of boot()'s async recovery work, same as the
 // listeners above. `data` is kept to plain scalars/strings at both call
 // sites, matching diagnosticsClient.ts's own safety note.
+//
+// De-duped (parity sweep item 2) — a browser layout loop (observed:
+// "ResizeObserver loop completed with undelivered notifications", a benign
+// Chromium symptom, not a crash) can fire the same window error hundreds of
+// times a second; unthrottled, that filled harness.log with 852 identical
+// rows in one ~7s burst. Keyed on the message text alone (the one thing
+// guaranteed identical across repeats of the SAME error) — logs the first
+// occurrence immediately so a one-off error is never delayed, then at most
+// one "seen N more times" summary per distinct message per minute. Generic
+// by design: any repeated identical error is throttled this way, not just
+// ResizeObserver's.
+const DEDUPE_WINDOW_MS = 60_000;
+// A crude bound on distinct messages tracked — real renderer errors are rare
+// enough that this never matters in practice; it's just a floor against an
+// error whose text itself varies per occurrence (e.g. embeds a changing id)
+// growing this map forever instead of ever de-duping.
+const MAX_TRACKED_MESSAGES = 200;
+const errorLogState = new Map<string, { suppressed: number; windowStart: number }>();
+function logDedupedError(message: string, data?: unknown): void {
+  const now = Date.now();
+  const state = errorLogState.get(message);
+  if (!state) {
+    if (errorLogState.size >= MAX_TRACKED_MESSAGES) errorLogState.clear();
+    errorLogState.set(message, { suppressed: 0, windowStart: now });
+    safeLogDiagnostic('renderer', 'error', message, data);
+    return;
+  }
+  if (now - state.windowStart >= DEDUPE_WINDOW_MS) {
+    if (state.suppressed > 0) {
+      safeLogDiagnostic('renderer', 'error', `${message} (x${state.suppressed} more in the last minute)`, data);
+    }
+    state.suppressed = 0;
+    state.windowStart = now;
+  } else {
+    state.suppressed++;
+  }
+}
 window.addEventListener('error', (e) => {
-  safeLogDiagnostic('renderer', 'error', e.message || 'window error', {
+  logDedupedError(e.message || 'window error', {
     filename: e.filename,
     lineno: e.lineno,
     colno: e.colno,
@@ -75,7 +112,7 @@ window.addEventListener('error', (e) => {
 });
 window.addEventListener('unhandledrejection', (e) => {
   const reason: unknown = e.reason;
-  safeLogDiagnostic('renderer', 'error', 'unhandled promise rejection', {
+  logDedupedError('unhandled promise rejection', {
     message: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined
   });

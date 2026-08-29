@@ -3,6 +3,7 @@ import { GardenScene } from '@/scene/garden/GardenScene';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
 import { GardenSplitHandle } from '@/components/GardenSplitHandle';
+import { GardenDrawerEdgeTab } from '@/components/GardenDrawerEdgeTab';
 import { RosterStrip } from '@/components/RosterStrip';
 import { FocusSidebar } from '@/components/FocusSidebar';
 import { SessionsOverview } from '@/components/SessionsOverview';
@@ -202,6 +203,10 @@ export function App(): JSX.Element {
               gardenSplit.ts for the persisted ratio/clamps and index.css's
               "garden/terminal split divider" block for its styling. */}
           {viewMode === 'garden' && drawerOpen && <GardenSplitHandle />}
+          {/* Parity sweep item 4 — the "bring it back" half of the same
+              toggle, docked to the row's own edge while there's no divider
+              to ride (see GardenDrawerEdgeTab.tsx's own header). */}
+          {viewMode === 'garden' && !drawerOpen && <GardenDrawerEdgeTab />}
           {showFocusSidebar && <FocusSidebar onNewSession={() => setDialogOpen(true)} />}
           <TerminalDrawer />
         </div>

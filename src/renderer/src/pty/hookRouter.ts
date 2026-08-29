@@ -157,7 +157,15 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // v1.1.0's disappearing subagent-battle spawns).
       if (tool === 'Task') {
         try {
-          emitBattleSignal({ type: 'spawn', parentId: sessionId });
+          // Parity sweep item 7 — `evt.toolTarget` for a `Task` PreToolUse
+          // is `toolTargetFromInput`'s `description`-or-`subagent_type` pick
+          // off this exact tool call's own input (shared/hookEvents.ts) —
+          // the one real "name" a subagent has at spawn time. Passed in the
+          // signal itself, not read back from the store below: `update()`
+          // right after this will overwrite `session.toolTarget` again on
+          // this session's very next tool call, so capturing it here is the
+          // only reliable moment.
+          emitBattleSignal({ type: 'spawn', parentId: sessionId, label: evt.toolTarget || undefined });
         } catch (err) {
           bumpCounter('battleSignalErrors');
           safeLogDiagnostic('battle-spawn', 'error', 'emitBattleSignal threw', {

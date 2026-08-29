@@ -2,7 +2,6 @@ import type { RefObject } from 'react';
 import type { Session, ViewMode } from '@/store/store';
 import { ArceusDispatchBox } from '@/components/ArceusDispatchBox';
 import { FocusHeader } from '@/components/FocusHeader';
-import { FocusComposer } from '@/components/FocusComposer';
 import { FocusTerminalHead } from '@/components/FocusTerminalHead';
 import { SessionStatusStrip } from '@/components/SessionStatusStrip';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
@@ -43,10 +42,22 @@ interface Props {
  * they wrap never sees a different ancestor shape across a viewMode toggle.
  *
  * 'terminal' view mode (BACKLOG phase E) is the per-agent command center:
- * FocusHeader above the terminal, FocusComposer (or Arceus's own dispatch
- * box — never both, see the trailing block) below it. Every other mode
- * keeps the pre-phase-E drawer-meta / dispatch-box-above-terminal layout,
- * unchanged.
+ * FocusHeader above the terminal, Arceus's own dispatch box below it (see
+ * the trailing block) when he's selected. Every other mode keeps the
+ * pre-phase-E drawer-meta / dispatch-box-above-terminal layout, unchanged.
+ *
+ * Parity sweep item 8 — the "queue" composer (FocusComposer.tsx) that used
+ * to sit below the terminal in focus mode for every non-Arceus session is
+ * gone (user report: it wasted vertical space the terminal itself could use
+ * — the CLI already queues typed input on its own). FocusComposer.tsx and
+ * its backing store (pty/focusQueue.ts's `submitFocusMessage`/
+ * `useFocusQueue`/`removeFocusQueueItem`, and its own `.focus-composer*`
+ * CSS) are left in place, not deleted — this was their only mount site, so
+ * they're now orphaned/dead code, reported rather than pruned here.
+ * `.terminal-panel`'s existing `flex: 1` means the terminal simply expands
+ * into the reclaimed space with no CSS change needed. Arceus's dispatch box
+ * (ArceusDispatchBox.tsx) is a wholly different component — writes straight
+ * into his pty, never touches focusQueue.ts — and is untouched.
  */
 export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }: Props): JSX.Element {
   const focus = viewMode === 'terminal';
@@ -94,12 +105,7 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
         </div>
       </div>
 
-      {focus &&
-        (session.isArceus ? (
-          <ArceusDispatchBox sessionId={session.id} />
-        ) : (
-          <FocusComposer session={session} />
-        ))}
+      {focus && session.isArceus && <ArceusDispatchBox sessionId={session.id} />}
     </>
   );
 }

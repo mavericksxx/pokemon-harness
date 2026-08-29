@@ -29,6 +29,15 @@ export interface LiveBattler {
   parentId: string;
   /** Dex id, same shape as `Session.pokemon`. */
   species: string;
+  /** The spawning `Task`'s own `description` (falling back to
+   *  `subagent_type`) — parity sweep item 7: a real name/description DOES
+   *  exist at spawn time (the CLI's own Task tool_input, surfaced via
+   *  hookRouter.ts's PreToolUse handling — see battleBus.ts's `spawn`
+   *  signal), so SubagentRosterCard.tsx uses it as the card's title line,
+   *  mirroring AgentRosterCard's own title-then-species layout. Undefined
+   *  for the regex-fallback path (ptyParser.ts, no tool_input to read) —
+   *  that card falls back to species-as-title instead. */
+  label?: string;
   /** Epoch ms this battler entered the world (stamped by `addBattler`, the
    *  same moment BattleManager's onBattlerSpawned fires). Per-subagent
    *  context/token telemetry doesn't exist — a subagent's completion never

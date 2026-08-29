@@ -14,8 +14,15 @@ import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter } from '@/diagnosticsCounters';
 
 export type BattleSignal =
-  /** A `Task` tool call started — spawn (or queue) one wild battler. */
-  | { type: 'spawn'; parentId: string }
+  /** A `Task` tool call started — spawn (or queue) one wild battler.
+   *  `label` (parity sweep item 7) — the Task's own `description` (falling
+   *  back to `subagent_type`), lifted straight off the PreToolUse payload at
+   *  the instant this fires (hookRouter.ts's `toolTargetFromInput`) — NOT
+   *  read back out of the store later, where it'd already be stale/
+   *  overwritten by the session's next tool call. Undefined for the regex-
+   *  fallback path (ptyParser.ts, no tool_input to read a description from)
+   *  — SubagentRosterCard.tsx falls back to species-as-title for those. */
+  | { type: 'spawn'; parentId: string; label?: string }
   /** A tool call actually ran while a battle is active — one attack beat. */
   | { type: 'attack'; parentId: string; tool: string }
   /** One subagent finished (`SubagentStop`) — remove exactly one battler. */

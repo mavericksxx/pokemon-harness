@@ -170,25 +170,6 @@ export function SunIcon(props: IconProps): JSX.Element {
   );
 }
 
-/** View-mode group's terminal-panel toggle (parity sweep — folded in from a
- *  plain "show/hide terminal" text button) — an outlined panel with a small
- *  ">" prompt and cursor line, same "thin rects for edges" technique as
- *  TrashIcon's outline. */
-export function TerminalPanelIcon(props: IconProps): JSX.Element {
-  return (
-    <PixelIcon {...props}>
-      <rect x="2" y="2" width="12" height="1" />
-      <rect x="2" y="13" width="12" height="1" />
-      <rect x="2" y="2" width="1" height="11" />
-      <rect x="13" y="2" width="1" height="11" />
-      <rect x="4" y="6" width="1" height="1" />
-      <rect x="5" y="7" width="1" height="1" />
-      <rect x="4" y="8" width="1" height="1" />
-      <rect x="6" y="9" width="4" height="1" />
-    </PixelIcon>
-  );
-}
-
 /** View-mode group's "all sessions" toggle (parity sweep — folded in from a
  *  plain "sessions" text button) — a 2x2 grid of cards, the overview's own
  *  shape in miniature. */
@@ -234,6 +215,42 @@ export function TrainerCardIcon(props: IconProps): JSX.Element {
       <rect x="6" y="6" width="4" height="1" />
       <rect x="6" y="7" width="4" height="1" />
       <rect x="7" y="8" width="2" height="1" />
+    </PixelIcon>
+  );
+}
+
+/** ArceusRosterCard's ceremonial-plaque marker (parity sweep item 6 — "the
+ *  god looks like just another selected pokemon") — a 4-point pixel sparkle,
+ *  distinct from the plain `★` character already used for the shiny badge
+ *  (this file's own header note on which glyphs stay plain text). */
+export function StarIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="7" y="1" width="2" height="4" />
+      <rect x="7" y="11" width="2" height="4" />
+      <rect x="1" y="7" width="4" height="2" />
+      <rect x="11" y="7" width="4" height="2" />
+      <rect x="6" y="6" width="4" height="4" />
+    </PixelIcon>
+  );
+}
+
+/** Garden-split terminal-pane edge tab (parity sweep item 4 — the topbar's
+ *  show/hide toggle was too easy to lose track of) — a chunky double
+ *  chevron, the standard "collapse/expand this direction" silhouette drawn
+ *  as two stacked triangle steps rather than a smooth arrow. */
+export function DoubleChevronLeftIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <polygon points="9,2 9,6 6,8 9,10 9,14 3,8" />
+    </PixelIcon>
+  );
+}
+
+export function DoubleChevronRightIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <polygon points="7,2 7,6 10,8 7,10 7,14 13,8" />
     </PixelIcon>
   );
 }

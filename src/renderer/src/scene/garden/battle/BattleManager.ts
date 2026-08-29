@@ -362,8 +362,11 @@ export interface BattleDeps {
   /** Fires the instant a wild battler actually enters the world (already
    *  added to charLayer, same moment `subagentsMaterialized` bumps) — the
    *  bridge GardenScene uses to mirror battler presence into the zustand
-   *  store for the roster strip's subagent cards. */
-  onBattlerSpawned: (battler: { key: string; parentId: string; species: string }) => void;
+   *  store for the roster strip's subagent cards. `label` (parity sweep item
+   *  7) — the spawning `Task`'s own description/subagent_type, straight
+   *  through from the `spawn` signal (see battleBus.ts); undefined for the
+   *  regex-fallback path. */
+  onBattlerSpawned: (battler: { key: string; parentId: string; species: string; label?: string }) => void;
   /** Fires the instant a battler is fully torn down — the normal poof-then-
    *  cleanup path (reapSubs) and the hard force-end/dispose path
    *  (destroyBattle) both call this, so it's the complete mirror of
@@ -684,7 +687,7 @@ export class BattleManager {
   private onSignal(sig: BattleSignal): void {
     switch (sig.type) {
       case 'spawn':
-        this.handleSpawn(sig.parentId);
+        this.handleSpawn(sig.parentId, sig.label);
         break;
       case 'attack':
         this.handleAttack(sig.parentId, sig.tool);
@@ -701,7 +704,7 @@ export class BattleManager {
     }
   }
 
-  private handleSpawn(parentId: string): void {
+  private handleSpawn(parentId: string, label?: string): void {
     const rt = this.deps.getRuntime(parentId);
     if (!rt) return;
     let pb = this.battles.get(parentId);
@@ -735,7 +738,7 @@ export class BattleManager {
       visibleLogged: false
     };
     pb.subs.push(sub);
-    this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id });
+    this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label });
     // "Materialized" (vs. hookRouter.ts's "spawned" bump on the Task tool
     // call itself) — this is the point a real battler enters the world,
     // already added to charLayer above; the gap between the two counters is
