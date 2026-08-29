@@ -30,37 +30,79 @@
  * abandoned `ParentBattle` can desync tracked lock state from reality and
  * deadlock the queue forever; a derived lock can't, by construction.
  *
- * PREMATURE DEATH (v1.2.0 bug, root-caused and fixed here): a subagent's
- * pokemon could faint while the real subagent was still running, because
- * the only completion signal a hook-authoritative session actually had was
- * a blind wall-clock cap (`WANDER_SAFETY_MS`, 8min) — `SubagentStop` is
- * wired but effectively never arrives (see below), and hookRouter.ts's
- * `Stop` case never touched battle state at all. Fixed by adding exactly
- * that missing signal instead of tuning the timer: a `Task` tool call
- * blocks the parent's own turn until it genuinely completes, so the
- * parent's `Stop` hook firing is a DETERMINISTIC proof every subagent
- * dispatched that turn is actually done (see hookRouter.ts's `Stop` case,
- * `handleParentDone` below). The wall-clock fallback is dropped entirely,
- * not just extended — per spec, "late is fine, early is not", and a
- * dropped timer cannot fire early by definition. A subagent that finishes
- * in the same beat it was dispatched is still guarded against reading as an
- * instant death by `MIN_ROAM_MS`: `handleParentDone` only queues a roaming
- * sub once it's been visibly roaming for at least that long; anything
- * younger just waits for the parent's NEXT `Stop` (or an opportunistic real
- * `SubagentStop`, which bypasses the floor — it's specific to the one
- * subagent that just finished, not a coarse per-turn proxy).
+ * PREMATURE DEATH (v1.2.0 bug) was originally "fixed" by assuming a `Task`
+ * tool call blocks the parent's own turn until it genuinely completes, so
+ * the parent's `Stop` hook firing would be a deterministic proof every
+ * subagent dispatched that turn was actually done (`handleParentDone`,
+ * gated only by `MIN_ROAM_MS` below). That assumption is FALSE for an
+ * ASYNC dispatch — confirmed live (2026-08-29, two independent `claude`
+ * spawns captured via this app's own production HookBridge — see
+ * taskNotificationWatcher.ts's header for the full evidence): PostToolUse
+ * for an `Agent`/`Task` call fires within ~100-200ms and tells us NOTHING
+ * about real completion, and no live evidence a SYNCHRONOUS Agent/Task
+ * dispatch exists at all in the installed CLI — every real capture came
+ * back `toolUseResult.isAsync: true`. Trusting Stop unconditionally
+ * REINTRODUCED v1.2.0's exact bug under a different name: a battler's
+ * completion battle firing while its real subagent kept working for many
+ * more minutes (harness.log, 2026-08-28T23:37:20Z — the parent's `Stop`
+ * fired ~100s after spawn; the dispatched subagent kept working for ~10
+ * more minutes).
  *
- * Why not driven by real per-subagent hook signals in general: verified
- * against real transcripts (see hookRouter.ts and hookBridge.ts for the
- * fuller writeup) that Claude Code's Agent/Task tool dispatches every
- * subagent asynchronously — PostToolUse for the dispatch itself fires
- * within ~100-200ms, telling us NOTHING about real completion — and
- * delivers actual completion as an internal message that never reaches the
- * hooks system at all (no SubagentStop, not even UserPromptSubmit for the
- * injected notification). This matches publicly tracked upstream issues
- * (e.g. anthropics/claude-code #25147, #27755, #33049 — background/subagent
- * Stop hooks unreliable or altogether missing). `SubagentStop` stays wired
- * and used opportunistically when it DOES arrive (`handleEnd`).
+ * Bug B fix (2026-08-29): `Stop` is no longer trusted unconditionally.
+ * hookRouter.ts now tracks, per parent session, a count of async dispatches
+ * launched (per the parent's own transcript — `toolUseResult.isAsync`, via
+ * taskNotificationWatcher.ts) that haven't yet been terminally notified, and
+ * only forwards `Stop` into the `'parentDone'` signal below when that count
+ * is zero — i.e. `Stop` is proof of completion ONLY for whatever a
+ * synchronous dispatch would be, and this app has never observed one to
+ * exist. `MIN_ROAM_MS`/`queueEligibleAt` are KEPT (for that hypothetical
+ * synchronous case, and because a genuinely synchronous dispatch's `Stop`
+ * still can't fire before it's actually done, so the floor's original
+ * "dispatched and Stop in the same beat" guard still holds), but
+ * `updateOneBattle`'s `queueEligibleAt` firing site now ALSO re-checks the
+ * same async count (`hasPendingAsyncSubagents`) rather than firing
+ * unconditionally once the floor elapses — that counter is fed by a POLLED
+ * transcript watch (~2s), so the FIRST `Stop` (which can fire ~200ms after
+ * an async dispatch, before the poller has ever seen the launch line) can
+ * read 0 and pass the check in `handleParentDone` even for a real async
+ * dispatch; without the second check at the `queueEligibleAt` site, that
+ * sub's deferred queuing (MIN_ROAM_MS later) would fire unconditionally and
+ * reproduce the exact 2026-08-28 race this fix exists to close. By
+ * MIN_ROAM_MS (15s) later the poller has had many chances to catch up, so
+ * that second check correctly reads outstanding for a real async dispatch —
+ * the actual completion signal for the async case that's the documented
+ * common path today is `handleEnd`, fed by `onSubagentTaskNotification`
+ * (hookRouter.ts), reading the parent's own
+ * transcript for the CLI's `<task-notification>` injection.
+ *
+ * Real per-subagent hook signals, re-examined: verified live (see above)
+ * that `SubagentStop` DOES fire for an async dispatch — contradicting this
+ * file's own prior claim here that it "effectively never" does — but its
+ * `harness_agent_id` tagging is NOT reliable (one capture tagged it with the
+ * parent's own harness id, the other with the CLI's internal subagent id
+ * instead, which silently routes to nobody — see hookBridge.ts). A real
+ * `UserPromptSubmit` ALSO fires for the CLI's injected task-notification
+ * turn — also contradicting this file's prior claim neither ever arrives.
+ * Rather than build on either hook event directly, `onSubagentTaskNotification`
+ * reads the parent's TRANSCRIPT instead (reliably tagged, since it's
+ * registered per this app's own harness agentId) and is now the sole
+ * trigger for `handleEnd`'s "queue the oldest roaming sub" heuristic —
+ * `SubagentStop` (`handleEnd`'s other caller, hookRouter.ts) is still wired
+ * but no longer forwards into a battle signal, specifically to avoid
+ * double-firing 'end' for one real completion (which would prematurely
+ * conclude an unrelated, still-working sibling). This still matches publicly
+ * tracked upstream issues (e.g. anthropics/claude-code #25147, #27755,
+ * #33049 — background/subagent completion signals unreliable) in spirit:
+ * real, but not safe to build load-bearing per-subagent identity on.
+ *
+ * CAVEAT: both live captures used `claude -p` (headless) rather than this
+ * app's real interactive pty spawn — same HookBridge/transcript mechanism,
+ * but whether an idling INTERACTIVE session still gets a completed async
+ * task's notification appended promptly (rather than only on the user's
+ * next real prompt) is unverified; this app is never allowed to spawn a
+ * real interactive session to check. If notifications only land on the next
+ * prompt, a battler just roams longer — "late is fine, early is not" still
+ * holds, nothing wedges.
  *
  * INVISIBLE-SUBAGENT HARDENING (companion fix, same rework): `Battler`
  * spawns at a near-zero scale and only its own `update(dt)` grows it in —
@@ -127,6 +169,7 @@ import { rollShiny } from '../shiny';
 import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
+import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
 
 const LUNGE_MS = 150;
 const HOLD_MS = 150;
@@ -436,23 +479,57 @@ export class BattleManager {
     this.battles.clear();
   }
 
+  /**
+   * PHASE ISOLATION (2026-08-29, companion to the battleFx.ts fix): every
+   * phase below — the global FX tick, the global queue pump, and each
+   * parent's own update — runs in its OWN try/catch. Before this, only the
+   * per-parent loop was isolated; the global FX tick sat UNGUARDED at the top
+   * of this function, so a throw inside it (see battleFx.ts's `tickBattleFx`
+   * doc comment for the real 2026-08-28 production crash this caused) aborted
+   * this ENTIRE method before the per-parent loop — or even the queue pump —
+   * ever ran, every single frame, for as long as the poisoned state
+   * persisted. `tickBattleFx` now self-heals on its own (battleFx.ts), so
+   * this outer isolation is a backstop, not the primary fix — but the same
+   * "one phase throwing must never block the others, this frame or any
+   * future one" philosophy the per-parent loop already used is now applied
+   * to the two GLOBAL phases too, so nothing here can ever wedge the same
+   * way again even if a future change adds unguarded work to either of them.
+   */
   update(dt: number): void {
-    tickBattleFx(dt);
+    // Phase 1: global FX tick.
+    try {
+      tickBattleFx(dt);
+    } catch (err) {
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle', 'error', 'battle FX tick threw outside its own isolation — skipping this frame', {
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
+    }
+
     const finishedParents: string[] = [];
 
-    // Global queue (spec: "strictly one battle at a time... across
-    // different parent sessions"): derived every tick, not tracked as
+    // Phase 2: global queue pump (spec: "strictly one battle at a time...
+    // across different parent sessions"): derived every tick, not tracked as
     // separate mutable lock state — a stray/abandoned ParentBattle can never
     // desync a derived check from reality the way a manually-maintained
     // "which parent currently holds the lock" field could (see file
     // header). At most one pb may be mid-wave at once; when none is, and the
     // cooldown gap has elapsed, admit the globally-oldest queued sub.
-    const anyWaveActive = Array.from(this.battles.values()).some((pb) => pb.wave !== 'idle');
-    if (!anyWaveActive && Date.now() >= this.nextBattleEarliestAt) {
-      const next = this.pickNextQueued();
-      if (next) this.admitBattle(next.pb, next.sub);
+    try {
+      const anyWaveActive = Array.from(this.battles.values()).some((pb) => pb.wave !== 'idle');
+      if (!anyWaveActive && Date.now() >= this.nextBattleEarliestAt) {
+        const next = this.pickNextQueued();
+        if (next) this.admitBattle(next.pb, next.sub);
+      }
+    } catch (err) {
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle', 'error', 'global battle queue pump threw — skipping this frame', {
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
     }
 
+    // Phase 3: each parent's own update, already isolated per-parent below —
+    // unchanged by this restructure.
     for (const [parentId, pb] of this.battles) {
       try {
         this.updateOneBattle(pb, dt, finishedParents);
@@ -536,7 +613,31 @@ export class BattleManager {
     for (const sub of pb.subs) {
       if (sub.lifecycle === 'roaming') {
         this.updateRoaming(sub, dt);
-        if (sub.queueEligibleAt !== null && Date.now() >= sub.queueEligibleAt) this.queueForBattle(sub);
+        // Bug B fix (2026-08-29) — re-checks `hasPendingAsyncSubagents`
+        // (hookRouter.ts) rather than firing unconditionally once the floor
+        // elapses: `handleParentDone` already skipped queuing this sub
+        // immediately (it was younger than MIN_ROAM_MS when Stop arrived),
+        // but the counter it read THEN can lag the transcript by up to one
+        // poll interval (~2s) — a Stop firing ~200ms after an async
+        // dispatch can land before the poller has ever seen the launch
+        // line, so `queueEligibleAt` alone would otherwise still fire this
+        // unconditionally and reproduce the exact premature-death race this
+        // whole fix exists to close. `queueEligibleAt` is deliberately left
+        // set (not cleared) when this re-check suppresses — it just retries
+        // every tick until either the count clears (a genuinely synchronous
+        // dispatch, or the poller catches up and this sub concludes on its
+        // own task-notification via `handleEnd` instead) or, in the
+        // pathological case neither ever arrives, the sub simply keeps
+        // roaming (honest degradation, not a wedge — see hookRouter.ts's
+        // `hasPendingAsyncSubagents` and taskNotificationWatcher.ts's header
+        // for the full evidence this is built on).
+        if (
+          sub.queueEligibleAt !== null &&
+          Date.now() >= sub.queueEligibleAt &&
+          !hasPendingAsyncSubagents(pb.parentId)
+        ) {
+          this.queueForBattle(sub);
+        }
       }
       sub.battler.update(dt);
       if (!sub.visibleLogged && !sub.battler.isSpawning) {

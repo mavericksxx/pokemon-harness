@@ -4,7 +4,7 @@ import type { PokemonAnimation } from '../showdownArt';
 import type { TiledMapRenderer } from '../TiledMapRenderer';
 import type { DexEntry } from '../dexData';
 import { findPath } from '../pathfinding';
-import { spawnMoveText } from './battleFx';
+import { purgeBattleFxFor, spawnMoveText } from './battleFx';
 
 const SPEED = 44; // px/sec — matches Walker's SPEED so approach reads the same
 const POOF_IN_MS = 260;
@@ -195,6 +195,13 @@ export class Battler {
   }
 
   destroy(): void {
+    // 2026-08-29 production crash fix (see battleFx.ts's `tickBattleFx` doc
+    // comment for the full root cause): a still-animating FX (e.g. this
+    // battler's own "used Task!" move text, which runs up to 1.4s) is a
+    // CHILD of `this.container` — purge it BEFORE destroying that container,
+    // so its own tick can never run again against an object Pixi has already
+    // nulled out.
+    purgeBattleFxFor(this.container);
     this.sprite.destroy();
     this.container.destroy({ children: true });
   }

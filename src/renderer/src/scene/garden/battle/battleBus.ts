@@ -24,10 +24,15 @@ export type BattleSignal =
    *  per-subagent completion signal available — end the whole battle. */
   | { type: 'endAll'; parentId: string }
   /** The parent session's own turn fully ended (`Stop`, hooks path only) —
-   *  a deterministic proof every subagent it dispatched this turn is done,
-   *  since a `Task` tool call blocks the parent's turn until it genuinely
-   *  completes. See BattleManager.ts's file header and `handleParentDone`
-   *  for why this replaces the old wall-clock completion fallback. */
+   *  proof every subagent it dispatched this turn is done ONLY for a
+   *  SYNCHRONOUS `Task` dispatch (which blocks the parent's turn until it
+   *  genuinely completes). hookRouter.ts gates this signal so it's only ever
+   *  emitted when no async dispatch is known to still be outstanding for
+   *  that parent — see its `Stop` case and taskNotificationWatcher.ts's
+   *  header (Bug B fix, 2026-08-29) for why an unqualified Stop is NOT such
+   *  proof for an async dispatch. See BattleManager.ts's file header and
+   *  `handleParentDone` for why this replaces the old wall-clock completion
+   *  fallback. */
   | { type: 'parentDone'; parentId: string };
 
 type Listener = (signal: BattleSignal) => void;

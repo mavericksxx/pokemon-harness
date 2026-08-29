@@ -112,6 +112,27 @@ const api = {
   registerCostTestPath: (agentId: string, transcriptPath: string): Promise<void> =>
     ipcRenderer.invoke('cost:registerTestPath', agentId, transcriptPath),
 
+  // ─── Bug B fix (2026-08-29) — see taskNotificationWatcher.ts's header ───
+  /** One more async `Task`/`Agent` dispatch outstanding for this parent
+   *  session (its transcript's `toolUseResult.isAsync`) — hookRouter.ts uses
+   *  this to gate `Stop`-driven battle completion. Single global channel,
+   *  same pattern as `onArceusRelayUnresolved` below, since every listener
+   *  needs every parent's events (there's no one owner to scope a per-id
+   *  channel to, unlike `onHookEvent`/`onCostUpdate`). */
+  onAsyncSubagentLaunch: (cb: (agentId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, agentId: string): void => cb(agentId);
+    ipcRenderer.on('battle:asyncLaunch', listener);
+    return () => ipcRenderer.removeListener('battle:asyncLaunch', listener);
+  },
+  /** A real per-subagent completion (the parent transcript's own
+   *  `<task-notification>`), whatever its status — hookRouter.ts forwards
+   *  this into the existing 'end' battle signal. */
+  onSubagentTaskNotification: (cb: (agentId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, agentId: string): void => cb(agentId);
+    ipcRenderer.on('battle:subagentTaskNotification', listener);
+    return () => ipcRenderer.removeListener('battle:subagentTaskNotification', listener);
+  },
+
   getAudioSettings: (): Promise<AudioSettings> => ipcRenderer.invoke('audio:getSettings'),
   saveAudioSettings: (settings: AudioSettings): Promise<void> =>
     ipcRenderer.invoke('audio:saveSettings', settings),
