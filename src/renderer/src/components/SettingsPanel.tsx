@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useAudioStore } from '@/audio/audioStore';
 import { MiniPlayer } from '@/components/MiniPlayer';
@@ -183,15 +183,20 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
         <div className="settings-dialog" onClick={(e) => e.stopPropagation()}>
           <nav className="settings-rail">
             {SECTIONS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={activeSection === s.id ? 'settings-rail-btn active' : 'settings-rail-btn'}
-                aria-current={activeSection === s.id}
-                onClick={() => setActiveSection(s.id)}
-              >
-                {s.label}
-              </button>
+              <Fragment key={s.id}>
+                {/* Separates the app-behavior sections above from the
+                    meta/utility pair below (settings redesign — optional
+                    rail divider per the design brief). */}
+                {s.id === 'about' && <div className="settings-rail-divider" />}
+                <button
+                  type="button"
+                  className={activeSection === s.id ? 'settings-rail-btn active' : 'settings-rail-btn'}
+                  aria-current={activeSection === s.id}
+                  onClick={() => setActiveSection(s.id)}
+                >
+                  {s.label}
+                </button>
+              </Fragment>
             ))}
           </nav>
 
@@ -210,23 +215,28 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
 
             <div className="settings-content-body">
               {activeSection === 'appearance' && (
-                <div className="segmented" role="group" aria-label="theme">
-                  {(['system', 'light', 'dark'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
-                      aria-pressed={appSettings.theme === mode}
-                      onClick={() => setTheme(mode)}
-                    >
-                      {mode}
-                    </button>
-                  ))}
+                <div className="settings-card">
+                  <div className="settings-card-row">
+                    <span className="settings-row-label">theme</span>
+                    <div className="segmented" role="group" aria-label="theme">
+                      {(['system', 'light', 'dark'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
+                          aria-pressed={appSettings.theme === mode}
+                          onClick={() => setTheme(mode)}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
               {activeSection === 'automation' && (
-                <>
+                <div className="settings-card">
                   {AUTO_MODE_PROVIDERS.map((p) => {
                     const on = appSettings.autoModeByProvider[p.id] ?? false;
                     return (
@@ -257,29 +267,33 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       </span>
                     </span>
                   </label>
-                </>
+                </div>
               )}
 
               {activeSection === 'usage' && (
                 <>
-                  <label className="settings-row">
-                    <input
-                      type="checkbox"
-                      checked={appSettings.usageLimitsEnabled}
-                      onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
-                    />
-                    <span className="settings-row-text">
-                      <span className="settings-row-label">show provider usage limits</span>
-                      <span className="settings-row-hint">
-                        reads the credential your CLI already stores to ask its usage endpoint. read-only — never
-                        stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
-                        trigger a one-time macOS permission prompt.
+                  <div className="settings-card">
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.usageLimitsEnabled}
+                        onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">show provider usage limits</span>
+                        <span className="settings-row-hint">
+                          reads the credential your CLI already stores to ask its usage endpoint. read-only — never
+                          stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
+                          trigger a one-time macOS permission prompt.
+                        </span>
                       </span>
-                    </span>
-                  </label>
+                    </label>
+                  </div>
 
-                  <div className={`settings-usage-providers${appSettings.usageLimitsEnabled ? '' : ' is-disabled'}`}>
-                    <p className="settings-row-hint">include in usage metrics</p>
+                  <div
+                    className={`settings-card settings-usage-providers${appSettings.usageLimitsEnabled ? '' : ' is-disabled'}`}
+                  >
+                    <p className="settings-card-label">include in usage metrics</p>
                     {USAGE_PROVIDERS.map((p) => (
                       <label key={p.id} className="settings-usage-provider-row">
                         <input
@@ -296,7 +310,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
               )}
 
               {activeSection === 'harness-home' && (
-                <>
+                <div className="settings-card">
                   <p className="hint">
                     where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
                   </p>
@@ -314,22 +328,22 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                   <p className="hint">
                     changing this only points future writes at the new folder — nothing already on disk moves.
                   </p>
-                </>
+                </div>
               )}
 
               {activeSection === 'arceus' && (
-                <>
+                <div className="settings-card">
                   <p className="hint">
                     onboarded once — after that he&apos;s auto-summoned on every launch, no setup dialog.
                   </p>
                   <button type="button" onClick={() => setResetArceusOpen(true)}>
                     reset arceus…
                   </button>
-                </>
+                </div>
               )}
 
               {activeSection === 'sound' && (
-                <>
+                <div className="settings-card">
                   <label className="audio-row audio-row-master">
                     <input
                       type="checkbox"
@@ -373,11 +387,11 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       disabled={!settings.sfxOn}
                     />
                   </div>
-                </>
+                </div>
               )}
 
               {activeSection === 'terminal' && (
-                <>
+                <div className="settings-card">
                   <div className="audio-row">
                     <span>font size</span>
                     <input
@@ -419,11 +433,11 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       </span>
                     </span>
                   </label>
-                </>
+                </div>
               )}
 
               {activeSection === 'config' && (
-                <>
+                <div className="settings-card">
                   <p className="hint settings-config-note">
                     env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
                   </p>
@@ -435,22 +449,22 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                     <dt>evolve to stage 3</dt>
                     <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
                   </dl>
-                </>
+                </div>
               )}
 
               {activeSection === 'closing-time' && (
-                <>
+                <div className="settings-card">
                   <p className="hint">
                     every session's Pokémon heads for the garden gate and waves out, then the app quits. esc cancels.
                   </p>
                   <button type="button" onClick={() => startClosingTime()}>
                     wrap up &amp; quit <span className="hint">⌘⇧Q</span>
                   </button>
-                </>
+                </div>
               )}
 
               {activeSection === 'about' && (
-                <>
+                <div className="settings-card">
                   <div className="row settings-version-row">
                     <span>pokéharness {appVersion && `v${appVersion}`}</span>
                     <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
@@ -460,11 +474,11 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                   {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
                     <p className="hint">{checkStatus}</p>
                   )}
-                </>
+                </div>
               )}
 
               {activeSection === 'diagnostics' && (
-                <>
+                <div className="settings-card">
                   <p className="hint">local-only — this never leaves your machine.</p>
                   <dl className="settings-config-list">
                     <dt>app version</dt>
@@ -485,7 +499,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       open logs
                     </button>
                   </div>
-                </>
+                </div>
               )}
             </div>
           </div>

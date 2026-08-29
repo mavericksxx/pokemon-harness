@@ -1466,17 +1466,18 @@ button.icon:active {
 }
 
 /* Per-provider usage include/exclude (usage settings section, feedback:
- * "let the user pick which providers to include") — indented under the
- * master toggle's label text (20px, matching `.new-session-auto-mode .hint`'s
- * own indent convention above), dimmed to read as disabled while the master
- * toggle is off even though each checkbox's own `disabled` attribute is what
- * actually blocks interaction. */
+ * "let the user pick which providers to include") — its own `.settings-card`
+ * (settings redesign: usage's "master toggle + provider checkboxes" is the
+ * spec's own example of a section with multiple concerns getting one card
+ * per group) rather than an indented sub-block of the master toggle's row,
+ * so no indent here — the card boundary itself carries that grouping now.
+ * Still dimmed to read as disabled while the master toggle is off, even
+ * though each checkbox's own `disabled` attribute is what actually blocks
+ * interaction. */
 .settings-usage-providers {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
-  padding-left: 20px;
 }
 
 .settings-usage-providers.is-disabled {
@@ -2398,9 +2399,19 @@ button.icon:active {
  * `.modal-backdrop`) naturally paints above this one via DOM order rather
  * than needing its own z-index tier. */
 .settings-dialog {
-  width: 720px;
+  /* 760 - 160 rail - 1 rail border - 36 content-body padding ≈ 563px content
+   * column, landing inside the redesign spec's ~560-640px band (was 720,
+   * leaving only ~524px and no card chrome to fill it — see the settings
+   * redesign pass's own note on why cards+width moved together). */
+  width: 760px;
   max-width: 92vw;
-  height: 520px;
+  /* Sized to the left rail's own intrinsic height (11 rows @ ~29px + gaps +
+   * rail padding ≈ 390px) plus headroom for a typical section's card(s),
+   * not to the tallest section (sound, with its optional MiniPlayer) — that
+   * one already scrolls via `.settings-content-body`'s overflow, same as
+   * before this pass. Was 520px, which is what left the appearance section
+   * looking like "~95% empty dark space" (BACKLOG screenshot feedback). */
+  height: 460px;
   max-height: 86vh;
   display: flex;
   background: var(--panel);
@@ -2424,7 +2435,7 @@ button.icon:active {
 
 .settings-rail-btn {
   text-align: left;
-  padding: 7px 10px;
+  padding: 6px 10px;
   background: none;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -2432,10 +2443,25 @@ button.icon:active {
   font-size: var(--font-body-sm-size);
 }
 
+/* Amber pixel frame for the active rail item (settings redesign) — same
+ * `--accent-text`-bordered "selected" convention as `.topbar-icon-btn`'s
+ * hover ring and `.summon-arceus`, just persistent instead of hover-only.
+ * The transparent border above is the baseline width/geometry so this
+ * never shifts layout when a row becomes active. */
 .settings-rail-btn.active {
   background: var(--bg);
-  border-color: var(--line);
+  border-color: var(--accent-text);
   color: var(--text);
+}
+
+/* Thin separator ahead of the trailing "about" / "diagnostics" pair —
+ * meta/utility rows rather than app settings, same grouping idea as macOS
+ * System Settings' own sidebar dividers. */
+.settings-rail-divider {
+  flex: none;
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--line);
 }
 
 .settings-content {
@@ -2468,6 +2494,64 @@ button.icon:active {
   flex-direction: column;
   gap: 10px;
   padding: 16px 18px;
+}
+
+/* ── Section cards (settings redesign — BACKLOG "settings page could use
+ * such a big UI improvement") ────────────────────────────────────────────
+ * Bordered pixel panel matching the app's other IN-PANEL groupings (`.chip`,
+ * `.segmented`, `.view-switcher`) — panel-2 fill, hairline border, small
+ * radius — rather than the FLOATING-popover treatment (`.audio-popover-panel`
+ * etc: same fill+border but `--radius-lg` + `--shadow-hard`). These cards
+ * live inside an already-shadowed modal, so no shadow of their own. */
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+/* The card's own `gap` owns the vertical rhythm between rows — `.settings-row`
+ * still keeps its `border-bottom` as a divider (and its `:last-child` reset),
+ * but its `margin-bottom` would otherwise stack on top of the card's gap for
+ * a 27px gap instead of a clean 10px. Same reasoning for the usage-providers
+ * group's tighter 6px checkbox-row rhythm, which `.settings-card`'s 10px
+ * would otherwise win via source order (equal specificity) once that block
+ * also carries the `.settings-card` class. */
+.settings-card .settings-row {
+  margin-bottom: 0;
+}
+
+.settings-card.settings-usage-providers {
+  gap: 6px;
+}
+
+/* Small pixel-caps label heading a group within a section that has more
+ * than one concern (usage: master toggle card + this card's per-provider
+ * list) — same treatment as `.usage-provider-head`, one step down from the
+ * section's own `.settings-content-head h2`. */
+.settings-card-label {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
+  color: var(--muted);
+}
+
+/* Label + control on one row (e.g. appearance's theme picker) — a ROW flex
+ * container, unlike `.settings-content-body`'s column: an `inline-flex`
+ * control like `.segmented` blockifies to `flex` as a flex item and stretches
+ * to fill a column container's cross axis, which is exactly what made the
+ * theme picker read as "stretched nearly full-width" in the old flat layout.
+ * A row container's main axis doesn't stretch children without flex-grow, so
+ * the control keeps its natural width here. */
+.settings-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
 }
 
 .settings-config-note {
