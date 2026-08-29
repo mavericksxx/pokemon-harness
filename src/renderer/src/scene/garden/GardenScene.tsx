@@ -5,6 +5,7 @@ import { Application, Container } from 'pixi.js';
 // no-eval path; it must be imported before an Application is created.
 import 'pixi.js/unsafe-eval';
 import { TiledMapRenderer, type TiledMap } from './TiledMapRenderer';
+import { buildMapBorder, DEFAULT_GARDEN_BORDER } from './mapBorder';
 import { Camera } from './Camera';
 import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
@@ -133,7 +134,24 @@ export function GardenScene(): JSX.Element {
       app.stage.addChild(world);
 
       const map = new TiledMapRenderer(gardenMap, tilesets);
-      world.addChild(map.getContainer());
+
+      // Themed border ring (Backlog: "themed borders") — drawn unshifted, at
+      // local (0, 0), spanning `border.thickness` tiles wider than the map
+      // on every side; `content` below (the map's own container plus the
+      // evolution overlay layers, everything already in the map's own
+      // tile-index-derived coordinate space) is offset by exactly that
+      // thickness so its content lands INSIDE the ring instead of under it.
+      // Nothing about TiledMapRenderer's own tile-index space (walkability,
+      // spawn points, zones, pathfinding) changes — this is presentation
+      // only, entirely outside that space.
+      const border = buildMapBorder(gardenMap, tilesets, DEFAULT_GARDEN_BORDER);
+      world.addChild(border);
+      const borderPx = DEFAULT_GARDEN_BORDER.thickness * map.tileSize;
+      const content = new Container();
+      content.position.set(borderPx, borderPx);
+      world.addChild(content);
+
+      content.addChild(map.getContainer());
       const charLayer = map.getCharacterContainer();
       // Evolution ceremony layers, in the same (map) coordinate space as
       // charLayer and stacked above it, in this order: evolutionDimLayer
@@ -144,17 +162,25 @@ export function GardenScene(): JSX.Element {
       // be visually crushed by another's still-active dim (see
       // EvolutionCeremony.ts); evolutionCeremonyLayer, above both, is where a
       // ceremony reparents its own walker for the duration, so it stays lit.
+      // All three are children of `content` (not `world` directly) so the
+      // border offset above applies to them too — otherwise their dim/flash
+      // overlays (sized off the map's own untranslated pixel dimensions,
+      // see EvolutionCeremony.ts's `mapWidthPx`/`mapHeightPx`) would drift
+      // out of alignment with the walkers they're meant to cover.
       const evolutionDimLayer = new Container();
       const evolutionFlashLayer = new Container();
       const evolutionCeremonyLayer = new Container();
-      world.addChild(evolutionDimLayer, evolutionFlashLayer, evolutionCeremonyLayer);
+      content.addChild(evolutionDimLayer, evolutionFlashLayer, evolutionCeremonyLayer);
       console.log(
         `[garden] map ${map.width}x${map.height} tiles, ${map.tileSpriteCount} tile sprites, ` +
           `${map.getAllSpawnPoints().size} spawn points, ${map.getAllZones().size} zones`
       );
 
       const camera = new Camera(world);
-      camera.setMapSize(map.width * map.tileSize, map.height * map.tileSize);
+      camera.setMapSize(
+        (map.width + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize,
+        (map.height + DEFAULT_GARDEN_BORDER.thickness * 2) * map.tileSize
+      );
 
       // The canvas/camera's ONE source of truth for "how big is the pane
       // right now" — re-measures `host.clientWidth/Height` fresh rather
@@ -713,7 +739,12 @@ export function GardenScene(): JSX.Element {
 
         const selectedId = useStore.getState().selectedId;
         const focus = selectedId ? runtimes.get(selectedId) : undefined;
-        if (focus) camera.focusOn(focus.walker.worldX, focus.walker.worldY - 12, 2.4);
+        // `walker.worldX/worldY` are local to `content` (the map's own
+        // untranslated coordinate space) — `camera` positions `world`
+        // itself, so a focus target needs the same `borderPx` offset
+        // `content` was given above to land on the walker's actual on-
+        // screen position instead of drifting by one border thickness.
+        if (focus) camera.focusOn(focus.walker.worldX + borderPx, focus.walker.worldY - 12 + borderPx, 2.4);
         else camera.fitToScreen();
         camera.update();
       });

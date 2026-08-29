@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
+import { ArceusRosterCard } from '@/components/ArceusRosterCard';
 
 interface Props {
   onNewSession(): void;
@@ -19,8 +20,11 @@ interface Props {
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7) — a session in
  * another workspace has no card here until you switch to it. Arceus is
  * global (`useActiveWorkspaceSessions` includes him regardless of which
- * workspace is active) but excluded here: his topbar chip (SummonArceusButton)
- * is his one home now, so he never gets a roster card.
+ * workspace is active) and filtered out of the ordinary `sessions` list
+ * below (he isn't a plain session card, and his live/dead session lifecycle
+ * shouldn't gate his presence here) — instead he gets his own permanent,
+ * gold-framed `ArceusRosterCard`, pinned first, rendered unconditionally so
+ * he's always here, even in a workspace with no sessions at all.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -30,6 +34,7 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
 
   return (
     <div className="roster-strip">
+      <ArceusRosterCard />
       {sessions.map((s) => (
         <AgentRosterCard key={s.id} session={s} selected={s.id === selectedId} onSelect={select} />
       ))}
