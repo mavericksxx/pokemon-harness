@@ -18,6 +18,16 @@ interface Props {
    *  RosterStrip/FocusSidebar don't pass one; omitting it changes nothing
    *  for them. */
   onNavigate?: () => void;
+  /** Garden-split roster-strip rework, same size/variant idea as
+   *  AgentRosterCard.tsx's own prop — FocusSidebar/SessionsOverview never
+   *  pass this (default 'full', unchanged). RosterStrip.tsx always passes
+   *  'compact': sprite, task-label (or species) title, a "↳ parent" line,
+   *  and a sliver — no working dot (a battler has exactly one status, so a
+   *  dot would be pure noise at this size) and no inline elapsed time (moved
+   *  into the button's own `title` tooltip instead, see below). A subagent
+   *  never expands to 'medium' — it isn't independently selectable, clicking
+   *  it selects its PARENT (see `onClick` below). */
+  variant?: 'full' | 'compact';
 }
 
 /** Elapsed time since spawn, rounded to whole minutes ("<1m"/"3m"/"1h 4m") —
@@ -62,7 +72,7 @@ function formatElapsed(ms: number): string {
  *  layout instead of reading species-first like a session of its own. Falls
  *  back to species-as-title (this card's original layout) for the
  *  regex-fallback path, where no label exists. */
-export function SubagentRosterCard({ battler, parent, onNavigate }: Props): JSX.Element {
+export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'full' }: Props): JSX.Element {
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
@@ -90,40 +100,69 @@ export function SubagentRosterCard({ battler, parent, onNavigate }: Props): JSX.
   const speciesName = (speciesEntry(battler.species)?.name ?? battler.species).toLowerCase();
   const label = battler.label;
 
+  const elapsedText = `running ${formatElapsed(now - battler.spawnedAt)}`;
+  const baseTitle = label
+    ? `${label} — ${speciesName}, subagent of ${parent.title}`
+    : `${speciesName} — subagent of ${parent.title}`;
+
   return (
     <div className="roster-card-wrap">
       <button
         type="button"
-        className="roster-card roster-card-subagent"
+        className={variant === 'compact' ? 'roster-card roster-card-subagent roster-card-compact' : 'roster-card roster-card-subagent'}
         onClick={onClick}
-        title={
-          label
-            ? `${label} — ${speciesName}, subagent of ${parent.title}`
-            : `${speciesName} — subagent of ${parent.title}`
-        }
+        // Compact strip card drops the visible "alive — running Xm" line
+        // (item 5, garden-split rework: "keep the elapsed-time info as a
+        // title-attribute tooltip if it doesn't fit visibly without
+        // cramming") — folded into the tooltip instead so it's still one
+        // hover away.
+        title={variant === 'compact' ? `${baseTitle} — ${elapsedText}` : baseTitle}
       >
-        <div className="roster-card-top">
-          <span className="roster-card-face">
-            <PokemonFace name={battler.species} box={32} />
-          </span>
-          <span className="roster-card-id">
-            {/* Session-card parity (item 7) — title line is the real name
-                when one exists (the spawning Task's own description), species
-                and parent folded into the second line together; falls back
-                to the original species-as-title layout when it doesn't. */}
-            <span className="roster-card-name">{label || speciesName}</span>
-            <span className="roster-card-species">
-              {label ? `${speciesName} · ↳ ${parent.title}` : `↳ ${parent.title} · subagent`}
-            </span>
-          </span>
-          {/* Reusing `.summon-arceus-dot` — the same standalone status-color
-              dot ArceusRosterCard's topbar chip uses, not a copy/paste of the
-              wrong class: a battler has exactly one status worth showing
-              ("alive"), so it's hardcoded to the 'working' color rather than
-              tracking `session.status`'s full state machine. */}
-          <span className="summon-arceus-dot working" aria-hidden="true" />
-        </div>
-        <div className="roster-card-tool">alive — running {formatElapsed(now - battler.spawnedAt)}</div>
+        {variant === 'compact' ? (
+          <>
+            <div className="roster-card-top-compact">
+              <span className="roster-card-face">
+                <PokemonFace name={battler.species} box={18} />
+              </span>
+              <span className="roster-card-title-compact">{label || speciesName}</span>
+            </div>
+            <div className="roster-card-parent-compact">↳ {parent.title}</div>
+            {/* No real per-subagent telemetry exists to fill this (see the
+                header comment above) — a full, steady 'working'-toned sliver
+                is purely decorative here, matching the compact ordinary/
+                Arceus cards' silhouette (sprite/title row + sliver) so the
+                strip reads as one consistent row shape rather than singling
+                this card out with a shorter box. */}
+            <div className="hp-bar roster-card-ctx-sliver">
+              <div className="hp-bar-fill" style={{ width: '100%' }} />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="roster-card-top">
+              <span className="roster-card-face">
+                <PokemonFace name={battler.species} box={32} />
+              </span>
+              <span className="roster-card-id">
+                {/* Session-card parity (item 7) — title line is the real name
+                    when one exists (the spawning Task's own description), species
+                    and parent folded into the second line together; falls back
+                    to the original species-as-title layout when it doesn't. */}
+                <span className="roster-card-name">{label || speciesName}</span>
+                <span className="roster-card-species">
+                  {label ? `${speciesName} · ↳ ${parent.title}` : `↳ ${parent.title} · subagent`}
+                </span>
+              </span>
+              {/* Reusing `.summon-arceus-dot` — the same standalone status-color
+                  dot ArceusRosterCard's topbar chip uses, not a copy/paste of the
+                  wrong class: a battler has exactly one status worth showing
+                  ("alive"), so it's hardcoded to the 'working' color rather than
+                  tracking `session.status`'s full state machine. */}
+              <span className="summon-arceus-dot working" aria-hidden="true" />
+            </div>
+            <div className="roster-card-tool">alive — {elapsedText}</div>
+          </>
+        )}
       </button>
     </div>
   );

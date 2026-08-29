@@ -113,15 +113,31 @@ export function App(): JSX.Element {
 
   // Garden stays mounted across every mode (Pixi teardown/rebuild is
   // expensive and would drop the running simulation) — only its layout
-  // visibility changes. `display: contents` when shown so it still
-  // participates in `.body-row`'s flex layout as if this wrapper weren't
-  // there.
+  // visibility changes. Garden-split rework: the wrapper is now `.garden-
+  // column`, a real flex column (garden pane on top, roster strip directly
+  // under it — 'terminal' mode never has a strip, so it's just the garden
+  // pane alone there, same as before) instead of `display: contents` — it
+  // has to be a real box now so it can host both children stacked. Toggling
+  // its OWN `display` (flex when shown, none when hidden) still keeps
+  // GardenScene at the same position in the tree across every mode switch,
+  // so it's never unmounted/remounted by this.
   const gardenVisible = viewMode === 'garden' || viewMode === 'gardenFull';
   // Bottom roster strip (parity sweep item 5) — 'garden' only now. 'terminal'
   // got its own left sidebar instead (Munder Difflin restyle, FocusSidebar,
   // rendered in body-row below); 'gardenFull' keeps the previous topbar
   // chips + "+ new agent" button, unchanged: full-bleed garden has no room
   // for a strip without shrinking the thing it's meant to be full-bleed.
+  //
+  // Garden-split rework: moving the strip INSIDE `.garden-column` (rather
+  // than below `.body-row` as a sibling) is what makes the terminal drawer
+  // full-height for free — `.body` now has just one child (`.body-row`), so
+  // `.body-row` claims its ENTIRE height, and `.drawer`/`.focus-sidebar`
+  // (ordinary row-flex children of `.body-row`, no explicit height of their
+  // own) stretch to match via that row's default `align-items: stretch` —
+  // no manual height math anywhere. Same reasoning covers "terminal hidden →
+  // garden + strip take the full width": with no drawer/handle/edge-tab
+  // mounted, `.garden-column` is `.body-row`'s only child and its own
+  // `flex: 1` already fills the row.
   const showRosterStrip = viewMode === 'garden';
   const showFocusSidebar = viewMode === 'terminal';
   // Topbar chips are hidden whenever a view mode has its own roster UI —
@@ -206,8 +222,9 @@ export function App(): JSX.Element {
 
       <main className="body">
         <div className="body-row">
-          <div style={{ display: gardenVisible ? 'contents' : 'none' }}>
+          <div className="garden-column" style={{ display: gardenVisible ? 'flex' : 'none' }}>
             <GardenScene />
+            {showRosterStrip && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
           </div>
           {/* Draggable garden/terminal divider — 'garden' view mode's
               side-by-side layout only ('terminal'/'gardenFull' have no
@@ -222,7 +239,6 @@ export function App(): JSX.Element {
           {showFocusSidebar && <FocusSidebar onNewSession={() => setDialogOpen(true)} />}
           <TerminalDrawer />
         </div>
-        {showRosterStrip && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
       </main>
 
       {dialogOpen && <NewSessionDialog onClose={() => setDialogOpen(false)} />}

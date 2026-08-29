@@ -12,11 +12,10 @@ interface Props {
 /**
  * Bottom session strip (parity sweep item 5) — a horizontal-scroll row of
  * roster cards replacing the old top-chrome session chips + left sidebar,
- * used in 'garden' and 'terminal' view modes (App.tsx decides which; the two
- * "Full" modes keep the previous topbar chips instead — see App.tsx's own
- * comment for why). "+ new agent" sits at the strip's end, not in the top
- * bar. The cards themselves are unchanged (AgentRosterCard) — this is
- * placement/orientation only.
+ * used in 'garden' view mode only ('terminal' has its own vertical sidebar
+ * instead, FocusSidebar.tsx; the two "Full" modes keep the previous topbar
+ * chips — see App.tsx's own comment for why). "+ new agent" sits at the
+ * strip's end, not in the top bar.
  *
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7) — a session in
  * another workspace has no card here until you switch to it. Arceus is
@@ -26,6 +25,17 @@ interface Props {
  * shouldn't gate his presence here) — instead he gets his own permanent,
  * gold-framed `ArceusRosterCard`, pinned first, rendered unconditionally so
  * he's always here, even in a workspace with no sessions at all.
+ *
+ * Garden-split roster-strip rework — cards are compact by default; the
+ * currently SELECTED ordinary session's card expands to 'medium' (the
+ * approved hybrid card, see AgentRosterCard.tsx's own doc comment). Arceus
+ * and subagents never expand — Arceus's card has no extra rows to show even
+ * at full size (see ArceusRosterCard.tsx), and a subagent isn't
+ * independently selectable (clicking one selects its parent instead). The
+ * strip itself is now wrapped in `.roster-strip-wrap`, a non-scrolling
+ * positioning context for the right-edge fade overlay (`.roster-strip-fade`)
+ * that has to sit OUTSIDE the actual `overflow-x: auto` scroller below so it
+ * stays pinned to the edge instead of scrolling away with the cards.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -35,24 +45,32 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const battlers = useStore((s) => s.battlers);
 
   return (
-    <div className="roster-strip">
-      <ArceusRosterCard />
-      {sessions.map((s) => (
-        <Fragment key={s.id}>
-          <AgentRosterCard session={s} selected={s.id === selectedId} onSelect={select} />
-          {/* Subagent roster presence (Phase 4 Part B follow-up) — every live
-              battler this session spawned gets its own card, immediately
-              after its parent's, so it reads as belonging to it. */}
-          {battlers
-            .filter((b) => b.parentId === s.id)
-            .map((b) => (
-              <SubagentRosterCard key={b.key} battler={b} parent={s} />
-            ))}
-        </Fragment>
-      ))}
-      <button type="button" className="roster-strip-new" onClick={onNewSession}>
-        + new agent
-      </button>
+    <div className="roster-strip-wrap">
+      <div className="roster-strip">
+        <ArceusRosterCard />
+        {sessions.map((s) => (
+          <Fragment key={s.id}>
+            <AgentRosterCard
+              session={s}
+              selected={s.id === selectedId}
+              onSelect={select}
+              variant={s.id === selectedId ? 'medium' : 'compact'}
+            />
+            {/* Subagent roster presence (Phase 4 Part B follow-up) — every live
+                battler this session spawned gets its own card, immediately
+                after its parent's, so it reads as belonging to it. */}
+            {battlers
+              .filter((b) => b.parentId === s.id)
+              .map((b) => (
+                <SubagentRosterCard key={b.key} battler={b} parent={s} variant="compact" />
+              ))}
+          </Fragment>
+        ))}
+        <button type="button" className="roster-strip-new" onClick={onNewSession}>
+          + new agent
+        </button>
+      </div>
+      <div className="roster-strip-fade" aria-hidden="true" />
     </div>
   );
 }
