@@ -92,6 +92,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
+  const setShellFallbackEnabled = useAppSettingsStore((s) => s.setShellFallbackEnabled);
   const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
   const setUsageProviderEnabled = useAppSettingsStore((s) => s.setUsageProviderEnabled);
   const setMainUsageProvider = useAppSettingsStore((s) => s.setMainUsageProvider);
@@ -461,6 +462,20 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                         hides your claude code statusline in pokéharness terminals only — other terminals keep it.
                         also hides claude's footer hints (esc to interrupt, ? for shortcuts). applies to newly
                         started sessions.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.shellFallbackEnabled}
+                      onChange={(e) => setShellFallbackEnabled(e.target.checked)}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">drop to shell when a session exits</span>
+                      <span className="settings-row-hint">
+                        when a session's CLI process exits on its own, keep the tab open as a live shell instead of a
+                        dead terminal — same as closing a program in a real terminal. arceus is excluded either way.
                       </span>
                     </span>
                   </label>

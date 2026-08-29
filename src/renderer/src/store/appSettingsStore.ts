@@ -29,6 +29,10 @@ interface AppSettingsState {
   setAutoMode(provider: AgentProviderId, enabled: boolean): void;
   setKeepAwake(v: boolean): void;
 setHideClaudeStatusline(v: boolean): void;
+  /** BUG/UX fix opt-out — same persist-immediately pattern as every other
+   *  setter here; main's `appSettings:saveSettings` handler reaches
+   *  pty.ts's `setShellFallbackEnabled` off this value. */
+  setShellFallbackEnabled(v: boolean): void;
   /** In-app provider usage-limits panel (BACKLOG "next up" item 1) — opt-in
    *  toggle, off by default. Persisted the same way every other field here
    *  is; main's `appSettings:saveSettings` handler is what actually starts/
@@ -105,6 +109,12 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
 
 setHideClaudeStatusline: (v) => {
     const settings = { ...get().settings, hideClaudeStatusline: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setShellFallbackEnabled: (v) => {
+    const settings = { ...get().settings, shellFallbackEnabled: v };
     set({ settings });
     persist(settings);
   },

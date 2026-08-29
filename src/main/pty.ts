@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
+import { ARCEUS_SESSION_ID } from '../shared/arceus';
 import type { PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
@@ -41,11 +42,24 @@ interface PtySession {
   lastOutputAt: number;
   /** Last REPLAY_MAX_CHARS of this PTY's output. */
   replay: string;
+  /** Full env this process was launched with — kept so a fallback shell (see
+   *  `spawnFallbackShell`) can be spawned with the exact same env the CLI
+   *  had, hook stamps (AGENT_ID_ENV/HOOK_SOCK_ENV) included. */
+  env: Record<string, string>;
+  /** True only for the shell `spawnFallbackShell` itself spawned — the
+   *  fallback-on-exit check in `onExit` reads this so a fallback shell's own
+   *  exit shows the plain dead state instead of chaining another fallback. */
+  isFallback: boolean;
 }
 
 export class PtyManager {
   private sessions = new Map<string, PtySession>();
   private webContents: WebContents | null = null;
+  /** BUG/UX fix — whether a naturally-exited session's pty respawns the
+   *  user's shell instead of leaving the tab dead. Set from
+   *  `appSettings.shellFallbackEnabled` at boot and on every settings save
+   *  (main/index.ts), mirroring HookBridge.setHideStatusline. Default true. */
+  private shellFallbackEnabled = true;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -81,6 +95,14 @@ export class PtyManager {
     return resolveCommand(command).found;
   }
 
+  /** Set from `appSettings.shellFallbackEnabled` at boot and on every
+   *  settings save (main/index.ts) — read the next time any session's pty
+   *  exits naturally, so flipping it off never kills a fallback shell
+   *  already running. */
+  setShellFallbackEnabled(enabled: boolean): void {
+    this.shellFallbackEnabled = enabled;
+  }
+
   spawn(opts: SpawnPtyOptions): PtyResult {
     const cwd = expandTilde(opts.cwd);
     if (!existsSync(cwd)) {
@@ -113,20 +135,22 @@ export class PtyManager {
       hookEnv = { [AGENT_ID_ENV]: opts.id, [HOOK_SOCK_ENV]: this.hookBridge.sockPath };
     }
 
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      PATH: userShellPath(),
+      TERM: 'xterm-256color',
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      ...(opts.env ?? {}),
+      ...hookEnv
+    };
+
     try {
       const proc = pty.spawn(file, args, {
         name: 'xterm-256color',
         cols: opts.cols ?? 100,
         rows: opts.rows ?? 30,
         cwd,
-        env: {
-          ...(process.env as Record<string, string>),
-          PATH: userShellPath(),
-          TERM: 'xterm-256color',
-          LANG: process.env.LANG || 'en_US.UTF-8',
-          ...(opts.env ?? {}),
-          ...hookEnv
-        }
+        env
       });
 
       // Capture THIS session so the proc's callbacks can tell whether the id
@@ -139,7 +163,9 @@ export class PtyManager {
         cwd,
         command: file,
         lastOutputAt: Date.now(),
-        replay: ''
+        replay: '',
+        env,
+        isFallback: false
       };
       this.sessions.set(opts.id, session);
       this.onSessionsChanged?.();
@@ -158,7 +184,29 @@ export class PtyManager {
         }
         this.sessions.delete(opts.id);
         this.onSessionsChanged?.();
-        this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal });
+
+        // BUG/UX fix — a real terminal drops you to a shell when the
+        // foreground process exits; this app used to just leave the tab
+        // dead. Respawn the user's shell under the SAME id so it stays a
+        // live, usable terminal. Skipped for: Arceus (his own resume/
+        // re-summon flow — arceus.ts's `tryResumeArceus`/`autoSummonArceus`
+        // — owns his pty lifecycle and treats a dead pty as ITS cue to act;
+        // a shell riding along under his id would fight that, and his
+        // resume always spawns a brand-new pty anyway via spawn()'s
+        // reused-id kill, so nothing is lost by excluding him), a fallback
+        // shell's OWN exit (`session.isFallback` — no chained respawn
+        // loop), and the opt-out setting. Computed BEFORE the `pty:exit`
+        // send below (not after spawning) so the renderer's `PtyExit.fallback`
+        // flag is set in the SAME message as the exit notice — see that
+        // field's own comment on why: its regex tool-call parser must stop
+        // reading this channel before the fallback shell's first byte, not
+        // after.
+        const willFallback = this.shellFallbackEnabled && opts.id !== ARCEUS_SESSION_ID && !session.isFallback;
+        this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal, fallback: willFallback });
+
+        if (willFallback) {
+          this.spawnFallbackShell(opts.id, session.cwd, session.env);
+        }
       });
 
       return { ok: true, cwd };
@@ -169,6 +217,94 @@ export class PtyManager {
         message: e instanceof Error ? e.message : String(e)
       });
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /** Spawns the user's interactive shell under `id`, in `cwd`, with `env` —
+   *  called only from a natural (non-deliberate) pty exit, see `spawn()`'s
+   *  onExit above. Deliberate teardown (kill()/spawn() reusing a live id,
+   *  killAll() on quit) never reaches this: each of those removes the
+   *  session from `this.sessions` BEFORE the child actually dies, so the
+   *  identity guard at the top of the ORIGINAL process's onExit —
+   *  `this.sessions.get(id) !== session` — already returns early and this
+   *  is never called for them.
+   *
+   *  `env` is the exact env the previous process had, hook stamps included
+   *  (AGENT_ID_ENV/HOOK_SOCK_ENV — see pty.ts's spawn()). That keeps a
+   *  manually-relaunched `claude --settings <path>` routing hooks back to
+   *  this session id: the per-session settings file HookBridge.prepareSession
+   *  wrote survives a natural exit (only kill()'s cleanupSession call removes
+   *  it) and still names a valid socket/agent id. A BARE `claude` with no
+   *  flags, though, will NOT get hooks wired — Claude Code only loads hooks
+   *  from an explicit `--settings <path>` or its own global/project
+   *  settings.json, never from env vars alone, and this app's per-session
+   *  file lives at a throwaway temp path the CLI never auto-discovers. Env
+   *  alone is necessary but not sufficient; this is as far as "cosmetic
+   *  fallback terminal" scope goes without also printing/aliasing that path,
+   *  which the task's exact dim-line copy doesn't ask for. */
+  private spawnFallbackShell(id: string, cwd: string, env: Record<string, string>): void {
+    const shellCommand = process.env.SHELL || '/bin/zsh';
+    const { path: file, found } = resolveCommand(shellCommand);
+    if (!found) {
+      log('pty', 'warn', 'shell fallback: shell not found on PATH', { id, shell: shellCommand });
+      return;
+    }
+
+    try {
+      const proc = pty.spawn(file, [], {
+        name: 'xterm-256color',
+        cols: 100,
+        rows: 30,
+        cwd,
+        env
+      });
+
+      // Dim, terse note (matches the app's own exit-notice styling in
+      // terminalRegistry.ts) between the exit notice already sent above and
+      // this shell's own first prompt bytes, which haven't arrived yet.
+      // Seeded into `replay` (not just sent live) so a renderer crash/reload
+      // while the fallback shell is up still backfills this line, same as
+      // any other byte on this channel — see `getReplay`.
+      const notice = '\r\n\x1b[90mdropped to shell — relaunch your agent or keep working\x1b[0m\r\n';
+
+      const session: PtySession = {
+        id,
+        proc,
+        cwd,
+        command: file,
+        lastOutputAt: Date.now(),
+        replay: notice,
+        env,
+        isFallback: true
+      };
+      this.sessions.set(id, session);
+      this.onSessionsChanged?.();
+
+      this.safeSend(`pty:data:${id}`, notice);
+
+      proc.onData((data) => {
+        if (this.sessions.get(id) !== session) return;
+        session.lastOutputAt = Date.now();
+        session.replay = (session.replay + data).slice(-REPLAY_MAX_CHARS);
+        this.safeSend(`pty:data:${id}`, data);
+      });
+
+      proc.onExit(({ exitCode, signal }) => {
+        // Deliberate teardown (kill()/spawn() reuse) already removed this
+        // session before the child died — same identity guard as spawn()'s
+        // own onExit. No fallback-of-a-fallback: `session.isFallback` above
+        // is what stops spawn()'s onExit from ever reaching here for THIS
+        // shell's own exit — this handler is a dead end on purpose.
+        if (this.sessions.get(id) !== session) return;
+        this.sessions.delete(id);
+        this.onSessionsChanged?.();
+        this.safeSend(`pty:exit:${id}`, { exitCode, signal });
+      });
+    } catch (e) {
+      log('pty', 'warn', 'shell fallback: spawn threw', {
+        id,
+        message: e instanceof Error ? e.message : String(e)
+      });
     }
   }
 

@@ -41,6 +41,13 @@ export interface AppSettings {
    *  statusline exactly as it would outside this app. Applies on next
    *  session spawn only; live ptys keep whatever they launched with. */
   hideClaudeStatusline: boolean;
+  /** BUG/UX fix — when a session's CLI process exits on its own (crash,
+   *  `/exit`, ctrl+C), respawn the user's shell in the same tab instead of
+   *  leaving it dead (see main/pty.ts's `spawnFallbackShell`). Default ON:
+   *  a real terminal always drops you to a shell, this just matches that.
+   *  Excludes Arceus (his own resume/re-summon flow owns his pty lifecycle)
+   *  regardless of this setting. */
+  shellFallbackEnabled: boolean;
   /** In-app provider usage-limits panel (BACKLOG "next up" item 1) — opt-in,
    *  OFF by default. Only while true does main/usageService.ts read the
    *  CLI's own stored credential and call its usage endpoint; flipping this
@@ -88,6 +95,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   recentFolders: [],
   harnessHomeDir: null,
 hideClaudeStatusline: false,
+  shellFallbackEnabled: true,
   usageLimitsEnabled: false,
   usageExcludedProviders: [],
   mainUsageProvider: 'auto',

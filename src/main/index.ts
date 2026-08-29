@@ -733,6 +733,7 @@ app.whenReady().then(async () => {
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
 hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
+  ptyManager.setShellFallbackEnabled(appSettings.shellFallbackEnabled);
   // Per-provider include/exclude BEFORE the master toggle: setEnabled(true)
   // below can trigger an immediate poll, and that poll's `includedProviders`
   // check needs to already reflect this setting, not the all-included
@@ -932,6 +933,7 @@ handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
   keepAwakeEnabled = settings.keepAwake;
   syncKeepAwake();
 hookBridge.setHideStatusline(settings.hideClaudeStatusline);
+  ptyManager.setShellFallbackEnabled(settings.shellFallbackEnabled);
   // Usage-limits toggle (BACKLOG "next up" item 1) — the ONLY place a save
   // reaches usageService, so flipping it off here is what makes "toggle off
   // = zero credential access" true the instant the user unchecks it, not

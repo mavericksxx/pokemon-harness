@@ -26,6 +26,14 @@ export interface PtyResult {
 export interface PtyExit {
   exitCode: number;
   signal?: number;
+  /** True when main is about to (or already did) respawn this id's pty as a
+   *  plain fallback shell (see main/pty.ts's `spawnFallbackShell`) instead of
+   *  leaving it dead. terminalRegistry.ts uses this to drop the session's
+   *  tool-call regex parser permanently — the fallback shell's raw output
+   *  rides the same `pty:data:<id>` channel, and that parser scraping
+   *  arbitrary shell text could spawn a battle or flip status on a stray
+   *  match, which a fallback shell must never do. */
+  fallback?: boolean;
 }
 
 export interface PtyInfo {

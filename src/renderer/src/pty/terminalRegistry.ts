@@ -200,7 +200,10 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
   // xterm needs a laid-out parent to measure against, so open() happens on
   // attach(); until then the terminal buffers writes internally.
 
-  const parser = provider === 'shell' ? null : createPtyParser(sessionId);
+  // `let`, not `const`: a BUG/UX-fix fallback shell (PtyExit.fallback, below)
+  // drops this to null so `offData` stops feeding it — see that branch's own
+  // comment for why.
+  let parser = provider === 'shell' ? null : createPtyParser(sessionId);
   if (provider === 'shell') {
     shellLastActivity.set(sessionId, Date.now());
     ensureShellNapWatch();
@@ -212,8 +215,22 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     if (provider === 'shell') shellLastActivity.set(sessionId, Date.now());
   });
 
-  const offExit = window.api.onPtyExit(sessionId, ({ exitCode }) => {
+  const offExit = window.api.onPtyExit(sessionId, ({ exitCode, fallback }) => {
     parser?.dispose();
+    if (fallback) {
+      // main is replacing this pty with a plain fallback shell (BUG/UX fix
+      // — see PtyExit.fallback's own comment) riding the SAME `pty:data:<id>`
+      // channel `offData` above reads. `dispose()` above already cleared
+      // this session's hook-authority tracking (hookRouter.ts's
+      // clearHookAuthority), so without nulling the reference here the very
+      // next byte from that shell would fall through to full regex scraping
+      // — the exact hazard the `provider === 'shell'` branch above exists to
+      // avoid for a plain-shell session from birth (see `Entry.parser`'s own
+      // comment). Once dropped it stays dropped: nothing in this app resumes
+      // a 'done' session's CLI in place, so there's no path that would need
+      // a parser back.
+      parser = null;
+    }
     term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
     useStore.getState().updateSession(sessionId, {
       status: 'done',
