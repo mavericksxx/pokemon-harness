@@ -407,9 +407,8 @@ export function GardenScene(): JSX.Element {
 
       // Drag-to-pan: a press that starts on empty ground (see the `world`
       // hit-testing comment above) either pans the camera (moved past
-      // DRAG_THRESHOLD_PX) or, on release with no real movement, deselects
-      // — the same click that would otherwise do nothing now doubles as
-      // "look at the whole map". Coordinates are tracked in canvas-space
+      // DRAG_THRESHOLD_PX) or, on release with no real movement, performs
+      // the view-mode-specific background-click action. Coordinates are tracked in canvas-space
       // (CSS px, matching `camera`'s viewWidth/viewHeight) throughout: the
       // drag start comes from Pixi's `event.global` (already canvas-space),
       // continued tracking uses native `pointermove`/`pointerup` on
@@ -475,15 +474,20 @@ export function GardenScene(): JSX.Element {
 
       const endDrag = (e: PointerEvent): void => {
         // Only a completed left-button press-then-release with no real
-        // movement counts as the "click empty ground to deselect" gesture —
-        // a right-click release (which never started a drag: `button !== 0`
-        // short-circuits onWorldPointerDown above) must not deselect either.
+        // movement counts as the empty-ground click gesture. In split view it
+        // enters fullscreen without changing selection; in fullscreen it
+        // deselects and restores free-look. A right-click release (which never
+        // started a drag) must not trigger either action.
         if (dragState && !dragState.moved && e.button === 0) {
-          // Breaks follow into free-look too, same as a real pan, so the
-          // whole-map view this lands on via `fitToScreen` isn't
-          // immediately re-overridden.
-          camera.setFreeLook(false);
-          useStore.getState().select(null);
+          const { viewMode } = useStore.getState();
+          if (viewMode === 'garden') {
+            useStore.getState().setViewMode('gardenFull');
+          } else if (viewMode === 'gardenFull') {
+            // Breaks follow into free-look so the whole-map view isn't
+            // immediately re-overridden by the selected-session camera.
+            camera.setFreeLook(false);
+            useStore.getState().select(null);
+          }
         }
         dragState = null;
       };
@@ -737,7 +741,17 @@ export function GardenScene(): JSX.Element {
           dimLayer: evolutionDimLayer,
           flashLayer: evolutionFlashLayer,
           ceremonyLayer: evolutionCeremonyLayer,
-          onClick: (id) => useStore.getState().select(id)
+          onClick: (id) => {
+            const store = useStore.getState();
+            if (store.viewMode === 'garden') {
+              store.select(id);
+              store.setViewMode('gardenFull');
+            } else if (store.viewMode === 'gardenFull') {
+              store.select(id);
+              store.setViewMode('garden');
+              store.setDrawerOpen(true);
+            }
+          }
         });
         charLayer.addChild(walker.container);
         charLayer.addChild(walker.bubbleContainer);
@@ -853,9 +867,9 @@ export function GardenScene(): JSX.Element {
 
         // Select-cry + party-screen hop (Phase 8 §4): ANY path that changes
         // `selectedId` — a tab, a roster card, the sessions overview, or
-        // clicking the walker itself (Walker's onClick just calls `select`)
-        // — reconciles through here, so this is the single choke point for
-        // both. `playSelectCry` debounces on its own; the null-check means
+        // clicking the walker itself — reconciles through here, so this is
+        // the single choke point for both. `playSelectCry` debounces on its
+        // own; the null-check means
         // deselecting plays nothing.
         if (selectedId !== lastSelectedId) {
           lastSelectedId = selectedId;
