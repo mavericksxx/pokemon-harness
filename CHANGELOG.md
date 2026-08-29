@@ -4,6 +4,7 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
 ## unreleased
 
+- arceus cosmos backdrop de-zoomed: nebula source resolution doubled (320×200 → 640×400, half-size pixel chunks on screen), galaxy band narrowed (heat coverage 21% → 14.5%, haze halo 60% → 44%) so the frame reads as open sky instead of wall-to-wall nebula, starfield scaled to 1400 one-pixel stars (existing composition preserved, not reshuffled). CSS was already centered-cover (no distortion) and the calm zone stays behind arceus. The chunky warp burst is intentionally blocky sprite art and is unaffected by design
 - sunset phase removed from the day/night cycle (user verdict after seeing it live: the orange wash muted the map). The cycle is now a single day↔night blend: morning ramps night out 5:20–8:30am, evening ramps night in 6:30–8:50pm, day stays completely untinted in between, and night is unchanged. All sunset code (wash, contact shadows, sun beam, glint, its vignette) deleted outright with a do-not-re-add note in the header. Side effect of the wider morning ramp: lamps still glow ~40% around 7am before fading out — early-morning lamplight, reads as intended
 
 ## v1.6.0 — 2026-08-29
