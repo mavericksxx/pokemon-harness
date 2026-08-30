@@ -2,6 +2,12 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+Delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
+
+- the usage chip now shows instantly when the app opens: the last usage snapshot is persisted to disk after every poll (usage numbers only — provider error messages never hit disk) and loaded before the window is created, so the chip paints with last-known values immediately and the first live poll refreshes it seconds later. Turning the usage toggle off deletes the cache file (zero-credential-access promise); quitting the app keeps it (orchestrator review caught the quit path wiping the cache on every shutdown; scoped follow-up delegate split quit from toggle-off)
+
 ## v1.7.5 — 2026-08-30
 
 All items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
