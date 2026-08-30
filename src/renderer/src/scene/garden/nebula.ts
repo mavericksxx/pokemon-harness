@@ -1,19 +1,19 @@
 /**
  * The cosmos backdrop's nebula texture (Phase 8.8 §4, final revision) — a
- * dense diagonal galaxy band (warm orange/salmon core, near-black dust-lane
- * clumps, violet haze, deep-indigo corners) with heavy irregular dithering
- * and a scattered multicolor starfield, style-matched to a user-supplied
- * stock reference — generated PROCEDURALLY from scratch here (value noise +
- * a stochastic/Bayer dither blend + fixed-seed placements), never by
- * copying, tracing, or embedding any part of that reference image.
+ * horizontal lower-third galaxy band (warm orange/salmon core, near-black
+ * dust-lane clumps, violet haze, deep-indigo corners) with heavy irregular
+ * dithering and a scattered multicolor starfield. It is generated
+ * PROCEDURALLY from scratch here (value noise + a stochastic/Bayer dither
+ * blend + fixed-seed placements), never by copying, tracing, or embedding
+ * any external image.
  *
  * Generated ONCE at module load as a small (low-res) canvas, exported as a
- * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) scales it
- * up to fill the pane with `background-size: cover` (crops rather than
- * distorts on off-ratio panes) plus `image-rendering: pixelated`, so every
- * source pixel becomes a chunky block. Deterministic (a small seeded PRNG, not
- * `Math.random()`) so the backdrop is the SAME every time this module
- * loads, not reshuffled on every launch.
+ * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) stretches
+ * the complete source rectangle to the pane with `background-size: 100% 100%`
+ * plus `image-rendering: pixelated`, so the band remains visible at every
+ * pane aspect ratio and every source pixel still becomes a chunky block.
+ * Deterministic (a small seeded PRNG, not `Math.random()`) so the backdrop is
+ * the SAME every time this module loads, not reshuffled on every launch.
  *
  * The band's peak brightness is placed off-center (see `BAND_A`/`BAND_B`/
  * `PEAK_T`), deliberately away from (0.5, 0.5) where Arceus's sprite floats
@@ -23,18 +23,14 @@
  * the band math lands.
  */
 
-/** 5x the original 128x80 (backlog item: "cosmos view looks too zoomed in"
- *  — a first pass already bumped this to 2.5x, but feedback said it still
- *  reads zoomed in, so this is a second, bigger jump). Finer effective
- *  pixel grain once scaled to fill the pane. Generated once at module load
- *  and cached (see `nebulaDataUrl` below), so the bigger raster costs
- *  nothing per-frame; still well under window-size*devicePixelRatio,
- *  nowhere near absurd. Every pixel-space constant below that scales WITH
- *  this resolution bump (the coarse dither block, the feature-star
- *  coordinates) is called out at its own definition — see RES_SCALE. */
-const RES_SCALE = 5;
-const WIDTH = Math.round(128 * RES_SCALE);
-const HEIGHT = Math.round(80 * RES_SCALE);
+/** A deliberately wide 16:9 source rectangle. CSS maps this whole rectangle
+ * to the pane instead of cover-cropping it, keeping the lower band in frame
+ * on both tall and wide layouts. `RES_SCALE` keeps the source pixels fine
+ * enough for a starfield while the coarse dither blocks preserve the chunky
+ * pixel-art read after scaling. */
+const RES_SCALE = 4;
+const WIDTH = Math.round(160 * RES_SCALE);
+const HEIGHT = Math.round(90 * RES_SCALE);
 
 /** Small deterministic PRNG (mulberry32) — same seed every load. */
 function makeRng(seed: number): () => number {
@@ -80,18 +76,15 @@ const C_DUST: [number, number, number] = [14, 9, 16];
  *  off-center placement — see CLEAR_RADIUS below). */
 const C_CLEAR: [number, number, number] = [44, 32, 70];
 
-/** Band centerline (fractions of W/H), run corner-to-corner OFF the canvas
- *  on both ends so it reads as a band crossing an implied larger frame, not
- *  a shape that starts/stops inside it — same diagonal sense as the
- *  reference, but kept low/shallow (mostly the bottom half) so the canvas
- *  CENTER (where Arceus floats) sits well clear of it, in the cooler
- *  violet-haze/indigo zone rather than the hottest core. Peak brightness
- *  sits at `PEAK_T` along it, further off toward the A end (bottom-left) —
- *  the closest point on this line to center is already ~t=0.59; peaking at
- *  0.25 pushes the brightest knot decisively away from him. */
-const BAND_A = { x: -0.15, y: 1.1 };
-const BAND_B = { x: 1.15, y: 0.65 };
-const PEAK_T = 0.25;
+/** Band centerline (fractions of W/H), run just beyond both horizontal edges
+ *  so it reads as one continuous galaxy crossing the full view. The slight
+ *  upward tilt keeps it organic without pulling it out of the lower third;
+ *  the canvas CENTER (where Arceus floats) stays in calm dark space above
+ *  the core and its violet fringe. Peak brightness sits toward the left,
+ *  away from the sprite's center. */
+const BAND_A = { x: -0.08, y: 0.85 };
+const BAND_B = { x: 1.08, y: 0.78 };
+const PEAK_T = 0.28;
 /** Perpendicular falloff, fraction of the canvas diagonal — tight enough
  *  that the corners (and the area behind Arceus) actually read as dark,
  *  rather than the whole frame washing out toward the core. ~2/3 of the
@@ -244,14 +237,11 @@ const ARCEUS_NEBULA_SEED_SALT = 7;
 const STAR_COLORS = ['#ffffff', '#bfe8ff', '#ffd9a8', '#ffb8f0'];
 
 function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
-  // Star count scaled with canvas AREA this time (RES_SCALE 2.5 -> 5 is a
-  // 4x area jump, (5/2.5)^2) rather than the smaller ~3.9x bump used for
-  // the previous RES_SCALE step — each star's own footprint is still a
-  // fixed 1x1 canvas pixel (unscaled, see the fillRect below), so scaling
-  // the count with area keeps on-screen star DENSITY (lit pixels per pane
-  // area) exactly constant while the individual stars read finer at the
-  // higher resolution, instead of the sky thinning out.
-  const count = 1400;
+  // Keep the same dense-but-calm starfield as the previous source while
+  // accounting for the new 16:9 canvas area. Each star is still a fixed 1x1
+  // source pixel, so its on-screen footprint remains intentionally tiny next
+  // to the coarse dither blocks.
+  const count = 1300;
   for (let i = 0; i < count; i++) {
     const x = Math.floor(rng() * WIDTH);
     const y = Math.floor(rng() * HEIGHT);
@@ -275,8 +265,8 @@ function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
   // band's brightest core, same "stay a backdrop" reasoning as the heat
   // falloff above.
   const featureStars = [
-    { x: 14 * RES_SCALE, y: 12 * RES_SCALE, color: '#bfe8ff' },
-    { x: 112 * RES_SCALE, y: 16 * RES_SCALE, color: '#ffe3c2' }
+    { x: 0.11 * WIDTH, y: 0.13 * HEIGHT, color: '#bfe8ff' },
+    { x: 0.87 * WIDTH, y: 0.17 * HEIGHT, color: '#ffe3c2' }
   ];
   for (const s of featureStars) {
     for (let r = 3; r >= 0; r--) {

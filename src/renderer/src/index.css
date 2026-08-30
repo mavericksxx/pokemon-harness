@@ -839,14 +839,16 @@ button.icon:active {
   pointer-events: none;
 }
 
-/* Pixel-art nebula (nebula.ts) — a small, low-res canvas of dithered color
- * blobs generated once and stretched with `pixelated` rendering so each
- * source pixel becomes a chunky block, not a smooth gradient. */
+/* Pixel-art nebula (nebula.ts) — a wide procedural canvas of dithered color
+ * blobs generated once and mapped in full to the pane. `100% 100%` is
+ * intentional: `cover` would crop the lower-third galaxy on tall panes, so
+ * the whole source rectangle stays visible at every aspect ratio. */
 .garden-cosmos-nebula {
   position: absolute;
   inset: 0;
-  background-size: cover;
+  background-size: 100% 100%;
   background-position: center;
+  background-repeat: no-repeat;
   image-rendering: pixelated;
 }
 
