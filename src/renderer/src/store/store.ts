@@ -162,7 +162,8 @@ interface HarnessState {
   isFullScreen: boolean;
 
   addSession(
-    s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>
+    s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>,
+    options?: { select?: boolean }
   ): Session;
   /** Evolution lines already spoken for by a live session — the picker greys
    *  these out and startSession avoids them, so no two walkers are on the same
@@ -250,7 +251,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   quitDialogCount: 0,
   isFullScreen: false,
 
-  addSession: (s) => {
+  addSession: (s, options) => {
     const session: Session = {
       ...s,
       status: 'starting',
@@ -259,7 +260,10 @@ export const useStore = create<HarnessState>((set, get) => ({
       accent: ACCENTS[get().sessions.length % ACCENTS.length],
       createdAt: Date.now()
     };
-    set((st) => ({ sessions: [...st.sessions, session], selectedId: session.id }));
+    set((st) => ({
+      sessions: [...st.sessions, session],
+      selectedId: options?.select === false ? st.selectedId : session.id
+    }));
     return session;
   },
 

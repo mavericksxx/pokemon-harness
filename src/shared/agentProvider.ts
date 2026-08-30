@@ -15,6 +15,8 @@ export type AgentProviderId = 'claude' | 'codex' | 'cursor-agent' | 'shell';
 export interface AgentProviderPreset {
   id: AgentProviderId;
   label: string;
+  /** Short identity used where a provider name must fit a compact card. */
+  shortLabel: string;
   /** The binary spawned when the user hasn't typed a custom command. */
   defaultCommand: string;
   /** Flag that selects the session model, when the CLI supports one. */
@@ -35,6 +37,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderPreset> = {
   claude: {
     id: 'claude',
     label: 'Claude Code',
+    shortLabel: 'claude',
     defaultCommand: 'claude',
     modelFlag: '--model',
     supportsModel: true,
@@ -47,6 +50,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderPreset> = {
   codex: {
     id: 'codex',
     label: 'Codex CLI',
+    shortLabel: 'codex',
     defaultCommand: 'codex',
     modelFlag: '--model',
     supportsModel: true,
@@ -64,6 +68,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderPreset> = {
   'cursor-agent': {
     id: 'cursor-agent',
     label: 'Cursor Agent',
+    shortLabel: 'cursor',
     defaultCommand: 'cursor-agent',
     modelFlag: '--model',
     supportsModel: true
@@ -80,6 +85,7 @@ export const AGENT_PROVIDERS: Record<AgentProviderId, AgentProviderPreset> = {
   shell: {
     id: 'shell',
     label: 'plain shell',
+    shortLabel: 'shell',
     defaultCommand: '/bin/zsh',
     supportsModel: false
   }

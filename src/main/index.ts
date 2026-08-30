@@ -218,7 +218,18 @@ const hookBridge: HookBridge = new HookBridge(
   (req: DelegateSpawnRequest): DelegateSpawnResponse => {
     const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const effort = req.reasoningEffort?.trim() || 'medium';
-    const args = ['exec', '--sandbox', 'workspace-write', '-C', req.cwd, '-c', `model_reasoning_effort=${effort}`, req.prompt];
+    const args = [
+      'exec',
+      '--sandbox',
+      'workspace-write',
+      '-C',
+      req.cwd,
+      '-c',
+      `model_reasoning_effort=${effort}`,
+      '-c',
+      'hide_agent_reasoning=true',
+      req.prompt
+    ];
     const result = ptyManager.spawn({
       id,
       cwd: req.cwd,

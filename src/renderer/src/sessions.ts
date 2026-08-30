@@ -173,7 +173,7 @@ async function adoptDelegateSession(spawned: DelegateSessionSpawned): Promise<vo
     workspaceId,
     delegateParentId: spawned.parentAgentId,
     delegateLabel: spawned.label
-  });
+  }, { select: false });
   // The pty is already confirmed live (main only sends this event after a
   // successful spawn) — 'idle' immediately, same as startSession does right
   // after its own spawnPty call resolves ok. ptyParser.ts takes it from here.
