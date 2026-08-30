@@ -3530,7 +3530,9 @@ button.icon:active {
  * `.roster-card-shiny` already uses off the sprite face) rather than resting
  * on top of any of the card's own in-flow content — deliberately not
  * top-right, which `.roster-card-swap`'s own comment above already flags as
- * colliding with the status badge in the card's top row. */
+ * colliding with the status badge in the card's top row. The gold frame and
+ * hard offset make it read as a small pressable piece of the gold trainer
+ * card it opens, even before hover. */
 .roster-card-trainer-trigger {
   position: absolute;
   bottom: -6px;
@@ -3541,15 +3543,68 @@ button.icon:active {
   align-items: center;
   justify-content: center;
   background: var(--panel-2);
-  border: 1px solid var(--line);
+  border: 1px solid var(--gold);
   color: var(--gold);
   font-size: 10px;
+  cursor: pointer;
   z-index: 2;
+  transform: translateY(0);
+  box-shadow: 1px 1px 0 var(--muted-dim);
+  transition:
+    color 90ms steps(2, end),
+    background-color 90ms steps(2, end),
+    border-color 90ms steps(2, end),
+    transform 90ms steps(2, end),
+    box-shadow 90ms steps(2, end);
 }
 
-.roster-card-trainer-trigger:hover {
+.roster-card-trainer-trigger svg {
+  width: 12px;
+  height: 12px;
+}
+
+.roster-card-trainer-trigger:hover,
+.roster-card-trainer-trigger:focus-visible {
   color: var(--accent-text);
   border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.roster-card-trainer-trigger:focus-visible {
+  outline: 1px solid var(--accent-text);
+  outline-offset: 1px;
+}
+
+.roster-card-trainer-trigger:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+.roster-card-trainer-trigger[aria-expanded='true'] {
+  color: var(--on-accent);
+  background: var(--gold);
+  border-color: var(--gold);
+}
+
+.roster-card-trainer-trigger[aria-expanded='true']:hover,
+.roster-card-trainer-trigger[aria-expanded='true']:focus-visible {
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+
+/* `.tip` normally makes its element `position: relative`, but this control
+ * still needs its absolute corner-badge anchor. The upward orientation keeps
+ * the custom bubble inside the visible area when the badge hangs off the
+ * bottom of `.roster-strip` (whose vertical overflow is intentionally
+ * hidden). */
+.roster-card-trainer-trigger.tip {
+  position: absolute;
+}
+
+.roster-card-trainer-trigger.tip::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
 }
 
 /* Deliberately NOT `position: relative` — the trigger button below is

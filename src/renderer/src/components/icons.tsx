@@ -203,19 +203,19 @@ export function GaugeIcon(props: IconProps): JSX.Element {
 }
 
 /** Session-status trainer-card popover trigger (AgentRosterCard.tsx corner
- *  badge) — a small trading-card silhouette with a star, standing in for the
- *  approved mockup's 🎴 per this file's own emoji-purge rule above. */
+ *  badge) — a classic landscape ID card: framed card, filled portrait
+ *  square, and two short identity lines. Every mark stays on the 16px
+ *  pixel-grid so the silhouette reads at the badge's small size. */
 export function TrainerCardIcon(props: IconProps): JSX.Element {
   return (
     <PixelIcon {...props}>
-      <rect x="3" y="1" width="10" height="1" />
-      <rect x="3" y="14" width="10" height="1" />
-      <rect x="3" y="1" width="1" height="14" />
-      <rect x="12" y="1" width="1" height="14" />
-      <rect x="7" y="5" width="2" height="1" />
-      <rect x="6" y="6" width="4" height="1" />
-      <rect x="6" y="7" width="4" height="1" />
-      <rect x="7" y="8" width="2" height="1" />
+      <rect x="2" y="2" width="12" height="1" />
+      <rect x="1" y="3" width="1" height="10" />
+      <rect x="14" y="3" width="1" height="10" />
+      <rect x="2" y="13" width="12" height="1" />
+      <rect x="3" y="5" width="4" height="4" />
+      <rect x="9" y="5" width="4" height="1" />
+      <rect x="9" y="7" width="3" height="1" />
     </PixelIcon>
   );
 }
