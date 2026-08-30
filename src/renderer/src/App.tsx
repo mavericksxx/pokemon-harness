@@ -10,7 +10,7 @@ import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
-import { PokeballIcon } from '@/components/icons';
+import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon } from '@/components/icons';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { UsageChip } from '@/components/UsageChip';
@@ -84,6 +84,7 @@ export function App(): JSX.Element {
   // panel TOGGLE moved into ViewModeSwitcher, but the divider only exists
   // when the drawer is actually showing.
   const drawerOpen = useStore((s) => s.drawerOpen);
+  const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const setViewMode = useStore((s) => s.setViewMode);
   const isFullScreen = useStore((s) => s.isFullScreen);
 
@@ -221,17 +222,30 @@ export function App(): JSX.Element {
             live together as one icon group (parity sweep) — see
             ViewModeSwitcher's own comment for why "all sessions" and the
             terminal-panel toggle joined it instead of floating separately.
-            QuickSettings is the LAST control, deliberately — nothing sits to
-            its right — and is now the settings entry point itself (its gear
+            QuickSettings is the settings entry point itself (its gear
             trigger opens the quick-settings popover, whose "all settings…"
             row opens SettingsPanel; the old standalone gear button that
-            opened SettingsPanel directly is gone, merged into this one). */}
+            opened SettingsPanel directly is gone, merged into this one). The
+            garden-only terminal visibility toggle sits immediately to its
+            right. */}
         <div className="topbar-actions">
           <ViewModeSwitcher />
           <UsageChip />
           <AudioPopover />
           <ThemeToggle />
           <QuickSettings />
+          {viewMode === 'garden' && (
+            <button
+              type="button"
+              className="topbar-icon-btn tip"
+              data-tip={drawerOpen ? 'hide terminal' : 'show terminal'}
+              aria-label={drawerOpen ? 'hide terminal' : 'show terminal'}
+              aria-pressed={drawerOpen}
+              onClick={() => setDrawerOpen(!drawerOpen)}
+            >
+              {drawerOpen ? <DoubleChevronRightIcon /> : <DoubleChevronLeftIcon />}
+            </button>
+          )}
         </div>
       </header>
 

@@ -4043,17 +4043,31 @@ textarea,
  * GardenSplitHandle.tsx — the draggable divider between the garden and the
  * terminal drawer in `.body-row`, 'garden' view mode's side-by-side layout
  * only (App.tsx only mounts it there; a hidden drawer or either full-bleed
- * mode has no split to divide). 6px hit area (`flex: 0 0 6px`, matching
- * gardenSplit.ts's HANDLE_PX) with a 2px visible line centered inside it —
- * a flat fill, no gradient, same as every other divider/border in this
- * file. */
+ * mode has no split to divide). The layout item remains 6px wide (matching
+ * gardenSplit.ts's HANDLE_PX), while its transparent pseudo-element expands
+ * the effective pointer hit zone to 16px. The visible line remains 2px wide
+ * and centered inside the layout item — a flat fill, no gradient, same as
+ * every other divider/border in this file. */
 .garden-split-handle {
   flex: 0 0 6px;
   width: 6px;
   position: relative;
+  z-index: 1;
   cursor: col-resize;
   /* Pointer events alone drive the drag — this stops touch/trackpad
-   * gestures (scroll, pinch) from fighting it on the 6px hit area. */
+   * gestures (scroll, pinch) from fighting it on the hit zone. */
+  touch-action: none;
+}
+
+.garden-split-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 16px;
+  cursor: col-resize;
+  pointer-events: auto;
   touch-action: none;
 }
 
@@ -4064,6 +4078,7 @@ textarea,
   left: 2px;
   width: 2px;
   background: var(--line);
+  z-index: 1;
 }
 
 .garden-split-handle:hover .garden-split-line,
