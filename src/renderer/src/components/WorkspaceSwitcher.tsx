@@ -6,6 +6,7 @@ import { DeleteWorkspaceDialog } from '@/components/DeleteWorkspaceDialog';
 import { isGlobalSession } from '@shared/arceus';
 import type { WorkspaceRecord } from '@shared/workspaceTypes';
 import { TrashIcon } from '@/components/icons';
+import { OverflowChipRow, type OverflowChipRenderContext, type OverflowChipSurface } from '@/components/OverflowChipRow';
 
 /** Gardens (workspaces), inline in the topbar (parity sweep — replaces the
  *  old dropdown-menu switcher: with Arceus's chip now leading the row and
@@ -57,76 +58,95 @@ export function WorkspaceSwitcher(): JSX.Element {
   const deadCount = (workspaceId: string): number =>
     sessions.filter((s) => !isGlobalSession(s) && sessionWorkspaceId(s) === workspaceId && s.status === 'done').length;
 
-  return (
-    <div className="garden-chips-wrap">
-      <nav className="garden-chips" aria-label="gardens">
-        {workspaces.map((w, i) => {
-        const active = w.id === activeWorkspaceId;
-        if (renamingId === w.id) {
-          return (
-            <input
-              key={w.id}
-              className="garden-chip-rename"
-              value={renameValue}
-              autoFocus
-              onChange={(e) => setRenameValue(e.target.value)}
-              onBlur={() => commitRename(w.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitRename(w.id);
-                if (e.key === 'Escape') setRenamingId(null);
-              }}
-            />
-          );
-        }
-        const canDelete = workspaces.length > 1 && liveCount(w.id) === 0;
-        return (
-          <span key={w.id} className={active ? 'garden-chip active' : 'garden-chip'}>
+  const renderGardenChip = (w: WorkspaceRecord, { selected, surface, onSelect }: OverflowChipRenderContext): JSX.Element => {
+    if (renamingId === w.id) {
+      return (
+        <input
+          className="garden-chip-rename"
+          value={renameValue}
+          autoFocus={surface !== 'measurement'}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={() => commitRename(w.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitRename(w.id);
+            if (e.key === 'Escape') setRenamingId(null);
+          }}
+        />
+      );
+    }
+
+    const i = workspaces.findIndex((workspace) => workspace.id === w.id);
+    const canDelete = workspaces.length > 1 && liveCount(w.id) === 0;
+    return (
+      <span className={selected ? 'garden-chip active' : 'garden-chip'}>
+        <button
+          type="button"
+          className="garden-chip-name"
+          aria-pressed={selected}
+          onClick={onSelect}
+          title={i < 9 ? `${w.primaryFolder} (⌘⇧${i + 1})` : w.primaryFolder}
+        >
+          {w.name}
+        </button>
+        {selected && (
+          <>
             <button
               type="button"
-              className="garden-chip-name"
-              aria-pressed={active}
-              onClick={() => void setActiveWorkspace(w.id)}
-              title={i < 9 ? `${w.primaryFolder} (⌘⇧${i + 1})` : w.primaryFolder}
+              className="icon garden-chip-action"
+              aria-label={`rename ${w.name}`}
+              title="rename"
+              onClick={() => startRename(w)}
             >
-              {w.name}
+              ✎
             </button>
-            {active && (
-              <>
-                <button
-                  type="button"
-                  className="icon garden-chip-action"
-                  aria-label={`rename ${w.name}`}
-                  title="rename"
-                  onClick={() => startRename(w)}
-                >
-                  ✎
-                </button>
-                <button
-                  type="button"
-                  className="icon garden-chip-action"
-                  aria-label={`delete ${w.name}`}
-                  title={
-                    canDelete
-                      ? 'delete this garden'
-                      : workspaces.length <= 1
-                        ? "can't delete your only garden"
-                        : 'still has running agents — stop them first'
-                  }
-                  disabled={!canDelete}
-                  onClick={() => setDeleteTarget(w)}
-                >
-                  <TrashIcon />
-                </button>
-              </>
-            )}
-          </span>
-        );
-        })}
-        <button type="button" className="garden-chip-new" onClick={() => setNewOpen(true)}>
-          + new garden
-        </button>
-      </nav>
-      <div className="garden-chips-fade" aria-hidden="true" />
+            <button
+              type="button"
+              className="icon garden-chip-action"
+              aria-label={`delete ${w.name}`}
+              title={
+                canDelete
+                  ? 'delete this garden'
+                  : workspaces.length <= 1
+                    ? "can't delete your only garden"
+                    : 'still has running agents — stop them first'
+              }
+              disabled={!canDelete}
+              onClick={() => setDeleteTarget(w)}
+            >
+              <TrashIcon />
+            </button>
+          </>
+        )}
+      </span>
+    );
+  };
+
+  const renderNewGarden = (surface: OverflowChipSurface): JSX.Element => (
+    <button
+      type="button"
+      className="garden-chip-new"
+      onClick={surface === 'measurement' ? undefined : () => setNewOpen(true)}
+    >
+      + new garden
+    </button>
+  );
+
+  return (
+    <>
+      <OverflowChipRow
+        items={workspaces}
+        selectedId={activeWorkspaceId}
+        getItemId={(w) => w.id}
+        onRowSelect={(w) => void setActiveWorkspace(w.id)}
+        onMenuSelect={(w) => void setActiveWorkspace(w.id)}
+        renderItem={renderGardenChip}
+        renderTrailing={renderNewGarden}
+        wrapperClassName="garden-chips-wrap"
+        rowClassName="garden-chips"
+        fadeClassName="garden-chips-fade"
+        menuAriaLabel="gardens"
+        overflowCount={workspaces.length}
+      />
 
       {newOpen && <NewWorkspaceDialog onClose={() => setNewOpen(false)} />}
       {deleteTarget && (
@@ -136,6 +156,6 @@ export function WorkspaceSwitcher(): JSX.Element {
           onClose={() => setDeleteTarget(null)}
         />
       )}
-    </div>
+    </>
   );
 }
