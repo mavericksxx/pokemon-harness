@@ -99,8 +99,8 @@ export class Walker {
 
   /** Napping (Phase 8.5 Wave B items 3/4) — a plain-shell session quiet 30s+,
    *  or a claude session between a PreCompact hook and its post-compact
-   *  SessionStart. Parks the walker and freezes its idle animation; a "z z z"
-   *  overlay (`this.zzz`) shows while true. */
+   *  SessionStart. Parks the walker while its idle animation keeps looping; a
+   *  "z z z" overlay (`this.zzz`) shows while true. */
   private napping = false;
   private zzz: Text;
   private zzzT = 0;
@@ -300,16 +300,31 @@ export class Walker {
    *  strand the sprite between tiles, and running it to completion would make an
    *  idle session visibly finish work it is no longer doing. */
   beginWander(): void {
-    if (this.ceremony || this.napping) return;
+    if (this.ceremony || this.napping || this.status !== 'working') return;
     this.path = this.path.slice(0, 1);
     this.wandering = true;
     this.wanderTimer = 0;
     this.wanderDelay = WANDER_MIN_DELAY;
   }
 
+  /** Stop ordinary garden movement after the current in-flight segment.
+   *  Keep that segment's target so updateWalk() can finish on the tile; when
+   *  already stopped, also stop the moving animation. Explicit choreography
+   *  (battles/closing) can still use goTo directly. */
+  stayPut(): void {
+    if (this.ceremony) return;
+    this.path = this.path.slice(0, 1);
+    this.wandering = false;
+    if (this.path.length === 0) {
+      this.walking = false;
+      this.sprite.setMoving(false);
+    }
+  }
+
   setStatus(status: SessionStatus): void {
     if (status === this.status) return;
     this.status = status;
+    if (status !== 'working') this.stayPut();
     this.redrawBadge();
   }
 
@@ -407,8 +422,9 @@ export class Walker {
 
   /** Enter/leave the nap pose (Phase 8.5 Wave B items 3/4). Waking plays the
    *  existing select-hop (`bounce()`) as the "stretch" beat the spec asks
-   *  for, then resumes ordinary wandering — reusing beginWander/bounce rather
-   *  than adding new animation machinery. A no-op mid-ceremony: the ceremony
+   *  for, then resumes ordinary wandering when the session is working —
+   *  reusing beginWander/bounce rather than adding new animation machinery. A
+   *  no-op mid-ceremony: the ceremony
    *  already owns the walker exclusively for its duration (see goTo/
    *  beginWander's own ceremony guards), and this napping/waking mustn't
    *  fight it — GardenScene's reconcile calls setNapping again on the next
@@ -417,20 +433,14 @@ export class Walker {
     if (napping === this.napping || this.ceremony) return;
     this.napping = napping;
     if (napping) {
-      // Truncate any errand in flight, same as beginWander does, so the
-      // sprite doesn't get stranded mid-tile.
-      this.path = this.path.slice(0, 1);
-      this.wandering = false;
-      this.walking = false;
-      this.sprite.setMoving(false);
-      this.sprite.freeze(true);
+      this.stayPut();
       this.zzz.visible = true;
       this.zzzT = 0;
     } else {
-      this.sprite.freeze(false);
       this.zzz.visible = false;
       this.bounce();
-      this.beginWander();
+      if (this.status === 'working') this.beginWander();
+      else this.stayPut();
     }
   }
 

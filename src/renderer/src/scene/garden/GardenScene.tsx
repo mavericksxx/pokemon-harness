@@ -13,7 +13,7 @@ import { SeatPool } from './SeatPool';
 import { Walker } from './Walker';
 import { loadGardenTilesets } from './gardenArt';
 import { loadPokemonAnimations, type PokemonAnimation } from './showdownArt';
-import { AIR_ONLY_SPAWNS, BLOCKED_STATION, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
+import { AIR_ONLY_SPAWNS, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 import { loadLazyAnimation, placeholderAnimation } from './lazySprites';
 import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { initShinyConfig } from './shiny';
@@ -921,6 +921,12 @@ export function GardenScene(): JSX.Element {
           // progress — doesn't pause just because you switched gardens).
           rt.status = session.status;
 
+          // Keep movement and nap state current even for a hidden workspace:
+          // non-working walkers are parked rather than continuing an old
+          // wander path off-stage, and napping still owns the parked pose.
+          walker.setStatus(session.status);
+          walker.setNapping(!!session.napping);
+
           // Workspace visibility (Phase 8.7) — a session's walker AND its
           // battle visuals (BattleManager.setVisible; see that method's own
           // comment for why it's a separate call, not automatic) go dark
@@ -940,12 +946,6 @@ export function GardenScene(): JSX.Element {
           // its glyph, rather than adding a new pixi visual, keeps this off
           // the styling surface.
           walker.setLabel(session.looping ? `${session.title} (looping)` : session.title);
-          walker.setStatus(session.status);
-          // Napping (Phase 8.5 Wave B items 3/4) — plain-shell idle 30s+, or a
-          // claude session between PreCompact and its post-compact
-          // SessionStart. `Walker.setNapping` is idempotent on repeat calls
-          // with the same value.
-          walker.setNapping(!!session.napping);
 
           // "Change pokemon" (roster card action) — a no-op unless
           // session.pokemon has actually changed since this walker last
@@ -959,27 +959,33 @@ export function GardenScene(): JSX.Element {
           // napping walker owns its own position the same way — it stays
           // parked until it wakes.
           if (!battleManager.isBattling(session.id) && !walker.isNapping) {
-            // Free-roam (Phase 8.9): only a blocked session is pinned, to the
-            // signpost, as a deliberate "needs your attention" signal. Every
-            // other status — including working — wanders the whole map, so
-            // `session.station` (still populated by hookRouter/ptyParser for
-            // a possible future per-tool toggle) goes unread here.
-            const station: StationKind = session.status === 'blocked' ? BLOCKED_STATION : 'wander';
+            if (session.status !== 'working') {
+              // Idle/starting/blocked/done walkers own their current
+              // position. Reset the station marker so becoming working
+              // starts the existing working-state pathing again.
+              walker.stayPut();
+              rt.lastStation = null;
+            } else {
+              // Free-roam (Phase 8.9): working sessions wander the whole map,
+              // so `session.station` (still populated by hookRouter/ptyParser
+              // for a possible future per-tool toggle) goes unread here.
+              const station: StationKind = 'wander';
 
-            if (station !== rt.lastStation) {
-              if (station === 'wander') {
-                walker.beginWander();
-                // beginWander() no-ops while an evolution ceremony owns the
-                // walker (see its own guard) — leave lastStation alone so
-                // this retries once the ceremony ends, same contract as the
-                // failed-goTo branch below, instead of recording a wander
-                // that never actually started.
-                if (!walker.isEvolving) rt.lastStation = station;
-              } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
-                rt.lastStation = station;
+              if (station !== rt.lastStation) {
+                if (station === 'wander') {
+                  walker.beginWander();
+                  // beginWander() no-ops while an evolution ceremony owns the
+                  // walker (see its own guard) — leave lastStation alone so
+                  // this retries once the ceremony ends, same contract as the
+                  // failed-goTo branch below, instead of recording a wander
+                  // that never actually started.
+                  if (!walker.isEvolving) rt.lastStation = station;
+                } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
+                  rt.lastStation = station;
+                }
+                // A failed goTo leaves lastStation alone so the next status change
+                // retries rather than assuming the walker is en route.
               }
-              // A failed goTo leaves lastStation alone so the next status change
-              // retries rather than assuming the walker is en route.
             }
           }
 
