@@ -1,7 +1,7 @@
 {
   "name": "pokeharness",
   "productName": "Pokéharness",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "private": true,
   "description": "Local-only desktop coding harness: coding-agent CLI sessions visualized as Pokemon walking around a pixel-art garden.",
   "main": "out/main/index.js",
