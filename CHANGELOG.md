@@ -2,6 +2,13 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+Both items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
+
+- the pokeball recall got a real GBA-style sequence: the ball (now drawn on a 16x16 pixel grid with stepped aliased cells, matching the garden art, instead of smooth vector arcs) presents itself with a settle, the pokemon flips to a RED silhouette and is drawn into the ball (shrinking toward it, not deflating in place), the ball snaps shut with squash-and-stretch and a one-frame impact flash, wobbles, and vanishes into pixel glints — all in 60ms stepped frames, ~1.1s total. A mid-flight purge (garden teardown, ceremony) now restores the sprite's scale/tint/position via a new fx cleanup hook
+- the trainer-card corner badge finally reads as a button: its icon is now an actual ID card (portrait square + text lines on the pixel grid), it uses the app's instant tooltip instead of the sluggish native one, and it gets a gold border with hard pixel shadow at rest, a hover lift, a pressed offset, and a filled-gold state while its popover is open
+
 ## v1.7.3 — 2026-08-30
 
 All eleven items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
