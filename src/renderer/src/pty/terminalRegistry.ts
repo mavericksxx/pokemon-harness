@@ -116,6 +116,12 @@ const LIGHT_THEME: ITheme = {
  *  call, before the persisted setting resolves). */
 let currentTheme: ITheme = DARK_THEME;
 
+// Truecolor bypasses the ANSI palette; xterm's minimum contrast ratio is the
+// sanctioned fix for light backgrounds.
+function minimumContrastRatio(theme: ITheme): number {
+  return theme === LIGHT_THEME ? 4.5 : 1;
+}
+
 interface Entry {
   id: string;
   term: Terminal;
@@ -215,7 +221,8 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     cursorBlink: true,
     allowProposedApi: true,
     scrollback: currentSettings.scrollback,
-    theme: currentTheme
+    theme: currentTheme,
+    minimumContrastRatio: minimumContrastRatio(currentTheme)
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -504,6 +511,7 @@ export function applyTerminalTheme(mode: EffectiveTheme): void {
   currentTheme = mode === 'light' ? LIGHT_THEME : DARK_THEME;
   for (const e of entries.values()) {
     e.term.options.theme = currentTheme;
+    e.term.options.minimumContrastRatio = minimumContrastRatio(currentTheme);
     if (e.term.rows > 0) e.term.refresh(0, e.term.rows - 1);
   }
 }
