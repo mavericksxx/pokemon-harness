@@ -83,6 +83,9 @@ export class Walker {
    *  so it only fires once per path segment rather than every frame. */
   private facingTarget: { x: number; y: number } | null = null;
   private backViewBias = 0;
+  /** Battle stance owns the sheet while true; idle/napping rest logic must
+   *  not overwrite it when a battle movement segment completes. */
+  private forcedBackView = false;
 
   private status: SessionStatus = 'starting';
   private badgePulse = 0;
@@ -318,6 +321,7 @@ export class Walker {
     if (this.path.length === 0) {
       this.walking = false;
       this.sprite.setMoving(false);
+      this.resetRestingView();
     }
   }
 
@@ -343,9 +347,16 @@ export class Walker {
    *  — used by the battle system to put the parent in its "facing away from
    *  camera, toward the opponent" battle stance (falls back to the front
    *  sheet automatically when the species has no back view; see
-   *  WalkerSprite.setBackView). A no-op while an evolution ceremony is
-   *  running, which already owns the sprite's view for its duration. */
+   *  WalkerSprite.setBackView). The sprite update is skipped while an
+   *  evolution ceremony is running, which owns the sprite's view. */
   setForcedBackView(useBack: boolean): void {
+    this.forcedBackView = useBack;
+    if (!useBack) {
+      // Battle is releasing ownership of the sheet; discard any walk vote
+      // accumulated before/during the stance before normal wandering resumes.
+      this.backViewBias = 0;
+      this.facingTarget = null;
+    }
     if (this.ceremony) return;
     this.sprite.setBackView(useBack);
   }
@@ -501,6 +512,7 @@ export class Walker {
     if (this.path.length === 0) {
       this.walking = false;
       this.sprite.setMoving(false);
+      this.resetRestingView();
       return;
     }
 
@@ -524,6 +536,7 @@ export class Walker {
       this.path.shift();
       this.facingTarget = null;
       this.syncPosition();
+      if (this.path.length === 0) this.resetRestingView();
       return;
     }
 
@@ -553,6 +566,16 @@ export class Walker {
       : Math.max(this.backViewBias - 1, -BACK_VIEW_BIAS_MAX);
     if (this.backViewBias >= BACK_VIEW_ON) this.sprite.setBackView(true);
     else if (this.backViewBias <= BACK_VIEW_OFF) this.sprite.setBackView(false);
+  }
+
+  /** Face the camera only after the final allowed segment has ended. Resetting
+   * the hysteresis here keeps the next normal wander from inheriting a stale
+   * back-view vote. Battle stance is explicitly excluded. */
+  private resetRestingView(): void {
+    if (this.ceremony || this.forcedBackView || (this.status === 'working' && !this.napping)) return;
+    this.backViewBias = 0;
+    this.facingTarget = null;
+    this.sprite.setBackView(false);
   }
 
   private updateWander(dt: number): void {

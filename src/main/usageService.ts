@@ -673,6 +673,13 @@ export class UsageService {
     return this.snapshot;
   }
 
+  /** Re-send the cache to a renderer that has just finished loading. This is
+   *  deliberately a push-only replay: it never starts a poll or reads a
+   *  credential, including while usage limits are disabled. */
+  replaySnapshot(): void {
+    this.emit();
+  }
+
   /** Popover-open trigger — throttled to once/min (task spec); returns the
    *  (possibly not-actually-refreshed-this-call) current snapshot either
    *  way, so the renderer never has to special-case "throttled". */
