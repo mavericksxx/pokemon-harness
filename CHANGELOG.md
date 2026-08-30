@@ -2,6 +2,13 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+Both items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
+
+- fixed the usage chip not appearing until minutes after launch: the first usage poll's `usage:snapshot` push raced the renderer's page load and got lost, and the next push was a full background interval (5 min) away — main now replays the cached snapshot on `did-finish-load` so the chip shows as soon as the launch poll lands. The replay is push-only and never touches credentials, keeping the "toggle off = zero credential access" guarantee
+- idle and napping pokemon now always face the camera: coming to rest used to leave the sprite on whatever sheet the walk-direction hysteresis last picked, so a wander ending on an upward step stranded them on their back sprite. The front-sheet reset applies when the walker actually stops (after its in-flight tile segment finishes) and clears the direction hysteresis, while battle stances and evolution ceremonies keep ownership of the sprite view (orchestrator review caught a sticky stance-flag edge during ceremonies; scoped follow-up delegate fixed it)
+
 ## v1.7.4 — 2026-08-30
 
 Both items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
