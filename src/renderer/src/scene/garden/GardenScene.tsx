@@ -653,6 +653,19 @@ export function GardenScene(): JSX.Element {
         // presence into the zustand store.
         onBattlerSpawned: (battler) => useStore.getState().addBattler(battler),
         onBattlerRemoved: (key) => useStore.getState().removeBattler(key),
+        onBattlerClick: (parentId, key) => {
+          const store = useStore.getState();
+          // Keep the same ordering as SubagentRosterCard: select() clears
+          // focusBattlerKey, so the battler focus must be applied afterward.
+          store.select(parentId);
+          store.setFocusBattlerKey(key);
+          if (store.viewMode === 'garden') {
+            store.setViewMode('gardenFull');
+          } else if (store.viewMode === 'gardenFull') {
+            store.setViewMode('garden');
+            store.setDrawerOpen(true);
+          }
+        },
         onBattlerDone: (key, done) => useStore.getState().setBattlerDone(key, done)
       });
 
