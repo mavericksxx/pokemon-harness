@@ -160,6 +160,12 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* The session scroller is the only content row allowed to absorb a narrow
+ * topbar; keep the adjacent action from compressing into the workspace field. */
+.topbar > .primary {
+  flex: none;
+}
+
 /* Press-and-hold on a chip painted a white drag-ghost/text-selection bar
  * across the bar (video-confirmed, BACKLOG.md phase B) — the topbar has no
  * genuinely selectable text, so kill selection and native image/element
@@ -237,19 +243,48 @@ body {
   align-items: center;
   gap: 6px;
   overflow-x: auto;
-  max-width: 55vw;
+  width: 100%;
   /* Lets this shrink below its content's natural width (the flex default
    * is content-sized) so IT scrolls/absorbs a cramped topbar instead of
    * the whole row overflowing — same fix as the "+ New Session" nowrap
    * above (Phase 8.8 chrome fix). */
   min-width: 0;
   flex-shrink: 1;
+  scrollbar-width: none;
+}
+
+.session-chips::-webkit-scrollbar,
+.garden-chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* The scroller stays interactive; this non-scrolling wrapper keeps the
+ * affordance pinned to the visible edge, like `.roster-strip-wrap`. */
+.session-chips-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 55vw;
+}
+
+.session-chips-fade,
+.garden-chips-fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--panel));
+  pointer-events: none;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
+  max-width: 240px;
+  min-width: 0;
   white-space: nowrap;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -257,6 +292,8 @@ body {
 }
 
 .chip-title {
+  flex: 1 1 auto;
+  min-width: 0;
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -344,9 +381,22 @@ body {
   align-items: center;
   gap: 4px;
   overflow-x: auto;
-  max-width: 55vw;
+  width: 100%;
+  max-width: none;
   min-width: 0;
-  flex-shrink: 1;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.garden-chips-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(180px, 18vw, 280px);
+  min-width: 180px;
+}
+
+.garden-chips-fade {
+  background: linear-gradient(to right, transparent, var(--panel));
 }
 
 .garden-chip {
