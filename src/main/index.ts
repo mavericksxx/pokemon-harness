@@ -807,6 +807,10 @@ app.whenReady().then(async () => {
   // first spawn (and before any manual shim verification) ever happens.
   hookBridge.ensureFiles();
   hookBridge.start();
+  // First-class delegate sessions (shared/delegateSpawn.ts) — the exact
+  // command an orchestrator runs to spawn one; logged once per launch so it
+  // shows up in harness.log rather than needing to be re-derived by hand.
+  log('hooks', 'info', 'delegate CLI installed', { command: hookBridge.delegateCliCommand() });
   costWatcher.start();
   arceusRelay.start();
   taskNotificationWatcher.start();
