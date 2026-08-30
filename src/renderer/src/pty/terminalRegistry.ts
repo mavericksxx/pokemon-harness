@@ -8,9 +8,10 @@
  *
  * WebGL budget: `@xterm/addon-webgl` takes a WebGL context per terminal and Pixi
  * holds one of its own; Chromium evicts the oldest context once enough are live
- * (which is exactly how the upstream app's floor would go blank). So the WebGL
- * addon is attached only to the terminal that is actually on screen, and torn
- * down on detach.
+ * (which is exactly how the upstream app's floor would go blank). The currently
+ * selected terminal's addon is retained while its host is hidden, so a rapid
+ * garden-fullscreen toggle reuses one context; attaching another session first
+ * disposes every inactive addon.
  */
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -142,6 +143,32 @@ interface Entry {
 
 const entries = new Map<string, Entry>();
 
+/** Dispose one terminal's WebGL renderer synchronously. xterm's addon removes
+ *  its canvas during dispose, but keeping this in one helper makes the two
+ *  deliberate release points explicit: when another terminal takes the one
+ *  active terminal-renderer slot, and when the terminal itself is destroyed. */
+function disposeWebgl(e: Entry, expected?: WebglAddon): void {
+  const webgl = e.webgl;
+  if (!webgl || (expected && webgl !== expected)) return;
+  try {
+    webgl.dispose();
+  } catch {
+    /* already gone */
+  }
+  if (e.webgl === webgl) e.webgl = null;
+}
+
+/** Keep at most one xterm WebGL addon alive. A hidden drawer is a normal view
+ *  switch, not a terminal teardown: retaining the current session's addon
+ *  avoids creating a fresh WebGL context on every garden-fullscreen toggle.
+ *  Switching to another session still releases the previous session's addon
+ *  before the new one is created, so the context budget remains bounded. */
+function releaseInactiveWebgl(activeSessionId: string): void {
+  for (const e of entries.values()) {
+    if (e.id !== activeSessionId) disposeWebgl(e);
+  }
+}
+
 /** Last time a plain-shell session's PTY emitted output — item 3 §3's nap
  *  heuristic input. Only populated for provider `'shell'` entries. */
 const shellLastActivity = new Map<string, number>();
@@ -175,8 +202,9 @@ function ensureShellNapWatch(): void {
  *  in the terminal instead of being lost in the gap.
  *
  *  `provider` (item 3 §3) picks the parser: every provider except `'shell'`
- *  gets the usual regex-fallback parser; a plain shell gets none — see the
- *  `Entry.parser` field comment for why. */
+ *  gets the usual status regex parser; its battle heuristics are Claude-only
+ *  because non-Claude output has no hook-backed subagent signal. A plain shell
+ *  gets no parser — see the `Entry.parser` field comment. */
 export function createTerminal(sessionId: string, provider: AgentProviderId, replay?: string): void {
   if (entries.has(sessionId)) return;
 
@@ -203,7 +231,7 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
   // `let`, not `const`: a BUG/UX-fix fallback shell (PtyExit.fallback, below)
   // drops this to null so `offData` stops feeding it — see that branch's own
   // comment for why.
-  let parser = provider === 'shell' ? null : createPtyParser(sessionId);
+  let parser = provider === 'shell' ? null : createPtyParser(sessionId, provider);
   if (provider === 'shell') {
     shellLastActivity.set(sessionId, Date.now());
     ensureShellNapWatch();
@@ -329,6 +357,10 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
   const e = entries.get(sessionId);
   if (!e) return;
 
+  // The same session is commonly detached/re-attached by the garden ↔
+  // gardenFull toggle. Release other sessions, but deliberately retain this
+  // session's existing addon so the toggle reuses its original WebGL context.
+  releaseInactiveWebgl(sessionId);
   parent.appendChild(e.host);
   if (!e.host.querySelector('.xterm')) e.term.open(e.host);
 
@@ -337,8 +369,7 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
       const webgl = new WebglAddon();
       // Chromium can still evict this context under pressure; fall back quietly.
       webgl.onContextLoss(() => {
-        webgl.dispose();
-        if (e.webgl === webgl) e.webgl = null;
+        disposeWebgl(e, webgl);
       });
       e.term.loadAddon(webgl);
       e.webgl = webgl;
@@ -379,7 +410,10 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
   e.offDragEnd = () => window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
 }
 
-/** Unmount from the DOM and give the WebGL context back. Scrollback is kept. */
+/** Unmount from the DOM while retaining this session's WebGL addon/context for
+ *  a cheap garden ↔ gardenFull re-attach. Scrollback and the renderer both stay
+ *  outside React; attachTerminal releases any other session's addon, and
+ *  disposeTerminal releases this one permanently. */
 export function detachTerminal(sessionId: string): void {
   const e = entries.get(sessionId);
   if (!e) return;
@@ -387,14 +421,6 @@ export function detachTerminal(sessionId: string): void {
   e.resizeObserver = null;
   e.offDragEnd?.();
   e.offDragEnd = null;
-  if (e.webgl) {
-    try {
-      e.webgl.dispose();
-    } catch {
-      /* already gone */
-    }
-    e.webgl = null;
-  }
   e.host.remove();
 }
 
@@ -407,6 +433,7 @@ export function disposeTerminal(sessionId: string): void {
   const e = entries.get(sessionId);
   if (!e) return;
   detachTerminal(sessionId);
+  disposeWebgl(e);
   e.offData();
   e.offExit();
   e.offHook();

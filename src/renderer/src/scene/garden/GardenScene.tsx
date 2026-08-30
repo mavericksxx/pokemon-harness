@@ -121,7 +121,7 @@ export function GardenScene(): JSX.Element {
     // event) while one is already running just logs and no-ops rather than
     // racing a second teardown/rebuild against the first.
     //
-    // `rebuildAttempts` caps how many times the 10s alarm may trigger this
+    // `rebuildAttempts` caps how many times the 2s alarm may trigger this
     // AUTOMATICALLY per context-loss EVENT before giving up and showing the
     // crash overlay — a genuine crash loop (losses within
     // REBUILD_BUDGET_RESET_MS of the last attempt) keeps counting toward the
@@ -246,9 +246,9 @@ export function GardenScene(): JSX.Element {
       // 11:00:03Z): that assumption only covers the case the browser DOES
       // restore it — here it never did, and Pixi's self-heal never got a
       // chance to run, leaving a permanently dead canvas with nothing to
-      // recover it. The 10s alarm below now calls `rebuild()` (defined
+      // recover it. The 2s alarm below now calls `rebuild()` (defined
       // above this scene's mount function) instead of only logging.
-      const CONTEXT_RESTORE_TIMEOUT_MS = 10_000;
+      const CONTEXT_RESTORE_TIMEOUT_MS = 2_000;
       const canvas = app.canvas;
       let contextLostAt = 0;
       let contextRestoreTimer: ReturnType<typeof setTimeout> | null = null;
@@ -259,9 +259,10 @@ export function GardenScene(): JSX.Element {
         safeLogDiagnostic('gpu', 'error', 'webgl context lost', {
           statusMessage: (event as WebGLContextEvent).statusMessage || undefined
         });
+        if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
         contextRestoreTimer = setTimeout(() => {
           contextRestoreTimer = null;
-          safeLogDiagnostic('gpu', 'error', 'webgl context lost, not restored after 10s', {});
+          safeLogDiagnostic('gpu', 'error', 'webgl context lost, not restored after 2s', {});
           void rebuild();
         }, CONTEXT_RESTORE_TIMEOUT_MS);
       };
