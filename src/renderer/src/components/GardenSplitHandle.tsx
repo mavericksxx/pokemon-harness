@@ -9,20 +9,22 @@ import {
 } from '@/gardenSplit';
 import { DoubleChevronRightIcon } from '@/components/icons';
 
+const DRAG_THRESHOLD_PX = 4;
+
 /** Draggable divider between the garden and the terminal drawer, mounted by
  *  App.tsx between them in `.body-row` only in 'garden' view mode with the
  *  drawer open (the one layout with a split at all — 'terminal'/
  *  'gardenFull' fill the whole row with one pane).
  *
  *  Pointer events, not HTML5 drag (`setPointerCapture` keeps every move
- *  routed here even if the cursor leaves the 6px hit area mid-drag — no
+ *  routed here even if the cursor leaves the 16px transparent hit zone mid-drag — no
  *  separate dragover plumbing needed). The row's width is measured once on
  *  pointerdown, not every move: it doesn't change mid-drag (the user isn't
  *  also resizing the OS window at the same instant), so re-measuring every
  *  move would just be a wasted layout read. `grabOffsetRef` (also captured
  *  on pointerdown) is the cursor's offset from the handle's own left edge
  *  at grab time, so the handle tracks the cursor exactly from wherever in
- *  its 6px hit area the user grabbed it, instead of jumping to align its
+ *  its hit area the user grabbed it, instead of jumping to align its
  *  right edge with the cursor on the first move.
  *
  *  Width updates are rAF-throttled (`latestXRef` always holds the newest
@@ -46,17 +48,19 @@ import { DoubleChevronRightIcon } from '@/components/icons';
  *  it again" half lives docked to the row's own right edge instead
  *  (GardenDrawerEdgeTab.tsx, rendered by App.tsx only while the drawer is
  *  closed — this component isn't mounted at all then, since App.tsx only
- *  renders it alongside an open drawer). `onPointerDown`'s own
- *  `stopPropagation` keeps a click on the tab from also registering as a
- *  drag-start on the divider beneath it. */
+ *  renders it alongside an open drawer). The pill's pointerdown bubbles to
+ *  this handle; a small movement threshold distinguishes its click from a
+ *  real divider drag. */
 export function GardenSplitHandle(): JSX.Element {
   const setGardenSplit = useStore((s) => s.setGardenSplit);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const draggingRef = useRef(false);
   const rowRectRef = useRef<DOMRect | null>(null);
   const grabOffsetRef = useRef(0);
+  const downXRef = useRef(0);
   const latestXRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  const pillDownRef = useRef(false);
   // A bare click (pointerdown → pointerup, no move) must not overwrite the
   // stored ratio with the drawer's current *laid-out* width — normally a
   // no-op, but below ~806px of row width the two clamp() floors overlap
@@ -106,17 +110,25 @@ export function GardenSplitHandle(): JSX.Element {
     if (!row) return;
     rowRectRef.current = row.getBoundingClientRect();
     grabOffsetRef.current = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    downXRef.current = e.clientX;
     latestXRef.current = e.clientX;
     draggingRef.current = true;
     movedRef.current = false;
+    pillDownRef.current = e.target instanceof Element && e.target.closest('.garden-split-collapse-tab') != null;
     e.currentTarget.setPointerCapture(e.pointerId);
     document.body.classList.add('is-splitting');
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!draggingRef.current) return;
-    movedRef.current = true;
     latestXRef.current = e.clientX;
+    // Let a small amount of pointer drift remain a pill click. Once the
+    // divider has moved past the threshold, keep treating the whole pointer
+    // session as a drag even if it later settles back near its start point.
+    if (!movedRef.current) {
+      if (Math.abs(e.clientX - downXRef.current) < DRAG_THRESHOLD_PX) return;
+      movedRef.current = true;
+    }
     if (rafRef.current != null) return; // a frame is already queued — it'll read the latest X above
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
@@ -125,7 +137,9 @@ export function GardenSplitHandle(): JSX.Element {
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const pillClick = pillDownRef.current && !movedRef.current;
     stopDragging(true);
+    if (pillClick) setDrawerOpen(false);
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -143,7 +157,11 @@ export function GardenSplitHandle(): JSX.Element {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onDoubleClick={() => setGardenSplit(DEFAULT_GARDEN_SPLIT, true)}
+      onDoubleClick={(e) => {
+        const pillTarget = e.target instanceof Element && e.target.closest('.garden-split-collapse-tab') != null;
+        if (pillTarget || pillDownRef.current) return;
+        setGardenSplit(DEFAULT_GARDEN_SPLIT, true);
+      }}
     >
       <span className="garden-split-line" aria-hidden="true" />
       <button
@@ -151,13 +169,13 @@ export function GardenSplitHandle(): JSX.Element {
         className="garden-split-collapse-tab tip"
         data-tip="hide terminal"
         aria-label="hide terminal panel"
-        // Both handlers stop propagation — a click here must never also
-        // register as a divider drag-start (pointerdown) or reset the split
-        // ratio (the divider's own onDoubleClick, above) on a fast double-
-        // click.
-        onPointerDown={(e) => e.stopPropagation()}
+        // Keep the double-click local: a double-click on the pill must not
+        // reset the ratio through the divider's own onDoubleClick handler.
         onDoubleClick={(e) => e.stopPropagation()}
-        onClick={() => setDrawerOpen(false)}
+        onClick={(e) => {
+          if (e.detail !== 0) return;
+          setDrawerOpen(false);
+        }}
       >
         <DoubleChevronRightIcon />
       </button>
