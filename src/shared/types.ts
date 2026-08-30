@@ -14,6 +14,9 @@ export interface SpawnPtyOptions {
    *  a per-session `--settings` file routing lifecycle hooks over a Unix
    *  domain socket back to this app. Omitted/other providers spawn as before. */
   provider?: AgentProviderId;
+  /** First-class delegates must remain dead after `codex exec` exits; ordinary
+   *  user sessions may still use the shell fallback. */
+  isDelegate?: boolean;
 }
 
 export interface PtyResult {

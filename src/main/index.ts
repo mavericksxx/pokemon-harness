@@ -236,6 +236,7 @@ const hookBridge: HookBridge = new HookBridge(
       command: 'codex',
       args,
       provider: 'codex',
+      isDelegate: true,
       env: { [AGENT_ID_ENV]: id, [DELEGATE_PARENT_ENV]: '', [DELEGATE_LABEL_ENV]: '' }
     });
     if (!result.ok) return { ok: false, error: result.error ?? 'spawn failed' };
@@ -949,6 +950,10 @@ handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(c
 // risks a real gap — pulling after risks a few duplicated bytes instead, which
 // a live terminal tolerates far better than missing output does.
 handle('pty:replay', (_e, id: string) => ptyManager.getReplay(id));
+// A first-class delegate can finish before the renderer receives its spawned
+// event and installs the terminal listener. Keep that adoption race from
+// losing the done transition (see sessions.ts's adoptDelegateSession).
+handle('pty:exit-info', (_e, id: string) => ptyManager.getDelegateExit(id));
 
 // ─── Crash recovery ─────────────────────────────────────────────────────────
 // See the `render-process-gone` handler in createWindow(): the freshly-booted

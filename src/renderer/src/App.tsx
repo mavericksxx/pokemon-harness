@@ -54,7 +54,7 @@ export function App(): JSX.Element {
   // ACTIVE workspace (Phase 8.7), same as the roster strip/overview. Arceus
   // is excluded (his topbar chip, SummonArceusButton, is his one home) —
   // same filter as RosterStrip/SessionsOverview.
-  const sessions = useActiveWorkspaceSessions().filter((s) => !s.isArceus);
+  const sessions = useActiveWorkspaceSessions().filter((s) => !s.isArceus && !(s.delegateParentId && s.status === 'done'));
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const viewMode = useStore((s) => s.viewMode);

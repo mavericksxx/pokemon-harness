@@ -24,6 +24,9 @@ export function TerminalDrawer(): JSX.Element | null {
   const gardenSplit = useStore((s) => s.gardenSplit);
   const select = useStore((s) => s.select);
   const viewMode = useStore((s) => s.viewMode);
+  // A completed first-class delegate remains in the session store for its
+  // roster card, but its terminal tab is closed as soon as its PTY exits.
+  const tabSessions = sessions.filter((s) => !(s.delegateParentId && s.status === 'done'));
   const mountRef = useRef<HTMLDivElement>(null);
   // Find-in-scrollback (item 3 §1) — closed whenever the selected session
   // changes, so switching tabs never leaves a stale find bar (and its
@@ -50,6 +53,18 @@ export function TerminalDrawer(): JSX.Element | null {
     // Deliberately NOT keyed on the session list: re-attaching on every
     // spawn/kill would churn the terminal's WebGL context for no reason.
   }, [open, selectedId]);
+
+  // If the selected delegate is the one that just completed, move focus to
+  // its parent (or the next remaining tab) so the drawer closes that dead
+  // terminal instead of merely hiding its tab while still displaying it.
+  useEffect(() => {
+    if (!selectedId) return;
+    const selected = allSessions.find((s) => s.id === selectedId);
+    if (!selected?.delegateParentId || selected.status !== 'done') return;
+    const next =
+      tabSessions.find((s) => s.id === selected.delegateParentId) ?? tabSessions.find((s) => s.id !== selectedId);
+    select(next?.id ?? null);
+  }, [allSessions, selectedId, tabSessions, select]);
 
   // Cmd/Ctrl+F opens the find bar instead of the OS/browser's own find —
   // only while a terminal is actually mounted here.
@@ -79,7 +94,7 @@ export function TerminalDrawer(): JSX.Element | null {
       {showTabs && (
         <header className="drawer-head">
           <div className="drawer-tabs">
-            {sessions.map((s) => (
+            {tabSessions.map((s) => (
               <button
                 key={s.id}
                 className={s.id === selectedId ? 'tab active' : 'tab'}

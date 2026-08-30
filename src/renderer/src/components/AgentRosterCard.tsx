@@ -8,7 +8,7 @@ import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { formatToolTarget } from '@/design/toolTargetLabel';
-import { LoopIcon, SwapIcon } from '@/components/icons';
+import { LoopIcon, PokeballIcon, SwapIcon } from '@/components/icons';
 import { ModelBadge } from '@/components/ModelBadge';
 import { TrainerCard } from '@/components/TrainerCard';
 import { gaugeTone } from '@/design/gaugeTone';
@@ -65,6 +65,7 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
   const delegateParentTitle = useStore((s) =>
     session.delegateParentId ? s.sessions.find((p) => p.id === session.delegateParentId)?.title : undefined
   );
+  const requestRecallDelegate = useStore((s) => s.requestRecallDelegate);
   const speciesLower = (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
   const toolText = session.tool
     ? `${toolIcon(session.tool)} ${formatToolTarget(session.tool, session.toolTarget) || session.tool}`
@@ -300,26 +301,43 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
           find/hit (screenshot complaint) — now a labeled pill hover-revealed
           at the card's bottom-right, sized like the rest of the app's real
           controls rather than a tiny overlay glyph. */}
-      <button
-        type="button"
-        className="roster-card-swap"
-        // Compact strip cards shrink this to an icon-only square (font-size:
-        // 0 on the button, index.css) so the label doesn't spill past the
-        // card's edge — `title` keeps "change pokemon" reachable as a hover
-        // tooltip there instead of gone outright (the medium/full pill still
-        // shows it inline as before).
-        title="change pokemon"
-        onClick={() => {
-          // Re-sync every time the dialog opens, not just on mount — the
-          // checkbox below must reflect this session's CURRENT frozen state
-          // even if it was left unchecked on a previous open-then-cancel.
-          setFreezeStage(!!session.evolutionFrozen);
-          setSwapOpen(true);
-        }}
-      >
-        <SwapIcon />
-        change pokemon
-      </button>
+      {!(session.delegateParentId && session.status === 'done') && (
+        <button
+          type="button"
+          className="roster-card-swap"
+          // Compact strip cards shrink this to an icon-only square (font-size:
+          // 0 on the button, index.css) so the label doesn't spill past the
+          // card's edge — `title` keeps "change pokemon" reachable as a hover
+          // tooltip there instead of gone outright (the medium/full pill still
+          // shows it inline as before).
+          title="change pokemon"
+          onClick={() => {
+            // Re-sync every time the dialog opens, not just on mount — the
+            // checkbox below must reflect this session's CURRENT frozen state
+            // even if it was left unchecked on a previous open-then-cancel.
+            setFreezeStage(!!session.evolutionFrozen);
+            setSwapOpen(true);
+          }}
+        >
+          <SwapIcon />
+          change pokemon
+        </button>
+      )}
+
+      {/* First-class delegate cleanup — unlike a live delegate's kill action,
+          this waits for the garden Walker's shared pokéball recall animation
+          before the session is removed. */}
+      {session.delegateParentId && session.status === 'done' && (
+        <button
+          type="button"
+          className="roster-card-despawn"
+          title="despawn delegate"
+          onClick={() => requestRecallDelegate(session.id)}
+        >
+          <PokeballIcon />
+          despawn
+        </button>
+      )}
 
       {swapOpen && (
         <div className="modal-backdrop" onClick={() => setSwapOpen(false)}>

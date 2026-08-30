@@ -4,6 +4,7 @@ import type { Locomotion, PokemonAnimation } from './showdownArt';
 import { findPath } from './pathfinding';
 import { ToolBubble } from './ToolBubble';
 import { EvolutionCeremony } from './EvolutionCeremony';
+import { purgeBattleFxFor, spawnPokeballRecall } from './battle/battleFx';
 import { evolutionConfig } from './evolution';
 import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { SessionStatus } from '@shared/types';
@@ -110,6 +111,8 @@ export class Walker {
    *  verbatim on teardown rather than forced true, since either could have
    *  been legitimately hidden already. */
   private chromeWasVisible: [badge: boolean, ring: boolean] | null = null;
+  /** Guards the done-delegate recall action against duplicate clicks. */
+  private recalling = false;
 
   constructor(opts: WalkerOptions) {
     this.sessionId = opts.sessionId;
@@ -211,6 +214,21 @@ export class Walker {
    *  above the head without hardcoding a per-species offset. */
   get spriteHeight(): number {
     return this.sprite.drawnHeight;
+  }
+
+  /** Play the shared pokéball recall sequence over this session walker. The
+   *  inner sprite container is passed separately so the ball holds its size
+   *  while the Pokemon shrinks, exactly as it does for a subagent Battler. */
+  startRecall(onDone: () => void): void {
+    if (this.recalling) return;
+    this.recalling = true;
+    this.path = [];
+    this.walking = false;
+    this.wandering = false;
+    this.sprite.setMoving(false);
+    this.hideBubble();
+    this.setSelected(false);
+    spawnPokeballRecall(this.container, this.sprite.container, this.spriteHeight, onDone);
   }
 
   /** Whether this species may cross water right now — checked live so an
@@ -625,6 +643,7 @@ export class Walker {
     // A ceremony in flight owns overlay graphics living in the SHARED
     // overlayLayer, outside this walker's own container — dispose it first so
     // that overlay doesn't outlive the walker it was dimming the garden for.
+    purgeBattleFxFor(this.container);
     this.ceremony?.dispose();
     this.ceremony = null;
     this.bubble.destroy();
