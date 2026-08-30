@@ -235,132 +235,298 @@ function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/** A small pokéball, drawn centered on its own local origin — same red/dark-
- *  band/white palette and border-then-inset technique as icons.tsx's
- *  `PokeballIcon` (that one's a fixed-size SVG for chrome; this is a
- *  scalable Graphics primitive for the garden). Explicit `moveTo` before
- *  each half-circle `arc` (rather than relying on an implicit start point)
- *  since `g.fill()` starts a fresh path afterward — the top arc sweeps
- *  Math.PI -> 0 (through the TOP in Pixi/canvas's shared y-down coordinate
- *  space) for red, the bottom arc sweeps 0 -> Math.PI (through the BOTTOM)
- *  for white. */
+/** A small pokéball, drawn on a 16x16 logical pixel grid. Keeping the grid
+ *  explicit is intentional: Graphics' rects remain stepped and aliased at
+ *  garden scale, instead of turning this effect into a smooth vector icon. */
 function drawPokeballGraphic(g: Graphics, r: number): void {
   g.clear();
-  g.moveTo(-r, 0).arc(0, 0, r, Math.PI, 0).fill({ color: 0xe5484d });
-  g.moveTo(r, 0).arc(0, 0, r, 0, Math.PI).fill({ color: 0xf2f2f2 });
-  g.rect(-r, -r * 0.12, r * 2, r * 0.24).fill({ color: 0x1b1b1b });
-  g.circle(0, 0, r * 0.32).fill({ color: 0x1b1b1b });
-  g.circle(0, 0, r * 0.16).fill({ color: 0xf2f2f2 });
-  g.circle(0, 0, r).stroke({ width: Math.max(1, r * 0.14), color: 0x1b1b1b });
+  const grid = [
+    '......DDDD......',
+    '....DDDDDDDD....',
+    '...DDRRRRRRDD...',
+    '..DDRRRRRRRRDD..',
+    '..DRRRRRRRRRRD..',
+    '.DRRRRRRRRRRRRD.',
+    '.DRRRRRRRRRRRRD.',
+    'DDDDDDDDDDDDDDDD',
+    '.DWWWWWWWWWWWWD.',
+    '.DWWWWWWWWWWWWD.',
+    '.DWWWWWWWWWWWWD.',
+    '.DWWWWWWWWWWWWD.',
+    '..DWWWWWWWWWWD..',
+    '..DDWWWWWWWWDD..',
+    '....DDDDDDDD....',
+    '......DDDD......'
+  ];
+  const colors: Record<string, number> = {
+    D: 0x1b1b1b,
+    R: 0xe5484d,
+    W: 0xf2f2f2
+  };
+  const cell = (r * 2) / grid.length;
+  for (let y = 0; y < grid.length; y++) {
+    for (let x = 0; x < grid[y].length; x++) {
+      const color = colors[grid[y][x]];
+      if (color === undefined) continue;
+      g.rect(x * cell - r, y * cell - r, cell, cell).fill({ color });
+    }
+  }
+
+  // The center button is a dark stepped ring with one bright pixel, and the
+  // two slightly lighter red pixels sell the top-left glossy highlight.
+  const buttonPixels = [
+    [6, 6], [7, 6], [8, 6], [9, 6],
+    [5, 7], [6, 7], [7, 7], [8, 7], [9, 7], [10, 7],
+    [5, 8], [6, 8], [7, 8], [8, 8], [9, 8], [10, 8],
+    [6, 9], [7, 9], [8, 9], [9, 9]
+  ];
+  for (const [x, y] of buttonPixels) {
+    g.rect(x * cell - r, y * cell - r, cell, cell).fill({ color: 0x1b1b1b });
+  }
+  g.rect(7 * cell - r, 7 * cell - r, cell, cell).fill({ color: 0xf2f2f2 });
+  g.rect(4 * cell - r, 3 * cell - r, cell, cell).fill({ color: 0xf06a63 });
+  g.rect(3 * cell - r, 4 * cell - r, cell, cell).fill({ color: 0xf06a63 });
 }
 
-/** Pokéball recall — the despawn action's animation (SubagentRosterCard's
- *  despawn button, `done` battlers only): a red/white flash over the
- *  sprite, the sprite itself shrinks away into a pokéball that holds its
- *  own size throughout (added as a sibling of the shrinking `spriteContainer`
- *  so it never shrinks along with it), the ball blinks a few times, then
- *  vanishes — `onDone` fires right there, once, for the caller to actually
- *  tear the battler down. `container`/`spriteContainer` mirror `Battler`'s
- *  own split (its outer container the ball/flash are added to, its inner
- *  sprite container that actually shrinks) — see `Battler.startRecall`.
- *
- *  prefers-reduced-motion: skips the whole tween — the flash renders for
- *  exactly one frame (so it's still visible, not added-then-removed within
- *  the same synchronous tick and never composited), then `onDone` fires
- *  immediately, per spec: "instant remove with a single flash frame". */
+/** Draw a tiny plus-shaped glint using only square pixel blocks. */
+function drawPixelGlint(g: Graphics, block: number, color: number): void {
+  g.clear();
+  g.rect(-block / 2, -block * 1.5, block, block * 3).fill({ color });
+  g.rect(-block * 1.5, -block / 2, block * 3, block).fill({ color });
+}
+
+/** Pokéball recall — a stepped GBA-style return-to-ball sequence. The ball
+ *  is a sibling of `spriteContainer`, so it does not get shrunk with the
+ *  Pokémon. `onDone` fires once after the last sparkle, leaving the caller to
+ *  perform the actual battler/walker teardown. */
 export function spawnPokeballRecall(
   container: Container,
   spriteContainer: Container,
   spriteHeight: number,
   onDone: () => void
 ): void {
-  const flash = new Graphics();
-  const flashSize = Math.max(16, spriteHeight * 0.9);
-  flash.roundRect(-flashSize / 2, -spriteHeight, flashSize, spriteHeight, 3).fill({ color: 0xffffff, alpha: 0.85 });
-  flash.zIndex = 99999;
-  container.addChild(flash);
-
-  if (prefersReducedMotion()) {
-    let shown = false;
-    const tick = (): boolean => {
-      if (!shown) {
-        shown = true; // let this frame actually render before tearing down
-        return false;
-      }
-      container.removeChild(flash);
-      flash.destroy();
-      onDone();
-      return true;
-    };
-    registerFx(container, tick);
-    return;
-  }
-
   const ball = new Graphics();
   const r = Math.max(5, spriteHeight * 0.16);
   drawPokeballGraphic(ball, r);
-  ball.y = -spriteHeight / 2;
+  const ballY = -spriteHeight * 0.72;
+  ball.y = ballY;
   ball.zIndex = 100000;
-  ball.alpha = 0;
+  ball.alpha = 1;
   container.addChild(ball);
 
-  const FLASH_MS = 140;
-  const SHRINK_MS = 240;
-  const HOLD_MS = 160;
-  const BLINK_MS = 220;
-  const BLINK_STEP_MS = 55;
+  const originalScaleX = spriteContainer.scale.x;
+  const originalScaleY = spriteContainer.scale.y;
+  const originalX = spriteContainer.x;
+  const originalY = spriteContainer.y;
+  const originalTint = spriteContainer.tint;
+  const originalVisible = spriteContainer.visible;
 
-  let phase: 'flash' | 'shrink' | 'hold' | 'blink' = 'flash';
-  let elapsed = 0;
-  let blinkTimer = 0;
-  let blinkOn = true;
+  const impact = new Graphics();
+  const pixel = Math.max(1, Math.round(r / 8));
+  impact.rect(-pixel, -pixel, pixel * 2, pixel * 2).fill({ color: 0xffffff });
+  impact.rect(-pixel * 3, -pixel / 2, pixel * 2, pixel).fill({ color: 0xffffff });
+  impact.rect(pixel, -pixel / 2, pixel * 2, pixel).fill({ color: 0xffffff });
+  impact.rect(-pixel / 2, -pixel * 3, pixel, pixel * 2).fill({ color: 0xffffff });
+  impact.rect(-pixel / 2, pixel, pixel, pixel * 2).fill({ color: 0xffffff });
+  impact.zIndex = 100001;
+  impact.visible = false;
+  container.addChild(impact);
+
+  const sparkles = [new Graphics(), new Graphics(), new Graphics()];
+  for (const sparkle of sparkles) {
+    sparkle.zIndex = 100001;
+    sparkle.visible = false;
+    container.addChild(sparkle);
+  }
+
+  let restored = false;
+  let cleaned = false;
+  let finished = false;
+
+  const restoreSprite = (): void => {
+    if (restored) return;
+    restored = true;
+    if (spriteContainer.destroyed) return;
+    spriteContainer.scale.set(originalScaleX, originalScaleY);
+    spriteContainer.x = originalX;
+    spriteContainer.y = originalY;
+    spriteContainer.tint = originalTint;
+    spriteContainer.visible = originalVisible;
+  };
+
+  const removeVisuals = (): void => {
+    if (cleaned) return;
+    cleaned = true;
+    restoreSprite();
+    for (const visual of [ball, impact, ...sparkles]) {
+      if (visual.parent) visual.parent.removeChild(visual);
+      if (!visual.destroyed) visual.destroy();
+    }
+  };
+
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    removeVisuals();
+    onDone();
+  };
+
+  // Reduced motion still gives the renderer one composited frame, but the
+  // visible frame is the actual pixel ball rather than the old white flash.
+  if (prefersReducedMotion()) {
+    ball.scale.set(1, 1);
+    const tick = (): boolean => {
+      finish();
+      return true;
+    };
+    registerFx(container, tick, removeVisuals);
+    return;
+  }
+
+  const FRAME_MS = 60;
+  const RED_SILHOUETTE = 0xff5555;
+  const PRESENT_SCALES = [0.7, 1.12, 1];
+  const PRESENT_Y_OFFSETS = [-2, -1, 0];
+  const SUCK_X_SCALES = [1, 0.88, 0.7, 0.52, 0.33];
+  const SUCK_Y_SCALES = [1, 0.82, 0.62, 0.42, 0.08];
+  const SNAP_SCALES = [
+    { x: 1.14, y: 0.82 },
+    { x: 0.88, y: 1.12 }
+  ];
+  const WOBBLE_X_OFFSETS = [0, -2, 2, 0];
+  const VANISH_SPARKLES: Array<Array<{ x: number; y: number; size: number; color: number }>> = [
+    [
+      { x: -r * 1.2, y: -r * 0.8, size: 1, color: 0xffffff },
+      { x: r * 1.1, y: -r * 0.2, size: 1, color: 0xfff6c8 }
+    ],
+    [
+      { x: -r * 1.6, y: -r, size: 1.2, color: 0xffffff },
+      { x: r * 1.6, y: -r * 0.55, size: 1.1, color: 0xfff6c8 },
+      { x: 0, y: r * 1.35, size: 0.9, color: 0xffffff }
+    ],
+    [
+      { x: -r * 1.95, y: -r * 1.2, size: 1.2, color: 0xfff6c8 },
+      { x: r * 1.95, y: -r * 0.75, size: 1, color: 0xffffff }
+    ]
+  ];
+
+  type RecallPhase = 'present' | 'silhouette' | 'suck' | 'snap' | 'wobble' | 'vanish';
+  const phaseFrames: Record<RecallPhase, number> = {
+    present: PRESENT_SCALES.length,
+    silhouette: 1,
+    suck: SUCK_X_SCALES.length,
+    snap: SNAP_SCALES.length,
+    wobble: WOBBLE_X_OFFSETS.length,
+    vanish: VANISH_SPARKLES.length
+  };
+  const phases: RecallPhase[] = ['present', 'silhouette', 'suck', 'snap', 'wobble', 'vanish'];
+  let phaseIndex = 0;
+  let frameIndex = 0;
+  let frameElapsed = 0;
+
+  const setSpriteScaleAndPosition = (xScale: number, yScale: number): void => {
+    const towardBall = 1 - yScale;
+    spriteContainer.scale.set(originalScaleX * xScale, originalScaleY * yScale);
+    spriteContainer.x = originalX * (1 - towardBall);
+    spriteContainer.y = originalY + (ballY - originalY) * towardBall;
+  };
+
+  const setSparkleFrame = (frame: number): void => {
+    const frameSparkles = VANISH_SPARKLES[frame];
+    for (let i = 0; i < sparkles.length; i++) {
+      const sparkle = sparkles[i];
+      const spec = frameSparkles[i];
+      if (!spec) {
+        sparkle.visible = false;
+        continue;
+      }
+      sparkle.visible = true;
+      sparkle.x = ball.x + spec.x;
+      sparkle.y = ball.y + spec.y;
+      drawPixelGlint(sparkle, pixel * spec.size, spec.color);
+    }
+  };
+
+  const applyFrame = (): void => {
+    const phase = phases[phaseIndex];
+    const frame = frameIndex;
+    ball.visible = true;
+    ball.alpha = 1;
+    impact.visible = false;
+    for (const sparkle of sparkles) sparkle.visible = false;
+
+    if (phase === 'present') {
+      spriteContainer.visible = originalVisible;
+      spriteContainer.tint = originalTint;
+      setSpriteScaleAndPosition(1, 1);
+      ball.x = 0;
+      ball.y = ballY + PRESENT_Y_OFFSETS[frame];
+      ball.scale.set(PRESENT_SCALES[frame]);
+    } else if (phase === 'silhouette') {
+      spriteContainer.visible = originalVisible;
+      spriteContainer.tint = RED_SILHOUETTE;
+      setSpriteScaleAndPosition(1, 1);
+      ball.x = 0;
+      ball.y = ballY;
+      ball.scale.set(1, 1);
+    } else if (phase === 'suck') {
+      spriteContainer.visible = originalVisible;
+      spriteContainer.tint = RED_SILHOUETTE;
+      setSpriteScaleAndPosition(SUCK_X_SCALES[frame], SUCK_Y_SCALES[frame]);
+      ball.x = 0;
+      ball.y = ballY;
+      ball.scale.set(1, 1);
+    } else if (phase === 'snap') {
+      spriteContainer.visible = originalVisible;
+      spriteContainer.tint = RED_SILHOUETTE;
+      setSpriteScaleAndPosition(SUCK_X_SCALES[SUCK_X_SCALES.length - 1], SUCK_Y_SCALES[SUCK_Y_SCALES.length - 1]);
+      ball.x = 0;
+      ball.y = ballY;
+      ball.scale.set(SNAP_SCALES[frame].x, SNAP_SCALES[frame].y);
+      impact.x = ball.x;
+      impact.y = ball.y;
+      impact.visible = frame === 0;
+    } else if (phase === 'wobble') {
+      spriteContainer.visible = originalVisible;
+      spriteContainer.tint = RED_SILHOUETTE;
+      setSpriteScaleAndPosition(SUCK_X_SCALES[SUCK_X_SCALES.length - 1], SUCK_Y_SCALES[SUCK_Y_SCALES.length - 1]);
+      ball.x = WOBBLE_X_OFFSETS[frame];
+      ball.y = ballY;
+      ball.scale.set(1, 1);
+    } else {
+      // The final frame hides the ball but leaves the pixel glints hanging in
+      // space for one beat; the tiny silhouette is hidden with it.
+      spriteContainer.tint = RED_SILHOUETTE;
+      setSpriteScaleAndPosition(SUCK_X_SCALES[SUCK_X_SCALES.length - 1], SUCK_Y_SCALES[SUCK_Y_SCALES.length - 1]);
+      setSparkleFrame(frame);
+      ball.visible = frame < 2;
+      spriteContainer.visible = frame < 2 && originalVisible;
+    }
+  };
+
+  applyFrame();
 
   const tick = (dt: number): boolean => {
-    elapsed += dt * 1000;
-    if (phase === 'flash') {
-      const t = Math.min(1, elapsed / FLASH_MS);
-      flash.alpha = 0.85 * (1 - t);
-      ball.alpha = t;
-      if (t >= 1) {
-        container.removeChild(flash);
-        flash.destroy();
-        phase = 'shrink';
-        elapsed = 0;
+    if (finished) return true;
+    frameElapsed += dt * 1000;
+    while (frameElapsed >= FRAME_MS && !finished) {
+      frameElapsed -= FRAME_MS;
+      if (frameIndex + 1 < phaseFrames[phases[phaseIndex]]) {
+        frameIndex += 1;
+        applyFrame();
+        continue;
       }
-      return false;
-    }
-    if (phase === 'shrink') {
-      const t = Math.min(1, elapsed / SHRINK_MS);
-      spriteContainer.scale.set(Math.max(0.001, 1 - t));
-      if (t >= 1) {
-        phase = 'hold';
-        elapsed = 0;
+      if (phaseIndex + 1 >= phases.length) {
+        finish();
+        return true;
       }
-      return false;
+      phaseIndex += 1;
+      frameIndex = 0;
+      applyFrame();
     }
-    if (phase === 'hold') {
-      if (elapsed >= HOLD_MS) {
-        phase = 'blink';
-        elapsed = 0;
-      }
-      return false;
-    }
-    // 'blink'
-    blinkTimer += dt * 1000;
-    if (blinkTimer >= BLINK_STEP_MS) {
-      blinkTimer = 0;
-      blinkOn = !blinkOn;
-      ball.alpha = blinkOn ? 1 : 0.25;
-    }
-    if (elapsed >= BLINK_MS) {
-      container.removeChild(ball);
-      ball.destroy();
-      onDone();
-      return true;
-    }
-    return false;
+    return finished;
   };
-  registerFx(container, tick);
+  registerFx(container, tick, removeVisuals);
 }
 
 // A tiny shared ticker for these fire-and-forget effects, so callers never
@@ -379,6 +545,9 @@ type FxTick = (dt: number) => boolean; // returns true when finished
 interface FxEntry {
   owner: Container;
   tick: FxTick;
+  /** Optional owner-purge cleanup for effects that temporarily mutate a
+   *  display object outside their own transient children. */
+  cleanup?: () => void;
 }
 let active: FxEntry[] = [];
 
@@ -388,8 +557,8 @@ let active: FxEntry[] = [];
  *  has already logged. */
 let fxErrorLogged = false;
 
-function registerFx(owner: Container, tick: FxTick): void {
-  active.push({ owner, tick });
+function registerFx(owner: Container, tick: FxTick, cleanup?: () => void): void {
+  active.push({ owner, tick, cleanup });
 }
 
 /**
@@ -459,11 +628,17 @@ export function tickBattleFx(dt: number): void {
  *  move text) never outlives the container it was ticking. */
 export function purgeBattleFxFor(owner: Container): void {
   if (active.length === 0) return;
-  active = active.filter((e) => e.owner !== owner);
+  const retained: FxEntry[] = [];
+  for (const entry of active) {
+    if (entry.owner === owner) entry.cleanup?.();
+    else retained.push(entry);
+  }
+  active = retained;
 }
 
 /** Force-clear every in-flight effect — used when the garden itself tears
  *  down, so no stray ticker keeps running against destroyed containers. */
 export function clearBattleFx(): void {
+  for (const entry of active) entry.cleanup?.();
   active = [];
 }
