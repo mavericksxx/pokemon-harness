@@ -24,9 +24,10 @@
  */
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { open, readdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { app } from 'electron';
 import { promisify } from 'node:util';
 import type { WebContents } from 'electron';
 import { log } from './diagnostics';
@@ -570,6 +571,71 @@ interface LastGood {
   updatedAt: number;
 }
 
+function usageSnapshotPath(): string {
+  return join(app.getPath('userData'), 'usage-snapshot.json');
+}
+
+/** Persist only usage data. In particular, never carry provider `message`
+ *  text to disk: network/auth errors are runtime diagnostics, not cache data. */
+function snapshotForDisk(snapshot: UsageSnapshot): UsageSnapshot {
+  return {
+    enabled: snapshot.enabled,
+    updatedAt: snapshot.updatedAt,
+    providers: snapshot.providers.map(({ provider, state, windows, updatedAt }) => ({
+      provider,
+      state,
+      updatedAt,
+      windows: windows.map((window) => ({
+        label: window.label,
+        usedPercent: window.usedPercent,
+        resetsAt: window.resetsAt,
+        ...(window.spend ? { spend: { ...window.spend } } : {}),
+        ...(window.balanceOnly ? { balanceOnly: true } : {}),
+        ...(window.balanceText ? { balanceText: window.balanceText } : {})
+      }))
+    }))
+  };
+}
+
+function parsePersistedSnapshot(raw: unknown): UsageSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const candidate = raw as Partial<UsageSnapshot>;
+  const snapshotUpdatedAt = candidate.updatedAt;
+  if (candidate.enabled !== true || typeof snapshotUpdatedAt !== 'number' || !Number.isFinite(snapshotUpdatedAt) || !Array.isArray(candidate.providers)) return null;
+  const providers: UsageProviderSnapshot[] = [];
+  for (const value of candidate.providers) {
+    if (!value || typeof value !== 'object') return null;
+    const provider = value as Partial<UsageProviderSnapshot>;
+    if ((provider.provider !== 'claude' && provider.provider !== 'codex') ||
+        !['ok', 'expired', 'unauthorized', 'stale', 'error'].includes(provider.state ?? '') ||
+        !Array.isArray(provider.windows)) return null;
+    const windows: UsageWindow[] = [];
+    for (const value of provider.windows) {
+      if (!value || typeof value !== 'object') return null;
+      const window = value as Partial<UsageWindow>;
+      const usedPercent = window.usedPercent;
+      const resetsAt = window.resetsAt;
+      if (typeof window.label !== 'string' || typeof usedPercent !== 'number' || !Number.isFinite(usedPercent) ||
+          (resetsAt !== null && (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)))) return null;
+      windows.push({
+        label: window.label,
+        usedPercent,
+        resetsAt: resetsAt ?? null,
+        ...(window.spend ? { spend: window.spend } : {}),
+        ...(window.balanceOnly ? { balanceOnly: true } : {}),
+        ...(window.balanceText ? { balanceText: window.balanceText } : {})
+      });
+    }
+    providers.push({
+      provider: provider.provider,
+      state: provider.state as UsageProviderState,
+      windows,
+      ...(typeof provider.updatedAt === 'number' && Number.isFinite(provider.updatedAt) ? { updatedAt: provider.updatedAt } : {})
+    });
+  }
+  return { enabled: true, providers, updatedAt: snapshotUpdatedAt };
+}
+
 export class UsageService {
   private enabled = false;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -578,6 +644,10 @@ export class UsageService {
   /** In-flight poll guard — `refreshNow` and the background timer can
    *  otherwise race two concurrent `pollAll` calls. */
   private polling: Promise<void> | null = null;
+  /** Serialize writes/deletes so a toggle-off deletion cannot be overtaken by
+   *  a fire-and-forget write from a poll that was already finishing. */
+  private persistenceQueue: Promise<void> = Promise.resolve();
+  private persistenceGeneration = 0;
 
   // Claude 429-gate + "don't hammer a dead token" state (feedback: keep
   // retrying a locally-valid-but-server-rejected token forever is exactly
@@ -598,14 +668,61 @@ export class UsageService {
 
   constructor(private getWebContents: () => WebContents | null) {}
 
-  /** The ONE place credential access turns on/off. Called from main/index.ts
-   *  on boot (with the persisted setting) and on every settings save. Toggling
+  /** Load the last snapshot only when the persisted toggle is on. This is
+   *  called before the initial setEnabled() and window creation. */
+  async init(shouldLoad: boolean): Promise<void> {
+    if (!shouldLoad) return;
+    const generation = this.persistenceGeneration;
+    try {
+      const loaded = parsePersistedSnapshot(JSON.parse(await readFile(usageSnapshotPath(), 'utf8')));
+      if (loaded && generation === this.persistenceGeneration && loaded.updatedAt > this.snapshot.updatedAt) {
+        this.snapshot = loaded;
+      }
+    } catch {
+      // Missing/corrupt cache is equivalent to today's empty in-memory start.
+    }
+  }
+
+  private enqueuePersistence(operation: () => Promise<void>): void {
+    this.persistenceQueue = this.persistenceQueue.then(operation, operation);
+    void this.persistenceQueue.catch(() => {
+      /* Best-effort cache; polling and the UI must never depend on disk I/O. */
+    });
+  }
+
+  private persistSnapshot(snapshot: UsageSnapshot): void {
+    const diskSnapshot = snapshotForDisk(snapshot);
+    this.enqueuePersistence(async () => {
+      if (!this.enabled || diskSnapshot.updatedAt !== this.snapshot.updatedAt) return;
+      const path = usageSnapshotPath();
+      await mkdir(app.getPath('userData'), { recursive: true });
+      await writeFile(path, JSON.stringify(diskSnapshot));
+    });
+  }
+
+  private deletePersistedSnapshot(): void {
+    this.persistenceGeneration += 1;
+    this.enqueuePersistence(async () => {
+      try {
+        await unlink(usageSnapshotPath());
+      } catch {
+        // Missing cache is already the desired state.
+      }
+    });
+  }
+
+  /** The ONE place user-controlled credential access turns on/off. Called from
+   *  main/index.ts on boot (with the persisted setting) and on every settings
+   *  save. Toggling off
    *  off clears every piece of state a later re-enable would otherwise reuse
    *  stale (the 429 gate, the unauthorized-token locks, cached windows) so a
    *  fresh enable always starts from a clean slate rather than an off/on
    *  cycle's own state leaking into a new session's behavior. */
   setEnabled(next: boolean): void {
-    if (next === this.enabled) return;
+    if (next === this.enabled) {
+      if (!next) this.deletePersistedSnapshot();
+      return;
+    }
     this.enabled = next;
     // Reset on BOTH transitions, not just off→on: a poll that was already
     // in flight when the user flipped the toggle off can still resolve
@@ -628,7 +745,19 @@ export class UsageService {
       this.timer = null;
       this.snapshot = { enabled: false, providers: [], updatedAt: 0 };
       this.emit();
+      this.deletePersistedSnapshot();
     }
+  }
+
+  /** Stop background work during app teardown without changing the user's
+   *  persisted usage snapshot. An in-flight poll may still resolve, but the
+   *  disabled guard in pollAll/persistSnapshot prevents it from emitting or
+   *  writing anything after shutdown. */
+  shutdown(): void {
+    this.enabled = false;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.polling = null;
   }
 
   /** Per-provider mirror of `setEnabled` above — called from main/index.ts on
@@ -657,11 +786,11 @@ export class UsageService {
     if (newlyExcluded.includes('codex')) {
       this.codexUnauthorizedToken = null;
     }
-    if (!this.enabled) return;
     if (newlyExcluded.length > 0) {
       this.snapshot = { ...this.snapshot, providers: this.snapshot.providers.filter((p) => next.has(p.provider)) };
-      this.emit();
+      if (this.enabled) this.emit();
     }
+    if (!this.enabled) return;
     // Guarded by `this.enabled` above: at boot, setExcludedProviders runs
     // BEFORE setEnabled (see main/index.ts) while `this.enabled` is still
     // false, so this never double-polls alongside setEnabled(true)'s own
@@ -730,6 +859,7 @@ export class UsageService {
     if (codex && this.includedProviders.has('codex')) providers.push(codex);
     this.snapshot = { enabled: true, providers, updatedAt: Date.now() };
     this.emit();
+    this.persistSnapshot(this.snapshot);
   }
 
   private emit(): void {
