@@ -141,7 +141,13 @@ export class Walker {
 
     this.nameTag = new Text({
       text: opts.label,
-      style: { fontSize: 16, fontFamily: 'monospace', fill: '#f4ffe8', align: 'center' }
+      style: {
+        fontSize: 16,
+        fontFamily: 'monospace',
+        fill: '#f4ffe8',
+        stroke: { color: 0x1b1b1b, width: 3 },
+        align: 'center'
+      }
     });
     this.nameTag.scale.set(0.35);
     this.nameTag.anchor.set(0.5, 0);
@@ -152,7 +158,14 @@ export class Walker {
 
     this.zzz = new Text({
       text: 'z z z',
-      style: { fontSize: 16, fontFamily: 'monospace', fontWeight: 'bold', fill: '#dfe9ff', align: 'center' }
+      style: {
+        fontSize: 16,
+        fontFamily: 'monospace',
+        fontWeight: 'bold',
+        fill: '#dfe9ff',
+        stroke: { color: 0x1b1b1b, width: 3 },
+        align: 'center'
+      }
     });
     this.zzz.scale.set(0.35);
     this.zzz.anchor.set(0.5, 1);
