@@ -15,25 +15,30 @@ interface Props {
 export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const sessions = useStore((s) => s.sessions);
   const takenLines = new Set(sessions.map((s) => s.line));
+  const appSettings = useAppSettingsStore((s) => s.settings);
+  const recentFolders = appSettings.recentFolders;
+  const configuredProvider = AGENT_PROVIDERS[appSettings.defaultAgentProvider]
+    ? appSettings.defaultAgentProvider
+    : DEFAULT_PROVIDER;
+  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId));
   // Random default, chosen once on open from whichever bundled line is free.
   const [pokemon, setPokemon] = useState(() => pickFreeLine([...takenLines]).name);
-  const [provider, setProvider] = useState<AgentProviderId>(DEFAULT_PROVIDER);
+  const [provider, setProvider] = useState<AgentProviderId>(configuredProvider);
   // Prefilled from the ACTIVE workspace's primary folder (Phase 8.7) — still
   // freely editable; this is a starting point, not a constraint (a session's
   // cwd can be anything, same as before workspaces existed).
-  const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId));
-  const [cwd, setCwd] = useState(() => activeWorkspace?.primaryFolder ?? '');
-  const [command, setCommand] = useState(AGENT_PROVIDERS[DEFAULT_PROVIDER].defaultCommand);
+  const [cwd, setCwd] = useState(
+    () => activeWorkspace?.primaryFolder?.trim() || recentFolders[0]?.trim() || '~'
+  );
+  const [command, setCommand] = useState(AGENT_PROVIDERS[configuredProvider].defaultCommand);
   const [model, setModel] = useState('');
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const appSettings = useAppSettingsStore((s) => s.settings);
   // Per-session override of the provider's auto-permission-mode setting
   // (parity sweep item 1) — defaults to whatever the Settings panel has for
   // THIS provider, editable per session from here.
-  const [autoMode, setAutoMode] = useState(() => appSettings.autoModeByProvider[DEFAULT_PROVIDER] ?? false);
-  const recentFolders = useAppSettingsStore((s) => s.settings.recentFolders);
+  const [autoMode, setAutoMode] = useState(() => appSettings.autoModeByProvider[configuredProvider] ?? false);
 
   const chosen = speciesEntry(pokemon);
   const base = baseStageOf(pokemon);
@@ -73,8 +78,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     setAutoMode(appSettings.autoModeByProvider[id] ?? false);
   };
 
-  const submit = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault();
+  const launch = async (launchProvider: AgentProviderId, launchAutoMode: boolean): Promise<void> => {
     if (!cwd.trim()) {
       setError('choose a working directory.');
       return;
@@ -86,14 +90,18 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     setBusy(true);
     setError(null);
     try {
+      // A shell session always uses the user's actual shell, even if the
+      // provider selector has not finished resolving it or the action was
+      // invoked directly from the secondary terminal button.
+      const launchCommand = launchProvider === 'shell' ? await window.api.getDefaultShell() : command;
       await startSession({
-        provider,
+        provider: launchProvider,
         cwd: cwd.trim(),
-        command,
-        model: model.trim() || undefined,
+        command: launchCommand,
+        model: AGENT_PROVIDERS[launchProvider].supportsModel ? model.trim() || undefined : undefined,
         title,
         pokemon,
-        autoMode
+        autoMode: launchAutoMode && !!AGENT_PROVIDERS[launchProvider].autoModeArgs
       });
       onClose();
     } catch (err) {
@@ -102,9 +110,18 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     }
   };
 
+  const submit = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    await launch(provider, autoMode);
+  };
+
+  const startPlainTerminal = async (): Promise<void> => {
+    await launch('shell', false);
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form className="modal new-session-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2>new agent</h2>
 
         <label>
@@ -142,10 +159,12 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
           </datalist>
         </label>
 
-        <label>
-          command
-          <input value={command} onChange={(e) => setCommand(e.target.value)} spellCheck={false} />
-        </label>
+        {provider !== 'shell' && (
+          <label>
+            command
+            <input value={command} onChange={(e) => setCommand(e.target.value)} spellCheck={false} />
+          </label>
+        )}
 
         {AGENT_PROVIDERS[provider].autoModeArgs && (
           <label className="new-session-auto-mode">
@@ -187,6 +206,9 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         <div className="modal-actions">
           <button type="button" onClick={onClose}>
             cancel
+          </button>
+          <button type="button" className="secondary" onClick={startPlainTerminal} disabled={busy}>
+            just a terminal
           </button>
           <button type="submit" className="primary" disabled={busy}>
             {busy ? 'starting…' : 'start'}

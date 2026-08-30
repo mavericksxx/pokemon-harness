@@ -26,6 +26,7 @@ interface AppSettingsState {
   hydrate(settings: AppSettings): void;
   hydrateHarnessHomePath(path: string): void;
   setTheme(mode: ThemeMode): void;
+  setDefaultAgentProvider(provider: AgentProviderId): void;
   setAutoMode(provider: AgentProviderId, enabled: boolean): void;
   setKeepAwake(v: boolean): void;
 setHideClaudeStatusline(v: boolean): void;
@@ -90,6 +91,12 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
     const effective = resolveEffectiveTheme(mode);
     applyTheme(effective);
     applyTerminalTheme(effective);
+  },
+
+  setDefaultAgentProvider: (provider) => {
+    const settings = { ...get().settings, defaultAgentProvider: provider };
+    set({ settings });
+    persist(settings);
   },
 
   setAutoMode: (provider, enabled) => {

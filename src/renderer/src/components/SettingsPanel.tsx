@@ -89,6 +89,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setScrollback = useTerminalSettingsStore((s) => s.setScrollback);
   const appSettings = useAppSettingsStore((s) => s.settings);
   const setTheme = useAppSettingsStore((s) => s.setTheme);
+  const setDefaultAgentProvider = useAppSettingsStore((s) => s.setDefaultAgentProvider);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
@@ -250,6 +251,25 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
 
               {activeSection === 'automation' && (
                 <div className="settings-card">
+                  <div className="settings-card-row settings-default-provider-row">
+                    <span className="settings-row-label">default agent provider</span>
+                    <div className="segmented" role="group" aria-label="default agent provider">
+                      {PROVIDER_LIST.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className={
+                            appSettings.defaultAgentProvider === p.id ? 'segmented-btn active' : 'segmented-btn'
+                          }
+                          aria-pressed={appSettings.defaultAgentProvider === p.id}
+                          onClick={() => setDefaultAgentProvider(p.id)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="settings-row-hint">preselected for each new session</p>
                   {AUTO_MODE_PROVIDERS.map((p) => {
                     const on = appSettings.autoModeByProvider[p.id] ?? false;
                     return (
