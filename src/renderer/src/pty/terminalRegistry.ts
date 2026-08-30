@@ -286,8 +286,17 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     // undefined) — that's this session's baseline model, not a change.
     const session = useStore.getState().sessions.find((s) => s.id === sessionId);
     const prevModel = session?.cost?.model;
+    const isPlaceholderModel = (model: string | null | undefined): boolean =>
+      model !== null && model !== undefined && /^<[^>]+>$/.test(model);
+    const storedModelChangedFrom = isPlaceholderModel(session?.modelChangedFrom)
+      ? undefined
+      : session?.modelChangedFrom;
     const modelChangedFrom =
-      prevModel && update.model && update.model !== prevModel ? prevModel : session?.modelChangedFrom;
+      isPlaceholderModel(prevModel) || isPlaceholderModel(update.model)
+        ? storedModelChangedFrom
+        : prevModel && update.model && update.model !== prevModel
+          ? prevModel
+          : storedModelChangedFrom;
     useStore.getState().updateSession(sessionId, { cost: update, modelChangedFrom });
   });
 

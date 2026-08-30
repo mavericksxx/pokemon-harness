@@ -62,6 +62,10 @@ const FALLBACK_PRICE: ModelPrice = { inputPerMTok: 3, outputPerMTok: 15 };
 const CACHE_WRITE_MULTIPLIER = 1.25;
 const CACHE_READ_MULTIPLIER = 0.1;
 
+function isPlaceholderModel(model: string | null): boolean {
+  return model !== null && /^<[^>]+>$/.test(model);
+}
+
 function priceForModel(model: string | null): ModelPrice {
   if (!model) return FALLBACK_PRICE;
   for (const [prefix, price] of PRICE_TABLE) {
@@ -222,7 +226,10 @@ export class CostWatcher {
     const usage = entry.message?.usage;
     if (!usage) return;
 
-    const model = entry.message?.model ?? null;
+    const parsedModel = entry.message?.model ?? null;
+    // Claude Code uses angle-bracketed internal model ids for placeholder
+    // entries; they must not replace the session's last real model.
+    const model = isPlaceholderModel(parsedModel) ? s.lastModel : parsedModel;
     const inputTok = usage.input_tokens ?? 0;
     const cacheCreate = usage.cache_creation_input_tokens ?? 0;
     const cacheRead = usage.cache_read_input_tokens ?? 0;
