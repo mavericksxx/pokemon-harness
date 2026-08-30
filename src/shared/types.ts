@@ -181,6 +181,17 @@ export interface SessionRecord {
    *  next tick, same "already earned, just deferred" resume as the
    *  workspace case. Absent (undefined) means not frozen. */
   evolutionFrozen?: boolean;
+  /** First-class delegate sessions (shared/delegateSpawn.ts) — set only for a
+   *  session the app itself spawned on an orchestrator's behalf (`codex exec`
+   *  in a real pty, not the older roaming-battler-only external delegate
+   *  path). Names the harness session id that requested it, so the roster
+   *  card can show a subagent-style "↳ <parent title>" link (see
+   *  AgentRosterCard.tsx). Absent for every ordinary session. */
+  delegateParentId?: string;
+  /** Card title for a delegate session (`DelegateSpawnRequest.label`) — falls
+   *  back to 'codex delegate' when unset/blank, same default the older
+   *  roaming-battler path uses (hookBridge.ts's `handleDelegate`). */
+  delegateLabel?: string;
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

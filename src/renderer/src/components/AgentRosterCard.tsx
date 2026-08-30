@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Session } from '@/store/store';
+import { useStore, type Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
 import { PokemonPicker } from '@/components/PokemonPicker';
 import { toolIcon } from '@/scene/garden/ToolBubble';
@@ -56,6 +56,15 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
   // this component's first mount.
   const [freezeStage, setFreezeStage] = useState(!!session.evolutionFrozen);
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
+  // First-class delegate sessions (shared/delegateSpawn.ts) — a "↳ <parent>"
+  // link, same affordance SubagentRosterCard.tsx already uses for a battler.
+  // Resolved here (rather than threaded through as a prop from every one of
+  // this card's three call sites) since only the id is stored on the
+  // session record itself.
+  const delegateParentTitle = useStore((s) =>
+    session.delegateParentId ? s.sessions.find((p) => p.id === session.delegateParentId)?.title : undefined
+  );
+  const speciesLower = (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
   const toolText = session.tool
     ? `${toolIcon(session.tool)} ${formatToolTarget(session.tool, session.toolTarget) || session.tool}`
     : session.status === 'blocked'
@@ -99,7 +108,11 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
         className={classes}
         style={{ borderLeftColor: `#${session.accent.toString(16).padStart(6, '0')}` }}
         onClick={() => onSelect(session.id)}
-        title={`${session.command} — ${session.cwd}`}
+        title={
+          delegateParentTitle
+            ? `${session.command} — ${session.cwd} — delegate of ${delegateParentTitle}`
+            : `${session.command} — ${session.cwd}`
+        }
       >
         {variant === 'compact' && (
           <>
@@ -210,7 +223,10 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
                     evolutionHint above use), so it updates on its own when the
                     session evolves or gets swapped, no extra state. */}
                 <span className="roster-card-species">
-                  {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
+                  {/* First-class delegate sessions — "↳ <parent>" appended,
+                      same shape SubagentRosterCard.tsx uses for a battler
+                      (`${speciesName} · ↳ ${parent.title}`). */}
+                  {delegateParentTitle ? `${speciesLower} · ↳ ${delegateParentTitle}` : speciesLower}
                 </span>
               </span>
               {/* Phase 8.5: `looping` and `napping` are flags orthogonal to

@@ -13,6 +13,7 @@ import type {
   SpriteView
 } from '../shared/types';
 import type { DelegateHookSignal, HookEvent } from '../shared/hookEvents';
+import type { DelegateSessionSpawned } from '../shared/delegateSpawn';
 import type { AudioSettings } from '../shared/audioTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
@@ -35,6 +36,11 @@ const api = {
   listPtys: (): Promise<PtyInfo[]> => ipcRenderer.invoke('pty:list'),
   isCommandAvailable: (command: string): Promise<boolean> =>
     ipcRenderer.invoke('pty:available', command),
+  /** First-class delegate sessions (shared/delegateSpawn.ts) — pulled by
+   *  sessions.ts's `startDelegateSpawnListener` AFTER it has already
+   *  subscribed to `pty:data:<id>` (see that function's own comment for why
+   *  the order matters). */
+  getPtyReplay: (id: string): Promise<string> => ipcRenderer.invoke('pty:replay', id),
 
   onPtyData: (id: string, cb: (data: string) => void): (() => void) => {
     const channel = `pty:data:${id}`;
@@ -62,6 +68,15 @@ const api = {
     const listener = (_e: IpcRendererEvent, signal: DelegateHookSignal): void => cb(signal);
     ipcRenderer.on('hooks:delegate', listener);
     return () => ipcRenderer.removeListener('hooks:delegate', listener);
+  },
+  /** First-class delegate sessions (shared/delegateSpawn.ts) — fires once per
+   *  app-spawned `codex exec` pty, right after main has already spawned it
+   *  (see main/index.ts's `onDelegateSpawnRequest`). Single global channel,
+   *  same reasoning as `onDelegateHookEvent` above — no one parent "owns" it. */
+  onDelegateSessionSpawned: (cb: (spawned: DelegateSessionSpawned) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, spawned: DelegateSessionSpawned): void => cb(spawned);
+    ipcRenderer.on('delegate:sessionSpawned', listener);
+    return () => ipcRenderer.removeListener('delegate:sessionSpawned', listener);
   },
   /** Non-null for a while after a renderer crash's auto-reload — see
    *  main/index.ts's `render-process-gone` handler and `pendingCrashInfo`'s

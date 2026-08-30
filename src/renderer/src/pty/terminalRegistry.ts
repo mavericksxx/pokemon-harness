@@ -408,6 +408,19 @@ export function hasTerminal(sessionId: string): boolean {
   return entries.has(sessionId);
 }
 
+/** First-class delegate sessions (shared/delegateSpawn.ts) — writes a replay
+ *  snapshot into an ALREADY-created (already-subscribed) terminal, unlike
+ *  `createTerminal`'s own `replay` param (written before its live listener
+ *  attaches, for a session whose pty predates this app process — see
+ *  `sessions:restore`). A delegate's pty is already running by the time the
+ *  renderer hears about it at all, so its terminal is created and subscribed
+ *  FIRST (no gap), then this backfills whatever arrived before that — see
+ *  sessions.ts's `startDelegateSpawnListener` for the full sequencing
+ *  rationale. No-op for an unknown/already-torn-down session id. */
+export function writeReplayNow(sessionId: string, data: string): void {
+  entries.get(sessionId)?.term.write(data);
+}
+
 // ─── Find-in-scrollback (Phase 8.5 Wave B item 3 §1) ───────────────────────
 // Cmd+F opens a find bar (TerminalFindBar.tsx) over the visible terminal;
 // these just forward to that session's own SearchAddon instance.
