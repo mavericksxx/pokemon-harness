@@ -246,8 +246,8 @@ export function TrainerCard({ session }: Props): JSX.Element {
       <button
         ref={triggerRef}
         type="button"
-        className="roster-card-trainer-trigger"
-        title="trainer card"
+        className="roster-card-trainer-trigger tip"
+        data-tip="trainer card"
         aria-label="open trainer card"
         aria-expanded={anchor != null}
         aria-haspopup="dialog"
