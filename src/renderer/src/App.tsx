@@ -177,25 +177,28 @@ export function App(): JSX.Element {
             <button className="primary" onClick={() => setDialogOpen(true)}>
               + new agent
             </button>
-            <nav className="session-chips">
-              {sessions.map((s) => (
-                <button
-                  key={s.id}
-                  className={s.id === selectedId ? 'chip active' : 'chip'}
-                  onClick={() => select(s.id === selectedId ? null : s.id)}
-                  title={`${s.command} — ${s.cwd}`}
-                >
-                  <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
-                  {s.shiny && (
-                    <span className="shiny-badge" title="shiny" aria-label="shiny">
-                      ★
-                    </span>
-                  )}
-                  <span className="chip-title">{s.title}</span>
-                  <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
-                </button>
-              ))}
-            </nav>
+            <div className="session-chips-wrap">
+              <nav className="session-chips">
+                {sessions.map((s) => (
+                  <button
+                    key={s.id}
+                    className={s.id === selectedId ? 'chip active' : 'chip'}
+                    onClick={() => select(s.id === selectedId ? null : s.id)}
+                    title={`${s.command} — ${s.cwd}`}
+                  >
+                    <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
+                    {s.shiny && (
+                      <span className="shiny-badge" title="shiny" aria-label="shiny">
+                        ★
+                      </span>
+                    )}
+                    <span className="chip-title">{s.title}</span>
+                    <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
+                  </button>
+                ))}
+              </nav>
+              <div className="session-chips-fade" aria-hidden="true" />
+            </div>
           </>
         )}
         <div className="spacer" />

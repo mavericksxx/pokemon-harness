@@ -58,8 +58,9 @@ export function WorkspaceSwitcher(): JSX.Element {
     sessions.filter((s) => !isGlobalSession(s) && sessionWorkspaceId(s) === workspaceId && s.status === 'done').length;
 
   return (
-    <nav className="garden-chips" aria-label="gardens">
-      {workspaces.map((w, i) => {
+    <div className="garden-chips-wrap">
+      <nav className="garden-chips" aria-label="gardens">
+        {workspaces.map((w, i) => {
         const active = w.id === activeWorkspaceId;
         if (renamingId === w.id) {
           return (
@@ -120,10 +121,12 @@ export function WorkspaceSwitcher(): JSX.Element {
             )}
           </span>
         );
-      })}
-      <button type="button" className="garden-chip-new" onClick={() => setNewOpen(true)}>
-        + new garden
-      </button>
+        })}
+        <button type="button" className="garden-chip-new" onClick={() => setNewOpen(true)}>
+          + new garden
+        </button>
+      </nav>
+      <div className="garden-chips-fade" aria-hidden="true" />
 
       {newOpen && <NewWorkspaceDialog onClose={() => setNewOpen(false)} />}
       {deleteTarget && (
@@ -133,6 +136,6 @@ export function WorkspaceSwitcher(): JSX.Element {
           onClose={() => setDeleteTarget(null)}
         />
       )}
-    </nav>
+    </div>
   );
 }
