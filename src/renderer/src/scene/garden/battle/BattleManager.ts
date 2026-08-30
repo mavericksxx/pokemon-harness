@@ -621,7 +621,10 @@ export class BattleManager {
   setVisible(parentId: string, visible: boolean): void {
     const pb = this.battles.get(parentId);
     if (!pb) return;
-    for (const sub of pb.subs) sub.battler.container.visible = visible;
+    for (const sub of pb.subs) {
+      sub.battler.container.visible = visible;
+      sub.battler.bubbleContainer.visible = visible;
+    }
   }
 
   /** Call when a parent session's own walker is torn down (session ended)
@@ -689,8 +692,9 @@ export class BattleManager {
       // in this recovery path's fidelity.
       const animation = this.deps.resolveAnimation(species.id, false);
       const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-      const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home });
+      const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label: entry.label });
       this.deps.charLayer.addChild(battler.container);
+      this.deps.charLayer.addChild(battler.bubbleContainer);
       if (entry.done) battler.container.alpha = 0.75; // same off-duty cue retireSub applies live
       const sub: SubBattler = {
         key: entry.key,
@@ -913,6 +917,7 @@ export class BattleManager {
     }
     this.reapSubs(pb);
     this.applyPositions(pb);
+    for (const sub of pb.subs) sub.battler.syncBubblePosition();
 
     if (pb.subs.length === 0 && pb.wave === 'idle') finishedParents.push(pb.parentId);
   }
@@ -960,8 +965,9 @@ export class BattleManager {
     const shiny = rollShiny();
     const animation = this.deps.resolveAnimation(species.id, shiny);
     const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home });
+    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label });
     this.deps.charLayer.addChild(battler.container);
+    this.deps.charLayer.addChild(battler.bubbleContainer);
 
     const sub: SubBattler = {
       key: `${parentId}#${pb.nextSeq++}`,
@@ -1020,6 +1026,10 @@ export class BattleManager {
       return;
     }
     if (pb.parentWalker.isEvolving) return; // dropped; the ceremony is exclusive
+    // The real tool line is the most useful label for the battler's bubble.
+    // Pre-faceoff signals remain queued as data only: the spawn label owns the
+    // bubble while the battler is still approaching.
+    for (const sub of pb.waveRing) sub.battler.showAttack(tool);
     if (pb.currentAttack) {
       // Coalesce rapid events into the current beat instead of queuing a
       // replay per event — restart its timeline so the hit/text re-fires
@@ -1156,8 +1166,9 @@ export class BattleManager {
     }
     const animation = this.deps.resolveAnimation(species.id, false);
     const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home });
+    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label: info.label });
     this.deps.charLayer.addChild(battler.container);
+    this.deps.charLayer.addChild(battler.bubbleContainer);
     const sub: SubBattler = {
       key: `${parentId}#${pb.nextSeq++}`,
       battler,
@@ -1219,6 +1230,7 @@ export class BattleManager {
     sub.lifecycle = 'queued';
     sub.queuedSince = Date.now();
     sub.queueEligibleAt = null;
+    sub.battler.showBubbleLabel();
   }
 
   /** Regex-fallback heuristic (or a general "give up on this parent's
@@ -1243,6 +1255,7 @@ export class BattleManager {
     for (const sub of pb.subs) {
       if (sub.lifecycle === 'leaving' || sub.lifecycle === 'retired' || sub.lifecycle === 'despawning') continue;
       sub.lifecycle = 'leaving';
+      sub.battler.hideBubble();
       sub.battler.startPoofOut();
     }
     if (pb.wave !== 'idle') {
@@ -1338,6 +1351,7 @@ export class BattleManager {
     // slot-based machinery needs no signature change.
     const admitted = [sub].slice(0, MAX_RING);
     for (const s of admitted) s.lifecycle = 'battling';
+    for (const s of admitted) s.battler.showBubbleLabel();
     pb.waveRing = admitted;
     pb.wave = 'alert';
     bumpCounter('battlesStarted');
@@ -1600,6 +1614,10 @@ export class BattleManager {
       elapsedMs: 0,
       hitApplied: false
     };
+    // Give the beat an immediate visual even when the hook signal that
+    // supplies a more specific tool name arrives a frame later. The signal
+    // handler replaces this with the observed tool when it arrives.
+    for (const sub of pb.waveRing) sub.battler.showAttack(tool);
   }
 
   private advanceAttack(pb: ParentBattle, dt: number): void {
@@ -1613,6 +1631,7 @@ export class BattleManager {
     if (a.elapsedMs < ATTACK_TOTAL_MS) return;
 
     pb.currentAttack = null;
+    for (const sub of pb.waveRing) sub.battler.showBubbleLabel();
     pb.waveAttacks++;
     if (pb.waveAttacks < WAVE_ATTACKS) {
       this.startAttack(pb, 'Task');
@@ -1680,6 +1699,7 @@ export class BattleManager {
     pb.wave = 'ending';
     pb.waveElapsedMs = 0;
     pb.currentAttack = null;
+    for (const sub of pb.waveRing) sub.battler.showBubbleLabel();
     pb.parentWalker.setForcedBackView(false);
     // No dedicated victory/celebration SPRITE ANIMATION exists to play here —
     // confirmed against the actual sprite pipeline (see file header). This
@@ -1764,6 +1784,7 @@ export class BattleManager {
    *  removes it. */
   private retireSub(sub: SubBattler): void {
     sub.lifecycle = 'retired';
+    sub.battler.hideBubble();
     sub.battler.container.alpha = 0.75;
     sub.wanderTimer = 0;
     sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);

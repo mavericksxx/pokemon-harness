@@ -4,6 +4,7 @@ import type { PokemonAnimation } from '../showdownArt';
 import type { TiledMapRenderer } from '../TiledMapRenderer';
 import type { DexEntry } from '../dexData';
 import { findPath } from '../pathfinding';
+import { ToolBubble } from '../ToolBubble';
 import { purgeBattleFxFor, spawnMoveText, spawnPokeballRecall } from './battleFx';
 
 const SPEED = 44; // px/sec — matches Walker's SPEED so approach reads the same
@@ -24,7 +25,7 @@ const POOF_IN_START_SCALE = 0.4;
  * A deliberately lighter sibling of `Walker`: it reuses `WalkerSprite` (the
  * bob/lift/mirror rendering) and `findPath` (the same BFS the garden's own
  * walkers use, so "no teleporting" holds here too), but skips everything a
- * battler doesn't need — station routing, the tool bubble, evolution, the
+ * battler doesn't need — station routing, evolution, the
  * name tag/badge/selection ring. It never turns to a back view; the spec
  * only asks that of the parent.
  */
@@ -40,6 +41,8 @@ export class Battler {
 
   private map: TiledMapRenderer;
   private sprite: WalkerSprite;
+  private bubble: ToolBubble;
+  private bubbleLabel?: string;
   private px: number;
   private py: number;
   private path: { x: number; y: number }[] = [];
@@ -57,6 +60,7 @@ export class Battler {
     animation: PokemonAnimation;
     species: DexEntry;
     spawnTile: { x: number; y: number };
+    label?: string;
   }) {
     this.map = opts.map;
     this.species = opts.species;
@@ -67,9 +71,12 @@ export class Battler {
     this.container = new Container();
     this.container.sortableChildren = true;
     this.sprite = new WalkerSprite(opts.animation, ts);
+    this.bubble = new ToolBubble();
+    this.bubbleLabel = opts.label?.trim() || undefined;
     this.container.addChild(this.sprite.container);
     this.container.scale.set(POOF_IN_START_SCALE);
     this.syncPosition();
+    this.syncBubblePosition();
   }
 
   get worldX(): number {
@@ -77,6 +84,12 @@ export class Battler {
   }
   get worldY(): number {
     return this.py;
+  }
+
+  /** The bubble lives beside the battler on the map's character layer, just
+   *  like Walker's bubble, so another Pokemon's sprite cannot occlude it. */
+  get bubbleContainer(): Container {
+    return this.bubble.container;
   }
 
   get tile(): { x: number; y: number } {
@@ -123,6 +136,27 @@ export class Battler {
   /** The floating "«Species» used «Tool»!" move text. */
   showMoveText(text: string): void {
     spawnMoveText(this.container, text, -this.sprite.drawnHeight - 4);
+  }
+
+  /** Store the Task description/subagent type for the battle bubble. The
+   *  label is intentionally not shown while the battler is free-roaming; the
+   *  manager reveals it when the completion battle is queued. */
+  setBubbleLabel(label?: string): void {
+    this.bubbleLabel = label?.trim() || undefined;
+  }
+
+  showBubbleLabel(): void {
+    if (this.bubbleLabel) this.bubble.showText(this.bubbleLabel);
+    else this.bubble.hide();
+  }
+
+  /** Show the shared walker-style tool/icon bubble for one attack beat. */
+  showAttack(tool: string): void {
+    if (tool) this.bubble.show(tool, '');
+  }
+
+  hideBubble(): void {
+    this.bubble.hide();
   }
 
   /** Fixed battle stance: native/UNMIRRORED front sheet. No direction math —
@@ -177,6 +211,8 @@ export class Battler {
     if (this.path.length > 0) this.updateWalk(dt);
     this.sprite.update(dt);
     this.syncPosition();
+    this.bubble.update(dt);
+    this.syncBubblePosition();
   }
 
   private updateWalk(dt: number): void {
@@ -214,6 +250,13 @@ export class Battler {
     this.container.zIndex = Math.round(this.py);
   }
 
+  /** Keep the sibling bubble over the sprite's head. BattleManager calls this
+   *  once more after applying a lunge, since the lunge temporarily offsets the
+   *  Pixi container without changing the battler's logical world position. */
+  syncBubblePosition(): void {
+    this.bubble.setPosition(this.container.x, this.container.y - this.sprite.drawnHeight);
+  }
+
   destroy(): void {
     // 2026-08-29 production crash fix (see battleFx.ts's `tickBattleFx` doc
     // comment for the full root cause): a still-animating FX (e.g. this
@@ -222,6 +265,8 @@ export class Battler {
     // so its own tick can never run again against an object Pixi has already
     // nulled out.
     purgeBattleFxFor(this.container);
+    if (this.bubble.container.parent) this.bubble.container.parent.removeChild(this.bubble.container);
+    this.bubble.destroy();
     this.sprite.destroy();
     this.container.destroy({ children: true });
   }
