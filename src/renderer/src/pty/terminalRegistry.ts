@@ -249,26 +249,30 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     void window.api.writePty(sessionId, data);
   });
 
-  // Phase 4 Part A — a no-op subscription for non-claude providers (main
-  // never emits on this channel for them), authoritative for claude once its
-  // first hook fires. See hookRouter.ts.
-  const offHook = window.api.onHookEvent(sessionId, (evt) => {
-    try {
-      handleHookEvent(sessionId, evt);
-    } catch (err) {
-      // A throw anywhere in the hook-handling chain (battle spawn/attack
-      // path included) must never take down this subscription or silently
-      // vanish — see the forensic writeup on v1.1.0's disappearing
-      // subagent-battle spawns.
-      bumpCounter('hookEventsDropped');
-      safeLogDiagnostic('hook-router', 'error', 'handleHookEvent threw', {
-        sessionId,
-        event: evt.event,
-        tool: evt.tool,
-        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
-      });
-    }
-  });
+  // Phase 4 Part A — only Claude sessions need a hook subscription. In
+  // particular, a plain shell has neither hook settings nor a hook-backed
+  // status source, so it cannot receive a hook event that would manufacture a
+  // battle/status transition.
+  const offHook =
+    provider === 'claude'
+      ? window.api.onHookEvent(sessionId, (evt) => {
+          try {
+            handleHookEvent(sessionId, evt);
+          } catch (err) {
+            // A throw anywhere in the hook-handling chain (battle spawn/attack
+            // path included) must never take down this subscription or silently
+            // vanish — see the forensic writeup on v1.1.0's disappearing
+            // subagent-battle spawns.
+            bumpCounter('hookEventsDropped');
+            safeLogDiagnostic('hook-router', 'error', 'handleHookEvent threw', {
+              sessionId,
+              event: evt.event,
+              tool: evt.tool,
+              error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+            });
+          }
+        })
+      : () => {};
 
   // Phase 8.5 Wave B item 1 — same no-op-for-non-claude shape as offHook
   // above: main only ever registers a transcript (and therefore only ever

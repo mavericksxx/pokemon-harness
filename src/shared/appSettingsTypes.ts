@@ -16,6 +16,10 @@ export const MAX_RECENT_FOLDERS = 10;
 export interface AppSettings {
   /** 'system' (default) follows macOS appearance live; 'light'/'dark' pin it. */
   theme: ThemeMode;
+  /** Provider preselected by the New Session dialog. Includes the `shell`
+   *  provider, which makes the plain-terminal action a normal provider choice
+   *  everywhere else in the session model. */
+  defaultAgentProvider: AgentProviderId;
   /** Per-provider default for the auto-permission-mode toggle (item 1) —
    *  only meaningful for providers whose preset defines `autoModeArgs`
    *  (agentProvider.ts). Absent/false means the CLI prompts as normal.
@@ -103,6 +107,7 @@ export interface AppSettings {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'system',
+  defaultAgentProvider: 'claude',
   autoModeByProvider: {},
   keepAwake: false,
   recentFolders: [],

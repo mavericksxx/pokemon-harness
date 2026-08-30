@@ -1441,13 +1441,33 @@ button.icon:active {
  * app — widen it via `:has()` rather than a dedicated class so both entry
  * points pick it up without editing NewSessionDialog.tsx. Width echoes
  * SettingsPanel's own centered dialog (720px/92vw) as "the app's other large
- * modals"; `max-height`/`overflow-y` are new here (the plain `.modal` has
- * neither) so the new-session form's other fields plus a much taller picker
- * grid can't push the action buttons off-screen. */
+ * modals"; the bounded height/hidden overflow are new here (the plain
+ * `.modal` has neither) so the new-session form's other fields plus a much
+ * taller picker grid can't push the action buttons off-screen. */
 .modal:has(.pokemon-picker) {
   width: 680px;
   max-height: 90vh;
-  overflow-y: auto;
+  height: 90vh;
+  overflow: hidden;
+}
+
+/* The picker grid is the only flexible/scrolling part of these dialogs. The
+ * search field and all form controls stay above it; the action row remains a
+ * non-shrinking sibling below it, so it cannot be scrolled out of view. */
+.modal:has(.pokemon-picker) > .pokemon-picker,
+.modal:has(.pokemon-picker) > label:has(.pokemon-picker) .pokemon-picker {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.modal:has(.pokemon-picker) > label:has(.pokemon-picker) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.modal:has(.pokemon-picker) .modal-actions {
+  flex: 0 0 auto;
 }
 
 .modal h2 {
@@ -3421,6 +3441,16 @@ button.icon:active {
   align-items: center;
   justify-content: flex-start;
   gap: 16px;
+}
+
+.settings-default-provider-row {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-default-provider-row .segmented {
+  flex-wrap: wrap;
 }
 
 .settings-config-note {

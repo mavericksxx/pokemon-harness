@@ -8,6 +8,7 @@ import { app } from 'electron';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { AGENT_PROVIDERS, DEFAULT_PROVIDER } from '../shared/agentProvider';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../shared/appSettingsTypes';
 
 function settingsPath(): string {
@@ -21,7 +22,11 @@ export async function loadAppSettings(): Promise<AppSettings> {
     const raw = JSON.parse(await readFile(p, 'utf8')) as Partial<AppSettings>;
     // Merge over defaults so an older settings file missing a newly-added key
     // doesn't produce `undefined` for it.
-    return { ...DEFAULT_APP_SETTINGS, ...raw };
+    const settings = { ...DEFAULT_APP_SETTINGS, ...raw };
+    // JSON is user-editable, so keep a malformed or stale provider id from
+    // reaching the renderer and breaking the New Session dialog.
+    if (!AGENT_PROVIDERS[settings.defaultAgentProvider]) settings.defaultAgentProvider = DEFAULT_PROVIDER;
+    return settings;
   } catch {
     return { ...DEFAULT_APP_SETTINGS };
   }
