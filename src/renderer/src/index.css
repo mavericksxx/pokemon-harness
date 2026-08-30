@@ -118,12 +118,12 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  overflow: hidden;
   /* Faint warm scanline grain — pure CSS, no image. Hardcoded rgba per the
    * design spec (not tokenized: this is a fixed texture, not a themeable
    * surface color). */
