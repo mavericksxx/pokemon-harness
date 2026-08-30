@@ -238,6 +238,32 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
 
     case 'PreToolUse': {
       const tool = evt.tool ?? '';
+      // A subagent-scoped hook is still processed as the parent's event below
+      // (the existing status/tool derivation and Task spawn behavior stay
+      // unchanged), but it also gets a parallel battle-only fanout so a
+      // roaming battler can show the actual tool it is running. This is
+      // best-effort: HookBridge's parent-channel tagging is known to be
+      // unreliable for some subagent captures, and those events are simply
+      // absent here.
+      if (evt.agent_id && tool) {
+        try {
+          emitBattleSignal({
+            type: 'subTool',
+            parentId: sessionId,
+            subagentId: evt.agent_id,
+            tool,
+            toolTarget: evt.toolTarget ?? ''
+          });
+        } catch (err) {
+          bumpCounter('battleSignalErrors');
+          safeLogDiagnostic('battle-sub-tool', 'error', 'emitBattleSignal threw', {
+            sessionId,
+            subagentId: evt.agent_id,
+            tool,
+            error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+          });
+        }
+      }
       // Emit BEFORE the store update: BattleManager must mark this session as
       // battling before GardenScene's reconcile sees the station change, or
       // the parent's walker briefly starts walking to a station this tick.

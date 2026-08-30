@@ -557,7 +557,9 @@ export class HookBridge {
       message: p.message,
       source: p.source,
       claudeSessionId: p.session_id,
-      toolUseId: p.tool_use_id
+      toolUseId: p.tool_use_id,
+      agent_id: p.agent_id,
+      agent_type: p.agent_type
     };
     const wc = this.getWebContents();
     if (wc && !wc.isDestroyed()) {
