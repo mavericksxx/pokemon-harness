@@ -2696,8 +2696,28 @@ button.icon:active {
   min-width: 0;
 }
 
+/* Keep the changed-from tick as the only flexible text in this row: the
+ * badge and context percentage must remain fully readable. */
+.roster-card-medium {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.roster-card-row3-medium > .model-badge,
+.roster-card-row3-medium > .roster-card-ctx-label {
+  flex: 0 0 auto;
+}
+
+.roster-card-row3-medium > .model-changed-tick {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .roster-card-ctx-sliver-md {
   flex: 1;
+  min-width: 0;
   height: 5px;
   padding: 0;
 }
