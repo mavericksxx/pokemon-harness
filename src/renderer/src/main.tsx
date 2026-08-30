@@ -165,6 +165,22 @@ if (import.meta.env.DEV) {
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('#root missing');
 
+// Chromium can still move an overflow-hidden document while revealing the
+// IME composition caret in xterm's hidden helper textarea. Clamp only the
+// document-level containers; scrollable panes (including xterm itself) remain
+// free to scroll normally.
+const documentScrollGuardTargets = [document.documentElement, document.body, rootEl];
+document.addEventListener(
+  'scroll',
+  () => {
+    for (const target of documentScrollGuardTargets) {
+      if (target.scrollLeft !== 0) target.scrollLeft = 0;
+      if (target.scrollTop !== 0) target.scrollTop = 0;
+    }
+  },
+  { capture: true, passive: true }
+);
+
 /**
  * Crash/reload recovery: main's `render-process-gone` handler (main/index.ts)
  * reloads this page's whole JS context after a renderer crash — this module
