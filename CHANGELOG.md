@@ -2,6 +2,18 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+All seven items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
+
+- topbar chips no longer horizontal-scroll when crammed: a hidden measurement copy of the row detects real overflow, and the row then collapses to the selected chip plus a `+N ▾` trigger opening a vertical dropdown menu (outside-click/Escape close). Applied to both the session chips and the garden/workspace chips; the menu is on the scroll-guard's exempt list so it can scroll itself
+- idle pokemon no longer look frozen: a not-working walker keeps its sprite's looping idle animation playing (the nap freeze is gone; z z z still shows) but stays in place — BFS wandering is now a working-state behavior only. A walker caught mid-step finishes its in-flight tile segment so it always stops on-grid (orchestrator review caught the mid-tile strand; scoped follow-up delegate fixed it)
+- the arceus cosmos backdrop now matches the reference composition: a horizontal warm galaxy strip (orange core, dust-lane blobs, violet fringe) spans the full width across the lower part of the view with arceus floating in calm dark space above it. The procedural texture is now 16:9 and mapped 100%/100% to the pane instead of cover-cropped, so the strip stays visible at every aspect ratio
+- arceus's roster card is now ceremonial and expands on select: selecting him grows the card to a medium variant with live status/provider, model badge, cost, and context gauge (he's a real claude session underneath), and both sizes get a god-tier pixel treatment — cosmic ground, gilded corner ornaments and rails, creation-wheel mark, and a stepped glint (disabled under prefers-reduced-motion)
+- fixed invisible text in the light-mode terminal: TUIs (Claude Code included) emit truecolor/256-color output tuned for dark backgrounds that bypasses the ANSI palette entirely — xterm's `minimumContrastRatio` is now 4.5 on the light theme (1 on dark, so dark rendering is byte-identical)
+- garden name labels are legible on every tile: the walker name tag and z z z text get a dark pixel outline (GBA style), readable on grass, path, and the cosmos backdrop
+- subagent battler pokemon now carry the same dialogue bubble walkers have: the bubble shows the Task's description while the battler is queued/battling and flashes each tool as attack beats land — fed purely from the existing spawn-label and attack signals (subagent hook routing deliberately untouched; battle signals stay claude-only, so codex delegates are unaffected)
+
 ## v1.7.2 — 2026-08-30
 
 - delegate done-state flow: a finished codex delegate no longer drops to a lingering shell tab — delegate ptys skip the shell fallback entirely, the terminal-bar tab closes itself on exit (selection hands back to the parent session), and the delegate's card swaps "change pokemon" for a pokéball despawn button. Clicking it plays the SAME pixel pokéball recall the done subagent battlers get (`spawnPokeballRecall` reused verbatim via a new `Walker.startRecall` — delegates are session walkers, not battlers), and the session is only torn down from the animation's completion callback. A codex that finishes before the renderer even adopts it still lands in 'done' via a main-side retained exit record
