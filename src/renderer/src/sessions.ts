@@ -1,10 +1,11 @@
 /** Session lifecycle: spawn a coding-agent CLI, wire its terminal, tear it down. */
 import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest, SessionStatus } from '@shared/types';
+import type { DelegateSessionSpawned } from '@shared/delegateSpawn';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
-import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
+import { createTerminal, disposeTerminal, hasTerminal, writeReplayNow } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, speciesEntry } from '@/scene/garden/dexData';
 import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
@@ -96,6 +97,90 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     if (sessionAdded) useStore.getState().removeSession(id);
     throw err instanceof Error ? err : new Error(String(err));
   }
+}
+
+/**
+ * First-class delegate sessions (shared/delegateSpawn.ts) — the app itself
+ * already spawned this session's `codex exec` pty (main/index.ts's
+ * `onDelegateSpawnRequest`, in response to an orchestrator's `poke-delegate`
+ * request) by the time this fires; unlike `startSession` above, there is no
+ * `window.api.spawnPty` call here at all — this only makes the already-live
+ * pty show up as an ordinary session.
+ *
+ * Sequencing matters, and in a way `startSession` above never has to worry
+ * about: THERE, the pty doesn't exist until after `addSession`, so no exit
+ * can race the store entry. HERE, main already spawned the pty before this
+ * event even reached the renderer — a codex that exits fast (bad flag, auth
+ * failure) can fire `pty:exit` before this function finishes its awaits. So
+ * every `await` happens FIRST (species/shiny roll, parent lookup — none of
+ * which touch the terminal or the store), then `createTerminal`/`addSession`/
+ * `updateSession` run back-to-back with no `await` between them — an exit
+ * landing before that synchronous block would find no store entry to update
+ * (a real gap, but see below), and one landing during or after it lands on a
+ * session that already exists. The replay pull is what's pushed BEHIND that
+ * block instead (reversed from `sessions:restore`'s own order, where main
+ * captures replay before the renderer does anything at all — safe there only
+ * because that pty predates this app process and isn't racing a fresh
+ * subscription): `createTerminal` here already subscribed to `pty:data:<id>`
+ * before the replay call even goes out, so the only cost of pulling replay
+ * last is a few possibly-duplicated bytes, which a terminal tolerates far
+ * better than a missed status transition would.
+ *
+ * Call once, at boot (main.tsx), alongside `startRegistrySync`/
+ * `startCompletionToasts`.
+ */
+export function startDelegateSpawnListener(): void {
+  window.api.onDelegateSessionSpawned((spawned: DelegateSessionSpawned) => {
+    void adoptDelegateSession(spawned);
+  });
+}
+
+async function adoptDelegateSession(spawned: DelegateSessionSpawned): Promise<void> {
+  if (hasTerminal(spawned.id)) return; // defensive — should never double-fire
+
+  const picked = pickFreeLine(useStore.getState().takenLines());
+  // Same shiny-roll sequencing as startSession: awaited so a POKE_SHINY_ODDS
+  // override is guaranteed in effect even for the very first delegate.
+  await initShinyConfig();
+  const shiny = rollShiny();
+
+  // The delegate joins its PARENT's workspace — not "whichever workspace is
+  // active right now" (startSession's rule for a user-initiated new session):
+  // the orchestrator may be working in a different garden than the one on
+  // screen when its request lands. Arceus (global orchestrator, Phase 8.8)
+  // has no `workspaceId` of his own (`undefined`, never a concrete default —
+  // see shared/types.ts's `isArceus`) — falling back to the active workspace
+  // for a delegate spawned under him is correct, not a bug: unlike Arceus
+  // himself, a delegate is an ordinary, workspace-scoped session and must
+  // resolve to something concrete.
+  const parent = useStore.getState().sessions.find((s) => s.id === spawned.parentAgentId);
+  const workspaceId = parent?.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
+
+  // Synchronous from here to the end of this block — see the header comment
+  // above for why nothing async can sit between `createTerminal` (which
+  // wires the `pty:exit` handler that flips status to 'done') and the
+  // `addSession` that gives it a store entry to actually update.
+  createTerminal(spawned.id, 'codex');
+  useStore.getState().addSession({
+    id: spawned.id,
+    title: spawned.label?.trim() || 'codex delegate',
+    cwd: spawned.cwd,
+    command: spawned.command,
+    provider: 'codex',
+    pokemon: picked.name,
+    line: picked.line,
+    shiny,
+    workspaceId,
+    delegateParentId: spawned.parentAgentId,
+    delegateLabel: spawned.label
+  });
+  // The pty is already confirmed live (main only sends this event after a
+  // successful spawn) — 'idle' immediately, same as startSession does right
+  // after its own spawnPty call resolves ok. ptyParser.ts takes it from here.
+  useStore.getState().updateSession(spawned.id, { status: 'idle' });
+
+  const replay = await window.api.getPtyReplay(spawned.id);
+  if (replay) writeReplayNow(spawned.id, replay);
 }
 
 /**

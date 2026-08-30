@@ -14,7 +14,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PtyManager } from './pty';
-import { HookBridge } from './hookBridge';
+import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { CODEX_HOOKS_NOTICE_TEXT, ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
 import { UsageService } from './usageService';
@@ -58,6 +58,7 @@ import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } fr
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
 import type { ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
+import type { DelegateSessionSpawned, DelegateSpawnRequest, DelegateSpawnResponse } from '../shared/delegateSpawn';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -174,7 +175,77 @@ const hookBridge: HookBridge = new HookBridge(
   // `arceusRelay` above: `ptyManager` isn't constructed until the next line,
   // but this arrow function only evaluates it when a delegate hook actually
   // arrives, by which point it's long since initialized.
-  (id) => ptyManager.hasSession(id)
+  (id) => ptyManager.hasSession(id),
+  // First-class delegate sessions (shared/delegateSpawn.ts) — same
+  // forward-reference trick again: this only runs once a validated
+  // `delegate/spawn` request arrives, long after `ptyManager`/`mainWindow`
+  // are live. Spawns the real `codex exec` pty directly (this process
+  // already owns `ptyManager` — no need to round-trip through the renderer's
+  // own `pty:spawn` IPC handler, which is the exact same call) and fires a
+  // one-way notice so the renderer can catch up (create the terminal, add
+  // the roster entry). Deliberately does NOT set DELEGATE_PARENT_ENV/
+  // DELEGATE_LABEL_ENV: this pty IS the harness session (identified by its
+  // own POKEHARNESS_AGENT_ID below), not an external subprocess the app
+  // needs to detect after the fact — setting those too would additionally
+  // spawn a redundant roaming delegate battler for it (see hookBridge.ts's
+  // `DELEGATE_PARENT_ENV` header). They're stamped as empty strings (not
+  // simply omitted) to make that absence unconditional rather than
+  // incidental — pty.ts spreads this PROCESS's own env into every spawn, so
+  // without this an inherited real value would leak straight through.
+  //
+  // Codex's own global hook config (codexHooks.ts's `ensureCodexHooks`), if
+  // ever trusted, still fires SessionStart/Stop for THIS process too — traced
+  // against `CODEX_HOOK_SHIM` (hookBridge.ts): it never reads/stamps
+  // `harness_agent_id` at all, so those payloads arrive with
+  // `harness_agent_id` absent and `harness_delegate_parent` null (env unset,
+  // per above) — `HookBridge.handle` routes them to `handleDelegate`, whose
+  // `if (!parentId) return` drops them silently. No corruption, but no
+  // signal either — deliberately NOT "fixed" by teaching `CODEX_HOOK_SHIM` to
+  // stamp `harness_agent_id` from this same env var: that shim is wired into
+  // codex's GLOBAL hooks.json, so it fires for every codex invocation on the
+  // machine, including one a user runs manually inside a claude orchestrator
+  // pty's own shell — which inherits that pty's `POKEHARNESS_AGENT_ID` too.
+  // Stamping it there would misattribute that manual session's own
+  // SessionStart/Stop onto the ORCHESTRATOR's `hooks:event:<id>` channel,
+  // corrupting its status — exactly what the shim's existing "never stamp"
+  // rule (see its own header) prevents. This delegate session doesn't need
+  // that channel anyway: `ptyParser.ts` already derives status generically
+  // for a non-claude provider from the pty's own output (confirmed live
+  // against real codex CLI output — see that file's own citation), and
+  // `PtyExit` already flips it to 'done' — the exact two mechanisms every
+  // other 'codex'-provider session (created via "+ new agent") already
+  // relies on, with nothing delegate-specific needed.
+  (req: DelegateSpawnRequest): DelegateSpawnResponse => {
+    const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const effort = req.reasoningEffort?.trim() || 'medium';
+    const args = ['exec', '--sandbox', 'workspace-write', '-C', req.cwd, '-c', `model_reasoning_effort=${effort}`, req.prompt];
+    const result = ptyManager.spawn({
+      id,
+      cwd: req.cwd,
+      command: 'codex',
+      args,
+      provider: 'codex',
+      env: { [AGENT_ID_ENV]: id, [DELEGATE_PARENT_ENV]: '', [DELEGATE_LABEL_ENV]: '' }
+    });
+    if (!result.ok) return { ok: false, error: result.error ?? 'spawn failed' };
+    const wc = mainWindow?.webContents;
+    if (wc && !wc.isDestroyed()) {
+      const spawned: DelegateSessionSpawned = {
+        id,
+        parentAgentId: req.parentAgentId,
+        label: req.label,
+        cwd: result.cwd ?? req.cwd,
+        command: 'codex',
+        args
+      };
+      try {
+        wc.send('delegate:sessionSpawned', spawned);
+      } catch {
+        /* window tore down mid-send */
+      }
+    }
+    return { ok: true, id };
+  }
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
@@ -736,6 +807,10 @@ app.whenReady().then(async () => {
   // first spawn (and before any manual shim verification) ever happens.
   hookBridge.ensureFiles();
   hookBridge.start();
+  // First-class delegate sessions (shared/delegateSpawn.ts) — the exact
+  // command an orchestrator runs to spawn one; logged once per launch so it
+  // shows up in harness.log rather than needing to be re-derived by hand.
+  log('hooks', 'info', 'delegate CLI installed', { command: hookBridge.delegateCliCommand() });
   costWatcher.start();
   arceusRelay.start();
   taskNotificationWatcher.start();
@@ -853,6 +928,16 @@ handle('pty:kill', (_e, id: string) => {
 });
 handle('pty:list', () => ptyManager.list());
 handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
+// First-class delegate sessions (shared/delegateSpawn.ts) — the renderer's
+// `delegate:sessionSpawned` listener (sessions.ts's `startDelegateSpawnListener`)
+// subscribes its terminal to `pty:data:<id>` FIRST, then pulls this to backfill
+// whatever the pty already emitted before that subscription existed: unlike
+// `sessions:restore`'s replay (captured main-side before any renderer round
+// trip even starts), a delegate's pty is already running by the time the
+// renderer hears about it at all, so capturing replay before the subscription
+// risks a real gap — pulling after risks a few duplicated bytes instead, which
+// a live terminal tolerates far better than missing output does.
+handle('pty:replay', (_e, id: string) => ptyManager.getReplay(id));
 
 // ─── Crash recovery ─────────────────────────────────────────────────────────
 // See the `render-process-gone` handler in createWindow(): the freshly-booted
@@ -869,7 +954,19 @@ handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string
   notifyStatusTransitions(sessions, selectedId);
   sessionRegistry = sessions;
   lastSelectedId = selectedId;
-  sessionPersistence.schedule({ sessions, lastSelectedId: selectedId });
+  // First-class delegate sessions (shared/delegateSpawn.ts) are excluded from
+  // DISK persistence only (sessionRegistry above still mirrors them, for
+  // notifications/roster file below) — SessionRecord has no field for the
+  // prompt that launched one, so a relaunch's `respawnSession`
+  // (sessionRespawn.ts) would otherwise respawn a bare, promptless
+  // interactive `codex` under a delegate's old card. Silently re-running the
+  // ORIGINAL task (if the prompt were persisted instead) would be worse: a
+  // delegate still live when the app quits is simply not resurrected, same
+  // as a session closed in-app via stopSession never reaching this file.
+  sessionPersistence.schedule({
+    sessions: sessions.filter((s) => !s.delegateParentId),
+    lastSelectedId: selectedId
+  });
   // BACKLOG "next up" item 3 — flushes any relay Arceus queued for a target
   // that's now idle (or drops it if that target closed/finished in the
   // meantime). Cheap no-op when nothing is queued.

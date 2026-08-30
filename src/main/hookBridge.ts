@@ -24,7 +24,7 @@
  * `hive-node` launcher.
  */
 import { createServer, type Server } from 'node:net';
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebContents } from 'electron';
 import { log } from './diagnostics';
@@ -36,6 +36,7 @@ import {
   type HookEvent,
   type HookPayload
 } from '../shared/hookEvents';
+import type { DelegateSpawnRequest, DelegateSpawnResponse } from '../shared/delegateSpawn';
 
 /** Env var the shim reads to find the UDS to dial. */
 export const HOOK_SOCK_ENV = 'POKE_HOOK_SOCK';
@@ -71,6 +72,12 @@ const SHIM_FILENAME = 'cth-hook.cjs';
  *  launcher/shim path (which embeds `userData` and so differs between a dev
  *  and a packaged build). */
 export const CODEX_SHIM_FILENAME = 'cth-hook-codex.cjs';
+
+/** First-class delegate sessions (shared/delegateSpawn.ts) — client CLI
+ *  filename, installed alongside the hook shims for the same reason: the
+ *  orchestrator (a Claude CLI running inside a harness pty) runs this via its
+ *  own Bash tool to ask the app to spawn a real `codex exec` pty session. */
+export const DELEGATE_CLI_FILENAME = 'poke-delegate.cjs';
 
 /** The generated shim script. Deliberately dumb: read stdin, add
  *  harness_agent_id from env, forward to the socket, print whatever comes
@@ -174,11 +181,85 @@ process.stdin.on('end', () => {
 });
 `;
 
+/** First-class delegate sessions (shared/delegateSpawn.ts) — the client CLI
+ *  an orchestrator (a Claude CLI running inside a harness pty) runs, via its
+ *  own Bash tool, to ask this app to spawn a real `codex exec` pty session on
+ *  its behalf. Deliberately dumb, mirroring HOOK_SHIM/CODEX_HOOK_SHIM above:
+ *  no argv library, a single UDS round-trip, print-and-exit.
+ *
+ *  Discovery/auth is identity via inherited env, same mechanism the hook
+ *  shims themselves rely on (this file's own header) — `POKE_HOOK_SOCK` and
+ *  `POKEHARNESS_AGENT_ID` are set on the ORCHESTRATOR's own pty process (see
+ *  pty.ts's `spawn()`, provider === 'claude' branch), so any command that
+ *  process runs — including this script, via its own shell tool — inherits
+ *  both. No separate bearer token: the socket lives under this app's own
+ *  userData directory, and only a descendant of an app-spawned claude pty
+ *  ever sees these two env vars at all. `parentAgentId` is therefore always
+ *  read from env, never accepted as a flag — an orchestrator can only name
+ *  itself as a delegate's parent. */
+const DELEGATE_CLI_SCRIPT = `#!/usr/bin/env node
+'use strict';
+const net = require('net');
+
+function fail(msg) {
+  process.stderr.write('poke-delegate: ' + msg + '\\n');
+  process.exit(1);
+}
+
+const sock = process.env.${HOOK_SOCK_ENV};
+const parentAgentId = process.env.${AGENT_ID_ENV};
+if (!sock || !parentAgentId) {
+  fail('not running inside a pok\\u00e9harness session (run this from an orchestrator pty)');
+}
+
+const argv = process.argv.slice(2);
+let cwd;
+let label;
+let effort;
+const rest = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--cwd') cwd = argv[++i];
+  else if (a === '--label') label = argv[++i];
+  else if (a === '--effort') effort = argv[++i];
+  else rest.push(a);
+}
+const prompt = rest.join(' ').trim();
+if (!cwd) fail('--cwd <path> is required');
+if (!prompt) fail('a prompt is required');
+
+const payload = {
+  type: 'delegate/spawn',
+  parentAgentId,
+  cwd,
+  prompt,
+  label: label || undefined,
+  reasoningEffort: effort || undefined
+};
+
+let resp = '';
+const c = net.createConnection(sock, () => c.write(JSON.stringify(payload) + '\\n'));
+c.setEncoding('utf8');
+c.on('data', (d) => { resp += d; });
+c.on('error', (e) => fail('could not reach pok\\u00e9harness: ' + e.message));
+c.on('end', () => {
+  let result = {};
+  try { result = JSON.parse(resp || '{}'); } catch (_) {}
+  if (result && result.ok) {
+    process.stdout.write((result.id || '') + '\\n');
+    process.exit(0);
+  }
+  fail(result && result.error ? result.error : 'spawn failed');
+});
+setTimeout(() => fail('timed out waiting for pok\\u00e9harness'), 10000).unref();
+`;
+
 export class HookBridge {
   private server: Server | null = null;
   private readonly binDir: string;
   private readonly shimFile: string;
   private readonly codexShimFile: string;
+  private readonly delegateCliFile: string;
   private readonly launcherFile: string;
   readonly sockPath: string;
   /** BACKLOG "next up" item 2 — mirrors index.ts's `keepAwakeEnabled` module
@@ -203,25 +284,38 @@ export class HookBridge {
      *  stale/typo'd parent id can't spawn an orphaned battler. Optional so
      *  this class stays usable standalone (tests, other callers) without a
      *  live PtyManager in the loop, same reasoning as `onRawPayload` above. */
-    private isKnownSession?: (id: string) => boolean
+    private isKnownSession?: (id: string) => boolean,
+    /** First-class delegate sessions — invoked once a `delegate/spawn`
+     *  request (shared/delegateSpawn.ts) has passed this class's own
+     *  validation (parent known, cwd exists — see `handleDelegateSpawn`
+     *  below); owns the actual `ptyManager.spawn()` call and the renderer
+     *  notification, since this class holds neither. Optional for the same
+     *  standalone-usability reason as `isKnownSession`/`onRawPayload` above —
+     *  without it, a well-formed request still validates but gets a plain
+     *  "not wired" error instead of silently hanging. */
+    private onDelegateSpawnRequest?: (req: DelegateSpawnRequest) => DelegateSpawnResponse
   ) {
     this.binDir = join(userDataDir, 'hooks-bin');
     this.shimFile = join(this.binDir, SHIM_FILENAME);
     this.codexShimFile = join(this.binDir, CODEX_SHIM_FILENAME);
+    this.delegateCliFile = join(this.binDir, DELEGATE_CLI_FILENAME);
     this.launcherFile = join(this.binDir, process.platform === 'win32' ? 'poke-node.cmd' : 'poke-node');
     this.sockPath = join(userDataDir, 'hooks.sock');
   }
 
-  /** Write the shim(s) + bundled-node launcher. Idempotent, refreshed every
-   *  call so a code change always takes effect on the next app start. Writes
-   *  the codex-flavored shim unconditionally, same as the claude one — it's
-   *  an inert file on disk until codexHooks.ts's `ensureCodexHooks` actually
-   *  wires it into codex's hooks.json (itself gated on `codexDelegateHooks`
-   *  and codex being installed), so writing it here has no behavior cost. */
+  /** Write the shim(s) + delegate CLI + bundled-node launcher. Idempotent,
+   *  refreshed every call so a code change always takes effect on the next
+   *  app start. Writes the codex-flavored shim and the delegate CLI
+   *  unconditionally, same as the claude shim — both are inert files on disk
+   *  until something actually invokes them (codexHooks.ts's
+   *  `ensureCodexHooks` for the former, an orchestrator running
+   *  `poke-delegate.cjs` for the latter), so writing them here has no
+   *  behavior cost. */
   ensureFiles(): void {
     mkdirSync(this.binDir, { recursive: true });
     writeFileSync(this.shimFile, HOOK_SHIM, 'utf8');
     writeFileSync(this.codexShimFile, CODEX_HOOK_SHIM, 'utf8');
+    writeFileSync(this.delegateCliFile, DELEGATE_CLI_SCRIPT, 'utf8');
     try {
       if (process.platform === 'win32') {
         writeFileSync(
@@ -258,9 +352,9 @@ export class HookBridge {
         buf += d.toString();
         const nl = buf.indexOf('\n');
         if (nl === -1) return;
-        let payload: HookPayload = {};
+        let parsed: unknown = {};
         try {
-          payload = JSON.parse(buf.slice(0, nl));
+          parsed = JSON.parse(buf.slice(0, nl));
         } catch (e) {
           // Malformed line — respond empty rather than hang the shim.
           // Capped: this is the one place raw, agent-controlled content
@@ -276,7 +370,12 @@ export class HookBridge {
         }
         let res: unknown = {};
         try {
-          res = this.handle(payload);
+          // First-class delegate sessions — distinguished from an ordinary
+          // HookPayload by `type`, a field no real Claude/codex hook payload
+          // ever carries (see shared/delegateSpawn.ts's header).
+          res = isDelegateSpawnRequest(parsed)
+            ? this.handleDelegateSpawn(parsed)
+            : this.handle(parsed as HookPayload);
         } catch (e) {
           console.error('[hooks] handler threw:', e);
           res = {};
@@ -336,6 +435,18 @@ export class HookBridge {
    *  re-deriving it. */
   codexHookCommand(): string {
     return `"${this.launcherFile}" "${this.codexShimFile}"`;
+  }
+
+  /** Same shape again, for the delegate CLI (first-class delegate sessions) —
+   *  the exact command an orchestrator runs, via its own Bash tool, to spawn
+   *  a delegate: `<this> --cwd <path> [--label <text>] [--effort <level>]
+   *  <prompt>`. Public for the same reason `codexHookCommand` is: nothing
+   *  inside this class ever invokes it directly (unlike `hookCommand`, wired
+   *  automatically into every claude session's settings), so a caller outside
+   *  it needs the string — here, only for surfacing the invocation to a human
+   *  (no settings file references this one). */
+  delegateCliCommand(): string {
+    return `"${this.launcherFile}" "${this.delegateCliFile}"`;
   }
 
   /** Per-session Claude Code settings routing every wired hook through the
@@ -514,4 +625,54 @@ export class HookBridge {
       }
     }
   }
+
+  /** First-class delegate sessions (shared/delegateSpawn.ts) — validates a
+   *  `delegate/spawn` request (shape, known parent, existing cwd) and, only
+   *  once all three hold, hands off to `onDelegateSpawnRequest` for the
+   *  actual spawn. Kept synchronous like `handle()` above: `ptyManager.spawn`
+   *  itself is synchronous, so there's no reason to make the UDS caller wait
+   *  on anything async (in particular, the renderer catching up — creating
+   *  the terminal, adding the roster entry — happens on its own time; see
+   *  `DelegateSessionSpawned`'s own header for why that's safe). */
+  private handleDelegateSpawn(req: DelegateSpawnRequest): DelegateSpawnResponse {
+    const parentAgentId = req.parentAgentId?.trim();
+    const cwd = req.cwd?.trim();
+    const prompt = req.prompt?.trim();
+    if (!parentAgentId || !cwd || !prompt) {
+      return { ok: false, error: 'parentAgentId, cwd and prompt are all required' };
+    }
+    if (!this.isKnownSession?.(parentAgentId)) {
+      log('hooks', 'warn', 'delegate spawn request — unknown/dead parent session, rejected', { parentAgentId });
+      return { ok: false, error: `unknown parent session: ${parentAgentId}` };
+    }
+    let isDir = false;
+    try {
+      isDir = existsSync(cwd) && statSync(cwd).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) {
+      return { ok: false, error: `cwd does not exist or is not a directory: ${cwd}` };
+    }
+    if (!this.onDelegateSpawnRequest) {
+      // Defensive only — main/index.ts always wires this; a standalone/test
+      // construction of this class (see the constructor param's own comment)
+      // is the one path that reaches here.
+      return { ok: false, error: 'delegate spawning is not wired' };
+    }
+    return this.onDelegateSpawnRequest({ ...req, parentAgentId, cwd, prompt });
+  }
+}
+
+/** `delegate/spawn` requests are distinguished from an ordinary `HookPayload`
+ *  by this field — no real Claude/codex hook payload ever carries a `type`
+ *  key (see shared/delegateSpawn.ts's header). A loose shape check, not a
+ *  full schema validation: `handleDelegateSpawn` above does the actual field
+ *  validation once this narrows the branch. */
+function isDelegateSpawnRequest(value: unknown): value is DelegateSpawnRequest {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    (value as { type?: unknown }).type === 'delegate/spawn'
+  );
 }

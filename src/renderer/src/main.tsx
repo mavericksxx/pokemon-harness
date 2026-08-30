@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useStore } from './store/store';
-import { startSession, stopSession, startRegistrySync, startCompletionToasts } from './sessions';
+import { startSession, stopSession, startRegistrySync, startCompletionToasts, startDelegateSpawnListener } from './sessions';
 import { autoSummonArceus, startArceusRelayToasts } from './arceus';
 import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
 import { startFocusQueueFlush } from './pty/focusQueue';
@@ -211,6 +211,11 @@ async function boot(): Promise<void> {
     startRegistrySync();
     startCompletionToasts();
     startArceusRelayToasts();
+    // First-class delegate sessions (shared/delegateSpawn.ts) — adopts each
+    // app-spawned `codex exec` pty main pushes over `delegate:sessionSpawned`
+    // as an ordinary session (roster card + terminal). See sessions.ts's
+    // `startDelegateSpawnListener` for the full sequencing rationale.
+    startDelegateSpawnListener();
     // BACKLOG phase E — focus mode's queue composer; see focusQueue.ts's own
     // header for why this lives renderer-side rather than main.
     startFocusQueueFlush();
