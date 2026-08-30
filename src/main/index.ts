@@ -832,6 +832,10 @@ app.whenReady().then(async () => {
   taskNotificationWatcher.start();
   const appSettings = await loadAppSettings();
   keepAwakeEnabled = appSettings.keepAwake;
+  // Restore the last usage snapshot before configuring/enabling the poller or
+  // creating the window, so the first renderer replay has real data when the
+  // toggle is on. Disabled boots deliberately skip the disk read entirely.
+  await usageService.init(appSettings.usageLimitsEnabled);
 hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   ptyManager.setShellFallbackEnabled(appSettings.shellFallbackEnabled);
   // External-codex-delegate feature's missing first hop — only when the user
@@ -901,7 +905,7 @@ app.on('before-quit', (e) => {
   ptyManager.killAll();
   hookBridge.stop();
   costWatcher.stop();
-usageService.setEnabled(false);
+  usageService.shutdown();
   arceusRelay.stop();
   taskNotificationWatcher.stop();
 });
