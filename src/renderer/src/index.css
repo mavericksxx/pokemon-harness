@@ -53,6 +53,20 @@
   --status-done-bg: rgba(111, 184, 139, 0.2);
   --status-starting-bg: rgba(140, 140, 151, 0.2);
 
+  /* Arceus's fixed legendary-encounter skin — intentionally stays cosmic in
+   * both themes so his card never collapses back into the ordinary beige/
+   * neutral roster family. These are structural colors, while the creation
+   * wheel also picks up the app's mint accent below. */
+  --arceus-ground: #11152f;
+  --arceus-ground-raised: #1b1d43;
+  --arceus-ink: #ded7c2;
+  --arceus-muted: #aaa7c5;
+  --arceus-gold-deep: #76501c;
+  --arceus-gold: #d7a63b;
+  --arceus-gold-bright: #f5d778;
+  --arceus-green: #72c58b;
+  --arceus-violet: #514678;
+
   --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
@@ -2475,11 +2489,16 @@ button.icon:active {
   width: 200px;
 }
 
-/* Arceus's ceremonial card (ArceusRosterCard.tsx) — ~1.3× an ordinary
- * compact card (item 5's own mockup ratio), wide enough for the gold frame
- * and his title to read as ceremonial rather than cramped. */
+/* Arceus's compact ceremonial card (ArceusRosterCard.tsx) — ~1.3× an
+ * ordinary compact card, wide enough for the frame and title to read as a
+ * legendary encounter. The selected medium state uses the same width as a
+ * selected ordinary card so its live HUD has room to breathe. */
 .roster-strip .roster-card-wrap-arceus {
   width: 143px;
+}
+
+.roster-strip .roster-card-wrap-arceus.roster-card-wrap-medium {
+  width: 200px;
 }
 
 .roster-strip-new {
@@ -2583,68 +2602,217 @@ button.icon:active {
   box-shadow: 0 0 0 2px var(--accent-text);
 }
 
-/* Arceus's roster card (ArceusRosterCard.tsx) — parity sweep item 6: a plain
- * gold border read as just another `.selected` ring (`--gold` and
- * `--accent-text` are literally the same hex, #e8b740 — user report: "the
- * god looks like just another selected pokemon"). Distinguishing him from
- * selection has to be STRUCTURAL, not "more gold":
- *   - a genuine double-line frame (the card's own solid border plus an
- *     inset line one px in, with a background-colored gap between them —
- *     `.selected`'s ring above is a single line sitting OUTSIDE the border)
- *   - stepped pixel corner brackets (`::before`/`::after` below), an L-shaped
- *     notch motif no selection state anywhere in this app uses
- *   - a warm gold-tinted ground inside the card, not just its edge
- * `.selected` still layers its own outside ring on top of all of this (see
- * `.roster-card-arceus.selected` below) — a selected Arceus reads as "the
- * ceremonial plaque, now also picked", both states legible at once. */
+/* Arceus's roster card (ArceusRosterCard.tsx) — a compact GBA-era legendary
+ * encounter plaque. The ordinary card family stays neutral; this card gets
+ * its own deep indigo ground, a hard multi-step gilded bezel, green/gold
+ * creation-wheel watermark, and stepped corner/rail ornaments. Every layer
+ * uses solid pixels or hard shadows: there is no soft glow or smooth gradient
+ * to muddy the pixel-art language. `.selected` adds a separate outer ring so
+ * the encounter frame and the current focus state remain distinct. */
 .roster-card-arceus {
-  border-color: var(--gold);
-  border-left-color: var(--gold);
-  background: linear-gradient(rgba(232, 183, 64, 0.08), rgba(232, 183, 64, 0.08)), var(--panel-2);
+  border: 2px solid var(--arceus-gold);
+  border-left-width: 3px;
+  border-left-color: var(--arceus-gold-bright);
+  border-radius: 0;
+  color: var(--arceus-ink);
+  background-color: var(--arceus-ground);
   box-shadow:
-    inset 0 0 0 1px var(--gold),
-    0 0 10px rgba(232, 183, 64, 0.35);
+    inset 0 0 0 1px var(--arceus-gold-bright),
+    inset 0 0 0 3px var(--arceus-gold-deep),
+    3px 3px 0 var(--arceus-violet);
 }
 
 .roster-card-arceus:hover {
-  border-color: var(--gold);
+  border-color: var(--arceus-gold-bright);
 }
 
-/* Stepped corner brackets — top-left/bottom-right only (a common "reticle
- * corner" pixel-UI motif; decorating all four would compete with the sprite
- * and swap button already anchored at the other two). Solid L-shaped blocks
- * via `clip-path`, not a stroke, to stay crisp at this size. */
-.roster-card-arceus::before,
+/* The cosmic layer is a single absolute paint surface, keeping decoration
+ * out of the card's flex measurements. The regular card content is lifted
+ * above it below. */
+.roster-card-arceus-cosmic {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.roster-card-arceus > :not(.roster-card-arceus-cosmic) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Second bezel line — the parent border and this inset line leave a visible
+ * indigo/gold-deep step between them. */
+.roster-card-arceus::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid var(--arceus-gold);
+  box-shadow: inset 0 0 0 1px var(--arceus-violet);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* A squared central crest rail, visible above and below the content without
+ * competing with Arceus's sprite. */
 .roster-card-arceus::after {
   content: '';
   position: absolute;
-  width: 8px;
-  height: 8px;
-  background: var(--gold);
-  clip-path: polygon(0 0, 100% 0, 100% 35%, 35% 35%, 35% 100%, 0 100%);
+  top: -2px;
+  left: 50%;
+  width: 28px;
+  height: 2px;
+  transform: translateX(-50%);
+  background: var(--arceus-gold-bright);
+  box-shadow:
+    0 2px 0 var(--arceus-ground),
+    0 3px 0 var(--arceus-green);
   pointer-events: none;
+  z-index: 3;
 }
 
-.roster-card-arceus::before {
-  top: -3px;
-  left: -3px;
+.roster-card-arceus-pixels {
+  position: absolute;
+  top: 10px;
+  right: 22px;
+  width: 2px;
+  height: 2px;
+  background: var(--arceus-gold-bright);
+  opacity: 0.65;
+  box-shadow:
+    -15px 5px 0 var(--arceus-violet),
+    23px 10px 0 var(--arceus-green),
+    -32px 19px 0 var(--arceus-gold),
+    10px 28px 0 var(--arceus-violet),
+    -8px 36px 0 var(--arceus-green),
+    29px 48px 0 var(--arceus-gold);
 }
 
-.roster-card-arceus::after {
-  bottom: -3px;
-  right: -3px;
-  transform: rotate(180deg);
+/* One tiny step-animation supplies the glint on the plaque. It only changes
+ * opacity, so it remains crisp at any scale and the shared reduced-motion
+ * rule below can disable it completely. */
+.roster-card-arceus-glint {
+  position: absolute;
+  top: 13px;
+  right: 42px;
+  width: 2px;
+  height: 2px;
+  background: var(--arceus-gold-bright);
+  box-shadow:
+    -3px 0 0 var(--arceus-gold-bright),
+    3px 0 0 var(--arceus-gold-bright),
+    0 -3px 0 var(--arceus-gold-bright),
+    0 3px 0 var(--arceus-gold-bright);
+  animation: arceus-glint 3200ms steps(4, end) infinite;
+}
+
+/* A square, pixel-built creation wheel watermark. It deliberately sits
+ * behind the content and is muted enough to read as a sigil, not a second
+ * icon competing with the sprite. */
+.roster-card-arceus-wheel {
+  position: absolute;
+  right: 11px;
+  bottom: 13px;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--arceus-green);
+  opacity: 0.28;
+  box-shadow:
+    0 0 0 2px var(--arceus-ground),
+    0 0 0 3px var(--arceus-gold-deep);
+}
+
+.roster-card-arceus-wheel::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 2px solid var(--arceus-gold);
+  box-shadow:
+    -7px 0 0 -1px var(--arceus-green),
+    7px 0 0 -1px var(--arceus-green),
+    0 -7px 0 -1px var(--arceus-green),
+    0 7px 0 -1px var(--arceus-green);
+}
+
+.roster-card-arceus-wheel::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  width: 4px;
+  height: 4px;
+  background: var(--arceus-gold-bright);
+  box-shadow: 0 0 0 1px var(--arceus-green);
+}
+
+.roster-card-arceus-corner {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-style: solid;
+  border-color: var(--arceus-gold-bright);
+  z-index: 3;
+}
+
+.roster-card-arceus-corner-tl {
+  top: -2px;
+  left: -2px;
+  border-width: 3px 0 0 3px;
+  box-shadow: 2px 2px 0 var(--arceus-gold-deep);
+}
+
+.roster-card-arceus-corner-tr {
+  top: -2px;
+  right: -2px;
+  border-width: 3px 3px 0 0;
+  box-shadow: -2px 2px 0 var(--arceus-gold-deep);
+}
+
+.roster-card-arceus-corner-bl {
+  bottom: -2px;
+  left: -2px;
+  border-width: 0 0 3px 3px;
+  box-shadow: 2px -2px 0 var(--arceus-gold-deep);
+}
+
+.roster-card-arceus-corner-br {
+  right: -2px;
+  bottom: -2px;
+  border-width: 0 3px 3px 0;
+  box-shadow: -2px -2px 0 var(--arceus-gold-deep);
+}
+
+.roster-card-arceus-rail {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  background: var(--arceus-gold);
+  box-shadow: 0 1px 0 var(--arceus-green);
+  z-index: 3;
+}
+
+.roster-card-arceus-rail-top {
+  top: 4px;
+}
+
+.roster-card-arceus-rail-bottom {
+  bottom: 4px;
 }
 
 .roster-card-arceus.selected {
+  border-color: var(--arceus-gold-bright);
   box-shadow:
-    inset 0 0 0 1px var(--gold),
-    0 0 0 2px var(--accent-text),
-    0 0 12px rgba(232, 183, 64, 0.45);
+    inset 0 0 0 1px var(--arceus-gold-bright),
+    inset 0 0 0 3px var(--arceus-gold-deep),
+    0 0 0 2px var(--arceus-gold-bright),
+    0 0 0 4px var(--arceus-ground),
+    3px 3px 0 var(--arceus-green);
 }
 
 .roster-card-arceus-star {
-  color: var(--gold);
+  color: var(--arceus-gold-bright);
   width: 10px;
   height: 10px;
   margin-right: 3px;
@@ -2829,28 +2997,133 @@ button.icon:active {
   min-width: 0;
 }
 
-/* Arceus's ceremonial frame, scaled down for the compact card (item 5:
- * "scale the double-line frame/corner brackets down cleanly") — smaller
- * stepped corner brackets and star than the ordinary shipped size, since a
- * 143px-wide card can't carry the old full card's 8px brackets without them
- * reading as oversized. */
-.roster-card-arceus.roster-card-compact::before,
-.roster-card-arceus.roster-card-compact::after {
-  width: 6px;
-  height: 6px;
-}
+/* Compact Arceus keeps the shared 108px band but gets a tighter version of
+ * the four-corner gilt and side rails so the frame stays ornamental rather
+ * than swallowing the 18px sprite/title row. */
 .roster-card-arceus.roster-card-compact::before {
-  top: -2px;
-  left: -2px;
+  inset: 3px;
 }
-.roster-card-arceus.roster-card-compact::after {
-  bottom: -2px;
-  right: -2px;
+
+.roster-card-arceus.roster-card-compact .roster-card-arceus-corner {
+  width: 7px;
+  height: 7px;
 }
-.roster-card-compact .roster-card-arceus-star {
+
+.roster-card-arceus.roster-card-compact .roster-card-arceus-rail {
+  left: 13px;
+  right: 13px;
+}
+
+.roster-card-arceus.roster-card-compact .roster-card-arceus-rail-top {
+  top: 3px;
+}
+
+.roster-card-arceus.roster-card-compact .roster-card-arceus-rail-bottom {
+  bottom: 3px;
+}
+
+.roster-card-arceus.roster-card-compact .roster-card-arceus-star {
   width: 8px;
   height: 8px;
   margin-right: 2px;
+}
+
+.roster-card-arceus.roster-card-medium {
+  padding: 6px;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.roster-card-arceus.roster-card-medium::before {
+  inset: 4px;
+}
+
+.roster-card-arceus.roster-card-medium .roster-card-arceus-star {
+  width: 10px;
+  height: 10px;
+}
+
+/* Expanded Arceus HUD — status remains a real status badge, while the
+ * provider, model, cumulative cost, and context gauge stay in compact rows
+ * that fit inside the strip's fixed height. */
+.roster-card-arceus-status-row,
+.roster-card-arceus-model-row,
+.roster-card-arceus-context-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.roster-card-arceus-status-row {
+  gap: 6px;
+  min-height: 16px;
+}
+
+.roster-card-arceus .status {
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 5px;
+  color: var(--arceus-ink);
+  background: var(--arceus-ground-raised);
+  border: 1px solid var(--arceus-violet);
+  line-height: 1;
+  text-overflow: ellipsis;
+}
+
+.roster-card-arceus-provider {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--arceus-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.roster-card-arceus-model-row {
+  gap: 6px;
+}
+
+.roster-card-arceus-model-row > .model-badge {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+}
+
+.roster-card-arceus-cost {
+  flex: none;
+  margin-left: auto;
+  padding: 4px 5px;
+  color: var(--arceus-gold-bright);
+  background: var(--arceus-ground-raised);
+  border: 1px solid var(--arceus-gold-deep);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.roster-card-arceus-context-row {
+  gap: 6px;
+  min-height: 12px;
+}
+
+.roster-card-arceus-context-row .roster-card-ctx-label {
+  color: var(--arceus-muted);
+  line-height: 1;
+}
+
+.roster-card-arceus-context-row .roster-card-ctx-label:last-child {
+  color: var(--arceus-ink);
+}
+
+.roster-card-arceus-context-row .roster-card-ctx-sliver-md {
+  flex: 1;
 }
 
 .roster-card-top {
@@ -3645,10 +3918,27 @@ textarea,
   }
 }
 
+@keyframes arceus-glint {
+  0%,
+  63%,
+  100% {
+    opacity: 0.18;
+  }
+  68%,
+  76% {
+    opacity: 0.9;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0s !important;
     transition-duration: 0s !important;
+  }
+
+  .roster-card-arceus-glint {
+    animation: none;
+    opacity: 0.28;
   }
 }
 

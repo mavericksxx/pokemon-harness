@@ -4,6 +4,7 @@ import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { ArceusRosterCard } from '@/components/ArceusRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
+import { ARCEUS_SESSION_ID } from '@shared/arceus';
 
 interface Props {
   onNewSession(): void;
@@ -27,12 +28,11 @@ interface Props {
  * he's always here, even in a workspace with no sessions at all.
  *
  * Garden-split roster-strip rework — cards are compact by default; the
- * currently SELECTED ordinary session's card expands to 'medium' (the
- * approved hybrid card, see AgentRosterCard.tsx's own doc comment). Arceus
- * and subagents never expand — Arceus's card has no extra rows to show even
- * at full size (see ArceusRosterCard.tsx), and a subagent isn't
- * independently selectable (clicking one selects its parent instead). The
- * strip itself is now wrapped in `.roster-strip-wrap`, a non-scrolling
+ * currently SELECTED session's card expands to 'medium' (the approved
+ * hybrid card, see AgentRosterCard.tsx and ArceusRosterCard.tsx). A subagent
+ * never expands because it isn't independently selectable (clicking one
+ * selects its parent instead). The strip itself is now wrapped in
+ * `.roster-strip-wrap`, a non-scrolling
  * positioning context for the right-edge fade overlay (`.roster-strip-fade`)
  * that has to sit OUTSIDE the actual `overflow-x: auto` scroller below so it
  * stays pinned to the edge instead of scrolling away with the cards.
@@ -47,7 +47,7 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   return (
     <div className="roster-strip-wrap">
       <div className="roster-strip">
-        <ArceusRosterCard />
+        <ArceusRosterCard variant={selectedId === ARCEUS_SESSION_ID ? 'medium' : 'compact'} />
         {sessions.map((s) => (
           <Fragment key={s.id}>
             <AgentRosterCard
