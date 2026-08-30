@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## unreleased
+## v1.7.2 — 2026-08-30
 
 - delegate done-state flow: a finished codex delegate no longer drops to a lingering shell tab — delegate ptys skip the shell fallback entirely, the terminal-bar tab closes itself on exit (selection hands back to the parent session), and the delegate's card swaps "change pokemon" for a pokéball despawn button. Clicking it plays the SAME pixel pokéball recall the done subagent battlers get (`spawnPokeballRecall` reused verbatim via a new `Walker.startRecall` — delegates are session walkers, not battlers), and the session is only torn down from the animation's completion callback. A codex that finishes before the renderer even adopts it still lands in 'done' via a main-side retained exit record
 - fixed phantom subagent battlers spawning from codex output: the pty parser's battle heuristics (spawn/attack/endAll) regex-matched codex's verbose stream as Claude-style Task/tool lines, materializing up to five fake pokemon per delegate session. Battle signals are now claude-only (real ones come from hooks); status/tool derivation for non-claude sessions is unchanged. Delegated to codex gpt-5.6-luna, verified and merged by the orchestrator (as are all luna bullets below)
