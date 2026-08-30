@@ -41,6 +41,7 @@ const api = {
    *  subscribed to `pty:data:<id>` (see that function's own comment for why
    *  the order matters). */
   getPtyReplay: (id: string): Promise<string> => ipcRenderer.invoke('pty:replay', id),
+  getPtyExit: (id: string): Promise<PtyExit | null> => ipcRenderer.invoke('pty:exit-info', id),
 
   onPtyData: (id: string, cb: (data: string) => void): (() => void) => {
     const channel = `pty:data:${id}`;

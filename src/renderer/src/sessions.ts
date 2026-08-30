@@ -179,6 +179,21 @@ async function adoptDelegateSession(spawned: DelegateSessionSpawned): Promise<vo
   // after its own spawnPty call resolves ok. ptyParser.ts takes it from here.
   useStore.getState().updateSession(spawned.id, { status: 'idle' });
 
+  // The delegate can be a very short-lived command. If it exited before the
+  // renderer adopted the pushed spawn event, its normal PtyExit listener had
+  // no session record to patch; main retains that delegate-only exit snapshot
+  // so this path lands in the same done state instead of resurrecting it idle.
+  const earlyExit = await window.api.getPtyExit(spawned.id);
+  if (earlyExit) {
+    useStore.getState().updateSession(spawned.id, {
+      status: 'done',
+      exitCode: earlyExit.exitCode,
+      tool: undefined,
+      toolTarget: undefined,
+      station: 'wander'
+    });
+  }
+
   const replay = await window.api.getPtyReplay(spawned.id);
   if (replay) writeReplayNow(spawned.id, replay);
 }

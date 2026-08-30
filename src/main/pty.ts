@@ -18,7 +18,7 @@ import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
 import { ARCEUS_SESSION_ID } from '../shared/arceus';
-import type { PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
+import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
  *  userData: these are throwaway routing files, not app state. */
@@ -50,10 +50,15 @@ interface PtySession {
    *  fallback-on-exit check in `onExit` reads this so a fallback shell's own
    *  exit shows the plain dead state instead of chaining another fallback. */
   isFallback: boolean;
+  /** First-class delegate sessions never become fallback shells. */
+  isDelegate: boolean;
 }
 
 export class PtyManager {
   private sessions = new Map<string, PtySession>();
+  /** Natural exits retained briefly for first-class delegates whose renderer
+   *  adoption can arrive after a very fast `codex exec` has already ended. */
+  private delegateExits = new Map<string, PtyExit>();
   private webContents: WebContents | null = null;
   /** BUG/UX fix — whether a naturally-exited session's pty respawns the
    *  user's shell instead of leaving the tab dead. Set from
@@ -116,6 +121,7 @@ export class PtyManager {
 
     // A respawn reusing a live id would orphan the old child. Kill it first.
     if (this.sessions.has(opts.id)) this.kill(opts.id);
+    this.delegateExits.delete(opts.id);
 
     const { path: file, found } = resolveCommand(opts.command);
     if (!found) {
@@ -165,7 +171,8 @@ export class PtyManager {
         lastOutputAt: Date.now(),
         replay: '',
         env,
-        isFallback: false
+        isFallback: false,
+        isDelegate: opts.isDelegate === true
       };
       this.sessions.set(opts.id, session);
       this.onSessionsChanged?.();
@@ -184,6 +191,7 @@ export class PtyManager {
         }
         this.sessions.delete(opts.id);
         this.onSessionsChanged?.();
+        if (session.isDelegate) this.delegateExits.set(opts.id, { exitCode, signal });
 
         // BUG/UX fix — a real terminal drops you to a shell when the
         // foreground process exits; this app used to just leave the tab
@@ -201,7 +209,8 @@ export class PtyManager {
         // field's own comment on why: its regex tool-call parser must stop
         // reading this channel before the fallback shell's first byte, not
         // after.
-        const willFallback = this.shellFallbackEnabled && opts.id !== ARCEUS_SESSION_ID && !session.isFallback;
+        const willFallback =
+          this.shellFallbackEnabled && opts.id !== ARCEUS_SESSION_ID && !session.isFallback && !session.isDelegate;
         this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal, fallback: willFallback });
 
         if (willFallback) {
@@ -275,7 +284,8 @@ export class PtyManager {
         lastOutputAt: Date.now(),
         replay: notice,
         env,
-        isFallback: true
+        isFallback: true,
+        isDelegate: false
       };
       this.sessions.set(id, session);
       this.onSessionsChanged?.();
@@ -316,6 +326,15 @@ export class PtyManager {
     return this.sessions.has(id);
   }
 
+  /** Exit snapshot for a fast first-class delegate adoption. Ordinary
+   *  sessions do not retain exit state because their renderer listener is
+   *  established before their PTY is spawned. */
+  getDelegateExit(id: string): PtyExit | null {
+    const exit = this.delegateExits.get(id) ?? null;
+    if (exit) this.delegateExits.delete(id);
+    return exit;
+  }
+
   write(id: string, data: string): PtyResult {
     const s = this.sessions.get(id);
     if (!s) return { ok: false, error: `no pty: ${id}` };
@@ -340,10 +359,16 @@ export class PtyManager {
 
   kill(id: string): PtyResult {
     const s = this.sessions.get(id);
-    if (!s) return { ok: false, error: `no pty: ${id}` };
+    if (!s) {
+      // A natural delegate exit already removed the live PTY; this is the
+      // later recall bookkeeping call, so drop its retained exit snapshot too.
+      this.delegateExits.delete(id);
+      return { ok: false, error: `no pty: ${id}` };
+    }
     // Delete BEFORE killing: onExit fires asynchronously and its identity guard
     // then correctly treats the dying process as stale.
     this.sessions.delete(id);
+    this.delegateExits.delete(id);
     this.onSessionsChanged?.();
     this.hookBridge?.cleanupSession(id, hookTmpDir());
     try {

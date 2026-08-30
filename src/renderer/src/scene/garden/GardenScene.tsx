@@ -26,6 +26,7 @@ import { clearBattleFx, spawnShinySparkle, spawnSparkleBurst } from './battle/ba
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
+import { stopSession } from '@/sessions';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
@@ -845,6 +846,19 @@ export function GardenScene(): JSX.Element {
         runtimes.delete(id);
       };
 
+      /** Done first-class delegates are ordinary session walkers, not
+       *  BattleManager battlers. Start the shared pokéball recall at the
+       *  walker's current position, and only then use the normal session
+       *  teardown path so the card/Walker/terminal all disappear together. */
+      const recallDelegate = (id: string): void => {
+        const session = useStore.getState().sessions.find((s) => s.id === id);
+        const rt = runtimes.get(id);
+        if (!session?.delegateParentId || session.status !== 'done' || !rt) return;
+        rt.walker.startRecall(() => {
+          void stopSession(id);
+        });
+      };
+
       /** Reconcile walkers with the session list — the single place the store
        *  drives the garden.
        *
@@ -1177,6 +1191,13 @@ export function GardenScene(): JSX.Element {
         // idempotent (double-despawn guard), so draining late by a frame or
         // two is harmless.
         for (const key of useStore.getState().drainDespawnBattlerKeys()) battleManager.despawnBattler(key);
+
+        // Done first-class delegates use a normal Walker rather than a
+        // BattleManager battler, so their card queues the same shared recall
+        // animation through this scene-owned runtime. `Walker.startRecall`
+        // calls battleFx.spawnPokeballRecall verbatim; stopSession runs only
+        // from that animation's completion callback.
+        for (const id of useStore.getState().drainRecallDelegateIds()) recallDelegate(id);
 
         const { selectedId, focusBattlerKey } = useStore.getState();
         const focus = selectedId ? runtimes.get(selectedId) : undefined;

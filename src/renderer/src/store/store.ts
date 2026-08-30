@@ -138,6 +138,10 @@ interface HarnessState {
   /** Pending despawn requests (SubagentRosterCard's despawn button) — see
    *  `requestDespawnBattler`/`drainDespawnBattlerKeys` below. */
   despawnBattlerKeys: string[];
+  /** Pending recall requests for done first-class delegate sessions. These
+   *  are consumed by GardenScene, which owns the session's Walker and the
+   *  pixel-art recall animation. */
+  recallDelegateIds: string[];
   viewMode: ViewMode;
   /** Garden's fraction of `.body-row`'s width, dragged via
    *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
@@ -233,6 +237,10 @@ interface HarnessState {
   /** Atomically returns and clears the queue above — called once per frame
    *  from GardenScene's ticker, never from React. */
   drainDespawnBattlerKeys(): string[];
+  /** Queue a done delegate for its garden-side pokéball recall. */
+  requestRecallDelegate(id: string): void;
+  /** Atomically returns and clears pending delegate recalls. */
+  drainRecallDelegateIds(): string[];
 }
 
 export const useStore = create<HarnessState>((set, get) => ({
@@ -243,6 +251,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   battlers: [],
   focusBattlerKey: null,
   despawnBattlerKeys: [],
+  recallDelegateIds: [],
   viewMode: loadViewMode(),
   gardenSplit: loadGardenSplit(),
   sessionsOverviewOpen: false,
@@ -293,6 +302,7 @@ export const useStore = create<HarnessState>((set, get) => ({
       return {
         sessions,
         battlers,
+        recallDelegateIds: st.recallDelegateIds.filter((recallId) => recallId !== id),
         selectedId: st.selectedId === id ? (sessions[0]?.id ?? null) : st.selectedId
       };
     }),
@@ -351,5 +361,11 @@ export const useStore = create<HarnessState>((set, get) => ({
     const keys = get().despawnBattlerKeys;
     if (keys.length > 0) set({ despawnBattlerKeys: [] });
     return keys;
+  },
+  requestRecallDelegate: (id) => set((st) => ({ recallDelegateIds: [...st.recallDelegateIds, id] })),
+  drainRecallDelegateIds: () => {
+    const ids = get().recallDelegateIds;
+    if (ids.length > 0) set({ recallDelegateIds: [] });
+    return ids;
   }
 }));
