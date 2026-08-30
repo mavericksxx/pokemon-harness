@@ -418,7 +418,13 @@ export function hasTerminal(sessionId: string): boolean {
  *  sessions.ts's `startDelegateSpawnListener` for the full sequencing
  *  rationale. No-op for an unknown/already-torn-down session id. */
 export function writeReplayNow(sessionId: string, data: string): void {
-  entries.get(sessionId)?.term.write(data);
+  const term = entries.get(sessionId)?.term;
+  if (!term) return;
+  // `write` may process a larger replay on its next xterm turn. Scroll in its
+  // completion callback so the newly-created delegate terminal is at the
+  // bottom after the backlog is actually present; live output then continues
+  // from the normal follow-output position.
+  term.write(data, () => term.scrollToBottom());
 }
 
 // ─── Find-in-scrollback (Phase 8.5 Wave B item 3 §1) ───────────────────────

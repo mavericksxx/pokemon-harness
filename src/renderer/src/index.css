@@ -2628,6 +2628,18 @@ button.icon:active {
   flex: 1 1 auto;
 }
 
+/* Compact provider identity — a tiny mono tag keeps Claude/Codex sessions
+ * distinguishable without taking the fixed card out of its 108px strip band. */
+.roster-card-provider-compact {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 /* Standalone status dot for compact/medium cards — same status-color tokens
  * `.status::before`/`.summon-arceus-dot` already use, just without either's
  * badge background/pill text (there's no room for a label at this size; the
@@ -2673,6 +2685,7 @@ button.icon:active {
  * rows. */
 .roster-card-meta-line {
   font-size: var(--font-body-sm-size);
+  line-height: var(--font-body-sm-line);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -2699,6 +2712,8 @@ button.icon:active {
 /* Keep the changed-from tick as the only flexible text in this row: the
  * badge and context percentage must remain fully readable. */
 .roster-card-medium {
+  padding: 6px;
+  gap: 3px;
   min-width: 0;
   overflow: hidden;
 }
@@ -2735,6 +2750,7 @@ button.icon:active {
    * its own, so there's no real pressure to introduce a new token-less size
    * just for this one row. */
   font-size: var(--font-body-sm-size);
+  line-height: var(--font-body-sm-line);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;

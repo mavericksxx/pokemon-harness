@@ -56,6 +56,7 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
   // this component's first mount.
   const [freezeStage, setFreezeStage] = useState(!!session.evolutionFrozen);
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
+  const providerShortLabel = AGENT_PROVIDERS[session.provider]?.shortLabel ?? session.provider;
   // First-class delegate sessions (shared/delegateSpawn.ts) — a "↳ <parent>"
   // link, same affordance SubagentRosterCard.tsx already uses for a battler.
   // Resolved here (rather than threaded through as a prop from every one of
@@ -117,10 +118,9 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
         {variant === 'compact' && (
           <>
             {/* Compact strip card (garden-split roster-strip rework) —
-                sprite, truncated title, a status dot, and a thin context
-                sliver. Provider/species/tool line/model badge/status pill
-                all move to the medium card (selection) or the trainer
-                popover (one click away, unchanged). */}
+                sprite, truncated title, provider tag, a status dot, and a
+                thin context sliver. Delegate sessions add their parent line
+                while staying inside the fixed strip band. */}
             <div className="roster-card-top-compact">
               <span className="roster-card-face">
                 <PokemonFace name={session.pokemon} shiny={session.shiny} box={18} />
@@ -131,11 +131,13 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
                 )}
               </span>
               <span className="roster-card-title-compact">{session.title}</span>
+              <span className="roster-card-provider-compact">{providerShortLabel}</span>
               <span
                 className={session.napping ? 'roster-card-dot napping' : `roster-card-dot ${session.status}`}
                 aria-hidden="true"
               />
             </div>
+            {delegateParentTitle && <div className="roster-card-parent-compact">↳ {delegateParentTitle}</div>}
             <div className="hp-bar roster-card-ctx-sliver">
               <div
                 className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
@@ -174,6 +176,7 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
             <div className="roster-card-meta-line">
               {providerLabel} · {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
             </div>
+            {delegateParentTitle && <div className="roster-card-parent-compact">↳ {delegateParentTitle}</div>}
             {/* Same height-jitter discipline as the full card below — this
                 row is always mounted, badge/bar/label individually masked
                 via `roster-card-row-hidden` (visibility, not display) until
