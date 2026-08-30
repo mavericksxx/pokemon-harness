@@ -3472,11 +3472,9 @@ button.icon:active {
 }
 
 /* ── Subagent despawn button (done/retired follow-up, SubagentRosterCard.tsx)
- * ── Same bottom-right hover-revealed pill as `.roster-card-swap` above
- * (SubagentRosterCard has no swap button of its own to collide with), just
- * its own class since the action/icon/danger-tinted hover are different.
- * Rendered only once a battler is `done`, so there's no risk of it ever
- * needing to coexist with anything else in this corner. */
+ * ── Same bottom-right pill as `.roster-card-swap` above, but always visible
+ * because it is rendered only once a delegate is `done`; its own class keeps
+ * the action/icon/danger-tinted hover styling separate from the swap button. */
 .roster-card-despawn {
   position: absolute;
   right: 6px;
@@ -3491,7 +3489,7 @@ button.icon:active {
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  opacity: 0;
+  opacity: 1;
   transition:
     opacity 90ms steps(2, end),
     transform 90ms steps(2, end);
@@ -3510,11 +3508,6 @@ button.icon:active {
 .roster-card-wrap:has(.roster-card-compact) .roster-card-despawn svg {
   width: 12px;
   height: 12px;
-}
-
-.roster-card-wrap:hover .roster-card-despawn,
-.roster-card-despawn:focus-visible {
-  opacity: 1;
 }
 
 .roster-card-wrap:hover .roster-card-despawn {
