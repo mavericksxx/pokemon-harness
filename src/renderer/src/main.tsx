@@ -165,18 +165,31 @@ if (import.meta.env.DEV) {
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('#root missing');
 
-// Chromium can still move an overflow-hidden document while revealing the
-// IME composition caret in xterm's hidden helper textarea. Clamp only the
-// document-level containers; scrollable panes (including xterm itself) remain
-// free to scroll normally.
+// Chromium can move every scrollable-box ancestor, including overflow-hidden
+// layout containers, while revealing the IME composition caret in xterm's
+// hidden helper textarea. Keep intentional panes and xterm's own scrollers
+// free to scroll, but clamp every other element that Chromium shifts.
 const documentScrollGuardTargets = [document.documentElement, document.body, rootEl];
+const documentScrollGuardExemptSelector =
+  '.session-chips, .garden-chips, .pokemon-picker, .drawer-tabs, .modal, ' +
+  '.usage-popover-panel, .mini-player-list, .roster-strip, .focus-sidebar, ' +
+  '.sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
+  'textarea, input, select';
+const clampScrollPosition = (target: Element) => {
+  if (target.scrollLeft !== 0) target.scrollLeft = 0;
+  if (target.scrollTop !== 0) target.scrollTop = 0;
+};
+
 document.addEventListener(
   'scroll',
-  () => {
-    for (const target of documentScrollGuardTargets) {
-      if (target.scrollLeft !== 0) target.scrollLeft = 0;
-      if (target.scrollTop !== 0) target.scrollTop = 0;
+  (event) => {
+    const target = event.target;
+    if (target === document) {
+      for (const target of documentScrollGuardTargets) clampScrollPosition(target);
+      return;
     }
+    if (!(target instanceof Element) || target.closest(documentScrollGuardExemptSelector)) return;
+    clampScrollPosition(target);
   },
   { capture: true, passive: true }
 );
