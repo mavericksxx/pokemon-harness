@@ -26,6 +26,8 @@ import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { cancelClosingTime, isClosingTimeActive, startClosingTime } from '@/closingTime';
+import { OverflowChipRow, type OverflowChipRenderContext } from '@/components/OverflowChipRow';
+import type { Session } from '@/store/store';
 
 /** Cmd/Ctrl+1..3 → the three view modes, matching ViewModeSwitcher's order.
  *  Bound globally (not per-input) — none of the app's text inputs use
@@ -42,6 +44,26 @@ const SHORTCUT_MODES: Record<string, ViewMode> = {
  *  layout, which would never match a plain digit lookup like
  *  SHORTCUT_MODES does above. */
 const DIGIT_CODE_RE = /^Digit([1-9])$/;
+
+function renderSessionChip(s: Session, { selected, onSelect }: OverflowChipRenderContext): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={selected ? 'chip active' : 'chip'}
+      onClick={onSelect}
+      title={`${s.command} — ${s.cwd}`}
+    >
+      <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
+      {s.shiny && (
+        <span className="shiny-badge" title="shiny" aria-label="shiny">
+          ★
+        </span>
+      )}
+      <span className="chip-title">{s.title}</span>
+      <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
+    </button>
+  );
+}
 
 // Crash/reload recovery (consumeCrashInfo + restoreSessions) runs once in
 // main.tsx, BEFORE this component's first render — not here — so the store
@@ -177,28 +199,18 @@ export function App(): JSX.Element {
             <button className="primary" onClick={() => setDialogOpen(true)}>
               + new agent
             </button>
-            <div className="session-chips-wrap">
-              <nav className="session-chips">
-                {sessions.map((s) => (
-                  <button
-                    key={s.id}
-                    className={s.id === selectedId ? 'chip active' : 'chip'}
-                    onClick={() => select(s.id === selectedId ? null : s.id)}
-                    title={`${s.command} — ${s.cwd}`}
-                  >
-                    <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
-                    {s.shiny && (
-                      <span className="shiny-badge" title="shiny" aria-label="shiny">
-                        ★
-                      </span>
-                    )}
-                    <span className="chip-title">{s.title}</span>
-                    <em className={s.napping ? 'status napping' : `status ${s.status}`}>{sessionStatusLabel(s)}</em>
-                  </button>
-                ))}
-              </nav>
-              <div className="session-chips-fade" aria-hidden="true" />
-            </div>
+            <OverflowChipRow
+              items={sessions}
+              selectedId={selectedId}
+              getItemId={(s) => s.id}
+              onRowSelect={(s) => select(s.id === selectedId ? null : s.id)}
+              onMenuSelect={(s) => select(s.id)}
+              renderItem={renderSessionChip}
+              wrapperClassName="session-chips-wrap"
+              rowClassName="session-chips"
+              fadeClassName="session-chips-fade"
+              menuAriaLabel="sessions"
+            />
           </>
         )}
         <div className="spacer" />

@@ -174,7 +174,7 @@ const documentScrollGuardExemptSelector =
   '.session-chips, .garden-chips, .pokemon-picker, .drawer-tabs, .modal, ' +
   '.usage-popover-panel, .mini-player-list, .roster-strip, .focus-sidebar, ' +
   '.sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
-  'textarea, input, select';
+  '.overflow-chip-menu, textarea, input, select';
 const clampScrollPosition = (target: Element) => {
   if (target.scrollLeft !== 0) target.scrollLeft = 0;
   if (target.scrollTop !== 0) target.scrollTop = 0;

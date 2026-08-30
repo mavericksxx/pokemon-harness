@@ -243,11 +243,11 @@ body {
   align-items: center;
   gap: 6px;
   overflow-x: auto;
+  overflow-y: hidden;
   width: 100%;
   /* Lets this shrink below its content's natural width (the flex default
-   * is content-sized) so IT scrolls/absorbs a cramped topbar instead of
-   * the whole row overflowing — same fix as the "+ New Session" nowrap
-   * above (Phase 8.8 chrome fix). */
+   * is content-sized) so the measured wrapper can promote a cramped row to
+   * its compact dropdown instead of pushing the whole topbar wider. */
   min-width: 0;
   flex-shrink: 1;
   scrollbar-width: none;
@@ -258,8 +258,103 @@ body {
   display: none;
 }
 
-/* The scroller stays interactive; this non-scrolling wrapper keeps the
- * affordance pinned to the visible edge, like `.roster-strip-wrap`. */
+.overflow-chip-row-wrap {
+  position: relative;
+}
+
+.overflow-chip-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.overflow-chip-controls > .session-chips,
+.overflow-chip-controls > .garden-chips {
+  width: auto;
+  flex: 1 1 auto;
+}
+
+.overflow-chip-selected-row {
+  overflow: hidden;
+}
+
+.overflow-chip-row-wrap.is-overflowing .session-chips,
+.overflow-chip-row-wrap.is-overflowing .garden-chips {
+  overflow: hidden;
+}
+
+.overflow-chip-trigger {
+  flex: none;
+  padding: 3px 6px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
+}
+
+.overflow-chip-trigger:hover,
+.overflow-chip-trigger[aria-expanded='true'] {
+  color: var(--text);
+  border-color: var(--accent-text);
+}
+
+.overflow-chip-row-wrap > .overflow-chip-measurement {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.overflow-chip-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(60vh, 360px);
+  padding: 6px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-hard);
+}
+
+.overflow-chip-menu .chip {
+  width: 100%;
+  max-width: none;
+  text-align: left;
+}
+
+.overflow-chip-menu .garden-chip {
+  width: 100%;
+}
+
+.overflow-chip-menu .garden-chip-name {
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.overflow-chip-menu-footer {
+  padding-top: 4px;
+  border-top: 1px solid var(--muted-dim);
+}
+
+.overflow-chip-menu-footer .garden-chip-new {
+  width: 100%;
+  text-align: left;
+}
+
+/* The row absorbs available topbar width; overflow is promoted to the
+ * dropdown above instead of leaving a horizontal scroller in the chrome. */
 .session-chips-wrap {
   position: relative;
   flex: 1 1 0;
@@ -370,9 +465,9 @@ body {
 /* ── Garden chips (Phase 8.7, inlined into the topbar — parity sweep) ───────
  * Replaces the old dropdown workspace switcher: every garden is a chip in
  * the topbar's own flex row instead of a menu behind a click. Same
- * overflow pattern as `.session-chips` (min-width:0 + flex-shrink so THIS
- * row scrolls/absorbs a cramped topbar instead of pushing the right-side
- * controls off) — deliberately NOT `-webkit-app-region: no-drag` on the
+ * measured overflow pattern as `.session-chips` (min-width:0 + flex-shrink
+ * so THIS row promotes a cramped topbar to its compact dropdown instead of
+ * pushing the right-side controls off) — deliberately NOT `-webkit-app-region: no-drag` on the
  * container itself (unlike the old `.workspace-switcher`): `.topbar button`
  * already makes every chip/action button no-drag, and leaving the row's own
  * background draggable matters more now that it can span up to 55vw. */
