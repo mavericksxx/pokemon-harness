@@ -61,6 +61,7 @@ export class Battler {
     species: DexEntry;
     spawnTile: { x: number; y: number };
     label?: string;
+    onClick?: () => void;
   }) {
     this.map = opts.map;
     this.species = opts.species;
@@ -74,6 +75,9 @@ export class Battler {
     this.bubble = new ToolBubble();
     this.bubbleLabel = opts.label?.trim() || undefined;
     this.container.addChild(this.sprite.container);
+    this.container.eventMode = 'static';
+    this.container.cursor = 'pointer';
+    if (opts.onClick) this.container.on('pointertap', opts.onClick);
     this.container.scale.set(POOF_IN_START_SCALE);
     this.syncPosition();
     this.syncBubblePosition();

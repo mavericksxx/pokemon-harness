@@ -518,6 +518,9 @@ export interface BattleDeps {
    *  (destroyBattle) both call this, so it's the complete mirror of
    *  onBattlerSpawned above regardless of how a battler's life ends. */
   onBattlerRemoved: (key: string) => void;
+  /** Forwards a player click on a battler to GardenScene, which owns the
+   *  selection, view-mode, and camera-focus store state. */
+  onBattlerClick: (parentId: string, key: string) => void;
   /** Fires whenever a battler's `done` state changes — `true` the moment it
    *  loses its completion battle (or ages out into one) and becomes
    *  `retired`, `false` if a resumed task-id later revives that same battler
@@ -637,6 +640,12 @@ export class BattleManager {
     return undefined;
   }
 
+  private handleBattlerClick(parentId: string, key: string): void {
+    const sub = this.battles.get(parentId)?.subs.find((candidate) => candidate.key === key);
+    if (!sub || sub.lifecycle === 'leaving' || sub.lifecycle === 'despawning') return;
+    this.deps.onBattlerClick(parentId, key);
+  }
+
   /** Workspace scoping (Phase 8.7): toggles a parent's battle visuals on or
    *  off without touching the state machine — a battle for a session in an
    *  inactive workspace keeps running (roam/battle all still progress, same
@@ -722,7 +731,14 @@ export class BattleManager {
       // in this recovery path's fidelity.
       const animation = this.deps.resolveAnimation(species.id, false);
       const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-      const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label: entry.label });
+      const battler = new Battler({
+        map: this.deps.map,
+        animation,
+        species,
+        spawnTile: home,
+        label: entry.label,
+        onClick: () => this.handleBattlerClick(entry.parentId, entry.key)
+      });
       this.deps.charLayer.addChild(battler.container);
       this.deps.charLayer.addChild(battler.bubbleContainer);
       if (entry.done) battler.container.alpha = 0.75; // same off-duty cue retireSub applies live
@@ -1007,10 +1023,17 @@ export class BattleManager {
     const shiny = rollShiny();
     const animation = this.deps.resolveAnimation(species.id, shiny);
     const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label });
+    const key = `${parentId}#${pb.nextSeq++}`;
+    const battler = new Battler({
+      map: this.deps.map,
+      animation,
+      species,
+      spawnTile: home,
+      label,
+      onClick: () => this.handleBattlerClick(parentId, key)
+    });
     this.deps.charLayer.addChild(battler.container);
     this.deps.charLayer.addChild(battler.bubbleContainer);
-    const key = `${parentId}#${pb.nextSeq++}`;
     const bubbleTiming = roamingBubbleTiming(key);
 
     const sub: SubBattler = {
@@ -1252,10 +1275,17 @@ export class BattleManager {
     }
     const animation = this.deps.resolveAnimation(species.id, false);
     const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-    const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label: info.label });
+    const key = `${parentId}#${pb.nextSeq++}`;
+    const battler = new Battler({
+      map: this.deps.map,
+      animation,
+      species,
+      spawnTile: home,
+      label: info.label,
+      onClick: () => this.handleBattlerClick(parentId, key)
+    });
     this.deps.charLayer.addChild(battler.container);
     this.deps.charLayer.addChild(battler.bubbleContainer);
-    const key = `${parentId}#${pb.nextSeq++}`;
     const bubbleTiming = roamingBubbleTiming(key);
     const sub: SubBattler = {
       key,
