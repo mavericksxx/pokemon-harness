@@ -8,14 +8,17 @@
  * the terminal panel could not do that.
  *
  * Also dropped: the god/sub-agent split (single-user — every session talks to
- * you) and the /context token sniffing (no context gauge in Phase 1).
+ * you) and the /context token sniffing (no context gauge in Phase 1). The
+ * parser still understands non-Claude output for status/tool presentation, but
+ * only Claude sessions are allowed to derive battle signals from regex text.
  */
 import { createAnsiStripper } from './ansiText';
 import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { clearHookAuthority, isHookAuthoritative } from './hookRouter';
-import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { emitBattleSignal, type BattleSignal } from '@/scene/garden/battle/battleBus';
 import { noteToolUse, resetLoopStreak } from './loopDetector';
+import type { AgentProviderId } from '@shared/agentProvider';
 
 // Tool call lines look like: `● Read SPEC.md`, `● Bash npm test`, `● Edit src/foo.ts`
 const TOOL_RE = /●\s+([A-Za-z][A-Za-z_]*)(?:\s+(.+))?/g;
@@ -44,10 +47,10 @@ const CODEX_VERB_TO_TOOL: Record<string, string> = { List: 'Bash', Read: 'Read' 
 
 // Subagent-battle regex fallback (Part B) — Claude's transcript prints a Task
 // tool call the same way as any other tool line: `● Task(description)`. There
-// is no equivalent text signal for a subagent's completion, so the fallback
-// heuristic ends the whole battle when the parent goes idle/blocked instead
-// (see scheduleIdle/BLOCK_HINTS below) — subagents finish before their parent
-// does, so this is late but never wrong.
+// is no equivalent text signal for a subagent's completion, so the Claude-only
+// fallback heuristic ends the whole battle when the parent goes idle/blocked
+// instead (see scheduleIdle/BLOCK_HINTS below) — subagents finish before their
+// parent does, so this is late but never wrong.
 const TASK_SPAWN_RE = /●\s+Task\(/g;
 
 // "Blocked" = the CLI is genuinely waiting on the user. Match only real prompts.
@@ -77,9 +80,17 @@ export interface PtyParser {
   dispose(): void;
 }
 
-export function createPtyParser(sessionId: string): PtyParser {
+export function createPtyParser(sessionId: string, provider: AgentProviderId): PtyParser {
   const strip = createAnsiStripper();
   let idleTimer: number | null = null;
+  // Keep ordinary status/tool derivation provider-agnostic, but keep battle
+  // heuristics Claude-only. Non-Claude CLIs can print text that resembles
+  // Claude's Task/tool output without having a hook-backed subagent signal.
+  // This gate intentionally leaves every status update below intact.
+  const canEmitBattleSignals = provider === 'claude';
+  const emitBattle = (signal: BattleSignal): void => {
+    if (canEmitBattleSignals) emitBattleSignal(signal);
+  };
 
   const update = (patch: Parameters<ReturnType<typeof useStore.getState>['updateSession']>[1]): void => {
     useStore.getState().updateSession(sessionId, patch);
@@ -106,7 +117,7 @@ export function createPtyParser(sessionId: string): PtyParser {
       // Regex-fallback heuristic (Part B): no clean per-subagent completion
       // signal exists in plain text, so a battle this session started ends
       // when the parent itself goes idle — a no-op if none is active.
-      emitBattleSignal({ type: 'endAll', parentId: sessionId });
+      emitBattle({ type: 'endAll', parentId: sessionId });
       update({ status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
     }, IDLE_AFTER_MS);
   };
@@ -124,7 +135,7 @@ export function createPtyParser(sessionId: string): PtyParser {
       // occurrence in this chunk.
       TASK_SPAWN_RE.lastIndex = 0;
       while (TASK_SPAWN_RE.exec(text) !== null) {
-        emitBattleSignal({ type: 'spawn', parentId: sessionId });
+        emitBattle({ type: 'spawn', parentId: sessionId });
       }
 
       // The "esc to interrupt" footer is only shown while a turn is in progress.
@@ -174,7 +185,7 @@ export function createPtyParser(sessionId: string): PtyParser {
           station: stationForTool(lastTool)
         });
         // Regex-fallback attack beat — a no-op unless this session is battling.
-        emitBattleSignal({ type: 'attack', parentId: sessionId, tool: lastTool });
+        emitBattle({ type: 'attack', parentId: sessionId, tool: lastTool });
         // Loop breaker (Phase 8.5 #3) — the regex-fallback path's closest
         // analogue to a PostToolUse beat; see loopDetector.ts's header.
         noteToolUse(sessionId, lastTool, target);
@@ -199,7 +210,7 @@ export function createPtyParser(sessionId: string): PtyParser {
         // that actually needs your attention. It clears when the CLI prints
         // again, which is exactly when you have answered it.
         cancelIdle();
-        emitBattleSignal({ type: 'endAll', parentId: sessionId });
+        emitBattle({ type: 'endAll', parentId: sessionId });
         update({ status: 'blocked', station: 'signpost' });
         return;
       }
