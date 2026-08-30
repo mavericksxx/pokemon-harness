@@ -274,6 +274,14 @@ const LARGE_TILE_THRESHOLD = 2.7;
 const WANDER_MIN_DELAY = 1.5;
 const WANDER_MAX_DELAY = 4.5;
 const WANDER_RANGE = 5;
+/** Roaming task labels are deliberately occasional rather than pinned over
+ *  every working battler. Each battler gets its own deterministic cycle and
+ *  initial phase, so a group reads as organic instead of blinking together. */
+const ROAM_LABEL_VISIBLE_MS = 3_000;
+const ROAM_LABEL_CYCLE_MIN_MS = 7_000;
+const ROAM_LABEL_CYCLE_MAX_MS = 10_000;
+/** Live subagent tools briefly take priority over the roaming label cadence. */
+const SUB_TOOL_BUBBLE_MS = 3_000;
 /** How far in from the map edge a roam "home" corner sits — enough that a
  *  roaming subagent's own local jitter (WANDER_RANGE) never walks it off the
  *  map or into an unwalkable border. */
@@ -389,6 +397,11 @@ interface SubBattler {
    *  stamped (correlation raced ahead, or predates this fix) still falls
    *  back to `handleEnd`'s oldest-roaming heuristic exactly as before. */
   taskId: string | null;
+  /** Best-effort Claude CLI-internal subagent id observed on a subagent-scoped
+   *  PreToolUse. Usually absent; when the single-roamer fallback attributes
+   *  one event, retaining it lets later events keep following that battler if
+   *  another sibling starts roaming. */
+  subagentId: string | null;
   /** Where this battler roams — chosen once at spawn (`pickRoamHome`) and
    *  never recomputed; a battler never re-enters roaming after its one
    *  completion battle. */
@@ -418,6 +431,11 @@ interface SubBattler {
    *  instead of only inferable from frozen counter snapshots after the
    *  fact. */
   visibleLogged: boolean;
+  /** State for the intermittent roaming label and its live-tool override. */
+  roamLabelElapsedMs: number;
+  roamLabelCycleMs: number;
+  toolBubbleRemainingMs: number;
+  roamBubbleMode: 'hidden' | 'label' | 'tool';
 }
 
 interface Attack {
@@ -515,6 +533,18 @@ function tileKey(t: { x: number; y: number }): string {
 
 function manhattan(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+  return hash >>> 0;
+}
+
+function roamingBubbleTiming(key: string): { elapsedMs: number; cycleMs: number } {
+  const seed = hashString(key);
+  const cycleMs = ROAM_LABEL_CYCLE_MIN_MS + (seed % (ROAM_LABEL_CYCLE_MAX_MS - ROAM_LABEL_CYCLE_MIN_MS + 1));
+  return { elapsedMs: seed % cycleMs, cycleMs };
 }
 
 /** Nearest walkable tile to `center` within [minDist, maxDist] (Manhattan),
@@ -696,6 +726,7 @@ export class BattleManager {
       this.deps.charLayer.addChild(battler.container);
       this.deps.charLayer.addChild(battler.bubbleContainer);
       if (entry.done) battler.container.alpha = 0.75; // same off-duty cue retireSub applies live
+      const bubbleTiming = roamingBubbleTiming(entry.key);
       const sub: SubBattler = {
         key: entry.key,
         battler,
@@ -707,13 +738,18 @@ export class BattleManager {
         // stamped battler.
         toolUseId: null,
         taskId: null,
+        subagentId: null,
         wanderHome: home,
         wanderTimer: 0,
         wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
         roamingSince: Date.now(),
         queuedSince: 0,
         queueEligibleAt: null,
-        visibleLogged: false
+        visibleLogged: false,
+        roamLabelElapsedMs: bubbleTiming.elapsedMs,
+        roamLabelCycleMs: bubbleTiming.cycleMs,
+        toolBubbleRemainingMs: 0,
+        roamBubbleMode: 'hidden'
       };
       pb.subs.push(sub);
       if (!isBundled(species.id)) {
@@ -807,7 +843,10 @@ export class BattleManager {
       // The ceremony owns the parent's container for its duration — don't
       // touch positions; just keep every subagent roaming/battling/poofing
       // in place.
-      for (const sub of pb.subs) sub.battler.update(dt);
+      for (const sub of pb.subs) {
+        if (sub.lifecycle === 'roaming') this.updateRoamingBubble(sub, dt);
+        sub.battler.update(dt);
+      }
       this.reapSubs(pb);
       if (pb.subs.length === 0 && pb.wave === 'idle') finishedParents.push(pb.parentId);
       return;
@@ -932,6 +971,9 @@ export class BattleManager {
       case 'attack':
         this.handleAttack(sig.parentId, sig.tool);
         break;
+      case 'subTool':
+        this.handleSubTool(sig.parentId, sig.subagentId, sig.tool, sig.toolTarget);
+        break;
       case 'end':
         this.handleEnd(sig.parentId, sig.taskId);
         break;
@@ -968,21 +1010,28 @@ export class BattleManager {
     const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label });
     this.deps.charLayer.addChild(battler.container);
     this.deps.charLayer.addChild(battler.bubbleContainer);
+    const key = `${parentId}#${pb.nextSeq++}`;
+    const bubbleTiming = roamingBubbleTiming(key);
 
     const sub: SubBattler = {
-      key: `${parentId}#${pb.nextSeq++}`,
+      key,
       battler,
       lifecycle: 'roaming',
       label,
       toolUseId: toolUseId ?? null,
       taskId: null,
+      subagentId: null,
       wanderHome: home,
       wanderTimer: 0,
       wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
       roamingSince: Date.now(),
       queuedSince: 0,
       queueEligibleAt: null,
-      visibleLogged: false
+      visibleLogged: false,
+      roamLabelElapsedMs: bubbleTiming.elapsedMs,
+      roamLabelCycleMs: bubbleTiming.cycleMs,
+      toolBubbleRemainingMs: 0,
+      roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
     this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label });
@@ -1041,6 +1090,43 @@ export class BattleManager {
     }
     // Between scripted beats there's nothing to coalesce into — the wave's
     // own scripted progression (not real signals) decides when it's done.
+  }
+
+  /** Best-effort live-tool attribution for a subagent-scoped hook. The
+   *  correlated task-id is the strongest match. A previously remembered
+   *  subagent id is the next exact match; this is what lets a single-battler
+   *  fallback continue to follow that battler after siblings appear. Only
+   *  then is the one-live-roamer fallback allowed. */
+  private handleSubTool(parentId: string, subagentId: string, tool: string, toolTarget: string): void {
+    if (!tool) return;
+    const pb = this.battles.get(parentId);
+    if (!pb) return;
+
+    const correlated = pb.subs.find((sub) => sub.taskId === subagentId);
+    if (correlated) {
+      if (correlated.lifecycle === 'roaming') this.showSubagentTool(correlated, subagentId, tool, toolTarget);
+      return;
+    }
+
+    const remembered = pb.subs.find((sub) => sub.subagentId === subagentId);
+    if (remembered) {
+      if (remembered.lifecycle === 'roaming') this.showSubagentTool(remembered, subagentId, tool, toolTarget);
+      return;
+    }
+
+    const roaming = pb.subs.filter((sub) => sub.lifecycle === 'roaming');
+    if (roaming.length !== 1) return;
+
+    const target = roaming[0];
+    target.subagentId = subagentId;
+    this.showSubagentTool(target, subagentId, tool, toolTarget);
+  }
+
+  private showSubagentTool(sub: SubBattler, subagentId: string, tool: string, toolTarget: string): void {
+    sub.subagentId = subagentId;
+    sub.toolBubbleRemainingMs = SUB_TOOL_BUBBLE_MS;
+    sub.roamBubbleMode = 'tool';
+    sub.battler.showAttack(tool, toolTarget);
   }
 
   /** A real per-subagent completion (`onSubagentTaskNotification`, see file
@@ -1169,20 +1255,27 @@ export class BattleManager {
     const battler = new Battler({ map: this.deps.map, animation, species, spawnTile: home, label: info.label });
     this.deps.charLayer.addChild(battler.container);
     this.deps.charLayer.addChild(battler.bubbleContainer);
+    const key = `${parentId}#${pb.nextSeq++}`;
+    const bubbleTiming = roamingBubbleTiming(key);
     const sub: SubBattler = {
-      key: `${parentId}#${pb.nextSeq++}`,
+      key,
       battler,
       lifecycle: 'roaming',
       label: info.label,
       toolUseId,
       taskId,
+      subagentId: null,
       wanderHome: home,
       wanderTimer: 0,
       wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
       roamingSince: Date.now(),
       queuedSince: 0,
       queueEligibleAt: null,
-      visibleLogged: false
+      visibleLogged: false,
+      roamLabelElapsedMs: bubbleTiming.elapsedMs,
+      roamLabelCycleMs: bubbleTiming.cycleMs,
+      toolBubbleRemainingMs: 0,
+      roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
     this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label: info.label });
@@ -1230,6 +1323,8 @@ export class BattleManager {
     sub.lifecycle = 'queued';
     sub.queuedSince = Date.now();
     sub.queueEligibleAt = null;
+    sub.toolBubbleRemainingMs = 0;
+    sub.roamBubbleMode = 'hidden';
     sub.battler.showBubbleLabel();
   }
 
@@ -1255,6 +1350,8 @@ export class BattleManager {
     for (const sub of pb.subs) {
       if (sub.lifecycle === 'leaving' || sub.lifecycle === 'retired' || sub.lifecycle === 'despawning') continue;
       sub.lifecycle = 'leaving';
+      sub.toolBubbleRemainingMs = 0;
+      sub.roamBubbleMode = 'hidden';
       sub.battler.hideBubble();
       sub.battler.startPoofOut();
     }
@@ -1784,6 +1881,8 @@ export class BattleManager {
    *  removes it. */
   private retireSub(sub: SubBattler): void {
     sub.lifecycle = 'retired';
+    sub.toolBubbleRemainingMs = 0;
+    sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
     sub.battler.container.alpha = 0.75;
     sub.wanderTimer = 0;
@@ -1805,6 +1904,11 @@ export class BattleManager {
   private reviveRetired(sub: SubBattler): void {
     sub.lifecycle = 'roaming';
     sub.battler.container.alpha = 1;
+    const bubbleTiming = roamingBubbleTiming(sub.key);
+    sub.roamLabelElapsedMs = bubbleTiming.elapsedMs;
+    sub.roamLabelCycleMs = bubbleTiming.cycleMs;
+    sub.toolBubbleRemainingMs = 0;
+    sub.roamBubbleMode = 'hidden';
     sub.roamingSince = Date.now();
     sub.queueEligibleAt = null;
     sub.queuedSince = 0;
@@ -1852,6 +1956,7 @@ export class BattleManager {
    *  idle wander (updateWander) exactly, just against a Battler instead of a
    *  Walker. */
   private updateRoaming(sub: SubBattler, dt: number): void {
+    this.updateRoamingBubble(sub, dt);
     sub.wanderTimer += dt;
     if (sub.wanderTimer < sub.wanderDelay) return;
     sub.wanderTimer = 0;
@@ -1865,6 +1970,23 @@ export class BattleManager {
       if (!this.deps.map.isWalkable(tx, ty)) continue;
       if (sub.battler.goTo({ x: tx, y: ty })) return;
     }
+  }
+
+  /** Drive Tier 1's intermittent label cadence and let a freshly observed
+   *  Tier 2 tool bubble take over until its short display window expires. */
+  private updateRoamingBubble(sub: SubBattler, dt: number): void {
+    sub.roamLabelElapsedMs = (sub.roamLabelElapsedMs + dt * 1000) % sub.roamLabelCycleMs;
+    if (sub.toolBubbleRemainingMs > 0) {
+      sub.toolBubbleRemainingMs = Math.max(0, sub.toolBubbleRemainingMs - dt * 1000);
+      if (sub.toolBubbleRemainingMs > 0) return;
+    }
+
+    const shouldShowLabel = !!sub.label && sub.roamLabelElapsedMs < ROAM_LABEL_VISIBLE_MS;
+    const nextMode: SubBattler['roamBubbleMode'] = shouldShowLabel ? 'label' : 'hidden';
+    if (nextMode === sub.roamBubbleMode) return;
+    sub.roamBubbleMode = nextMode;
+    if (nextMode === 'label') sub.battler.showBubbleLabel();
+    else sub.battler.hideBubble();
   }
 
   // Only ever reaps 'leaving' subs (handleEndAll's own poof path) —

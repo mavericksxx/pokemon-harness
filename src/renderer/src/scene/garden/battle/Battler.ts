@@ -139,8 +139,8 @@ export class Battler {
   }
 
   /** Store the Task description/subagent type for the battle bubble. The
-   *  label is intentionally not shown while the battler is free-roaming; the
-   *  manager reveals it when the completion battle is queued. */
+   *  manager controls whether it is intermittently shown while roaming or
+   *  pinned during the queued/battle phases. */
   setBubbleLabel(label?: string): void {
     this.bubbleLabel = label?.trim() || undefined;
   }
@@ -150,9 +150,10 @@ export class Battler {
     else this.bubble.hide();
   }
 
-  /** Show the shared walker-style tool/icon bubble for one attack beat. */
-  showAttack(tool: string): void {
-    if (tool) this.bubble.show(tool, '');
+  /** Show the shared walker-style tool/icon bubble for one attack beat or
+   *  live roaming-subagent tool update. */
+  showAttack(tool: string, target = ''): void {
+    if (tool) this.bubble.show(tool, target);
   }
 
   hideBubble(): void {

@@ -25,6 +25,9 @@ export type BattleSignal =
   | { type: 'spawn'; parentId: string; label?: string; toolUseId?: string }
   /** A tool call actually ran while a battle is active — one attack beat. */
   | { type: 'attack'; parentId: string; tool: string }
+  /** A subagent-scoped PreToolUse observed on its parent's hook channel — a
+   *  best-effort live-tool update for a roaming battler. */
+  | { type: 'subTool'; parentId: string; subagentId: string; tool: string; toolTarget: string }
   /** One subagent finished — remove exactly one battler. `taskId` (battler ↔
    *  task-id correlation fix), when present, names the exact CLI-internal
    *  task-id that finished — `BattleManager.handleEnd` retires the battler

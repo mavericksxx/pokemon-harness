@@ -34,6 +34,12 @@ export type HookEventName =
 export interface HookPayload {
   hook_event_name?: string;
   harness_agent_id?: string | null;
+  /** Claude Code's CLI-internal subagent identity. This is deliberately kept
+   *  separate from `harness_agent_id`: the latter identifies the parent pty
+   *  that owns the renderer channel, while these fields identify the subagent
+   *  whose hook is being observed. */
+  agent_id?: string;
+  agent_type?: string;
   session_id?: string;
   tool_name?: string;
   tool_input?: unknown;
@@ -92,6 +98,11 @@ export interface HookEvent {
    *  can later correlate this exact dispatch to the CLI-internal task-id a
    *  completion names (see BattleManager.ts's `handleCorrelate`). */
   toolUseId?: string;
+  /** Claude Code's CLI-internal subagent identity, copied with its original
+   *  top-level field names from a subagent-scoped hook. `agentId` above
+   *  remains the harness parent/session id. */
+  agent_id?: string;
+  agent_type?: string;
 }
 
 /** External-codex-delegate feature — a delegate's SessionStart or Stop,
