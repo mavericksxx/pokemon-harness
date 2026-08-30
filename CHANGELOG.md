@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## Unreleased
+## v1.7.5 — 2026-08-30
 
 All items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
 
