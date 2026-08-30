@@ -703,6 +703,10 @@ function createWindow(backgroundColor: string): void {
     // navigation — including the render-process-gone auto-reload path —
     // starts with the correct inset instead of assuming windowed.
     win.webContents.send('window:fullscreenChanged', win.isFullScreen());
+    // Usage can finish its launch poll before or during renderer boot. Replay
+    // the cache after the page load so the startup push cannot be lost; this
+    // is push-only and never triggers credential access.
+    usageService.replaySnapshot();
   });
 
   // macOS auto-hides the traffic lights in fullscreen, which turns the
