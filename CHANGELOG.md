@@ -2,9 +2,9 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## Unreleased
+## v1.7.3 — 2026-08-30
 
-All seven items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
+All eleven items delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
 
 - topbar chips no longer horizontal-scroll when crammed: a hidden measurement copy of the row detects real overflow, and the row then collapses to the selected chip plus a `+N ▾` trigger opening a vertical dropdown menu (outside-click/Escape close). Applied to both the session chips and the garden/workspace chips; the menu is on the scroll-guard's exempt list so it can scroll itself
 - idle pokemon no longer look frozen: a not-working walker keeps its sprite's looping idle animation playing (the nap freeze is gone; z z z still shows) but stays in place — BFS wandering is now a working-state behavior only. A walker caught mid-step finishes its in-flight tile segment so it always stops on-grid (orchestrator review caught the mid-tile strand; scoped follow-up delegate fixed it)
