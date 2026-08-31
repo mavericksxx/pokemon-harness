@@ -78,12 +78,16 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     setAutoMode(appSettings.autoModeByProvider[id] ?? false);
   };
 
-  const launch = async (launchProvider: AgentProviderId, launchAutoMode: boolean): Promise<void> => {
+  const launch = async (
+    launchProvider: AgentProviderId,
+    launchAutoMode: boolean,
+    plainTerminal = false
+  ): Promise<void> => {
     if (!cwd.trim()) {
       setError('choose a working directory.');
       return;
     }
-    if (takenLines.has(base.line)) {
+    if (!plainTerminal && takenLines.has(base.line)) {
       setError(`${base.name}'s line is already out in the garden.`);
       return;
     }
@@ -100,7 +104,8 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
         command: launchCommand,
         model: AGENT_PROVIDERS[launchProvider].supportsModel ? model.trim() || undefined : undefined,
         title,
-        pokemon,
+        pokemon: plainTerminal ? undefined : pokemon,
+        plainTerminal,
         autoMode: launchAutoMode && !!AGENT_PROVIDERS[launchProvider].autoModeArgs
       });
       onClose();
@@ -116,7 +121,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   };
 
   const startPlainTerminal = async (): Promise<void> => {
-    await launch('shell', false);
+    await launch('shell', false, true);
   };
 
   return (

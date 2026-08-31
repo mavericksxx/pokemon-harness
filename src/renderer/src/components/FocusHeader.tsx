@@ -1,7 +1,7 @@
 import type { Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
 import { CostGauge } from '@/components/CostGauge';
-import { LoopIcon } from '@/components/icons';
+import { LoopIcon, TerminalIcon } from '@/components/icons';
 import { speciesEntry } from '@/scene/garden/dexData';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
@@ -27,13 +27,21 @@ interface Props {
  *  shiny badge) just grows a bordered square via CSS now — see index.css. */
 export function FocusHeader({ session }: Props): JSX.Element {
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
-  const species = (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
+  const species = session.isPlainTerminal
+    ? 'terminal'
+    : (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
 
   return (
     <div className="focus-header" title={`${session.command} — ${session.cwd}`}>
       <span className="focus-header-face">
-        <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
-        {session.shiny && (
+        {session.isPlainTerminal ? (
+          <span className="terminal-session-icon terminal-session-icon-header">
+            <TerminalIcon />
+          </span>
+        ) : (
+          <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
+        )}
+        {!session.isPlainTerminal && session.shiny && (
           <span className="shiny-badge" title="shiny" aria-label="shiny">
             ★
           </span>

@@ -10,7 +10,7 @@ import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
-import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon } from '@/components/icons';
+import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon, TerminalIcon } from '@/components/icons';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { UsageChip } from '@/components/UsageChip';
@@ -53,7 +53,13 @@ function renderSessionChip(s: Session, { selected, onSelect }: OverflowChipRende
       onClick={onSelect}
       title={`${s.command} — ${s.cwd}`}
     >
-      <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
+      {s.isPlainTerminal ? (
+        <span className="terminal-session-icon terminal-session-icon-chip">
+          <TerminalIcon />
+        </span>
+      ) : (
+        <PokemonFace name={s.pokemon} shiny={s.shiny} box={22} />
+      )}
       {s.shiny && (
         <span className="shiny-badge" title="shiny" aria-label="shiny">
           ★

@@ -20,6 +20,7 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
   const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const preset = AGENT_PROVIDERS[req.provider];
   const command = req.command.trim() || preset.defaultCommand;
+  const isPlainTerminal = req.plainTerminal === true;
   let sessionAdded = false;
 
   try {
@@ -30,25 +31,30 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     createTerminal(id, req.provider);
 
     // Sessions always hatch at their line's base stage, whatever stage of the
-    // line the picker's search resolved to.
-    let pokemon: string;
-    let line: string;
-    if (req.pokemon) {
-      const base = baseStageOf(req.pokemon);
-      pokemon = base.id;
-      line = base.line;
-    } else {
-      const picked = pickFreeLine(useStore.getState().takenLines());
-      pokemon = picked.name;
-      line = picked.line;
+    // line the picker's search resolved to. A shell-only session deliberately
+    // skips this entirely: it does not reserve a line, roll shiny state, or
+    // create a garden walker.
+    let pokemon = '';
+    let line = '';
+    let shiny = false;
+    if (!isPlainTerminal) {
+      if (req.pokemon) {
+        const base = baseStageOf(req.pokemon);
+        pokemon = base.id;
+        line = base.line;
+      } else {
+        const picked = pickFreeLine(useStore.getState().takenLines());
+        pokemon = picked.name;
+        line = picked.line;
+      }
+      // The roll happens AFTER species/line resolution, per session, and is
+      // awaited so a POKE_SHINY_ODDS override is guaranteed in effect even for
+      // the very first session — the config's async IPC read might otherwise
+      // still be in flight when the earliest possible session is created (see
+      // shiny.ts's header).
+      await initShinyConfig();
+      shiny = rollShiny();
     }
-    // The roll happens AFTER species/line resolution, per session, and is
-    // awaited so a POKE_SHINY_ODDS override is guaranteed in effect even for
-    // the very first session — the config's async IPC read might otherwise
-    // still be in flight when the earliest possible session is created (see
-    // shiny.ts's header).
-    await initShinyConfig();
-    const shiny = rollShiny();
     useStore.getState().addSession({
       id,
       title: req.title?.trim() || basename(req.cwd),
@@ -59,6 +65,7 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       pokemon,
       line,
       shiny,
+      isPlainTerminal,
       // Workspaces (Phase 8.7): a new session always joins whichever
       // workspace is active right now — there's no "start in another
       // workspace" picker in the New Session dialog.
@@ -97,6 +104,19 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     if (sessionAdded) useStore.getState().removeSession(id);
     throw err instanceof Error ? err : new Error(String(err));
   }
+}
+
+/** Start the user's shell in the supplied directory without opening the
+ *  new-agent dialog or assigning a Pokemon. */
+export async function startPlainTerminal(cwd: string): Promise<void> {
+  const trimmedCwd = cwd.trim();
+  if (!trimmedCwd) throw new Error('choose a working directory.');
+  await startSession({
+    provider: 'shell',
+    cwd: trimmedCwd,
+    command: await window.api.getDefaultShell(),
+    plainTerminal: true
+  });
 }
 
 /**

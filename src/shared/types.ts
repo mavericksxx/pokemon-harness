@@ -69,6 +69,9 @@ export interface NewSessionRequest {
    *  Absent/false spawns with no permission-mode flag, same as before this
    *  setting existed. */
   autoMode?: boolean;
+  /** Create a shell-only session from the terminal-mode quick-add action.
+   *  Such a session has no Pokemon walker or evolution line. */
+  plainTerminal?: boolean;
 }
 
 /** Front or back sprite sheet, for the lazy (unbundled-species) sprite cache. */
@@ -175,6 +178,10 @@ export interface SessionRecord {
    *  main/index.ts's `restoreFromDisk`), and every per-workspace filter
    *  must widen to include it — see `shared/arceus.ts`'s `isGlobalSession`. */
   isArceus?: boolean;
+  /** True for a shell-only session created by the terminal-mode quick-add
+   *  action. It remains in the terminal roster but has no garden walker,
+   *  Pokemon, or evolution line. */
+  isPlainTerminal?: boolean;
   /** "keep at this stage — don't evolve" (Phase C follow-up: change-pokemon
    *  stage semantics), set from the roster card's change-pokemon dialog.
    *  `workedMs` keeps accumulating normally either way (battles/bubbles/naps

@@ -913,7 +913,7 @@ export function GardenScene(): JSX.Element {
           if (selectedId) {
             const session = sessions.find((s) => s.id === selectedId);
             const rt = runtimes.get(selectedId);
-            if (session) playSelectCry(session.pokemon);
+            if (session && !session.isPlainTerminal) playSelectCry(session.pokemon);
             rt?.walker.bounce();
           }
         }
@@ -924,7 +924,7 @@ export function GardenScene(): JSX.Element {
           // "cosmos" presence is a separate, purely visual transition on
           // the garden pane itself (see the ascent overlay in this
           // component's JSX/CSS), not anything in `runtimes`.
-          if (session.isArceus) continue;
+          if (session.isArceus || session.isPlainTerminal) continue;
           const rt = runtimes.get(session.id) ?? addWalker(session);
           const { walker } = rt;
           // Kept in sync regardless of workspace visibility (below) — the

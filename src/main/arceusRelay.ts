@@ -99,7 +99,7 @@ export function parseRelayDirectives(text: string): RelayDirective[] {
 export function resolveRelayTarget(name: string, sessions: SessionRecord[]): SessionRecord | null {
   const needle = name.trim().toLowerCase();
   if (!needle) return null;
-  const candidates = sessions.filter((s) => !s.isArceus && s.status !== 'done');
+  const candidates = sessions.filter((s) => !s.isArceus && !s.isPlainTerminal && s.status !== 'done');
 
   const byTitle = candidates.find((s) => s.title.trim().toLowerCase() === needle);
   if (byTitle) return byTitle;

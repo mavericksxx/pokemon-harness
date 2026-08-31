@@ -220,6 +220,20 @@ export function TrainerCardIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Plain-shell session marker — a small terminal prompt used where a
+ *  Pokemon face would otherwise appear in the roster. */
+export function TerminalIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="1" y="3" width="14" height="10" />
+      <rect x="3" y="5" width="2" height="1" fill="var(--panel-2)" />
+      <rect x="4" y="6" width="2" height="1" fill="var(--panel-2)" />
+      <rect x="5" y="7" width="2" height="1" fill="var(--panel-2)" />
+      <rect x="8" y="9" width="4" height="1" fill="var(--panel-2)" />
+    </PixelIcon>
+  );
+}
+
 /** ArceusRosterCard's ceremonial-plaque marker (parity sweep item 6 — "the
  *  god looks like just another selected pokemon") — a 4-point pixel sparkle,
  *  distinct from the plain `★` character already used for the shiny badge

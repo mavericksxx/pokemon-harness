@@ -65,7 +65,7 @@ let lastEntriesJson: string | null = null;
 export function writeArceusRosterFile(harnessHomeDir: string, sessions: SessionRecord[]): void {
   const p = arceusRosterFilePath(harnessHomeDir);
   const entries: RosterFileEntry[] = sessions
-    .filter((s) => !s.isArceus)
+    .filter((s) => !s.isArceus && !s.isPlainTerminal)
     .map((s) => ({
       title: s.title,
       pokemon: s.pokemon,

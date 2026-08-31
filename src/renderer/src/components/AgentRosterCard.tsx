@@ -8,7 +8,7 @@ import { evolutionConfig } from '@/scene/garden/evolution';
 import { AGENT_PROVIDERS } from '@shared/agentProvider';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { formatToolTarget } from '@/design/toolTargetLabel';
-import { LoopIcon, PokeballIcon, SwapIcon } from '@/components/icons';
+import { LoopIcon, PokeballIcon, SwapIcon, TerminalIcon } from '@/components/icons';
 import { ModelBadge } from '@/components/ModelBadge';
 import { TrainerCard } from '@/components/TrainerCard';
 import { gaugeTone } from '@/design/gaugeTone';
@@ -37,12 +37,20 @@ interface Props {
  *  reachable from here (already at its line's last stage) — the card omits
  *  the progress hint in that case rather than showing a permanently-full bar. */
 function evolutionHint(session: Session): { pct: number; label: string } | undefined {
+  if (session.isPlainTerminal) return undefined;
   const entry = speciesEntry(session.pokemon);
   if (!entry || entry.evolvesTo.length === 0) return undefined;
   const { stage2Ms, stage3Ms } = evolutionConfig();
   const threshold = entry.stage === 1 ? stage2Ms : entry.stage === 2 ? stage3Ms : undefined;
   if (!threshold) return undefined;
   return { pct: Math.min(1, session.workedMs / threshold), label: 'next evolution' };
+}
+
+function SessionFace({ session, box }: { session: Session; box: number }): JSX.Element {
+  if (session.isPlainTerminal) {
+    return <span className="terminal-session-icon"><TerminalIcon /></span>;
+  }
+  return <PokemonFace name={session.pokemon} shiny={session.shiny} box={box} />;
 }
 
 export function AgentRosterCard({ session, selected, onSelect, variant = 'full' }: Props): JSX.Element {
@@ -66,7 +74,9 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
     session.delegateParentId ? s.sessions.find((p) => p.id === session.delegateParentId)?.title : undefined
   );
   const requestRecallDelegate = useStore((s) => s.requestRecallDelegate);
-  const speciesLower = (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
+  const speciesLower = session.isPlainTerminal
+    ? 'terminal'
+    : (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
   const toolText = session.tool
     ? `${toolIcon(session.tool)} ${formatToolTarget(session.tool, session.toolTarget) || session.tool}`
     : session.status === 'blocked'
@@ -124,8 +134,8 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
                 while staying inside the fixed strip band. */}
             <div className="roster-card-top-compact">
               <span className="roster-card-face">
-                <PokemonFace name={session.pokemon} shiny={session.shiny} box={18} />
-                {session.shiny && (
+                <SessionFace session={session} box={18} />
+                {!session.isPlainTerminal && session.shiny && (
                   <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
                     ★
                   </span>
@@ -161,8 +171,8 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
                 to repeat either. */}
             <div className="roster-card-top-compact">
               <span className="roster-card-face">
-                <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
-                {session.shiny && (
+                <SessionFace session={session} box={32} />
+                {!session.isPlainTerminal && session.shiny && (
                   <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
                     ★
                   </span>
@@ -210,8 +220,8 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
           <>
             <div className="roster-card-top">
               <span className="roster-card-face">
-                <PokemonFace name={session.pokemon} shiny={session.shiny} box={32} />
-                {session.shiny && (
+                <SessionFace session={session} box={32} />
+                {!session.isPlainTerminal && session.shiny && (
                   <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
                     ★
                   </span>
@@ -295,13 +305,13 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
           the card `<button>` above, same reasoning as `.roster-card-swap`
           below (a button can't nest another button); TrainerCard.tsx owns
           its own stopPropagation so opening it never also selects the card. */}
-      <TrainerCard session={session} />
+      {!session.isPlainTerminal && <TrainerCard session={session} />}
 
       {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
           find/hit (screenshot complaint) — now a labeled pill hover-revealed
           at the card's bottom-right, sized like the rest of the app's real
           controls rather than a tiny overlay glyph. */}
-      {!(session.delegateParentId && session.status === 'done') && (
+      {!session.isPlainTerminal && !(session.delegateParentId && session.status === 'done') && (
         <button
           type="button"
           className="roster-card-swap"

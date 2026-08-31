@@ -147,7 +147,7 @@ export function wrapBracketedPaste(text: string): string {
  *  same roster (in its compact one-line form) to every message it sends. */
 export function toRosterEntries(sessions: Session[]): ArceusRosterEntry[] {
   return sessions
-    .filter((s) => !s.isArceus)
+    .filter((s) => !s.isArceus && !s.isPlainTerminal)
     .map((s) => ({ title: s.title, pokemon: s.pokemon, provider: s.provider, status: s.status }));
 }
 

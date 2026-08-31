@@ -276,7 +276,7 @@ export const useStore = create<HarnessState>((set, get) => ({
     return session;
   },
 
-  takenLines: () => get().sessions.map((s) => s.line),
+  takenLines: () => get().sessions.filter((s) => !s.isPlainTerminal).map((s) => s.line),
 
   updateSession: (id, patch) =>
     set((st) => {
