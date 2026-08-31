@@ -465,13 +465,23 @@ export function hasTerminal(sessionId: string): boolean {
  *  sessions.ts's `startDelegateSpawnListener` for the full sequencing
  *  rationale. No-op for an unknown/already-torn-down session id. */
 export function writeReplayNow(sessionId: string, data: string): void {
-  const term = entries.get(sessionId)?.term;
-  if (!term) return;
+  const entry = entries.get(sessionId);
+  if (!entry) return;
   // `write` may process a larger replay on its next xterm turn. Scroll in its
   // completion callback so the newly-created delegate terminal is at the
   // bottom after the backlog is actually present; live output then continues
   // from the normal follow-output position.
-  term.write(data, () => term.scrollToBottom());
+  entry.term.write(data, () => entry.term.scrollToBottom());
+
+  // A first-class Codex delegate can produce output before the renderer has
+  // adopted its pushed spawn event. The replay used to repair only the
+  // terminal display, leaving the parser unaware that the delegate was
+  // working; its walker consequently stayed parked at the entrance because
+  // idle sessions intentionally do not wander. Feed live-looking replays
+  // through the same parser, but never resurrect a delegate that already
+  // exited while adoption was catching up.
+  const session = useStore.getState().sessions.find((s) => s.id === sessionId);
+  if (session?.status !== 'done') entry.parser?.push(data);
 }
 
 // ─── Find-in-scrollback (Phase 8.5 Wave B item 3 §1) ───────────────────────

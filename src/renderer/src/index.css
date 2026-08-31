@@ -1088,6 +1088,9 @@ button.icon:active {
 
 .dispatch-box input {
   flex: 1;
+  /* A long value must scroll inside the input instead of making this flex
+   * row wider than the split drawer. */
+  min-width: 0;
   background: var(--bg-terminal);
 }
 
@@ -1317,9 +1320,11 @@ button.icon:active {
  * panel-focus` ('terminal' view mode only) adds the actual frame. */
 .terminal-panel {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .terminal-panel-focus {
@@ -1491,16 +1496,20 @@ button.icon:active {
  * absolutely over the terminal without affecting its flex sizing. */
 .terminal-mount-wrap {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   position: relative;
+  overflow: hidden;
 }
 
 .terminal-mount {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: 4px;
   background: var(--bg-terminal);
+  overflow: hidden;
 }
 
 .terminal-find-bar {
