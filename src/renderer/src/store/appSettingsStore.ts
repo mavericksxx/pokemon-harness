@@ -54,6 +54,14 @@ setHideClaudeStatusline(v: boolean): void;
    *  `appSettings:saveSettings` handler reaches
    *  diagnostics.ts's `setDiagnosticsLoggingEnabled` off this value. */
   setDiagnosticsLoggingEnabled(v: boolean): void;
+  /** Render-resolution experiment (settings → diagnostics) — same persist-
+   *  immediately pattern as every other setter here. The resolution GardenScene
+   *  actually inits Pixi with only changes on next scene rebuild/app restart
+   *  (see GardenScene.tsx's own comment), but the `image-rendering: pixelated`
+   *  CSS this also drives is applied live right away — harmless before that
+   *  rebuild (nothing to pixelate yet at the old resolution) and correct
+   *  immediately after it. */
+  setLowResGarden(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -61,6 +69,15 @@ setHideClaudeStatusline(v: boolean): void;
    *  appSettingsTypes.ts's `harnessHomeDir` field comment for what changing
    *  this does and doesn't do. */
   setHarnessHomeDir(dir: string | null): void;
+}
+
+// Render-resolution experiment's CSS hook: `.garden canvas`'s `image-rendering`
+// (index.css) keys off this body class rather than anything in GardenScene.tsx
+// itself, so toggling it stays live-reactive even though the setting it mirrors
+// only actually changes Pixi's resolution on next scene rebuild — see
+// GardenScene.tsx's own comment at the `resolution:` line.
+function applyLowResGardenClass(enabled: boolean): void {
+  document.body.classList.toggle('garden-lowres', enabled);
 }
 
 function persist(settings: AppSettings): void {
@@ -76,7 +93,10 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
   loaded: false,
   harnessHomePath: '',
 
-  hydrate: (settings) => set({ settings, loaded: true }),
+  hydrate: (settings) => {
+    set({ settings, loaded: true });
+    applyLowResGardenClass(settings.lowResGarden);
+  },
   hydrateHarnessHomePath: (path) => set({ harnessHomePath: path }),
 
   setTheme: (mode) => {
@@ -154,6 +174,13 @@ setHideClaudeStatusline: (v) => {
     const settings = { ...get().settings, diagnosticsLoggingEnabled: v };
     set({ settings });
     persist(settings);
+  },
+
+  setLowResGarden: (v) => {
+    const settings = { ...get().settings, lowResGarden: v };
+    set({ settings });
+    persist(settings);
+    applyLowResGardenClass(v);
   },
 
   addRecentFolder: (path) => {

@@ -31,6 +31,7 @@ import { stopSession } from '@/sessions';
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
 import { useStore, type LiveBattler, type Session } from '@/store/store';
+import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
 import type { StationKind } from '@shared/types';
@@ -220,7 +221,15 @@ export function GardenScene(): JSX.Element {
         // Pixel-art rendering settings, matching the upstream app's floor.
         antialias: false,
         roundPixels: true,
-        resolution: Math.max(window.devicePixelRatio || 1, 2),
+        // Render-resolution experiment (settings → diagnostics, default OFF):
+        // a plain one-time `getState()` read, not a subscription — this
+        // mount generation's resolution is fixed at mount time either way,
+        // and this file's own rebuild path is off-limits to wire the setting
+        // into (owned elsewhere right now), so a toggle takes effect on the
+        // next rebuild/mount rather than live.
+        resolution: useAppSettingsStore.getState().settings.lowResGarden
+          ? 1
+          : Math.max(window.devicePixelRatio || 1, 2),
         autoDensity: true,
         width: host.clientWidth || 800,
         height: host.clientHeight || 600

@@ -1022,6 +1022,14 @@ handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string
   // that's now idle (or drops it if that target closed/finished in the
   // meantime). Cheap no-op when nothing is queued.
   arceusRelay.onSessionsChecked(sessions);
+  // Cadence gating (2026-09-01) — this checkpoint fires synchronously off
+  // every renderer session-status change (see startRegistrySync in
+  // sessions.ts), so it's also the resume/pause trigger for costWatcher's
+  // and taskNotificationWatcher's own POLL_MS timers: each only needs to run
+  // while a session it tracks is actually producing new transcript content.
+  // See each watcher's own file header for the exact gate.
+  costWatcher.onSessionsChecked(sessions);
+  taskNotificationWatcher.onSessionsChecked(sessions);
   // Regenerates agents/arceus/roster.json (self-serve roster Arceus can read
   // with his own tools) — cheap no-op when nothing roster-relevant changed.
   writeArceusRosterFile(harnessHomeDir, sessions);

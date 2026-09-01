@@ -917,6 +917,14 @@ button.icon:active {
   display: block;
 }
 
+/* Render-resolution experiment (settings → diagnostics, default off): body
+ * class toggled from appSettingsStore.ts's `setLowResGarden`/`hydrate` — see
+ * that file for why this stays live-reactive even though the Pixi resolution
+ * it pairs with only actually changes on the next scene rebuild. */
+body.garden-lowres .garden canvas {
+  image-rendering: pixelated;
+}
+
 /* Whisper of inset shadow where the bright map settles into the mat — kept
  * to a small blur radius so it doesn't read as a haze over the pixel art. */
 .garden-frame-shadow {

@@ -98,6 +98,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   const setUsageProviderEnabled = useAppSettingsStore((s) => s.setUsageProviderEnabled);
   const setMainUsageProvider = useAppSettingsStore((s) => s.setMainUsageProvider);
   const setDiagnosticsLoggingEnabled = useAppSettingsStore((s) => s.setDiagnosticsLoggingEnabled);
+  const setLowResGarden = useAppSettingsStore((s) => s.setLowResGarden);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -558,6 +559,20 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                         {appSettings.diagnosticsLoggingEnabled
                           ? 'logging the routine stuff (counters, battle events) alongside errors and warnings.'
                           : 'off: routine logging is paused. errors and warnings are always captured — they\'re cheap, and losing them defeats the point of a bug report.'}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.lowResGarden}
+                      onChange={(e) => setLowResGarden(e.target.checked)}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">low-res garden (experiment)</span>
+                      <span className="settings-row-hint">
+                        renders the garden at 1x and lets the display upscale it — saves gpu on retina; labels get
+                        softer. restart pokéharness to apply.
                       </span>
                     </span>
                   </label>

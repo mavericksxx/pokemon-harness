@@ -103,6 +103,16 @@ export interface AppSettings {
    *  config. No settings-panel toggle yet (BACKLOG); edit app-settings.json
    *  directly to opt out. */
   codexDelegateHooks: boolean;
+  /** Render-resolution experiment (diagnostics/experimental, user-requested
+   *  A/B toggle) — default OFF (today's behavior: GardenScene.tsx's
+   *  `app.init` resolution is `max(devicePixelRatio, 2)`). ON drops it to 1
+   *  (`autoDensity` keeps the CSS size unchanged, so the canvas just renders
+   *  at a lower backing resolution and the display upscales it — saves GPU
+   *  on retina, at the cost of softer pixel-art labels) and applies
+   *  `image-rendering: pixelated` to the garden canvas. Takes effect on the
+   *  next scene rebuild/app restart, not live — see GardenScene.tsx's own
+   *  comment at the `resolution:` line for why. */
+  lowResGarden: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -118,5 +128,6 @@ hideClaudeStatusline: false,
   usageExcludedProviders: [],
   mainUsageProvider: 'auto',
   diagnosticsLoggingEnabled: true,
-  codexDelegateHooks: true
+  codexDelegateHooks: true,
+  lowResGarden: false
 };
