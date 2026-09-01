@@ -1199,62 +1199,6 @@ button.icon:active {
   overflow: hidden;
 }
 
-/* Queue composer (FocusComposer.tsx) — bottom bar of the command center.
- * Sits in the same slot ArceusDispatchBox occupies when Arceus is selected
- * (FocusView.tsx never renders both). Restyled per the MD inspo: a
- * pixel-caps "queue" label above a tall multiline textarea, send button
- * right-aligned below it — send/queue submit logic is unchanged
- * (FocusComposer.tsx), this is layout only. */
-.focus-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  background: var(--panel-2);
-  border-top: 1px solid var(--line);
-}
-
-.focus-composer-label {
-  font-family: var(--font-display);
-  font-size: var(--font-display-sm-size);
-  line-height: var(--font-display-sm-line);
-  color: var(--muted);
-}
-
-.focus-composer-queue {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.focus-queue-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 220px;
-  padding: 2px 4px 2px 6px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  font-size: var(--font-body-sm-size);
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.focus-composer textarea {
-  resize: none;
-  min-height: 84px;
-  max-height: 160px;
-  background: var(--bg-terminal);
-  font: inherit;
-}
-
-.focus-composer-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
 /* Status badge: 8px colored dot + 4px gap + lowercase body-sm text, on a
  * background tinted to the status color at 20% opacity. Sentence case, no
  * tracking — "working"/"needs you"/"done", not "WORKING".
