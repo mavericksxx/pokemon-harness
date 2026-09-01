@@ -258,6 +258,23 @@ async function loadFrontWithShinyFallback(id: string, shiny: boolean): Promise<F
   return loadView(id, 'front', false);
 }
 
+/** Front (required, shiny->normal fallback) + back (best-effort) FrameSets
+ *  for an id that has no DexEntry at all — battle-only mega forms
+ *  (megaForms.ts), which fetch through this same gen5ani pipeline
+ *  (fetchSpriteGif's main-side `kind` lookup already defaults to 'animated'
+ *  for any id dexIndex.json doesn't know, which every mega id is) but carry
+ *  no dex number/line/evolution data to build a PokemonInfo from — the
+ *  caller supplies that itself. Reuses loadView's own cache (keyed by
+ *  id/view/shiny), so a mega id never collides with a real species' entries.
+ *  Returns null only when even the normal front sprite can't be obtained —
+ *  same contract as loadLazyAnimation. */
+export async function loadRawFrameSets(id: string, shiny: boolean): Promise<{ front: FrameSet; back?: FrameSet } | null> {
+  const front = await loadFrontWithShinyFallback(id, shiny);
+  if (!front) return null;
+  const back = await loadView(id, 'back', shiny, false).catch(() => null);
+  return { front, back: back ?? undefined };
+}
+
 /** Full animation for a lazily-loaded species: front required (falling back
  *  from shiny to normal on a 404 — see loadFrontWithShinyFallback), back
  *  best-effort (no such fallback — see this file's header). Returns null

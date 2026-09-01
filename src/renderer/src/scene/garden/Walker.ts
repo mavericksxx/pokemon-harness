@@ -4,7 +4,7 @@ import type { Locomotion, PokemonAnimation } from './showdownArt';
 import { findPath } from './pathfinding';
 import { ToolBubble } from './ToolBubble';
 import { EvolutionCeremony } from './EvolutionCeremony';
-import { purgeBattleFxFor, spawnPokeballRecall } from './battle/battleFx';
+import { purgeBattleFxFor, prefersReducedMotion, spawnPokeballRecall } from './battle/battleFx';
 import { evolutionConfig } from './evolution';
 import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { SessionStatus } from '@shared/types';
@@ -107,6 +107,23 @@ export class Walker {
   private napping = false;
   private zzz: Text;
   private zzzT = 0;
+
+  /** Mega evolution during battles (BattleManager's setTemporaryForm calls
+   *  only) — the animation to restore to on revert, or null while no
+   *  temporary form is showing. Set the instant a mega swap is requested
+   *  (before its flash even starts), so a same-battle re-check reads "mega
+   *  is active" immediately rather than only once the flash completes. */
+  private tempFormBase: PokemonAnimation | null = null;
+  /** Elapsed ms into the current mega flash beat, or null when idle — see
+   *  flashSwap(). */
+  private megaFlashT: number | null = null;
+  private megaFlashSwap: (() => void) | null = null;
+  /** Lives in the SHARED flashLayer (not this walker's own container, which
+   *  battle stance and evolution both reparent/hide pieces of) — cleaned up
+   *  explicitly wherever it could otherwise outlive what it's flashing over
+   *  (cancelMegaFlash, destroy()). */
+  private megaFlashGraphic: Graphics | null = null;
+  private static readonly MEGA_FLASH_MS = 500;
 
   private ceremony: EvolutionCeremony | null = null;
   /** Saved badge/ring visibility while the ceremony hides all UI chrome
@@ -397,6 +414,12 @@ export class Walker {
     onSwap?: () => void
   ): void {
     if (this.ceremony) return;
+    // The ceremony now owns the sprite exclusively (file header invariant) —
+    // a mega flash's pending swap firing mid-ceremony would fight it for the
+    // same texture. `setAnimation`'s own applySwap call (this ceremony's
+    // eventual reveal) already clears `tempFormBase` for us; this just makes
+    // sure nothing STILL IN FLIGHT sneaks a sprite.configure() in between.
+    this.cancelMegaFlash();
     const ts = this.map.tileSize;
     this.ceremony = new EvolutionCeremony({
       container: this.container,
@@ -460,6 +483,11 @@ export class Walker {
    *  pokeball placeholder. (Evolution's own swap goes through the flash
    *  sequence instead; see evolve().) */
   setAnimation(animation: PokemonAnimation): void {
+    // This IS the new base now — drop any mega-evolution bookkeeping rather
+    // than let a later revert restore a form this call has already
+    // superseded (evolving, or a fresh lazy sprite landing, mid-battle).
+    this.cancelMegaFlash();
+    this.tempFormBase = null;
     this.sprite.configure(animation);
     this.locomotion = animation.info.locomotion;
     this.layoutForSprite();
@@ -468,6 +496,114 @@ export class Walker {
     // counter (still primed from before) silently disagrees.
     this.backViewBias = 0;
     this.facingTarget = null;
+  }
+
+  /** Battle-only mega evolution's sprite swap (BattleManager's
+   *  startMega/revertMega) — same runtime configure() swap `setAnimation`
+   *  uses, but remembers what was showing before so a later call with
+   *  `null` restores it exactly, and (unlike `setAnimation`, whose other
+   *  callers never fire mid-battle-stance) re-applies whatever back-view
+   *  stance battle currently forces, since `configure()` always resets to
+   *  the front sheet. Wrapped in a short flash rather than an instant cut —
+   *  see flashSwap(). A no-op while an evolution ceremony owns the sprite
+   *  (file header invariant): the caller (BattleManager) is expected to
+   *  check `isEvolving` itself before calling this, and if evolution starts
+   *  anyway while a mega is active, `setAnimation`'s own reset above already
+   *  makes a later `setTemporaryForm(null)` a harmless no-op (nothing left
+   *  to revert to). Passing `null` when no temporary form is active is also
+   *  a no-op — safe to call unconditionally on every battle-end/teardown
+   *  path. */
+  setTemporaryForm(animation: PokemonAnimation | null): void {
+    if (this.ceremony) return;
+    if (animation) {
+      // Keep the ORIGINAL base if a mega is somehow re-triggered before its
+      // own revert — never overwrite it with whatever's showing mid-swap.
+      if (!this.tempFormBase) this.tempFormBase = this.sprite.animation;
+      this.flashSwap(() => this.applyTempForm(animation));
+    } else {
+      if (!this.tempFormBase) return;
+      const base = this.tempFormBase;
+      this.tempFormBase = null;
+      this.flashSwap(() => this.applyTempForm(base));
+    }
+  }
+
+  private applyTempForm(animation: PokemonAnimation): void {
+    this.sprite.configure(animation);
+    // configure() always resets to the front sheet; battle stance (the only
+    // context this runs in) may currently be forcing the back one.
+    this.sprite.setBackView(this.forcedBackView);
+    this.layoutForSprite();
+    this.backViewBias = 0;
+    this.facingTarget = null;
+  }
+
+  /** A half-second white pulse over the sprite's own footprint, the actual
+   *  swap firing at its peak — a lighter cousin of the full evolution
+   *  ceremony's map-wide flash-out (EvolutionCeremony.ts), which would be
+   *  far too heavy for a twice-a-battle beat. Instant (no flash) under
+   *  prefers-reduced-motion, same convention battleFx.ts uses. Lives in the
+   *  shared flashLayer (not this walker's own container) so it draws above
+   *  every character regardless of depth-sort. */
+  private flashSwap(apply: () => void): void {
+    if (prefersReducedMotion()) {
+      this.cancelMegaFlash();
+      apply();
+      return;
+    }
+    if (this.megaFlashT !== null) {
+      // Already mid-flash (rapid re-trigger edge case) — finish its own
+      // pending swap right now rather than stack a second flash on top.
+      this.megaFlashSwap?.();
+      this.cancelMegaFlash();
+    }
+    this.megaFlashT = 0;
+    this.megaFlashSwap = apply;
+    const g = new Graphics();
+    const w = Math.max(this.sprite.drawnWidth * 1.3, 16);
+    const h = Math.max(this.sprite.drawnHeight * 1.3, 16);
+    g.rect(-w / 2, -h, w, h).fill({ color: 0xffffff, alpha: 1 });
+    g.alpha = 0;
+    g.x = Math.round(this.px);
+    g.y = Math.round(this.py);
+    this.flashLayer.addChild(g);
+    this.megaFlashGraphic = g;
+  }
+
+  private updateMegaFlash(dt: number): void {
+    if (this.megaFlashT === null) return;
+    const g = this.megaFlashGraphic;
+    if (!g) {
+      this.megaFlashT = null;
+      return;
+    }
+    this.megaFlashT += dt * 1000;
+    g.x = Math.round(this.px);
+    g.y = Math.round(this.py);
+    const half = Walker.MEGA_FLASH_MS / 2;
+    if (this.megaFlashT < half) {
+      g.alpha = this.megaFlashT / half;
+    } else {
+      if (this.megaFlashSwap) {
+        const swap = this.megaFlashSwap;
+        this.megaFlashSwap = null;
+        swap();
+      }
+      g.alpha = Math.max(0, 1 - (this.megaFlashT - half) / half);
+    }
+    if (this.megaFlashT >= Walker.MEGA_FLASH_MS) this.cancelMegaFlash();
+  }
+
+  /** Discard any in-flight mega flash without necessarily having applied its
+   *  pending swap — used when something else (evolution starting, a fresh
+   *  setAnimation, walker teardown) needs to seize the sprite/graphics layer
+   *  before the flash would have finished on its own. Safe to call when
+   *  nothing is running. */
+  private cancelMegaFlash(): void {
+    this.megaFlashSwap = null;
+    this.megaFlashGraphic?.destroy();
+    this.megaFlashGraphic = null;
+    this.megaFlashT = null;
   }
 
   update(dt: number): void {
@@ -479,6 +615,11 @@ export class Walker {
       else if (this.wandering) this.updateWander(dt);
       this.sprite.update(dt);
     }
+    // Runs regardless of ceremony state — cancelMegaFlash() at evolve()'s
+    // own start already guarantees nothing is in flight the instant a
+    // ceremony begins owning the sprite, so this has nothing left to step
+    // once one is.
+    this.updateMegaFlash(dt);
     this.updateFloatingText(dt);
 
     if (this.napping) {
@@ -692,6 +833,11 @@ export class Walker {
     purgeBattleFxFor(this.container);
     this.ceremony?.dispose();
     this.ceremony = null;
+    // Same reasoning for a mega flash mid-flight: its graphic also lives in
+    // the shared flashLayer, not this walker's own (about to be destroyed)
+    // container, so it would otherwise survive this walker as an orphaned
+    // white rect.
+    this.cancelMegaFlash();
     this.bubble.destroy();
     this.container.destroy({ children: true });
   }

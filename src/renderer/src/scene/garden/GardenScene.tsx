@@ -632,6 +632,7 @@ export function GardenScene(): JSX.Element {
           return s ? (speciesEntry(s.pokemon)?.name ?? s.pokemon) : 'The trainer';
         },
         getParentSpeciesId: (parentId) => useStore.getState().sessions.find((x) => x.id === parentId)?.pokemon,
+        getParentShiny: (parentId) => useStore.getState().sessions.find((x) => x.id === parentId)?.shiny ?? false,
         activeSessionLines: () => useStore.getState().takenLines(),
         onBattleEnd: (parentId) => {
           const rt = runtimes.get(parentId);

@@ -230,6 +230,7 @@ import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
 import { spawnExclaimBubble, spawnHitFlash, spawnShinySparkle, spawnSparkleBurst, tickBattleFx } from './battleFx';
 import { rollShiny } from '../shiny';
+import { loadMegaAnimation, pickMegaId } from '../megaForms';
 import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
@@ -482,6 +483,13 @@ interface ParentBattle {
    *  in `admitBattle` from the actual walk distance (see WAVE_STUCK_MIN_MS's
    *  own comment on why this can't be a flat constant anymore). */
   waveStuckCapMs: number;
+  /** True from the moment `startMega` successfully applies a mega sprite
+   *  (async — see that method) until `revertMega` releases it. Gates every
+   *  revert call site to a no-op for the vastly more common case (no mega
+   *  form, or the load hasn't landed yet) — `Walker.setTemporaryForm(null)`
+   *  is itself idempotent too, so this is belt-and-braces, not the only
+   *  thing standing between a mega and getting stuck. */
+  megaActive: boolean;
 }
 
 export interface BattleDeps {
@@ -499,6 +507,10 @@ export interface BattleDeps {
   /** The parent session's current species dex id, for sizing the face-off gap
    *  (a Snorlax-class parent needs more room than a Pichu-class one). */
   getParentSpeciesId: (parentId: string) => string | undefined;
+  /** Whether the parent session's Pokemon is shiny — mega evolution reuses
+   *  the shiny variant of the mega sprite when true (falling back to
+   *  non-shiny mega, then to no mega, on a 404 — see megaForms.ts). */
+  getParentShiny: (parentId: string) => boolean;
   /** Evolution lines already spoken for by a live SESSION (not battlers —
    *  BattleManager tracks its own separately). */
   activeSessionLines: () => string[];
@@ -1391,6 +1403,7 @@ export class BattleManager {
       pb.waveRing = [];
       pb.currentAttack = null;
       pb.parentWalker.setForcedBackView(false);
+      this.revertMega(pb);
       this.nextBattleEarliestAt = Date.now() + this.randomCooldown();
       this.deps.onBattleEnd(parentId);
       notifyBattleEnd(parentId);
@@ -1445,7 +1458,8 @@ export class BattleManager {
       pendingCombo: 0,
       nextSeq: 0,
       waveStartedAt: 0,
-      waveStuckCapMs: WAVE_STUCK_MIN_MS
+      waveStuckCapMs: WAVE_STUCK_MIN_MS,
+      megaActive: false
     };
   }
 
@@ -1523,6 +1537,9 @@ export class BattleManager {
     pb.waveStuckCapMs = Math.max(WAVE_STUCK_MIN_MS, walkTiles * msPerTile * 3);
 
     notifyBattleStart(pb.parentId); // crossfades ambient -> battle music (no-op if already battling elsewhere)
+    // Cache-warming only, not the real trigger — see startMega's own doc
+    // comment for why this needs a head start over the alert+approach walk.
+    this.startMega(pb, true);
   }
 
   /** A far corner of the map, well apart from any sibling already roaming
@@ -1676,10 +1693,95 @@ export class BattleManager {
    * Every ring member (always somewhere in that arc) shows its FRONT sheet
    * UNMIRRORED, which gen5ani draws already aimed down-left at the parent.
    */
+  /** The fixed battle stance, re-derived and re-applied EVERY TICK the wave
+   *  is 'faceoff'/'looping' (see `update`'s own call to this, below the
+   *  phase switch) — not just once at the transition into 'faceoff' — so a
+   *  lunge or an evolution mid-battle can never leave the mirroring stale.
+   *  `setForcedBackView`/`faceDirection` are cheap no-ops when already
+   *  correct, which is what makes calling this every frame safe; `startMega`
+   *  is NOT idempotent the same way (an async fetch, a floating-text spawn),
+   *  so it is deliberately called once, at the ONE-TIME transition site
+   *  (`updateApproaching`), not from here. */
   private applyBattleStance(pb: ParentBattle): void {
     pb.parentWalker.setForcedBackView(true);
     pb.parentWalker.faceDirection('left'); // native/unmirrored
     for (const sub of pb.waveRing) sub.battler.setBattleStance();
+  }
+
+  /** Mega evolution, battle-only (design: no picker entry, no manual toggle,
+   *  no work-based trigger). Two call sites, same method:
+   *
+   *  1. `admitBattle` (`prefetchOnly: true`), the instant a wave is admitted
+   *     — a queued battler isn't fighting yet, but the parent IS already
+   *     committed to this exact fight (`battlesStarted` bumps right there),
+   *     so kicking the fetch off here rather than waiting for `faceoff`
+   *     gives it the whole alert-bubble + cross-map approach walk as a head
+   *     start. A cold-cache gen5ani GIF (network + LZW decode + per-frame
+   *     canvas coalesce over 50-180 frames) can plausibly take longer than
+   *     `FACEOFF_MS` + a couple of attacks combined, so without this the
+   *     mega would frequently resolve after the fight already ended, land
+   *     in the discard branch below, and silently never show — a `prefetch`
+   *     call never applies anything itself (see the early return), it only
+   *     warms `loadView`'s own cache (lazySprites.ts) for #2.
+   *  2. `updateApproaching`, the ONE spot a wave transitions into 'faceoff'
+   *     — the real, apply-attempting call. By now #1's fetch is very likely
+   *     already resolved (or resolves within a tick or two, off the SAME
+   *     cached promise), so this reads as effectively instant. Unlike
+   *     `applyBattleStance` (re-applied every tick for facing upkeep —
+   *     cheap idempotent no-ops), this fires exactly once: `updateApproaching`
+   *     only ever sets `wave = 'faceoff'` the one time it does.
+   *
+   *  No-op for the ~980 species with no mega form (the common case) and
+   *  while the parent is mid-evolution-ceremony (file header invariant:
+   *  never touch a walker's sprite while `isEvolving`). */
+  private startMega(pb: ParentBattle, prefetchOnly = false): void {
+    if (pb.parentWalker.isEvolving) return;
+    const speciesId = this.deps.getParentSpeciesId(pb.parentId);
+    if (!speciesId) return;
+    const megaId = pickMegaId(speciesId, `${pb.parentId}:${pb.waveStartedAt}`);
+    if (!megaId) return; // no mega form for this species
+    const shiny = this.deps.getParentShiny(pb.parentId);
+    const promise = loadMegaAnimation(speciesId, megaId, shiny);
+    if (prefetchOnly) {
+      void promise; // fire-and-forget — cache-warming only, see doc comment above
+      return;
+    }
+    const token = pb.waveStartedAt;
+    void promise.then((anim) => {
+      // Stale if: this exact wave already has a mega applied (belt-and-
+      // braces — the split above means only #2 ever reaches here, but this
+      // costs nothing to keep), a later wave has since started for this
+      // same parent (token mismatch), this exact wave has moved past the
+      // actual fighting phase (faceoff/looping) — including into 'ending',
+      // the victory beat, where a fetch resolving now would visibly
+      // mega-evolve the parent AFTER the fight already reads as over, only
+      // to revert moments later — or evolution started meanwhile. Discard
+      // rather than apply.
+      if (pb.megaActive) return;
+      if (pb.waveStartedAt !== token) return;
+      if (pb.wave !== 'faceoff' && pb.wave !== 'looping') return;
+      if (pb.parentWalker.isEvolving) return;
+      if (!anim) {
+        safeLogDiagnostic('battle', 'warn', 'mega evolve failed — sprite unavailable', { speciesId, megaId, shiny });
+        return;
+      }
+      pb.megaActive = true;
+      pb.parentWalker.setTemporaryForm(anim);
+      pb.parentWalker.showFloatingText(`${this.deps.getParentLabel(pb.parentId)} Mega Evolved!`);
+      safeLogDiagnostic('battle', 'info', 'mega evolve started', { speciesId, megaId, shiny });
+    });
+  }
+
+  /** The other half of startMega — reverts the parent's sprite to whatever
+   *  it was before the mega swap. Safe (and cheap) to call unconditionally
+   *  at every battle-end/teardown site: a no-op when no mega is active
+   *  (`megaActive` false, the common case), and `Walker.setTemporaryForm`
+   *  itself is idempotent on top of that (nothing to revert to if evolution
+   *  already superseded the base mid-battle — see that method's own doc). */
+  private revertMega(pb: ParentBattle): void {
+    if (!pb.megaActive) return;
+    pb.megaActive = false;
+    pb.parentWalker.setTemporaryForm(null);
   }
 
   /** The "trainer spotted you" beat: once the (first) ring member has
@@ -1712,6 +1814,7 @@ export class BattleManager {
     pb.wave = 'faceoff';
     pb.waveElapsedMs = 0;
     this.applyBattleStance(pb);
+    this.startMega(pb);
   }
 
   private updateFaceoff(pb: ParentBattle, dt: number): void {
@@ -1828,6 +1931,7 @@ export class BattleManager {
     pb.currentAttack = null;
     for (const sub of pb.waveRing) sub.battler.showBubbleLabel();
     pb.parentWalker.setForcedBackView(false);
+    this.revertMega(pb);
     // No dedicated victory/celebration SPRITE ANIMATION exists to play here —
     // confirmed against the actual sprite pipeline (see file header). This
     // floating text + sparkle burst + chime is overlay FX, not a sprite
@@ -1855,6 +1959,7 @@ export class BattleManager {
     pb.wave = 'idle';
     bumpCounter('battlesResolved');
     pb.parentWalker.setForcedBackView(false);
+    this.revertMega(pb);
     this.nextBattleEarliestAt = Date.now() + this.randomCooldown();
     this.deps.onBattleEnd(pb.parentId);
     notifyBattleEnd(pb.parentId); // crossfades back to ambient once this was the last active wave anywhere
@@ -1882,6 +1987,7 @@ export class BattleManager {
     pb.currentAttack = null;
     try {
       pb.parentWalker.setForcedBackView(false);
+      this.revertMega(pb);
     } catch {
       /* best-effort */
     }
@@ -2044,5 +2150,6 @@ export class BattleManager {
       this.deps.onBattlerRemoved(sub.key);
     }
     pb.parentWalker.setForcedBackView(false);
+    this.revertMega(pb);
   }
 }
