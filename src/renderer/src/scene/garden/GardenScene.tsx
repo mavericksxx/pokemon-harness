@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Application, Container, Rectangle } from 'pixi.js';
+import { Application, Container, Rectangle, Ticker, UPDATE_PRIORITY } from 'pixi.js';
 import type { FederatedPointerEvent } from 'pixi.js';
 // Pixi 8 compiles shader/uniform code with `new Function` by default, which the
 // renderer's CSP (no 'unsafe-eval') forbids. This is Pixi's own supported
@@ -287,6 +287,84 @@ export function GardenScene(): JSX.Element {
       };
       canvas.addEventListener?.('webglcontextlost', onContextLost, false);
       canvas.addEventListener?.('webglcontextrestored', onContextRestored, false);
+
+      // Idle-energy pass (2026-09-01, "Using Significant Energy" at idle
+      // triage) — ProMotion displays otherwise drive this ticker at 120Hz for
+      // pixel art that reads identically at 60. Sprite idle/walk frame-
+      // stepping does NOT run off this ticker at all — Pixi's AnimatedSprite
+      // (WalkerSprite's `body`) subscribes itself to the global
+      // `Ticker.shared` the moment `.play()` is called (see
+      // node_modules/pixi.js's AnimatedSprite.play()), so it needs the same
+      // cap applied separately. Confirmed nothing else in this app or in
+      // Pixi's own internals we actually use touches `Ticker.shared`
+      // (`grep -rn "Ticker.shared" node_modules/pixi.js/lib` — its other
+      // consumers are the DOM-container and video/gif texture systems, none
+      // of which this codebase uses), so capping/pausing it globally below
+      // only ever affects walker sprites.
+      app.ticker.maxFPS = 60;
+      Ticker.shared.maxFPS = 60;
+
+      // Render pause while hidden or off-screen (idle-energy pass,
+      // 2026-09-01): this ticker's own game-logic listener (added below,
+      // near `app.ticker.add((ticker) => {...`) and its `dt` clamp are left
+      // completely untouched by any of this — `workAccumMs` and
+      // BattleManager's timeouts/age-outs keep advancing on real wall-clock
+      // time exactly as before, hidden or not, because that listener simply
+      // never stops. The ONLY thing toggled is Pixi's own render pass:
+      // `TickerPlugin` (node_modules/pixi.js's `app/TickerPlugin.mjs`)
+      // registers it as `app.ticker.add(app.render, app,
+      // UPDATE_PRIORITY.LOW)` — removing/re-adding that exact (fn, context)
+      // pair is the whole mechanism (`Ticker.remove` matches on both), so
+      // there's no new render-timing logic to prove correct, and resuming
+      // is instant (no re-init, no dropped frame accounting). `Ticker.shared`
+      // (the walker sprites' animation clock, see above) is paused/resumed
+      // the same way. `renderPaused` starts false to match the state
+      // `app.init()` actually left things in (render listener present,
+      // `Ticker.shared` running for any already-playing sprite) — the first
+      // `syncRenderState()` call (from `applyState()`'s initial call, below)
+      // corrects it immediately if the scene mounts already-hidden.
+      let renderPaused = false;
+      const shouldRender = (): boolean =>
+        // Fail-open: `document.hidden` is the browser's own signal (reliable,
+        // and — checked against Chromium's source — independent of this
+        // window's `backgroundThrottling: false`, which only disables timer/
+        // rAF throttling, not visibility reporting) and always defaults
+        // correctly; `windowVisible` is main-forwarded (see main/index.ts's
+        // `hide`/`show`/`minimize`/`restore` handlers) and defaults to
+        // `true` in the store specifically so a dropped/late IPC event can
+        // never be the ONLY thing leaving the garden paused. `viewMode` is
+        // read fresh, not cached, so a context-loss rebuild that lands
+        // mid-'terminal'-mode starts paused correctly (see the comment
+        // above).
+        !document.hidden && useStore.getState().windowVisible && useStore.getState().viewMode !== 'terminal';
+      const syncRenderState = (): void => {
+        if (destroyed) return;
+        const wantRender = shouldRender();
+        if (wantRender && renderPaused) {
+          app.ticker.add(app.render, app, UPDATE_PRIORITY.LOW);
+          Ticker.shared.start();
+          renderPaused = false;
+        } else if (!wantRender && !renderPaused) {
+          app.ticker.remove(app.render, app);
+          // `Ticker.shared.stop()` here is what actually earns the pause:
+          // `AnimatedSprite.play()` re-adds itself to `Ticker.shared` on
+          // `autoStart` the moment ANY walker is (re)created (a new session
+          // spawning, or `applyManualSwap`/`triggerEvolve` swapping a
+          // sprite) — including while paused — so a stray `.play()` call can
+          // silently resume the global ticker mid-pause. `applyState()`
+          // calls `syncRenderState()` again at the end of every reconcile
+          // (below), which re-stops it on the very next tick regardless of
+          // what churned during that reconcile — see that call's own
+          // comment.
+          Ticker.shared.stop();
+          renderPaused = true;
+        }
+      };
+      // The one signal that ISN'T already routed through a store change (see
+      // `applyState`'s own `syncRenderState()` call, below, for the
+      // `windowVisible`/`viewMode` half): the browser's native page-
+      // visibility event, for minimize/restore.
+      document.addEventListener('visibilitychange', syncRenderState);
 
       // Both art sets are loaded before the store subscription is wired: a
       // session can appear the instant it is, and addWalker must stay sync.
@@ -1037,6 +1115,16 @@ export function GardenScene(): JSX.Element {
             }
           }
         }
+
+        // Idle-energy pass (2026-09-01) — re-enforced at the end of every
+        // reconcile rather than only on the `windowVisible`/`viewMode`
+        // transition that triggered this `applyState()` call: the loop just
+        // above can call `addWalker`/`applyManualSwap`/etc., each of which
+        // calls a fresh `AnimatedSprite.play()` and can silently resume
+        // `Ticker.shared` mid-pause (see `syncRenderState`'s own comment) —
+        // this is what un-does that regardless of which store change (a new
+        // session, an evolve, a plain status update) actually triggered it.
+        syncRenderState();
       };
 
       const unsubscribe = useStore.subscribe(applyState);
@@ -1289,6 +1377,18 @@ export function GardenScene(): JSX.Element {
       cleanup = (): void => {
         ro.disconnect();
         window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
+        document.removeEventListener('visibilitychange', syncRenderState);
+        // `Ticker.shared` is a Pixi-GLOBAL singleton, not owned by this
+        // generation — hand it back running so a teardown that ISN'T
+        // followed by a fresh `mountScene()` can't strand it stopped. The
+        // one path that matters: `rebuild()`'s exhausted-attempts branch
+        // calls this cleanup and then gives up (shows the crash overlay)
+        // instead of remounting — if the garden happened to be paused
+        // (hidden/terminal mode) when that fires, nothing would otherwise
+        // ever call `syncRenderState()` again to resume it. Guarded
+        // (`if (!this.started)`) — a no-op when it was already running,
+        // e.g. an ordinary unmount while visible.
+        Ticker.shared.start();
         canvas.removeEventListener?.('webglcontextlost', onContextLost);
         canvas.removeEventListener?.('webglcontextrestored', onContextRestored);
         if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
