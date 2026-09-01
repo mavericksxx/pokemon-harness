@@ -9,8 +9,23 @@ m = json.load(open(f'{ROOT}/src/renderer/src/scene/garden/maps/garden.tmj'))
 W, H = m['width'], m['height']
 L = {l['name']: l for l in m['layers']}
 
-def b64(path):
-    return 'data:image/png;base64,' + base64.b64encode(open(path, 'rb').read()).decode()
+def b64(path, mime='image/png'):
+    return f'data:{mime};base64,' + base64.b64encode(open(path, 'rb').read()).decode()
+
+def app_css():
+    """Reads the real app's chrome stylesheet + font files and returns one CSS string
+    (fonts.css's @import inlined with woff2 files as base64 data URIs) so the demo's
+    chrome never drifts from src/renderer/src/index.css."""
+    fonts_dir = f'{ROOT}/src/renderer/src/assets/fonts'
+    fonts_css = open(f'{ROOT}/src/renderer/src/design/fonts.css').read()
+    import re
+    fonts_css = re.sub(
+        r"url\('\.\./assets/fonts/([\w.-]+\.woff2)'\)",
+        lambda m: f"url({b64(f'{fonts_dir}/{m.group(1)}', 'font/woff2')})",
+        fonts_css,
+    )
+    index_css = open(f'{ROOT}/src/renderer/src/index.css').read()
+    return index_css.replace("@import './design/fonts.css';", fonts_css, 1)
 
 tilesets = []
 anims = {}
@@ -41,6 +56,7 @@ data = {
 }
 tpl = open(f'{HERE}/template.html').read()
 out = tpl.replace('/*__DEMO_DATA__*/', 'const DEMO_DATA = ' + json.dumps(data, separators=(',', ':')) + ';')
+out = out.replace('/*__APP_CSS__*/', app_css())
 os.makedirs(f'{ROOT}/demo', exist_ok=True)
 open(f'{ROOT}/demo/index.html', 'w').write(out)
 print('wrote demo/index.html', len(out) // 1024, 'KB', 'species', len(species))

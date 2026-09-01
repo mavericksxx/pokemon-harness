@@ -4,108 +4,108 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>pokéharness demo</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet" />
 <style>
-:root {
-  --bg: #17171b; --panel: #1d1d22; --panel-2: #26262c; --bg-terminal: #1a1a1f; --disabled: #313139;
-  --line: #787684; --text: #dedbd6; --text-secondary: #b3b0ac; --muted: #96919f; --muted-dim: #3e3d46;
-  --accent: #e8b740; --on-accent: #1a1320; --danger: #e08c82; --shiny: #cfaa57;
-  --accent-coral: #e08c82; --accent-mint: #74c096; --accent-sky: #6fb3c4; --accent-lemon: #cfaa57; --accent-lilac: #a896e3; --accent-peach: #dfa57f;
-  --status-idle: #64acbb; --status-working: #d8b052; --status-blocked: #df8078; --status-done: #6fb88b; --status-starting: #8c8c97;
-  --status-idle-bg: rgba(100,172,187,.2); --status-working-bg: rgba(216,176,82,.2); --status-blocked-bg: rgba(223,128,120,.2); --status-done-bg: rgba(111,184,139,.2); --status-starting-bg: rgba(140,140,151,.2);
-  --shadow-hard: 4px 4px 0 rgba(0,0,0,.45);
-  --font-display: 'Press Start 2P', ui-monospace, Menlo, monospace;
-  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  color-scheme: dark;
+/*__APP_CSS__*/
+</style>
+<style>
+/* ── boot wipe — ported verbatim from src/renderer/index.html's inline <head>
+ * style (pure CSS/DOM, see BootWipe.tsx: a pokéball iris-wipe on load). ── */
+@property --boot-r {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
 }
-* { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; overflow: hidden; }
-body { background: var(--bg); color: var(--text); font: 13px/18px var(--font-ui); user-select: none; }
-button { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 0; padding: 5px 9px; cursor: pointer; text-align: left; }
-button:hover { border-color: var(--text-secondary); }
-button:active { transform: translate(1px, 1px); }
-button:disabled { background: var(--disabled); color: var(--muted); cursor: default; }
-button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
-button.danger { color: var(--danger); border-color: #3b2724; }
-select { font: inherit; color: var(--text); background: var(--bg-terminal); border: 1px solid var(--line); border-radius: 0; padding: 4px 6px; width: 100%; }
-.app { display: grid; grid-template-rows: 52px 1fr auto; height: 100%; }
+#boot-wipe {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: #17171b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  --boot-r: 0%;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent var(--boot-r), black calc(var(--boot-r) + 1%));
+  mask-image: radial-gradient(circle at 50% 50%, transparent var(--boot-r), black calc(var(--boot-r) + 1%));
+  transition: --boot-r 650ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#boot-wipe.boot-wipe-open { --boot-r: 150%; }
+.boot-pokeball { position: relative; width: 56px; height: 56px; border-radius: 50%; background: #f4f4f0; border: 4px solid #1a1320; overflow: hidden; animation: boot-pokeball-wobble 0.8s ease-in-out infinite; }
+.boot-pokeball::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50%; background: #e3350d; }
+.boot-pokeball::after { content: ''; position: absolute; top: calc(50% - 3px); left: 0; right: 0; height: 6px; background: #1a1320; }
+.boot-pokeball-btn { position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #f4f4f0; border: 3px solid #1a1320; z-index: 2; }
+@keyframes boot-pokeball-wobble { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
 
-/* topbar */
-.topbar { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.brand-lockup { display: inline-flex; align-items: center; gap: 8px; }
-.brand { font: 12px/20px var(--font-display); color: var(--accent); }
-.brand-sub { font: 8px/12px var(--font-display); color: var(--muted); }
-.spacer { flex: 1; }
-.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; color: var(--text-secondary); }
-.chip b { color: var(--text); font-weight: 600; }
-.icon { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; }
+/* The app's own CSS unconditionally sets `display: flex` on a couple of
+ * elements we reuse (`.quick-settings-panel`, `.garden-drawer-edge-tab`),
+ * which otherwise beats the `[hidden]` UA rule once we toggle it via JS. */
+[hidden] { display: none !important; }
 
-/* main layout */
-.main { display: grid; grid-template-columns: 240px 1fr 400px; min-height: 0; }
-.panel { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.panel-head { font: 8px/12px var(--font-display); color: var(--muted); padding: 10px 12px 8px; border-bottom: 1px solid var(--muted-dim); letter-spacing: 0; }
-.console { overflow-y: auto; padding: 8px 12px 16px; display: flex; flex-direction: column; gap: 14px; }
-.group { display: flex; flex-direction: column; gap: 6px; }
-.group-title { font-size: 11px; color: var(--muted); text-transform: lowercase; display: flex; justify-content: space-between; align-items: baseline; }
-.group-title small { color: var(--muted-dim); }
-.row { display: flex; gap: 6px; }
-.row > * { flex: 1; min-width: 0; }
-.hint { font-size: 11px; color: var(--muted); line-height: 15px; }
-.console button { width: 100%; }
-.console button.on { border-color: var(--accent); color: var(--accent); }
+/* ── demo-only chrome helpers ─────────────────────────────────────────────
+ * (`.picon` is our own icon-sizing helper — deliberately NOT named `.icon`,
+ * which the app already uses for `button.icon` such as the drawer's × tab.) */
+.picon { width: 1em; height: 1em; display: inline-block; vertical-align: -2px; shape-rendering: crispEdges; fill: currentColor; }
+#pane { cursor: grab; }
+#pane.dragging { cursor: grabbing; }
+.summon-arceus.demo-chip { border-color: var(--accent-sky); color: var(--accent-sky); }
+.demo-console-panel { width: 300px; max-height: min(640px, 80vh); overflow-y: auto; }
+.demo-console-panel h2 { margin: 0 0 2px; font-family: var(--font-display); font-size: var(--font-display-md-size); line-height: var(--font-display-md-line); }
+.demo-group-head { display: flex; justify-content: space-between; align-items: baseline; }
+.demo-row { display: flex; gap: 6px; }
+.demo-row > * { flex: 1; min-width: 0; }
 
-/* garden pane */
-.garden-pane { position: relative; overflow: hidden; background: var(--bg); cursor: grab; }
-.garden-pane.dragging { cursor: grabbing; }
-.world { position: absolute; left: 0; top: 0; width: 832px; height: 576px; transform-origin: 0 0; }
-.world canvas, .world img { image-rendering: pixelated; image-rendering: crisp-edges; }
-canvas.ground { position: absolute; left: 0; top: 0; }
-.actors { position: absolute; left: 32px; top: 32px; width: 768px; height: 512px; }
-.canopy { position: absolute; width: 16px; height: 16px; background-repeat: no-repeat; pointer-events: none; }
-.roof { position: absolute; left: 32px; top: 32px; z-index: 4000; pointer-events: none; transition: opacity .35s; }
-.dim { position: absolute; inset: 0; background: #000; opacity: .85; z-index: 5000; display: none; }
-.flash { position: absolute; inset: 0; background: rgb(247,247,247); opacity: 0; z-index: 6000; display: none; pointer-events: none; }
-canvas.fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events: none; }
-.bubbles { position: absolute; left: 32px; top: 32px; z-index: 4500; pointer-events: none; }
+/* ── showreel banner — restyled to the app's own toast look (panel/line/hard shadow) ── */
+.reel { position: absolute; left: 8px; top: 8px; z-index: 10; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-hard); padding: 8px 10px; font: 8px/12px var(--font-display); color: var(--accent-text); display: none; }
+.reel.on { display: block; }
+.showreel-progress { height: 4px; background: var(--bg); border: 1px solid var(--muted-dim); margin-top: 6px; }
+.showreel-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+/* ── garden HUD / empty state (no real-app equivalent — demo-only affordances, app tokens) ── */
 .garden-hud { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; z-index: 10; }
-.garden-hud button { padding: 3px 7px; font-size: 11px; background: rgba(29,29,34,.9); }
 .garden-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font: 8px/14px var(--font-display); text-align: center; pointer-events: none; z-index: 5; }
 
-/* walkers (world px: feet at origin) */
-.walker { position: absolute; width: 0; height: 0; cursor: pointer; }
-.walker .shadow { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.34) 0%, rgba(0,0,0,.22) 55%, rgba(0,0,0,.08) 80%, rgba(0,0,0,0) 100%); pointer-events: none; }
-.walker .body { position: absolute; left: 0; top: 0; }
-.walker .body img { position: absolute; display: block; }
-.walker .body img.sil { filter: url(#sil-white); }
-.walker .ring { position: absolute; left: 0; top: -2px; transform: translate(-50%, -50%); border: 1.5px solid; border-radius: 50%; display: none; pointer-events: none; }
-.walker .tag { position: absolute; left: 0; top: 4px; transform: translateX(-50%) scale(.35); transform-origin: 50% 0; font: 16px/18px var(--font-mono); font-weight: 600; color: #f4ffe8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
-.walker .badge { position: absolute; left: 0; display: none; pointer-events: none; }
-.walker .badge.working, .walker .badge.done { width: 5px; height: 5px; border-radius: 50%; transform: translate(-50%, -6px); background: #7bd45f; }
-.walker .badge.done { background: #8a8f88; }
-.walker .badge.blocked { width: 6px; height: 12px; border-radius: 2px; transform: translate(-50%, -12px); background: #ffd23f; }
-.walker .badge.blocked::before { content: ''; position: absolute; left: 2px; top: 2px; width: 2px; height: 6px; background: #3a2a05; }
-.walker .badge.blocked::after { content: ''; position: absolute; left: 2px; top: 9px; width: 2px; height: 2px; background: #3a2a05; }
-.walker .zzz { position: absolute; left: 0; transform: translate(-50%, -100%) scale(.35); transform-origin: 50% 100%; font: bold 16px/18px var(--font-mono); color: #dfe9ff; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; display: none; pointer-events: none; }
-.walker .star { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); color: var(--shiny); display: none; pointer-events: none; }
-.walker .star svg { width: 8px; height: 8px; display: block; }
-.float { position: absolute; left: 0; transform: translate(-50%, -100%) scale(.4); transform-origin: 50% 100%; font: bold 16px/18px var(--font-mono); color: #fff6c8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
+/* ── garden engine internals (DOM walkers + fx canvas) — `g-` prefixed so
+ * none of these collide with the real chrome class names reused above. ── */
+.g-world { position: absolute; left: 0; top: 0; width: 832px; height: 576px; transform-origin: 0 0; }
+.g-world canvas, .g-world img { image-rendering: pixelated; image-rendering: crisp-edges; }
+canvas.g-ground { position: absolute; left: 0; top: 0; }
+.g-actors { position: absolute; left: 32px; top: 32px; width: 768px; height: 512px; }
+.g-canopy { position: absolute; width: 16px; height: 16px; background-repeat: no-repeat; pointer-events: none; }
+.g-roof { position: absolute; left: 32px; top: 32px; z-index: 4000; pointer-events: none; transition: opacity .35s; }
+.g-dim { position: absolute; inset: 0; background: #000; opacity: .85; z-index: 5000; display: none; }
+.g-flash { position: absolute; inset: 0; background: rgb(247,247,247); opacity: 0; z-index: 6000; display: none; pointer-events: none; }
+canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events: none; }
+.g-bubbles { position: absolute; left: 32px; top: 32px; z-index: 4500; pointer-events: none; }
 
-/* parchment tool bubble (rendered 2x, scaled .5) */
+.g-walker { position: absolute; width: 0; height: 0; cursor: pointer; }
+.g-walker .g-shadow { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.34) 0%, rgba(0,0,0,.22) 55%, rgba(0,0,0,.08) 80%, rgba(0,0,0,0) 100%); pointer-events: none; }
+.g-walker .g-body { position: absolute; left: 0; top: 0; }
+.g-walker .g-body img { position: absolute; display: block; }
+.g-walker .g-body img.sil { filter: url(#sil-white); }
+.g-walker .g-ring { position: absolute; left: 0; top: -2px; transform: translate(-50%, -50%); border: 1.5px solid; border-radius: 50%; display: none; pointer-events: none; }
+.g-walker .g-tag { position: absolute; left: 0; top: 4px; transform: translateX(-50%) scale(.35); transform-origin: 50% 0; font: 16px/18px var(--font-mono); font-weight: 600; color: #f4ffe8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
+.g-walker .g-badge { position: absolute; left: 0; display: none; pointer-events: none; }
+.g-walker .g-badge.working, .g-walker .g-badge.done { width: 5px; height: 5px; border-radius: 50%; transform: translate(-50%, -6px); background: #7bd45f; }
+.g-walker .g-badge.done { background: #8a8f88; }
+.g-walker .g-badge.blocked { width: 6px; height: 12px; border-radius: 2px; transform: translate(-50%, -12px); background: #ffd23f; }
+.g-walker .g-badge.blocked::before { content: ''; position: absolute; left: 2px; top: 2px; width: 2px; height: 6px; background: #3a2a05; }
+.g-walker .g-badge.blocked::after { content: ''; position: absolute; left: 2px; top: 9px; width: 2px; height: 2px; background: #3a2a05; }
+.g-walker .g-zzz { position: absolute; left: 0; transform: translate(-50%, -100%) scale(.35); transform-origin: 50% 100%; font: bold 16px/18px var(--font-mono); color: #dfe9ff; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; display: none; pointer-events: none; }
+.g-walker .g-star { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); color: var(--shiny); display: none; pointer-events: none; }
+.g-walker .g-star svg { width: 8px; height: 8px; display: block; }
+.g-float { position: absolute; left: 0; transform: translate(-50%, -100%) scale(.4); transform-origin: 50% 100%; font: bold 16px/18px var(--font-mono); color: #fff6c8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
+
+/* parchment tool bubble (ToolBubble.ts) — no real-app equivalent, no collision, kept as-is */
 .bubble { position: absolute; width: max-content; transform-origin: 50% 100%; pointer-events: none; opacity: 0; }
 .bubble .box { position: relative; width: max-content; max-width: 268px; background: #f4ecd3; border: 2px solid #2b2320; padding: 4px 6px; font: bold 12px/14px var(--font-mono); color: #2b2320; white-space: pre-wrap; word-break: break-word; }
 .bubble .tail { position: absolute; left: 50%; bottom: -6px; width: 8px; height: 8px; margin-left: -4px; background: #f4ecd3; border-right: 2px solid #2b2320; border-bottom: 2px solid #2b2320; transform: rotate(45deg); }
 
-/* terminal drawer */
-.drawer { background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); }
-.drawer-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); min-height: 36px; }
-.drawer-head .title { font: 8px/12px var(--font-display); color: var(--text); }
-.drawer-head .species { font-size: 11px; color: var(--muted); }
-.term { flex: 1; overflow-y: auto; padding: 10px 12px; font: 12px/18px var(--font-mono); color: var(--text); white-space: pre-wrap; word-break: break-word; }
+/* ── mock terminal transcript — `.terminal-mount` is an xterm attach point in
+ * the real app (`overflow:hidden`, no scroller of its own); this is the
+ * demo-only scrolling inner element that plays xterm's role. ── */
+.term { height: 100%; overflow-y: auto; font: 12px/18px var(--font-mono); color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .term .ln { min-height: 18px; }
-.term .user { color: var(--accent); }
+.term .user { color: var(--accent-text); }
 .term .assistant { color: var(--text); }
 .term .tool { color: var(--accent-sky); }
 .term .tool b { color: var(--text); font-weight: 600; }
@@ -114,140 +114,202 @@ canvas.fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events: 
 .term .warn { color: var(--status-blocked); }
 .term .ok { color: var(--status-done); }
 .term .caret { display: inline-block; width: 7px; height: 13px; background: var(--text); vertical-align: -2px; animation: blink 1s steps(2, end) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
 .term-empty { color: var(--muted); padding: 24px 12px; font-size: 12px; }
-.status-strip { display: flex; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--muted-dim); background: var(--panel); font: 11px/16px var(--font-mono); color: var(--muted); }
-.status-strip b { color: var(--text-secondary); font-weight: 500; }
-.hp { display: inline-block; width: 60px; height: 6px; border: 1px solid var(--line); vertical-align: middle; margin-right: 4px; background: var(--bg); }
-.hp i { display: block; height: 100%; background: var(--status-done); }
-
-/* roster strip */
-.roster-strip { display: flex; gap: 8px; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--line); overflow-x: auto; min-height: 88px; align-items: stretch; }
-.roster-card { position: relative; flex: none; width: 180px; display: flex; flex-direction: column; gap: 3px; padding: 8px; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--line); cursor: pointer; transition: transform 90ms steps(2, end), border-color 90ms steps(2, end); }
-.roster-card:hover { transform: translateY(-1px); border-color: var(--text-secondary); }
-.roster-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-.roster-card.sub { width: 150px; border-left-style: dashed; }
-.roster-card .top { display: flex; align-items: center; gap: 8px; min-height: 30px; }
-.roster-card .face { width: 30px; height: 30px; flex: none; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; background: var(--bg); border: 1px solid var(--muted-dim); }
-.roster-card .face img { image-rendering: pixelated; max-width: 28px; max-height: 28px; }
-.roster-card .id { display: flex; flex-direction: column; min-width: 0; }
-.roster-card .name { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.roster-card .prov { font-size: 10px; color: var(--muted); }
-.roster-card .meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--text-secondary); }
-.roster-card .species { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.roster-card .species .shiny { color: var(--shiny); }
-.status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 16px; padding: 0 6px 0 5px; white-space: nowrap; }
-.status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.status.working { background: var(--status-working-bg); } .status.working::before { background: var(--status-working); }
-.status.blocked { background: var(--status-blocked-bg); } .status.blocked::before { background: var(--status-blocked); }
-.status.done { background: var(--status-done-bg); } .status.done::before { background: var(--status-done); }
-.status.idle, .status.napping { background: var(--status-idle-bg); } .status.idle::before, .status.napping::before { background: var(--status-idle); }
-.status.starting { background: var(--status-starting-bg); } .status.starting::before { background: var(--status-starting); }
-.evo { height: 4px; background: var(--bg); border: 1px solid var(--muted-dim); }
-.evo i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
-.roster-new { flex: none; width: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); border: 1px dashed var(--line); background: transparent; }
-.roster-new:hover { color: var(--text); }
-
-/* toasts */
-.toasts { position: fixed; right: 12px; bottom: 104px; display: flex; flex-direction: column; gap: 6px; z-index: 50; pointer-events: none; }
-.toast { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-hard); padding: 8px 10px; font-size: 12px; max-width: 320px; animation: toastin .18s steps(3, end); }
-.toast b { color: var(--accent); font-weight: 600; }
-@keyframes toastin { from { transform: translateX(12px); opacity: 0; } }
-
-/* showreel banner */
-.reel { position: absolute; left: 8px; top: 8px; z-index: 10; background: rgba(29,29,34,.92); border: 1px solid var(--accent); padding: 6px 10px; font: 8px/12px var(--font-display); color: var(--accent); display: none; }
-.reel.on { display: block; }
-.showreel-progress { height: 4px; background: var(--bg); border: 1px solid var(--muted-dim); }
-.showreel-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-@media (max-width: 1100px) { .main { grid-template-columns: 220px 1fr 320px; } }
 </style>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <filter id="sil-white" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 .969  0 0 0 0 .969  0 0 0 0 .969  0 0 0 1 0"/></filter>
   <filter id="sil-red" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 .33  0 0 0 0 .33  0 0 0 1 0"/></filter>
-  <symbol id="i-ball" viewBox="0 0 16 16"><path fill="currentColor" d="M5 1h6v1h2v1h1v2h1v6h-1v2h-1v1h-2v1H5v-1H3v-1H2v-2H1V5h1V3h1V2h2zM3 7v2h3V8h1V7H3zm6 0v1h1v1h3V7H9z"/><path fill="currentColor" d="M6 6h4v4H6z" opacity=".55"/></symbol>
   <symbol id="i-star" viewBox="0 0 8 8"><path fill="currentColor" d="M3 0h2v2h1v1h2v2H6v1H5v2H3V6H2V5H0V3h2V2h1z"/></symbol>
   <symbol id="i-play" viewBox="0 0 16 16"><path fill="currentColor" d="M4 2h2v1h2v1h2v1h2v1h1v2h1v2h-1v2h-1v1h-2v1H8v1H6v1H4z"/></symbol>
-  <symbol id="i-speaker" viewBox="0 0 16 16"><path fill="currentColor" d="M2 6h3V5h1V4h1V3h2v10H7v-1H6v-1H5v-1H2zm9-1h1v1h1v4h-1v1h-1zm2-3h1v1h1v10h-1v1h-1v-1h1V4h-1z"/></symbol>
-  <symbol id="i-mute" viewBox="0 0 16 16"><path fill="currentColor" d="M2 6h3V5h1V4h1V3h2v10H7v-1H6v-1H5v-1H2zm8 0h1v1h1V6h1v1h-1v1h1v1h-1v1h1v1h-1v-1h-1v1h-1v-1h1V9h-1V8h1V7h-1z"/></symbol>
+  <!-- icons.tsx, copied verbatim (16x16 grid, crisp-edged, currentColor unless noted) -->
+  <symbol id="i-terminal" viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10" fill="currentColor"/><rect x="3" y="5" width="2" height="1" fill="var(--panel-2)"/><rect x="4" y="6" width="2" height="1" fill="var(--panel-2)"/><rect x="5" y="7" width="2" height="1" fill="var(--panel-2)"/><rect x="8" y="9" width="4" height="1" fill="var(--panel-2)"/></symbol>
+  <symbol id="i-tree" viewBox="0 0 16 16"><rect x="7" y="1" width="2" height="1" fill="currentColor"/><rect x="6" y="2" width="4" height="1" fill="currentColor"/><rect x="6" y="3" width="4" height="1" fill="currentColor"/><rect x="5" y="4" width="6" height="1" fill="currentColor"/><rect x="4" y="5" width="8" height="1" fill="currentColor"/><rect x="5" y="6" width="6" height="1" fill="currentColor"/><rect x="3" y="7" width="10" height="1" fill="currentColor"/><rect x="2" y="8" width="12" height="1" fill="currentColor"/><rect x="4" y="9" width="8" height="1" fill="currentColor"/><rect x="7" y="10" width="2" height="4" fill="currentColor"/></symbol>
+  <symbol id="i-sessions" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="5" fill="currentColor"/><rect x="9" y="2" width="5" height="5" fill="currentColor"/><rect x="2" y="9" width="5" height="5" fill="currentColor"/><rect x="9" y="9" width="5" height="5" fill="currentColor"/></symbol>
+  <symbol id="i-chevron-l" viewBox="0 0 16 16"><polygon fill="currentColor" points="9,2 9,6 6,8 9,10 9,14 3,8"/></symbol>
+  <symbol id="i-chevron-r" viewBox="0 0 16 16"><polygon fill="currentColor" points="7,2 7,6 10,8 7,10 7,14 13,8"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 16 16"><rect x="5" y="5" width="6" height="6" fill="currentColor"/><rect x="7" y="1" width="2" height="2" fill="currentColor"/><rect x="7" y="13" width="2" height="2" fill="currentColor"/><rect x="1" y="7" width="2" height="2" fill="currentColor"/><rect x="13" y="7" width="2" height="2" fill="currentColor"/><rect x="3" y="3" width="2" height="2" fill="currentColor"/><rect x="11" y="3" width="2" height="2" fill="currentColor"/><rect x="3" y="11" width="2" height="2" fill="currentColor"/><rect x="11" y="11" width="2" height="2" fill="currentColor"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 16 16"><rect x="6" y="2" width="3" height="1" fill="currentColor"/><rect x="5" y="3" width="3" height="1" fill="currentColor"/><rect x="4" y="4" width="3" height="1" fill="currentColor"/><rect x="4" y="5" width="3" height="1" fill="currentColor"/><rect x="3" y="6" width="3" height="1" fill="currentColor"/><rect x="3" y="7" width="3" height="1" fill="currentColor"/><rect x="3" y="8" width="4" height="1" fill="currentColor"/><rect x="3" y="9" width="4" height="1" fill="currentColor"/><rect x="4" y="10" width="4" height="1" fill="currentColor"/><rect x="4" y="11" width="5" height="1" fill="currentColor"/><rect x="5" y="12" width="4" height="1" fill="currentColor"/><rect x="6" y="13" width="4" height="1" fill="currentColor"/></symbol>
+  <symbol id="i-speaker-high" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="4" fill="currentColor"/><rect x="11" y="5" width="1" height="6" fill="currentColor"/><rect x="12" y="4" width="1" height="8" fill="currentColor"/></symbol>
+  <symbol id="i-speaker-mute" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="1" fill="currentColor"/><rect x="11" y="7" width="1" height="1" fill="currentColor"/><rect x="12" y="8" width="1" height="1" fill="currentColor"/><rect x="11" y="9" width="1" height="1" fill="currentColor"/><rect x="10" y="10" width="1" height="1" fill="currentColor"/><rect x="12" y="6" width="1" height="1" fill="currentColor"/><rect x="13" y="7" width="1" height="1" fill="currentColor"/><rect x="13" y="9" width="1" height="1" fill="currentColor"/><rect x="12" y="10" width="1" height="1" fill="currentColor"/></symbol>
 </svg>
 
+<div id="root">
 <div class="app">
-  <div class="topbar">
-    <span class="brand-lockup"><svg class="icon" style="color:var(--accent);width:18px;height:18px"><use href="#i-ball"/></svg><span class="brand">pokéharness</span><span class="brand-sub">demo</span></span>
-    <span class="chip" id="chip-sessions">sessions <b>0</b></span>
-    <span class="chip" id="chip-mode">mock sessions · no clis · no usage</span>
-    <span class="spacer"></span>
-    <button id="btn-audio" class="chip" title="cries + sfx"><svg class="icon"><use id="audio-glyph" href="#i-speaker"/></svg><span id="audio-label">sound on</span></button>
-  </div>
+  <header class="topbar">
+    <span class="brand-lockup">
+      <svg class="brand-icon" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+        <rect x="6" y="1" width="4" height="1" fill="#e8524a"/><rect x="4" y="2" width="8" height="1" fill="#e8524a"/><rect x="3" y="3" width="10" height="1" fill="#e8524a"/><rect x="2" y="4" width="12" height="1" fill="#e8524a"/><rect x="2" y="5" width="12" height="1" fill="#e8524a"/><rect x="1" y="6" width="14" height="1" fill="#e8524a"/>
+        <rect x="6" y="6" width="4" height="1" fill="#1a1a1a"/><rect x="1" y="7" width="14" height="1" fill="#1a1a1a"/><rect x="7" y="7" width="2" height="1" fill="#f2ede0"/><rect x="1" y="8" width="14" height="1" fill="#1a1a1a"/><rect x="7" y="8" width="2" height="1" fill="#f2ede0"/>
+        <rect x="1" y="9" width="1" height="1" fill="#1a1a1a"/><rect x="2" y="9" width="12" height="1" fill="#f2ede0"/><rect x="14" y="9" width="1" height="1" fill="#1a1a1a"/><rect x="6" y="9" width="4" height="1" fill="#1a1a1a"/>
+        <rect x="2" y="10" width="1" height="1" fill="#1a1a1a"/><rect x="3" y="10" width="10" height="1" fill="#f2ede0"/><rect x="13" y="10" width="1" height="1" fill="#1a1a1a"/>
+        <rect x="2" y="11" width="1" height="1" fill="#1a1a1a"/><rect x="3" y="11" width="10" height="1" fill="#f2ede0"/><rect x="13" y="11" width="1" height="1" fill="#1a1a1a"/>
+        <rect x="3" y="12" width="1" height="1" fill="#1a1a1a"/><rect x="4" y="12" width="8" height="1" fill="#f2ede0"/><rect x="12" y="12" width="1" height="1" fill="#1a1a1a"/>
+        <rect x="4" y="13" width="1" height="1" fill="#1a1a1a"/><rect x="5" y="13" width="6" height="1" fill="#f2ede0"/><rect x="11" y="13" width="1" height="1" fill="#1a1a1a"/>
+        <rect x="6" y="14" width="1" height="1" fill="#1a1a1a"/><rect x="7" y="14" width="2" height="1" fill="#f2ede0"/><rect x="9" y="14" width="1" height="1" fill="#1a1a1a"/>
+      </svg>
+      <span class="brand">pokéharness</span>
+    </span>
 
-  <div class="main">
-    <div class="panel">
-      <div class="panel-head">demo console</div>
-      <div class="console">
-        <div class="group">
-          <div class="group-title">showreel <small>hands-free</small></div>
-          <button id="btn-reel" class="primary"><svg class="icon"><use href="#i-play"/></svg> run showreel</button>
+    <button type="button" class="summon-arceus" title="summon arceus"><span class="summon-arceus-glyph" aria-hidden="true">✦</span>arceus</button>
+
+    <span class="garden-chips-wrap">
+      <div class="garden-chips">
+        <span class="garden-chip active"><button type="button" class="garden-chip-name">default garden</button></span>
+        <button type="button" class="garden-chip-new">+ new garden</button>
+      </div>
+      <span class="garden-chips-fade" aria-hidden="true"></span>
+    </span>
+
+    <button type="button" class="topbar-new-terminal tip" data-tip="new terminal" aria-label="new terminal"><svg class="picon"><use href="#i-terminal"/></svg></button>
+
+    <div class="quick-settings" id="demo-console">
+      <button type="button" class="summon-arceus demo-chip tip" id="btn-demo" data-tip="demo console (⌘D)" aria-expanded="false" aria-haspopup="dialog"><span class="summon-arceus-glyph" aria-hidden="true">▸</span>demo</button>
+      <div class="quick-settings-catcher" id="demo-catcher" hidden></div>
+      <div class="quick-settings-panel demo-console-panel" id="demo-panel" role="dialog" aria-label="demo console" hidden>
+        <h2>demo console</h2>
+
+        <div class="settings-card">
+          <div class="demo-group-head"><span class="settings-card-label">showreel</span><span class="hint">hands-free</span></div>
+          <button id="btn-reel" class="primary"><svg class="picon"><use href="#i-play"/></svg> run showreel</button>
           <div class="showreel-progress"><i id="reel-bar"></i></div>
-          <div class="hint" id="reel-hint">runs every scenario back to back with the terminal narrating. screen-record and walk away.</div>
+          <p class="hint" id="reel-hint">runs every scenario back to back with the terminal narrating. screen-record and walk away.</p>
         </div>
-        <div class="group">
-          <div class="group-title">spawn</div>
+
+        <div class="settings-card">
+          <span class="settings-card-label">spawn</span>
           <button id="btn-spawn">spawn a pokémon</button>
           <button id="btn-spawn-shiny">spawn a shiny</button>
           <button id="btn-subagent">spawn a subagent for selected</button>
           <button id="btn-despawn" class="danger">recall selected (pokéball)</button>
         </div>
-        <div class="group">
-          <div class="group-title">selected session state</div>
-          <div class="row"><select id="sel-tool"><option>Read</option><option>Grep</option><option>Glob</option><option>Edit</option><option>Write</option><option>Bash</option><option>WebFetch</option><option>WebSearch</option></select><button id="btn-tool">tool call</button></div>
-          <div class="row"><button id="btn-thinking">thinking</button><button id="btn-idle">idle</button></div>
-          <div class="row"><button id="btn-blocked">needs you</button><button id="btn-done">done</button></div>
-          <div class="row"><button id="btn-nap">nap (compacting)</button><button id="btn-loop">looping</button></div>
-          <div class="row"><button id="btn-chatter">small talk</button><button id="btn-berry">berry errand</button></div>
+
+        <div class="settings-card">
+          <span class="settings-card-label">selected session state</span>
+          <div class="demo-row"><select id="sel-tool"><option>Read</option><option>Grep</option><option>Glob</option><option>Edit</option><option>Write</option><option>Bash</option><option>WebFetch</option><option>WebSearch</option></select><button id="btn-tool">tool call</button></div>
+          <div class="demo-row"><button id="btn-thinking">thinking</button><button id="btn-idle">idle</button></div>
+          <div class="demo-row"><button id="btn-blocked">needs you</button><button id="btn-done">done</button></div>
+          <div class="demo-row"><button id="btn-nap">nap (compacting)</button><button id="btn-loop">looping</button></div>
+          <div class="demo-row"><button id="btn-chatter">small talk</button><button id="btn-berry">berry errand</button></div>
         </div>
-        <div class="group">
-          <div class="group-title">evolution</div>
+
+        <div class="settings-card">
+          <span class="settings-card-label">evolution</span>
           <select id="sel-evolve"></select>
           <button id="btn-evolve">evolve now</button>
-          <div class="hint">real sessions evolve from accumulated working time (10m → stage 2, 30m → stage 3).</div>
+          <p class="hint">real sessions evolve from accumulated working time (10m → stage 2, 30m → stage 3).</p>
         </div>
-        <div class="group">
-          <div class="group-title">battle</div>
+
+        <div class="settings-card">
+          <span class="settings-card-label">battle</span>
           <select id="sel-battle-a"></select>
           <select id="sel-battle-b"></select>
           <button id="btn-battle">battle</button>
-          <div class="hint">they walk to each other, square up, trade tool moves, winner celebrates.</div>
+          <p class="hint">they walk to each other, square up, trade tool moves, winner celebrates.</p>
         </div>
       </div>
     </div>
 
-    <div class="garden-pane" id="pane">
-      <div class="reel" id="reel-banner">showreel</div>
-      <div class="garden-hud"><button id="btn-fit">fit</button></div>
-      <div class="garden-empty" id="garden-empty">no sessions yet<br><br>spawn a pokémon to begin</div>
-      <div class="world" id="world">
-        <canvas class="ground" id="ground" width="832" height="576"></canvas>
-        <div class="actors" id="actors"></div>
-        <div class="roof" id="roof"></div>
-        <div class="dim" id="dim"></div>
-        <div class="flash" id="flash"></div>
-        <canvas class="fx" id="fx" width="832" height="576"></canvas>
-        <div class="bubbles" id="bubbles"></div>
+    <div class="spacer"></div>
+
+    <div class="topbar-actions">
+      <div class="view-switcher" role="group" aria-label="view mode">
+        <button type="button" class="topbar-icon-btn view-switcher-btn active tip" data-tip="garden view (⌘1)" aria-label="garden view" aria-pressed="true"><svg class="picon"><use href="#i-tree"/></svg></button>
+        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="terminal view (⌘2)" aria-label="terminal view">☰</button>
+        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="garden only — no chrome (⌘3)" aria-label="garden only — no chrome">⛶</button>
+        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="all sessions" aria-label="all sessions"><svg class="picon"><use href="#i-sessions"/></svg></button>
       </div>
-    </div>
 
-    <div class="drawer">
-      <div class="drawer-head"><span class="title" id="term-title">terminal</span><span class="species" id="term-species"></span><span class="spacer"></span><span class="status starting" id="term-status">no session</span></div>
-      <div class="term" id="term"><div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div></div>
-      <div class="status-strip"><span><b id="strip-model">—</b></span><span><span class="hp"><i id="strip-ctx" style="width:0"></i></span>context <b id="strip-ctx-num">0%</b></span><span>working <b id="strip-work">0:00</b></span></div>
-    </div>
-  </div>
+      <div class="usage-popover">
+        <button type="button" class="tip usage-chip usage-chip--normal" data-tip="usage limits" aria-label="usage limits">
+          <span class="usage-chip-gauges">
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w5h"><span class="hp-bar"><span class="hp-bar-fill" style="width:23%"></span></span><span class="usage-chip-gauge-label">5h</span> <b>23%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w7d"><span class="hp-bar"><span class="hp-bar-fill" style="width:41%"></span></span><span class="usage-chip-gauge-label">7d</span> <b>41%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--wfable"><span class="hp-bar"><span class="hp-bar-fill" style="width:12%"></span></span><span class="usage-chip-gauge-label">7d fable</span> <b>12%</b></span>
+          </span>
+        </button>
+      </div>
 
-  <div class="roster-strip" id="roster"></div>
+      <button type="button" class="topbar-icon-btn tip" id="btn-audio" data-tip="sound on — click to mute" aria-label="music player"><svg class="picon"><use id="audio-glyph" href="#i-speaker-high"/></svg></button>
+
+      <button type="button" class="topbar-icon-btn tip" data-tip="switch to light mode" aria-label="switch to light mode"><svg class="picon"><use href="#i-sun"/></svg></button>
+
+      <div class="quick-settings"><button type="button" class="topbar-icon-btn tip" data-tip="settings" aria-label="settings">⚙</button></div>
+
+      <button type="button" class="topbar-icon-btn tip" id="btn-drawer-toggle" data-tip="hide terminal" aria-label="hide terminal" aria-pressed="true"><svg class="picon"><use id="drawer-toggle-icon" href="#i-chevron-r"/></svg></button>
+    </div>
+  </header>
+
+  <main class="body">
+    <div class="body-row" id="body-row">
+      <div class="garden-column">
+        <div class="garden-mat">
+          <div class="garden-warp-frame">
+            <div class="garden" id="pane">
+              <div class="g-world" id="world">
+                <canvas class="g-ground" id="ground" width="832" height="576"></canvas>
+                <div class="g-actors" id="actors"></div>
+                <div class="g-roof" id="roof"></div>
+                <div class="g-dim" id="dim"></div>
+                <div class="g-flash" id="flash"></div>
+                <canvas class="g-fx" id="fx" width="832" height="576"></canvas>
+                <div class="g-bubbles" id="bubbles"></div>
+              </div>
+              <div class="reel" id="reel-banner">showreel</div>
+              <div class="garden-hud"><button type="button" id="btn-fit" class="topbar-icon-btn tip" data-tip="fit to view" aria-label="fit to view">⤢</button></div>
+              <div class="garden-empty" id="garden-empty">no sessions yet<br><br>spawn a pokémon to begin</div>
+              <div class="garden-frame-shadow"></div>
+            </div>
+          </div>
+        </div>
+        <div class="roster-strip-wrap">
+          <div class="roster-strip" id="roster"></div>
+          <div class="roster-strip-fade" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <div class="garden-split-handle" id="split-handle" role="separator" aria-orientation="vertical" aria-label="resize garden and terminal panes">
+        <span class="garden-split-line" aria-hidden="true"></span>
+        <button type="button" class="garden-split-collapse-tab tip" id="split-collapse" data-tip="hide terminal" aria-label="hide terminal panel"><svg class="picon"><use href="#i-chevron-r"/></svg></button>
+      </div>
+      <button type="button" class="garden-drawer-edge-tab tip" id="edge-tab" data-tip="show terminal" aria-label="show terminal panel" hidden><svg class="picon"><use href="#i-chevron-l"/></svg></button>
+
+      <aside class="drawer" id="drawer">
+        <header class="drawer-head">
+          <div class="drawer-tabs" id="drawer-tabs"></div>
+          <button type="button" class="icon tip" id="drawer-close" data-tip="hide terminal">×</button>
+        </header>
+        <div class="drawer-meta">
+          <span class="status starting" id="term-status">no session</span>
+          <span class="path" id="term-species"></span>
+          <button type="button" class="danger" id="drawer-kill">kill</button>
+        </div>
+        <div class="terminal-panel" id="terminal-panel">
+          <div class="terminal-panel-head">
+            <span class="terminal-panel-live"><span class="terminal-panel-live-dot" aria-hidden="true"></span><span id="term-title-text">live · terminal</span></span>
+          </div>
+          <div class="status-strip">
+            <span class="status-strip-seg"><span class="model-badge" id="strip-model">—</span></span>
+            <span class="status-strip-divider">·</span>
+            <span class="status-strip-seg">context<div class="hp-bar"><div class="hp-bar-fill" id="strip-ctx" style="width:0%"></div></div><span class="status-strip-ctx-num" id="strip-ctx-num">0%</span></span>
+            <span class="status-strip-divider">·</span>
+            <span class="multitask-glyph off" id="multitask-glyph">⇶ idle</span>
+          </div>
+          <div class="terminal-mount-wrap">
+            <div class="terminal-mount">
+              <div class="term" id="term"><div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <div class="toasts" id="toasts"></div>
+  <div id="boot-wipe"><div class="boot-pokeball"><div class="boot-pokeball-btn"></div></div></div>
 </div>
-<div class="toasts" id="toasts"></div>
+</div>
 
 <script>
 /*__DEMO_DATA__*/
@@ -274,7 +336,7 @@ const audio = {
   muted: false, ctx: null,
   init() { try { this.muted = localStorage.getItem('demo-muted') === '1'; } catch {} this.render(); },
   toggle() { this.muted = !this.muted; try { localStorage.setItem('demo-muted', this.muted ? '1' : '0'); } catch {} this.render(); },
-  render() { el('audio-label').textContent = this.muted ? 'sound off' : 'sound on'; el('audio-glyph').setAttribute('href', this.muted ? '#i-mute' : '#i-speaker'); },
+  render() { const tip = this.muted ? 'sound off — click to unmute' : 'sound on — click to mute'; el('btn-audio').setAttribute('data-tip', tip); el('audio-glyph').setAttribute('href', this.muted ? '#i-speaker-mute' : '#i-speaker-high'); },
   ac() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (this.ctx.state === 'suspended') this.ctx.resume(); return this.ctx; },
   cry(id) { if (this.muted) return; const a = new Audio(`${CDN}/audio/cries/${id}.mp3`); a.volume = 0.35; a.play().catch(() => {}); },
   tone(f0, f1, dur, type = 'square', vol = 0.08) {
@@ -361,7 +423,7 @@ const map = {
     for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
       const gid = data[y * MW + x]; if (!gid) continue;
       const i = this.tsFor(gid); const t = D.tilesets[i]; const local = gid - t.firstgid;
-      const d = document.createElement('div'); d.className = 'canopy';
+      const d = document.createElement('div'); d.className = 'g-canopy';
       d.style.left = x * TILE + 'px'; d.style.top = y * TILE + 'px';
       d.style.backgroundImage = `url(${t.image})`; d.style.backgroundPosition = `-${(local % t.columns) * TILE}px -${Math.floor(local / t.columns) * TILE}px`;
       const inShed = shed && x >= shed.x && x < shed.x + shed.w && y >= shed.y && y < shed.y + shed.h;
@@ -506,8 +568,8 @@ class Walker {
     this.path = []; this.facing = 'left'; this.walking = false; this.wandering = false; this.wanderTimer = 0; this.wanderDelay = 1.5;
     this.status = 'starting'; this.napping = false; this.bobPhase = 0; this.backView = false; this.forcedBack = false; this.backBias = 0; this.segTarget = null;
     this.locked = false; this.bounceT = null; this.zzzT = 0; this.badgePulse = 0; this.ceremony = null; this.floats = []; this.scaleMul = 1; this.recalling = false; this.destroyed = false;
-    this.el = document.createElement('div'); this.el.className = 'walker';
-    this.el.innerHTML = '<div class="shadow"></div><div class="body"><img alt=""></div><div class="ring"></div><div class="badge"></div><div class="tag"></div><div class="zzz">z z z</div><div class="star"><svg><use href="#i-star"/></svg></div>';
+    this.el = document.createElement('div'); this.el.className = 'g-walker';
+    this.el.innerHTML = '<div class="g-shadow"></div><div class="g-body"><img alt=""></div><div class="g-ring"></div><div class="g-badge"></div><div class="g-tag"></div><div class="g-zzz">z z z</div><div class="g-star"><svg><use href="#i-star"/></svg></div>';
     this.shadowEl = this.el.children[0]; this.bodyEl = this.el.children[1]; this.img = this.bodyEl.firstChild; this.ringEl = this.el.children[2]; this.badgeEl = this.el.children[3]; this.tagEl = this.el.children[4]; this.zzzEl = this.el.children[5]; this.starEl = this.el.children[6];
     this.tagEl.textContent = label; this.ringEl.style.borderColor = this.accent; if (this.shiny) this.starEl.style.display = 'block';
     el('actors').appendChild(this.el); this.bubble = new Bubble();
@@ -560,7 +622,7 @@ class Walker {
     else { this.zzzEl.style.display = 'none'; this.bounce(); if (this.status === 'working') this.beginWander(); else this.stayPut(); }
   }
   showFloatingText(text) {
-    const f = document.createElement('div'); f.className = 'float'; f.textContent = text; this.el.appendChild(f);
+    const f = document.createElement('div'); f.className = 'g-float'; f.textContent = text; this.el.appendChild(f);
     this.floats.push({ el: f, life: 0, y: -this.drawnH - 6 });
   }
   setChromeHidden(h) {
@@ -617,7 +679,7 @@ class Walker {
     this.el.style.left = x + 'px'; this.el.style.top = y + 'px'; this.el.style.zIndex = this.ceremony ? 7000 : y;
     if (!this.recalling) this.bodyEl.style.transform = `translateY(${(this.bodyY || 0) + (this.bounceY || 0)}px) scale(${this.scaleMul})`;
   }
-  redrawBadge() { const b = this.badgeEl; b.className = 'badge'; b.style.opacity = 1; this.badgePulse = 0; if (['blocked', 'working', 'done'].includes(this.status)) { b.classList.add(this.status); b.style.display = 'block'; } else b.style.display = 'none'; }
+  redrawBadge() { const b = this.badgeEl; b.className = 'g-badge'; b.style.opacity = 1; this.badgePulse = 0; if (['blocked', 'working', 'done'].includes(this.status)) { b.classList.add(this.status); b.style.display = 'block'; } else b.style.display = 'none'; }
   destroy() { this.destroyed = true; fx.purge(this); this.ceremony && this.ceremony.dispose(); for (const f of this.floats) f.el.remove(); this.bubble.destroy(); this.el.remove(); }
 }
 
@@ -863,27 +925,61 @@ function select(id) {
   if (s) { s.walker.setSelected(true); s.walker.bounce(); if (performance.now() - lastSelectAt > 600) { audio.cry(s.species.id); audio.select(); lastSelectAt = performance.now(); } }
   renderRoster(); renderTerm();
 }
+/** Face element for a roster card — real app's PokemonFace.tsx renders an <i class="pokemon-face"> with a
+ * background-image; we point that background straight at the same gen5ani GIF the walker itself uses. */
+function faceHtml(url, box, shiny) {
+  return `<i class="pokemon-face" style="background-image:url(${url});background-size:contain;background-position:center;width:${box}px;height:${box}px"></i>` +
+    (shiny ? `<span class="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">★</span>` : '');
+}
 function renderRoster() {
   const r = el('roster'); r.innerHTML = '';
+  const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap roster-card-wrap-arceus';
+  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-compact" title="summon arceus">
+    <span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>
+    <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, 18, false)}</span><span class="roster-card-title-compact"><span class="roster-card-arceus-star" aria-hidden="true">★</span> arceus</span></div>
+    <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:0%"></div></div>`;
+  r.appendChild(arceus);
   for (const s of store.sessions) {
     r.appendChild(card(s));
     for (const sub of store.subs.filter((x) => x.parent === s)) r.appendChild(card(sub));
   }
-  const add = document.createElement('button'); add.className = 'roster-new'; add.textContent = '+ new session'; add.onclick = () => spawnSession(); r.appendChild(add);
-  el('chip-sessions').innerHTML = `sessions <b>${store.sessions.length}</b>${store.subs.length ? ` · subagents <b>${store.subs.length}</b>` : ''}`;
+  const add = document.createElement('button'); add.type = 'button'; add.className = 'roster-strip-new'; add.textContent = '+ new agent'; add.onclick = () => spawnSession(); r.appendChild(add);
   el('garden-empty').style.display = store.sessions.length ? 'none' : 'flex';
   const opts = (sel, list) => { const cur = sel.value; sel.innerHTML = list.map((s) => `<option value="${s.id}">${s.species.name}${s.shiny ? ' ✦' : ''} — ${s.kind === 'sub' ? 'subagent' : s.title}</option>`).join('') || '<option value="">no pokémon alive</option>'; if ([...sel.options].some((o) => o.value === cur)) sel.value = cur; };
   const alive = [...store.sessions, ...store.subs]; opts(el('sel-evolve'), alive); opts(el('sel-battle-a'), alive); opts(el('sel-battle-b'), alive);
   if (alive.length > 1 && el('sel-battle-b').value === el('sel-battle-a').value) el('sel-battle-b').selectedIndex = 1;
+  renderTabs();
+}
+function renderTabs() {
+  const wrap = el('drawer-tabs'); wrap.innerHTML = '';
+  for (const s of store.sessions) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'tab' + (store.selected === s.id ? ' active' : ''); b.textContent = s.title; b.style.borderBottomColor = s.accent;
+    b.onclick = () => select(s.id); wrap.appendChild(b);
+  }
 }
 function card(s) {
-  const d = document.createElement('div'); d.className = 'roster-card' + (s.kind === 'sub' ? ' sub' : '') + (store.selected === s.id ? ' selected' : ''); d.dataset.id = s.id; d.style.borderLeftColor = s.accent || s.parent.accent;
-  const st = s.kind === 'sub' ? 'working' : s.napping ? 'napping' : s.status; const label = s.kind === 'sub' ? 'battler' : s.napping ? 'napping' : s.status === 'blocked' ? 'needs you' : s.status;
-  const pct = s.kind === 'sub' ? 0 : Math.min(1, s.workingMs / (s.stage === 1 ? 600000 : 1800000));
-  d.innerHTML = `<div class="top"><span class="face"><img src="${s.walker.forms.front.url}" alt=""></span><span class="id"><span class="name">${s.kind === 'sub' ? s.label : s.title}</span><span class="prov">${s.kind === 'sub' ? '↳ ' + s.parent.title : s.provider + ' · ' + s.model}</span></span></div>
-    <div class="meta"><span class="species">${s.species.name}${s.shiny ? ' <span class="shiny">✦ shiny</span>' : ''}${s.kind === 'session' ? ` · stage ${s.stage}` : ''}</span><span class="status ${st}">${label}${s.looping ? ' · looping' : ''}</span></div>
-    ${s.kind === 'session' ? `<div class="evo" title="working time toward next stage"><i style="width:${Math.round(pct * 100)}%"></i></div>` : ''}`;
-  d.onclick = () => select(s.id); return d;
+  if (s.kind === 'sub') {
+    const d = document.createElement('div'); d.className = 'roster-card-wrap'; d.dataset.id = s.id;
+    d.innerHTML = `<button type="button" class="roster-card roster-card-subagent roster-card-compact">
+      <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.label}</span><span class="roster-card-dot working"></span></div>
+      <div class="roster-card-parent-compact">↳ ${s.parent.title}</div>
+      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:100%"></div></div></button>`;
+    d.querySelector('button').onclick = () => select(s.id);
+    return d;
+  }
+  const medium = store.selected === s.id;
+  const d = document.createElement('div'); d.className = 'roster-card-wrap' + (medium ? ' roster-card-wrap-medium' : ''); d.dataset.id = s.id;
+  const dotCls = s.napping ? 'napping' : s.status;
+  const inner = medium
+    ? `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 32, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-dot ${dotCls}"></span></div>
+      <div class="roster-card-meta-line">${s.provider} · ${s.species.name.toLowerCase()}</div>
+      <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`
+    : `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-provider-compact">${s.provider}</span><span class="roster-card-dot ${dotCls}"></span></div>
+      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div>`;
+  d.innerHTML = `<button type="button" class="roster-card ${medium ? 'roster-card-medium selected' : 'roster-card-compact'}" style="border-left-color:${s.accent}">${inner}</button>`;
+  d.querySelector('button').onclick = () => select(s.id);
+  return d;
 }
 function term(s, cls, text) { s.lines.push({ cls, text }); if (s.lines.length > 400) s.lines.shift(); if (store.selected === s.id) appendTermLine({ cls, text }); }
 function appendTermLine(l) { const t = el('term'); const d = document.createElement('div'); d.className = 'ln ' + l.cls; d.textContent = (l.cls === 'tool' ? '● ' : l.cls === 'assistant' ? '● ' : l.cls === 'user' ? '> ' : '') + l.text; const caret = t.querySelector('.ln.caret-line'); if (caret) t.insertBefore(d, caret); else t.appendChild(d); t.scrollTop = t.scrollHeight; }
@@ -894,13 +990,31 @@ function renderTerm() {
 }
 function renderTermHead() {
   const s = find(store.selected); const src = s && (s.kind === 'sub' ? s.parent : s);
-  el('term-title').textContent = src ? src.title : 'terminal'; el('term-species').textContent = s ? `${s.species.name}${s.kind === 'sub' ? ' (subagent)' : ''}` : '';
+  el('term-title-text').textContent = src ? `live · ${src.title}` : 'live · terminal';
+  el('term-species').textContent = s ? `${s.species.name}${s.kind === 'sub' ? ' (subagent)' : ''}` : '';
   const st = el('term-status'); st.className = 'status ' + (src ? (src.napping ? 'napping' : src.status) : 'starting'); st.textContent = src ? (src.napping ? 'napping' : src.status === 'blocked' ? 'needs you' : src.status) : 'no session';
   el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.width = (src ? src.ctx : 0) + '%'; el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
-  el('strip-work').textContent = src ? fmtMs(src.workingMs) : '0:00';
+  const running = src ? store.subs.filter((sub) => sub.parent === src && sub.pending && !sub.walker.destroyed).length : 0;
+  const mg = el('multitask-glyph'); mg.className = running > 0 ? 'multitask-glyph on' : 'multitask-glyph off'; mg.textContent = running > 0 ? `⇶ ${running} running` : '⇶ idle';
 }
-const fmtMs = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 function toast(html) { const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = html; el('toasts').appendChild(t); setTimeout(() => t.remove(), 3200); }
+
+// ───────────────────────────── terminal drawer: split/collapse (GardenSplitHandle.tsx, gardenSplit.ts) ─────────────────────────────
+const TERMINAL_MIN_PX = 420, GARDEN_MIN_PX = 380, HANDLE_PX = 6, DEFAULT_GARDEN_SPLIT = 0.54;
+const terminalWidthCss = (ratio) => `clamp(${TERMINAL_MIN_PX}px, ${(1 - ratio) * 100}%, calc(100% - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
+let drawerOpen = true, splitRatio = DEFAULT_GARDEN_SPLIT, demoOpen = false;
+function applyDrawerState() {
+  el('drawer').style.display = drawerOpen ? 'flex' : 'none';
+  el('drawer').style.width = drawerOpen ? terminalWidthCss(splitRatio) : '';
+  el('split-handle').style.display = drawerOpen ? 'flex' : 'none';
+  el('edge-tab').hidden = drawerOpen;
+  el('drawer-toggle-icon').setAttribute('href', drawerOpen ? '#i-chevron-r' : '#i-chevron-l');
+  const btn = el('btn-drawer-toggle'); const tip = drawerOpen ? 'hide terminal' : 'show terminal';
+  btn.setAttribute('data-tip', tip); btn.setAttribute('aria-label', tip); btn.setAttribute('aria-pressed', String(drawerOpen));
+}
+function closeDrawer() { drawerOpen = false; applyDrawerState(); }
+function openDrawer() { drawerOpen = true; applyDrawerState(); }
+function setDemoOpen(open) { demoOpen = open; el('demo-panel').hidden = !open; el('demo-catcher').hidden = !open; el('btn-demo').setAttribute('aria-expanded', String(open)); }
 
 // ───────────────────────────── camera ─────────────────────────────
 const cam = { k: 1, x: 0, y: 0,
@@ -912,8 +1026,8 @@ const cam = { k: 1, x: 0, y: 0,
     let drag = null; p.addEventListener('mousedown', (e) => { drag = { x: e.clientX, y: e.clientY, cx: this.x, cy: this.y, moved: false }; p.classList.add('dragging'); });
     window.addEventListener('mousemove', (e) => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true; this.x = drag.cx + dx; this.y = drag.cy + dy; this.apply(); });
     window.addEventListener('mouseup', () => { this.justDragged = !!(drag && drag.moved); drag = null; p.classList.remove('dragging'); });
-    p.addEventListener('click', (e) => { if (this.justDragged) return; if (e.target === p || e.target.id === 'world' || e.target.id === 'ground' || e.target.classList.contains('canopy')) select(null); });
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') select(null); });
+    p.addEventListener('click', (e) => { if (this.justDragged) return; if (e.target === p || e.target.id === 'world' || e.target.id === 'ground' || e.target.classList.contains('g-canopy')) select(null); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (demoOpen) return setDemoOpen(false); select(null); } });
   }
 };
 
@@ -932,7 +1046,7 @@ function frame(now) {
   updateBattles(dt); fx.update(dt);
   map.update(dt * 1000, activeWalkers().map((w) => w.tile));
   for (const s of store.sessions) if (s.status === 'working' && !s.napping) s.workingMs += dt * 1000;
-  if ((tick++ & 31) === 0) { renderTermHead(); for (const s of store.sessions) { const bar = el('roster').querySelector(`[data-id="${s.id}"] .evo i`); if (bar) bar.style.width = Math.round(Math.min(1, s.workingMs / (s.stage === 1 ? 600000 : 1800000)) * 100) + '%'; } }
+  if ((tick++ & 31) === 0) renderTermHead();
   schedule();
 }
 let tick = 0;
@@ -955,6 +1069,32 @@ el('btn-berry').onclick = () => { const s = selectedSession(); if (s) berry(s); 
 el('btn-evolve').onclick = () => { const s = find(el('sel-evolve').value); if (!s) return toast('nothing alive to evolve'); if (s.kind === 'sub') return toast('subagents don\'t evolve — they return to their ball'); evolveSession(s); };
 el('btn-battle').onclick = () => { const a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value); if (!a || !b) return toast('need two pokémon alive'); battleSessions(a, b); };
 el('btn-audio').onclick = () => audio.toggle();
+
+// drawer split/collapse
+el('split-collapse').onclick = (e) => { e.stopPropagation(); closeDrawer(); };
+el('edge-tab').onclick = () => openDrawer();
+el('drawer-close').onclick = () => closeDrawer();
+el('btn-drawer-toggle').onclick = () => (drawerOpen ? closeDrawer() : openDrawer());
+el('drawer-kill').onclick = () => { const s = find(store.selected); if (s && s.kind === 'session') despawn(s); };
+el('split-handle').addEventListener('dblclick', (e) => { if (e.target.closest('.garden-split-collapse-tab')) return; splitRatio = DEFAULT_GARDEN_SPLIT; applyDrawerState(); });
+(() => {
+  let dragging = false;
+  const handle = el('split-handle');
+  handle.addEventListener('pointerdown', (e) => { if (e.target.closest('.garden-split-collapse-tab')) return; dragging = true; handle.setPointerCapture(e.pointerId); });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const rect = el('body-row').getBoundingClientRect(); const px = e.clientX - rect.left;
+    const minRatio = GARDEN_MIN_PX / rect.width, maxRatio = 1 - (TERMINAL_MIN_PX + HANDLE_PX) / rect.width;
+    splitRatio = clamp(px / rect.width, minRatio, maxRatio); applyDrawerState();
+  });
+  handle.addEventListener('pointerup', () => { dragging = false; });
+})();
+applyDrawerState();
+
+// demo console popover
+el('btn-demo').onclick = () => setDemoOpen(!demoOpen);
+el('demo-catcher').onclick = () => setDemoOpen(false);
+window.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); setDemoOpen(!demoOpen); } });
 
 // ───────────────────────────── showreel ─────────────────────────────
 let reel = null;
@@ -982,7 +1122,7 @@ async function runShowreel() {
     }
   } catch (e) { console.error('showreel', e); toast('showreel hit an error — see console'); }
   el('reel-bar').style.width = reel.stop ? '0%' : '100%'; el('reel-hint').textContent = reel.stop ? 'stopped.' : 'that\'s the whole harness. run it again, or poke at the triggers.';
-  reel = null; el('btn-reel').innerHTML = '<svg class="icon"><use href="#i-play"/></svg> run showreel'; el('reel-banner').classList.remove('on');
+  reel = null; el('btn-reel').innerHTML = '<svg class="picon"><use href="#i-play"/></svg> run showreel'; el('reel-banner').classList.remove('on');
 }
 el('btn-reel').onclick = runShowreel;
 
@@ -990,6 +1130,9 @@ el('btn-reel').onclick = runShowreel;
 audio.init();
 map.init().then(() => { cam.init(); renderRoster(); renderTerm(); schedule(); });
 document.addEventListener('visibilitychange', schedule);
+// BootWipe.tsx timings: 180ms beat, then a 650ms iris-open, then unmount.
+setTimeout(() => { const bw = el('boot-wipe'); if (bw) bw.classList.add('boot-wipe-open'); }, 180);
+setTimeout(() => { const bw = el('boot-wipe'); if (bw) bw.remove(); }, 830);
 </script>
 </body>
 </html>
