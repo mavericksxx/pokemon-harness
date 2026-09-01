@@ -231,7 +231,10 @@ export function spawnExclaimBubble(container: Container, aboveY: number, onDone?
   registerFx(container, tick);
 }
 
-function prefersReducedMotion(): boolean {
+/** Exported for Walker.ts's mega-evolution flash beat, which lives outside
+ *  this file's own FX registry (registerFx/tickBattleFx) — same check, one
+ *  definition. */
+export function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
