@@ -361,6 +361,21 @@ export class DayNightOverlay {
     this.lampLayer.alpha = nightWeight;
   }
 
+  /** True while `update()` below is actually changing anything on screen —
+   *  dirty-flag rendering (renderDirty.ts, GardenScene.tsx's ticker). Gated
+   *  on `lampLayer.alpha` (set by `recompute()` to `nightWeight`, 0 during
+   *  full daylight), not just `!reducedMotion`: the lamp sway/flicker math
+   *  in `update()` still RUNS every frame regardless of daylight (cheap —
+   *  see that method's own comment), but with the layer's alpha at exactly
+   *  0 it paints no different pixels, and this is most of a typical
+   *  workday's worth of hours (see MORNING_END/EVENING_START above) — the
+   *  one subsystem here that would otherwise force this whole idle-render
+   *  pass to keep the garden at 60fps all day for a change nobody can
+   *  actually see. */
+  get isAnimating(): boolean {
+    return !this.reducedMotion && this.lampLayer.alpha > 0;
+  }
+
   /** Per-frame lamp flicker/sway — the ONLY per-frame work this overlay
    *  does. No-op under `prefers-reduced-motion` (lamps stay at the static
    *  rest state `applyLampRestState` set once). */

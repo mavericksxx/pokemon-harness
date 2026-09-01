@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Application, Container, Rectangle, Ticker, UPDATE_PRIORITY } from 'pixi.js';
+import { Application, Container, Rectangle, Ticker } from 'pixi.js';
 import type { FederatedPointerEvent } from 'pixi.js';
 // Pixi 8 compiles shader/uniform code with `new Function` by default, which the
 // renderer's CSP (no 'unsafe-eval') forbids. This is Pixi's own supported
@@ -22,7 +22,7 @@ import { BattleManager } from './battle/BattleManager';
 import { GardenCharm } from './gardenCharm';
 import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
-import { clearBattleFx, spawnShinySparkle, spawnSparkleBurst } from './battle/battleFx';
+import { clearBattleFx, hasActiveFx, spawnShinySparkle, spawnSparkleBurst } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
@@ -37,8 +37,9 @@ import type { StationKind } from '@shared/types';
 import { ground, hexToNumber } from '@/design/tokens';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
-import { markRendererTick } from '@/diagnosticsCounters';
+import { bumpCounter, markRendererTick } from '@/diagnosticsCounters';
 import { isClosingTimeActive } from '@/closingTime';
+import { markDirty, consumeDirty } from './renderDirty';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -304,23 +305,37 @@ export function GardenScene(): JSX.Element {
       app.ticker.maxFPS = 60;
       Ticker.shared.maxFPS = 60;
 
+      // Dirty-flag rendering (idle-energy pass follow-up, 2026-09-01 — see
+      // renderDirty.ts's header): Pixi's own auto-render pass is dropped
+      // ENTIRELY here, once, for this Application's whole lifetime —
+      // `TickerPlugin` (node_modules/pixi.js's `app/TickerPlugin.mjs`)
+      // registers it as `app.ticker.add(app.render, app,
+      // UPDATE_PRIORITY.LOW)` during `app.init()` above; removing that exact
+      // (fn, context) pair is the whole mechanism (`Ticker.remove` matches
+      // on both). GardenScene renders itself instead, at the very end of the
+      // game-logic listener below (`app.ticker.add((ticker) => {...`), and
+      // only when `consumeDirty()` says something actually changed this
+      // tick (or the heartbeat forces one) — see that listener's own
+      // comment. This used to be a toggle (add/remove on pause/resume);
+      // it's now a one-time removal because there's no longer a "just call
+      // app.render() every tick" state to fall back into at all, paused or
+      // not — the render call itself now always goes through the dirty
+      // check, and `renderPaused` (below) is what gates that check off
+      // entirely while hidden.
+      app.ticker.remove(app.render, app);
+
       // Render pause while hidden or off-screen (idle-energy pass,
       // 2026-09-01): this ticker's own game-logic listener (added below,
       // near `app.ticker.add((ticker) => {...`) and its `dt` clamp are left
       // completely untouched by any of this — `workAccumMs` and
       // BattleManager's timeouts/age-outs keep advancing on real wall-clock
       // time exactly as before, hidden or not, because that listener simply
-      // never stops. The ONLY thing toggled is Pixi's own render pass:
-      // `TickerPlugin` (node_modules/pixi.js's `app/TickerPlugin.mjs`)
-      // registers it as `app.ticker.add(app.render, app,
-      // UPDATE_PRIORITY.LOW)` — removing/re-adding that exact (fn, context)
-      // pair is the whole mechanism (`Ticker.remove` matches on both), so
-      // there's no new render-timing logic to prove correct, and resuming
-      // is instant (no re-init, no dropped frame accounting). `Ticker.shared`
-      // (the walker sprites' animation clock, see above) is paused/resumed
-      // the same way. `renderPaused` starts false to match the state
-      // `app.init()` actually left things in (render listener present,
-      // `Ticker.shared` running for any already-playing sprite) — the first
+      // never stops. What's toggled: the listener's own end-of-tick render
+      // call (see below) is skipped outright while `renderPaused`, and
+      // `Ticker.shared` (the walker sprites' animation clock, see above) is
+      // paused/resumed the same way it always was. `renderPaused` starts
+      // false to match the state `app.init()` actually left things in
+      // (`Ticker.shared` running for any already-playing sprite) — the first
       // `syncRenderState()` call (from `applyState()`'s initial call, below)
       // corrects it immediately if the scene mounts already-hidden.
       let renderPaused = false;
@@ -341,11 +356,14 @@ export function GardenScene(): JSX.Element {
         if (destroyed) return;
         const wantRender = shouldRender();
         if (wantRender && renderPaused) {
-          app.ticker.add(app.render, app, UPDATE_PRIORITY.LOW);
           Ticker.shared.start();
           renderPaused = false;
+          // Coming back from a pause (hidden/minimized/terminal mode): the
+          // very next game-logic tick must actually paint even if nothing
+          // else changed while paused (e.g. a resize event that landed while
+          // backgrounded) — see renderDirty.ts's own header.
+          markDirty();
         } else if (!wantRender && !renderPaused) {
-          app.ticker.remove(app.render, app);
           // `Ticker.shared.stop()` here is what actually earns the pause:
           // `AnimatedSprite.play()` re-adds itself to `Ticker.shared` on
           // `autoStart` the moment ANY walker is (re)created (a new session
@@ -635,6 +653,14 @@ export function GardenScene(): JSX.Element {
         if (w < 2 || h < 2) return;
         app.renderer.resize(w, h);
         camera.setViewSize(w, h);
+        // Dirty-flag rendering (renderDirty.ts) — `renderer.resize()` clears
+        // the canvas bitmap per spec (see comment above), so without this the
+        // NEXT frame could otherwise stay blank indefinitely if nothing else
+        // happens to be dirty right after a resize (e.g. free-look, nothing
+        // moving). `camera.setViewSize` above may also re-run `fitToScreen`,
+        // but that's not itself relied on here — the resize alone is reason
+        // enough regardless of whether the camera's target actually moved.
+        markDirty();
       };
       syncCanvasToHost();
       // One frame later, in case layout was still settling at the line
@@ -936,6 +962,7 @@ export function GardenScene(): JSX.Element {
         patchPool.release(rt.homePatch);
         rt.walker.destroy();
         runtimes.delete(id);
+        markDirty(); // a walker disappearing is a visible change with no other hook covering it
       };
 
       /** Done first-class delegates are ordinary session walkers, not
@@ -1126,6 +1153,18 @@ export function GardenScene(): JSX.Element {
         // this is what un-does that regardless of which store change (a new
         // session, an evolve, a plain status update) actually triggered it.
         syncRenderState();
+        // Dirty-flag rendering (renderDirty.ts) — blanket coverage for this
+        // whole reconcile, on top of the low-level hooks already wired into
+        // Walker/ToolBubble/WalkerSprite: several things this loop does are
+        // plain property assignments with no hook of their own (workspace
+        // visibility toggles on `walker.container.visible`/
+        // `bubbleContainer.visible`/`battleManager.setVisible`, and this is
+        // also the very first call after mount/rebuild — see mountScene's
+        // own `applyState()` call below — so it's what satisfies "a rebuild
+        // must mark dirty" too). Cheap and safe to call even when this
+        // reconcile changed nothing (a store update unrelated to any
+        // session/walker still runs this function, e.g. a settings toggle).
+        markDirty();
       };
 
       const unsubscribe = useStore.subscribe(applyState);
@@ -1176,6 +1215,18 @@ export function GardenScene(): JSX.Element {
       // needs to be accurate to about a second — flushing every frame would
       // mean a store write (and an applyState reconcile) 60 times a second.
       let flushAccum = 0;
+      // Dirty-flag rendering safety valve (renderDirty.ts) — forces a real
+      // `app.render()` at least this often even when nothing marked itself
+      // dirty, so a dirtiness source this pass's own audit missed (or a
+      // future change that mutates the stage without importing
+      // `markDirty`) can never leave the garden visibly stale for more than
+      // a second. Same "belt and braces, self-healing" instinct as the
+      // throw guards below — a real bug still deserves a bug report (or, if
+      // it recurs, a proper fix), but the user should never actually see a
+      // frozen garden while it's found. Not reset while `renderPaused` (see
+      // below) — there's nothing to paint for.
+      const HEARTBEAT_MS = 1000;
+      let lastRenderAt = Date.now();
       // Battle-update throw guard (see the ticker's own try/catch below):
       // logged once, not every frame, so a persistent throw can't spam
       // harness.log at 60Hz the way a bare per-frame console.error used to
@@ -1200,7 +1251,7 @@ export function GardenScene(): JSX.Element {
         markRendererTick(); // renderer-alive heartbeat (see diagnosticsCounters.ts)
         try {
         const dt = Math.min(ticker.deltaMS / 1000, 0.1);
-        map.update(dt * 1000);
+        if (map.update(dt * 1000)) markDirty(); // pond water animation / enclosed-structure roof fade
         for (const rt of runtimes.values()) {
           rt.walker.update(dt);
           if (rt.status === 'working') rt.workAccumMs += dt * 1000;
@@ -1216,8 +1267,35 @@ export function GardenScene(): JSX.Element {
         // black screen the next time anything (a resize, a DPI change)
         // cleared it. One bad battle must never take the whole garden down
         // with it — log once and skip this frame's battle visuals instead.
+        // Dirty-flag rendering (renderDirty.ts) — read BEFORE calling
+        // update() below, not after: both `this.battles` (BattleManager) and
+        // the fx `active` list (battleFx.ts) can drop their last live entry
+        // as part of THIS SAME update() call (a battle concluding, an
+        // effect's final tick reporting done) — checking pre-tick still
+        // correctly marks dirty for that entry's own last frame of visible
+        // change (its position/alpha/scale WAS updated this tick, by the
+        // per-parent/per-effect code that ran inside update() below), while
+        // checking post-tick would silently miss painting it, since by then
+        // the entry that just changed is already gone. A battle/effect that
+        // starts mid-tick (a signal arriving via IPC/store, not through this
+        // ticker) is unaffected either way — it's already in `this.battles`/
+        // `active` by the time this line runs, however it got there.
+        const battleOrFxWasActive = battleManager.hasActiveBattles() || hasActiveFx();
         try {
           battleManager.update(dt);
+          // A battle's own choreography (approach/faceoff/attack loop,
+          // roaming subagents, poof in/out) has no single property worth
+          // instrumenting piecemeal the way WalkerSprite/Camera do —
+          // `this.battles` only ever holds a parent with a live wave or live
+          // subs (task's own item (d): "fine to mark dirty whenever any
+          // battle is non-idle"), so this one blanket flag covers Battler
+          // movement/lunges/poofs and battleFx's move-text too. battleFx.ts
+          // effects (sparkle bursts, shiny reveals, pokéball recalls, ...)
+          // aren't all tied to a live battle — a "change pokemon" swap or a
+          // done delegate's recall fires one with no ParentBattle involved
+          // at all — hence the separate `hasActiveFx()` check above, not
+          // folded into `hasActiveBattles()`.
+          if (battleOrFxWasActive) markDirty();
         } catch (e) {
           // BattleManager.update() now isolates each parent's own battle in
           // its own try/catch (Phase A rework), so reaching here at all
@@ -1238,8 +1316,30 @@ export function GardenScene(): JSX.Element {
             });
           }
         }
+        // Checked before, not after, update() — same reasoning as
+        // `battleOrFxWasActive` above: `finish()` can flip `isActive` false
+        // as part of THIS call (every walker arrived/waved, or the 15s cap
+        // hit), and the pre-tick read still correctly marks dirty for that
+        // last frame's own goTo/bounce/floating-text changes. In practice
+        // this is close to a no-op today — every walker mutation the ritual
+        // makes (goTo/bounce/showFloatingText) already marks dirty on its
+        // own via Walker.ts's own hooks — kept anyway as the explicit,
+        // provable "ritual active" source the task calls for, and as a
+        // backstop if the ritual ever grows a visual of its own outside the
+        // walkers it drives.
+        const ritualWasActive = closingRitual.isActive;
         closingRitual.update(dt);
+        if (ritualWasActive) markDirty();
         dayNight.update(dt);
+        if (dayNight.isAnimating) markDirty(); // lamp flicker/sway — no-op (and thus no-op here) by day
+        // gardenCharm's well-hotspot "breathe" pulse used to be its own
+        // independent requestAnimationFrame loop, running forever regardless
+        // of visibility — folded into this always-on game-logic tick instead
+        // (see gardenCharm.ts's own comment), but explicitly gated on
+        // `renderPaused` here so it actually stops while the garden is
+        // hidden/minimized/terminal-mode rather than just becoming
+        // invisible-but-still-running.
+        if (!renderPaused) gardenCharm.updatePulses(dt);
 
         flushAccum += dt;
         if (flushAccum >= 1) {
@@ -1345,7 +1445,13 @@ export function GardenScene(): JSX.Element {
           else if (focus) camera.focusOn(focus.walker.worldX + borderPx, focus.walker.worldY - 12 + borderPx, 2.4);
           else camera.fitToScreen();
         }
-        camera.update();
+        // `Camera.update()` lerps toward its target every call, applying the
+        // result to `world`'s own transform — it returns whether that
+        // transform actually moved (see Camera.ts's own comment on
+        // `lastApplied*`), which is the one dirtiness source here that isn't
+        // a discrete event (pan/zoom/focus are, but the lerp settling toward
+        // them each frame is not).
+        if (camera.update()) markDirty();
         } catch (e) {
           console.error('[garden] ticker threw — skipping this frame:', e);
           if (!loggedTickerThrow) {
@@ -1353,6 +1459,28 @@ export function GardenScene(): JSX.Element {
             safeLogDiagnostic('garden', 'error', 'garden ticker threw outside battle isolation — skipping this frame', {
               error: e instanceof Error ? (e.stack ?? e.message) : String(e)
             });
+          }
+        }
+
+        // Dirty-flag rendering (renderDirty.ts) — deliberately OUTSIDE the
+        // try/catch above, so a throw in this tick's game logic (already
+        // caught, logged, and skipped just above) can never also skip
+        // painting the last good frame — the exact "dead black screen"
+        // failure mode `loggedTickerThrow`'s own comment describes, just
+        // applied to this render call instead of Pixi's old separate one.
+        // Skipped entirely while `renderPaused` (hidden/minimized/terminal
+        // mode) — nothing on screen to paint for. `consumeDirty()` always
+        // runs (not short-circuited by the heartbeat check) so a quiet tick
+        // right after a forced heartbeat repaint doesn't immediately force
+        // another one.
+        if (!renderPaused) {
+          const now = Date.now();
+          const isDirty = consumeDirty();
+          const heartbeatDue = now - lastRenderAt >= HEARTBEAT_MS;
+          if (isDirty || heartbeatDue) {
+            app.render();
+            lastRenderAt = now;
+            bumpCounter('renderedFrames');
           }
         }
       });

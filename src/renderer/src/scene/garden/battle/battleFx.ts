@@ -601,6 +601,18 @@ function registerFx(owner: Container, tick: FxTick, cleanup?: () => void): void 
  *      time regardless of whether it's already logged, so this can never
  *      wedge again the way the unguarded `.filter` did.
  */
+/** True while any effect is in flight — dirty-flag rendering (renderDirty.ts,
+ *  GardenScene.tsx's ticker): every `spawn*` function above registers
+ *  through `registerFx`, so this one length check covers all of them (hit
+ *  flash, sparkle burst, move text, shiny sparkle, exclaim bubble, pokéball
+ *  recall) without a per-effect hook, matching the task's own "any active fx
+ *  entry = dirty" shortcut. Not folded into BattleManager's own
+ *  `hasActiveBattles` — a "change pokemon" swap or a done delegate's recall
+ *  can spawn one of these with no live battle involved at all. */
+export function hasActiveFx(): boolean {
+  return active.length > 0;
+}
+
 export function tickBattleFx(dt: number): void {
   if (active.length === 0) return;
   const next: FxEntry[] = [];

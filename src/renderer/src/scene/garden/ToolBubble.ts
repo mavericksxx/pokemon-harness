@@ -1,4 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js';
+import { markDirty } from './renderDirty';
 
 // Speech bubble shown above a walker: "<icon> <label>" (e.g. "> editing App.tsx").
 // Ported from munder-difflin (src/renderer/src/scene/office/ToolBubble.ts),
@@ -159,6 +160,7 @@ export class ToolBubble {
       this.inner.scale.set(RENDER_SCALE);
     }
     this.lingerElapsed = 0;
+    markDirty(); // show()/showText() both funnel through here
   }
 
   startLinger(): void {
@@ -184,6 +186,7 @@ export class ToolBubble {
     this.isThinking = false;
     this.container.alpha = 0;
     this.container.visible = false;
+    markDirty();
   }
 
   isHidden(): boolean {
@@ -198,6 +201,7 @@ export class ToolBubble {
         this.dotsPhase = newPhase;
         this.label.text = ['.', '..', '...'][this.dotsPhase];
         this.redrawBg();
+        markDirty();
       }
     }
 
@@ -208,6 +212,7 @@ export class ToolBubble {
           this.inner.scale.set(RENDER_SCALE);
         }
         if (this.fadeElapsed >= POP_DURATION) this.state = 'visible';
+        markDirty(); // scale (pop-in) or state settling, every frame while active
         break;
       }
       case 'lingering': {
@@ -222,6 +227,7 @@ export class ToolBubble {
         this.fadeElapsed += dt;
         const t = Math.min(this.fadeElapsed / FADE_OUT_DURATION, 1);
         this.container.alpha = 1 - t;
+        markDirty(); // alpha steps every frame while fading out
         if (t >= 1) this.hide();
         break;
       }

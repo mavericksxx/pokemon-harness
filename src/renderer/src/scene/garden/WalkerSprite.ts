@@ -1,6 +1,7 @@
 import { AnimatedSprite, Container, Graphics } from 'pixi.js';
 import type { FrameSet, Locomotion, PokemonAnimation } from './showdownArt';
 import { spriteScale } from './spriteScale';
+import { markDirty } from './renderDirty';
 
 // Started as munder-difflin's CharacterSprite (→ shahar061/the-office), and kept
 // its contract: a Container whose origin is the character's feet, plus
@@ -59,6 +60,17 @@ export class WalkerSprite {
     this.body.anchor.set(0.5, 1);
     // FrameObject `time` values are milliseconds at speed 1.
     this.body.animationSpeed = 1;
+    // Dirty-flag rendering (renderDirty.ts): Pixi calls this whenever
+    // `_updateTexture()` actually swaps the displayed texture — driven by
+    // ordinary idle-loop frame stepping (Ticker.shared, every tick this
+    // sprite is playing), AND by a plain `.textures = ...` reassignment
+    // (configure()'s species swap, setBackView()'s front/back swap both do
+    // this — Pixi's own `set textures` resets `currentFrame` to 0 and calls
+    // `_updateTexture()` itself). One hookup here on construction covers
+    // every texture-driven visual change this sprite will ever make, for
+    // its whole lifetime — no need to instrument configure()/setBackView()
+    // separately.
+    this.body.onFrameChange = () => markDirty();
     this.body.play();
 
     this.container.addChild(this.shadow, this.body);
@@ -174,6 +186,12 @@ export class WalkerSprite {
     this.body.y = -LIFT[this.locomotion] - (riding ? Math.abs(Math.sin(this.bobPhase)) * bob.amplitude : 0);
     this.body.scale.x = this.facing === NATIVE_FACING ? this.scale : -this.scale;
     this.body.scale.y = this.scale;
+    // Position/scale changes never touch a texture, so `onFrameChange`
+    // (above) can't see them — this is the dirty-flag source for bob and
+    // left/right mirroring. Called from update() every frame this sprite is
+    // moving or float-locomotion (whileStill), and once more when it settles
+    // back to rest — see update()'s own branches.
+    markDirty();
   }
 
   /** Drawn size in world pixels, for hit areas and bubble placement. */
