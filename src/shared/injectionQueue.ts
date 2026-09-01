@@ -92,6 +92,13 @@ export class InjectionQueue<T = string> {
     return this.queue.get(targetId) ?? [];
   }
 
+  /** True when nothing is queued for any target — arceusRelay.ts's cadence
+   *  gate reads this to know whether a still-queued relay is a reason to
+   *  keep polling. */
+  isEmpty(): boolean {
+    return this.queue.size === 0;
+  }
+
   /** Removes one queued item by index (a composer chip's own remove
    *  button) — a no-op if `index` is already stale (flushed/removed since
    *  the caller last read `peek`). */

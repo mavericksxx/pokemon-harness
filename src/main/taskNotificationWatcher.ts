@@ -104,6 +104,24 @@
  *     completion would be silently deduped and the re-materialized battler
  *     would roam forever (BACKLOG "resumed agents are invisible").
  *
+ * Cadence gating (2026-09-01): the POLL_MS timer only runs while there's
+ * outstanding work for it to catch, i.e. for at least one tracked parent:
+ *   (a) it's `'working'` right now (a Task/Agent dispatch only ever happens
+ *       mid-turn, so this is when a NEW async-launch line can appear), OR
+ *   (b) its `pending` set is non-empty (an already-launched async subagent
+ *       hasn't notified yet — this can and often does outlive the parent's
+ *       own turn, which is the entire reason this watcher exists at all; see
+ *       WHY THIS EXISTS above).
+ * `onSessionsChecked` (same `sessions:checkpoint`-fed signal costWatcher.ts
+ * uses) supplies (a); `pending`'s own mutations in `applyLine` drive (b).
+ * Both the resume and pause transitions poll immediately — resume so a
+ * fresh dispatch is never delayed behind a stale tick, pause so a line
+ * landing in the last unread tail right as a parent goes idle (e.g. a Task
+ * dispatch immediately followed by the parent's own turn ending) still gets
+ * read before the timer stops; missing it there would leave `pending`
+ * wrongly at 0 and this watcher dark forever for that dispatch, since
+ * nothing else would ever ask it to look again.
+ *
  * Sidechain-excluded (`isSidechain: true`) same as costWatcher.ts/
  * arceusRelay.ts's own exclusion — those entries belong to a SUBAGENT's own
  * nested interleaving (e.g. a subagent that itself dispatches a nested
@@ -112,6 +130,7 @@
  */
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import type { WebContents } from 'electron';
+import type { SessionRecord } from '../shared/types';
 
 const POLL_MS = 2_000;
 
@@ -213,16 +232,64 @@ interface TrackedTranscript {
 export class TaskNotificationWatcher {
   private tracked = new Map<string, TrackedTranscript>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Whether `start()`/`stop()` currently permit the timer to run at all —
+   *  the app-lifecycle on/off switch, orthogonal to the outstanding-work
+   *  cadence gate below. */
+  private armed = false;
+  /** Agent ids the latest `onSessionsChecked` reported as `'working'` — see
+   *  this file's header. */
+  private workingIds = new Set<string>();
 
   constructor(private getWebContents: () => WebContents | null) {}
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.pollAll(), POLL_MS);
+    this.armed = true;
+    this.reconcileTimer();
   }
 
   stop(): void {
+    this.armed = false;
     if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** Fed from main/index.ts's `sessions:checkpoint` handler on every
+   *  session-status change (same signal costWatcher.ts's `onSessionsChecked`
+   *  uses) — supplies half (a) of this file's cadence gate; see this file's
+   *  header. */
+  onSessionsChecked(sessions: SessionRecord[]): void {
+    this.workingIds = new Set(sessions.filter((s) => s.status === 'working').map((s) => s.id));
+    this.reconcileTimer();
+  }
+
+  private hasOutstandingWork(): boolean {
+    for (const [id, t] of this.tracked) {
+      if (this.workingIds.has(id) || t.pending.size > 0) return true;
+    }
+    return false;
+  }
+
+  /** Resumes/pauses the POLL_MS timer to match `hasOutstandingWork()` — see
+   *  this file's header for why both transitions poll immediately (`doPoll`,
+   *  never the recursive `pollAll`/timer-tick wrapper, to avoid re-entering
+   *  this same method). */
+  private reconcileTimer(): void {
+    if (!this.armed) return;
+    if (this.hasOutstandingWork()) {
+      if (!this.timer) {
+        this.doPollAll(); // fire immediately on resume — never wait out a stale tick
+        this.timer = setInterval(() => this.pollAll(), POLL_MS);
+      }
+      return;
+    }
+    if (!this.timer) return;
+    // Nothing outstanding by our last read — but a line landing in the
+    // unread tail right as a parent goes idle (see header) may not have
+    // been read yet. Poll once more before actually stopping, since that
+    // read can itself put outstanding work back on the table.
+    this.doPollAll();
+    if (this.hasOutstandingWork()) return;
+    clearInterval(this.timer);
     this.timer = null;
   }
 
@@ -252,10 +319,12 @@ export class TaskNotificationWatcher {
       pending: new Set(),
       notified: new Set()
     });
+    this.reconcileTimer(); // covers the rare case this session is already 'working'
   }
 
   unregisterSession(agentId: string): void {
     this.tracked.delete(agentId);
+    this.reconcileTimer(); // may have been the last session with outstanding work
   }
 
   /** Hook payload observer — see hookBridge.ts's `onRawPayload` constructor
@@ -264,7 +333,17 @@ export class TaskNotificationWatcher {
     this.registerSession(agentId, transcriptPath);
   }
 
+  /** Timer-tick wrapper: poll, then re-check whether outstanding work
+   *  remains (a poll is what shrinks `pending`, so pausing has to be
+   *  re-evaluated after one, not just on the external `onSessionsChecked`
+   *  trigger). Never called from within `reconcileTimer` itself — that path
+   *  uses `doPollAll` directly to avoid recursing back into this method. */
   private pollAll(): void {
+    this.doPollAll();
+    this.reconcileTimer();
+  }
+
+  private doPollAll(): void {
     for (const id of this.tracked.keys()) this.pollOne(id);
   }
 

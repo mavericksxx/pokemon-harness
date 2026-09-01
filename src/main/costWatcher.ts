@@ -23,10 +23,22 @@
  * transcript can itself carry sidechain-marked lines) and must be excluded,
  * or "most recent usage entry" for context occupancy collapses to whatever
  * tiny subagent turn happened to log last.
+ *
+ * Cadence gating (2026-09-01): the transcript only grows while its session
+ * is actually generating a turn, so the POLL_MS timer only runs while at
+ * least one TRACKED session is `'working'` — idle sessions have nothing new
+ * to tail. `onSessionsChecked` (fed from main/index.ts's `sessions:checkpoint`
+ * handler, itself fired synchronously off every renderer session-status
+ * change — see sessions.ts's `startRegistrySync`) is the resume/pause
+ * trigger: it fires an immediate poll on resume (so a transition to
+ * 'working' never waits out a stale tick) and one more poll before pausing
+ * (so a usage entry written in the last unread tail — right as the session
+ * flips back off 'working' — isn't lost by stopping one beat too early).
  */
 import type { WebContents } from 'electron';
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import type { SessionCostUpdate } from '../shared/costTypes';
+import type { SessionRecord } from '../shared/types';
 
 const POLL_MS = 5_000;
 
@@ -116,17 +128,57 @@ interface TrackedSession {
 export class CostWatcher {
   private sessions = new Map<string, TrackedSession>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Whether `start()`/`stop()` currently permit the timer to run at all —
+   *  the app-lifecycle on/off switch, orthogonal to the working/idle cadence
+   *  gate below. */
+  private armed = false;
+  /** Agent ids the latest `onSessionsChecked` reported as `'working'` — see
+   *  this file's header. */
+  private workingIds = new Set<string>();
 
   constructor(private getWebContents: () => WebContents | null) {}
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.pollAll(), POLL_MS);
+    this.armed = true;
+    this.reconcileTimer();
   }
 
   stop(): void {
+    this.armed = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** Fed from main/index.ts's `sessions:checkpoint` handler on every
+   *  session-status change (see this file's header) — resumes/pauses the
+   *  POLL_MS timer to match whether any TRACKED session is actually
+   *  producing new transcript content right now. */
+  onSessionsChecked(sessions: SessionRecord[]): void {
+    this.workingIds = new Set(sessions.filter((s) => s.status === 'working').map((s) => s.id));
+    this.reconcileTimer();
+  }
+
+  private hasWorkingTrackedSession(): boolean {
+    for (const id of this.sessions.keys()) {
+      if (this.workingIds.has(id)) return true;
+    }
+    return false;
+  }
+
+  private reconcileTimer(): void {
+    if (!this.armed) return;
+    const shouldRun = this.hasWorkingTrackedSession();
+    if (shouldRun && !this.timer) {
+      this.pollAll(); // fire immediately on resume — never wait out a stale tick
+      this.timer = setInterval(() => this.pollAll(), POLL_MS);
+    } else if (!shouldRun && this.timer) {
+      // One more poll before pausing: a usage entry written in the last
+      // unread tail — right as the session flips off 'working' — must not
+      // be lost just because the timer stops one beat too early.
+      this.pollAll();
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   /** Register (or no-op if already registered) a session's transcript path.
@@ -146,10 +198,12 @@ export class CostWatcher {
       lastModel: null
     });
     this.pollOne(agentId);
+    this.reconcileTimer(); // covers the rare case this session is already 'working'
   }
 
   unregisterSession(agentId: string): void {
     this.sessions.delete(agentId);
+    this.reconcileTimer(); // may have been the last working tracked session
   }
 
   /** Hook payload observer — see hookBridge.ts's `onRawPayload` constructor

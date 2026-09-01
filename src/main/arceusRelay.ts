@@ -31,6 +31,23 @@
  * `ARCEUS_SYSTEM_PROMPT_TEMPLATE`): one or more, each its own line, of
  *   @@relay agent="<session title or pokémon species>" message="<instruction>"
  * `"` inside a value is escaped as `\"`, a literal backslash as `\\`.
+ *
+ * Cadence gating (2026-09-01): the POLL_MS timer's only job is tailing
+ * ARCEUS'S OWN transcript for a NEW `@@relay` line, so it only runs while
+ * Arceus is `'working'` (mid-turn — the only time a new line can land) OR
+ * `queue` is non-empty. The queue term is belt-and-braces, not load-bearing:
+ * `onSessionsChecked` already flushes the queue unconditionally on every
+ * checkpoint regardless of this timer (see that method below), so a queued-
+ * but-not-yet-idle target doesn't actually need US polling for anything —
+ * it's kept anyway because it's free and matches "arceus live + queue
+ * non-empty" as closely as a real trigger allows. What genuinely can't be
+ * dropped is the `'working'` term: gating on "queue non-empty" ALONE would
+ * deadlock, since nothing ever enters the queue without a poll reading the
+ * directive that populates it, and no poll would ever run to populate it.
+ * Same reasoning as costWatcher.ts/taskNotificationWatcher.ts for polling
+ * once more before actually pausing: a `@@relay` line landing in the unread
+ * tail right as Arceus flips off 'working' must be read before the timer
+ * stops, or it's lost until Arceus's next turn.
  */
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
 import type { WebContents } from 'electron';
@@ -138,6 +155,12 @@ interface TrackedTranscript {
 export class ArceusRelayWatcher {
   private tracked: TrackedTranscript | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Whether `start()`/`stop()` currently permit the timer to run at all —
+   *  the app-lifecycle on/off switch, orthogonal to the cadence gate below. */
+  private armed = false;
+  /** Whether the latest `onSessionsChecked` reported Arceus's own session as
+   *  `'working'` — see this file's header. */
+  private arceusWorking = false;
   /** Per-target idle-queue + injection (item 3's "queue the injection until
    *  that session next goes idle") — the shared helper (shared/injectionQueue.ts)
    *  BACKLOG phase E's focus-mode composer also builds on, so the safety
@@ -164,13 +187,43 @@ export class ArceusRelayWatcher {
   }
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.poll(), POLL_MS);
+    this.armed = true;
+    this.reconcileTimer();
   }
 
   stop(): void {
+    this.armed = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  private reconcileTimer(): void {
+    if (!this.armed) return;
+    if (this.arceusWorking || !this.queue.isEmpty()) {
+      if (!this.timer) {
+        this.doPoll(); // fire immediately on resume — never wait out a stale tick
+        this.timer = setInterval(() => this.tick(), POLL_MS);
+      }
+      return;
+    }
+    if (!this.timer) return;
+    // One more poll before actually pausing — see this file's header for why
+    // a `@@relay` line in the unread tail must be read before the timer
+    // stops, not after.
+    this.doPoll();
+    if (this.arceusWorking || !this.queue.isEmpty()) return;
+    clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  /** Timer-tick wrapper — poll, then re-evaluate: a poll is what populates
+   *  the queue in the first place, so pausing has to be re-checked after
+   *  one, not just on the external `onSessionsChecked` trigger. Never called
+   *  from `reconcileTimer` itself — that path calls `doPoll` directly to
+   *  avoid recursing back into this method. */
+  private tick(): void {
+    this.doPoll();
+    this.reconcileTimer();
   }
 
   /** HookBridge's onRawPayload — same signature as CostWatcher's
@@ -203,6 +256,7 @@ export class ArceusRelayWatcher {
     }
     this.tracked = { path: transcriptPath, offset: size, carry: '' };
     this.queue.clear();
+    this.reconcileTimer(); // queue.clear() above may have just emptied it
   }
 
   /** Called from main/index.ts's `sessions:checkpoint` handler, right after
@@ -215,9 +269,16 @@ export class ArceusRelayWatcher {
    *  stays queued, same as at first-resolve time in `handleDirective`. */
   onSessionsChecked(sessions: SessionRecord[]): void {
     this.queue.flush(sessions);
+    // `s.isArceus` first, `id === ARCEUS_SESSION_ID` as a belt-and-braces
+    // fallback — same identity `resolveRelayTarget` above uses to EXCLUDE
+    // Arceus from the candidate list; confirmed (arceus.ts's `addSession`
+    // call) that his record's `id` is `ARCEUS_SESSION_ID` too, but this
+    // stays correct even if that ever changes.
+    this.arceusWorking = sessions.some((s) => (s.isArceus || s.id === ARCEUS_SESSION_ID) && s.status === 'working');
+    this.reconcileTimer();
   }
 
-  private poll(): void {
+  private doPoll(): void {
     const t = this.tracked;
     if (!t) return;
 
