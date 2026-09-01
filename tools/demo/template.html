@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pokéharness demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #17171b; --panel: #1d1d22; --panel-2: #26262c; --bg-terminal: #1a1a1f; --disabled: #313139;
+  --line: #787684; --text: #dedbd6; --text-secondary: #b3b0ac; --muted: #96919f; --muted-dim: #3e3d46;
+  --accent: #e8b740; --on-accent: #1a1320; --danger: #e08c82; --shiny: #cfaa57;
+  --accent-coral: #e08c82; --accent-mint: #74c096; --accent-sky: #6fb3c4; --accent-lemon: #cfaa57; --accent-lilac: #a896e3; --accent-peach: #dfa57f;
+  --status-idle: #64acbb; --status-working: #d8b052; --status-blocked: #df8078; --status-done: #6fb88b; --status-starting: #8c8c97;
+  --status-idle-bg: rgba(100,172,187,.2); --status-working-bg: rgba(216,176,82,.2); --status-blocked-bg: rgba(223,128,120,.2); --status-done-bg: rgba(111,184,139,.2); --status-starting-bg: rgba(140,140,151,.2);
+  --shadow-hard: 4px 4px 0 rgba(0,0,0,.45);
+  --font-display: 'Press Start 2P', ui-monospace, Menlo, monospace;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: var(--bg); color: var(--text); font: 13px/18px var(--font-ui); user-select: none; }
+button { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 0; padding: 5px 9px; cursor: pointer; text-align: left; }
+button:hover { border-color: var(--text-secondary); }
+button:active { transform: translate(1px, 1px); }
+button:disabled { background: var(--disabled); color: var(--muted); cursor: default; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--danger); border-color: #3b2724; }
+select { font: inherit; color: var(--text); background: var(--bg-terminal); border: 1px solid var(--line); border-radius: 0; padding: 4px 6px; width: 100%; }
+.app { display: grid; grid-template-rows: 52px 1fr auto; height: 100%; }
+
+/* topbar */
+.topbar { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand-lockup { display: inline-flex; align-items: center; gap: 8px; }
+.brand { font: 12px/20px var(--font-display); color: var(--accent); }
+.brand-sub { font: 8px/12px var(--font-display); color: var(--muted); }
+.spacer { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; color: var(--text-secondary); }
+.chip b { color: var(--text); font-weight: 600; }
+.icon { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; }
+
+/* main layout */
+.main { display: grid; grid-template-columns: 240px 1fr 400px; min-height: 0; }
+.panel { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.panel-head { font: 8px/12px var(--font-display); color: var(--muted); padding: 10px 12px 8px; border-bottom: 1px solid var(--muted-dim); letter-spacing: 0; }
+.console { overflow-y: auto; padding: 8px 12px 16px; display: flex; flex-direction: column; gap: 14px; }
+.group { display: flex; flex-direction: column; gap: 6px; }
+.group-title { font-size: 11px; color: var(--muted); text-transform: lowercase; display: flex; justify-content: space-between; align-items: baseline; }
+.group-title small { color: var(--muted-dim); }
+.row { display: flex; gap: 6px; }
+.row > * { flex: 1; min-width: 0; }
+.hint { font-size: 11px; color: var(--muted); line-height: 15px; }
+.console button { width: 100%; }
+.console button.on { border-color: var(--accent); color: var(--accent); }
+
+/* garden pane */
+.garden-pane { position: relative; overflow: hidden; background: var(--bg); cursor: grab; }
+.garden-pane.dragging { cursor: grabbing; }
+.world { position: absolute; left: 0; top: 0; width: 832px; height: 576px; transform-origin: 0 0; }
+.world canvas, .world img { image-rendering: pixelated; image-rendering: crisp-edges; }
+canvas.ground { position: absolute; left: 0; top: 0; }
+.actors { position: absolute; left: 32px; top: 32px; width: 768px; height: 512px; }
+.canopy { position: absolute; width: 16px; height: 16px; background-repeat: no-repeat; pointer-events: none; }
+.roof { position: absolute; left: 32px; top: 32px; z-index: 4000; pointer-events: none; transition: opacity .35s; }
+.dim { position: absolute; inset: 0; background: #000; opacity: .85; z-index: 5000; display: none; }
+.flash { position: absolute; inset: 0; background: rgb(247,247,247); opacity: 0; z-index: 6000; display: none; pointer-events: none; }
+canvas.fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events: none; }
+.bubbles { position: absolute; left: 32px; top: 32px; z-index: 4500; pointer-events: none; }
+.garden-hud { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; z-index: 10; }
+.garden-hud button { padding: 3px 7px; font-size: 11px; background: rgba(29,29,34,.9); }
+.garden-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font: 8px/14px var(--font-display); text-align: center; pointer-events: none; z-index: 5; }
+
+/* walkers (world px: feet at origin) */
+.walker { position: absolute; width: 0; height: 0; cursor: pointer; }
+.walker .shadow { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(0,0,0,.34) 0%, rgba(0,0,0,.22) 55%, rgba(0,0,0,.08) 80%, rgba(0,0,0,0) 100%); pointer-events: none; }
+.walker .body { position: absolute; left: 0; top: 0; }
+.walker .body img { position: absolute; display: block; }
+.walker .body img.sil { filter: url(#sil-white); }
+.walker .ring { position: absolute; left: 0; top: -2px; transform: translate(-50%, -50%); border: 1.5px solid; border-radius: 50%; display: none; pointer-events: none; }
+.walker .tag { position: absolute; left: 0; top: 4px; transform: translateX(-50%) scale(.35); transform-origin: 50% 0; font: 16px/18px var(--font-mono); font-weight: 600; color: #f4ffe8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
+.walker .badge { position: absolute; left: 0; display: none; pointer-events: none; }
+.walker .badge.working, .walker .badge.done { width: 5px; height: 5px; border-radius: 50%; transform: translate(-50%, -6px); background: #7bd45f; }
+.walker .badge.done { background: #8a8f88; }
+.walker .badge.blocked { width: 6px; height: 12px; border-radius: 2px; transform: translate(-50%, -12px); background: #ffd23f; }
+.walker .badge.blocked::before { content: ''; position: absolute; left: 2px; top: 2px; width: 2px; height: 6px; background: #3a2a05; }
+.walker .badge.blocked::after { content: ''; position: absolute; left: 2px; top: 9px; width: 2px; height: 2px; background: #3a2a05; }
+.walker .zzz { position: absolute; left: 0; transform: translate(-50%, -100%) scale(.35); transform-origin: 50% 100%; font: bold 16px/18px var(--font-mono); color: #dfe9ff; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; display: none; pointer-events: none; }
+.walker .star { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); color: var(--shiny); display: none; pointer-events: none; }
+.walker .star svg { width: 8px; height: 8px; display: block; }
+.float { position: absolute; left: 0; transform: translate(-50%, -100%) scale(.4); transform-origin: 50% 100%; font: bold 16px/18px var(--font-mono); color: #fff6c8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
+
+/* parchment tool bubble (rendered 2x, scaled .5) */
+.bubble { position: absolute; width: max-content; transform-origin: 50% 100%; pointer-events: none; opacity: 0; }
+.bubble .box { position: relative; width: max-content; max-width: 268px; background: #f4ecd3; border: 2px solid #2b2320; padding: 4px 6px; font: bold 12px/14px var(--font-mono); color: #2b2320; white-space: pre-wrap; word-break: break-word; }
+.bubble .tail { position: absolute; left: 50%; bottom: -6px; width: 8px; height: 8px; margin-left: -4px; background: #f4ecd3; border-right: 2px solid #2b2320; border-bottom: 2px solid #2b2320; transform: rotate(45deg); }
+
+/* terminal drawer */
+.drawer { background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); }
+.drawer-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line); min-height: 36px; }
+.drawer-head .title { font: 8px/12px var(--font-display); color: var(--text); }
+.drawer-head .species { font-size: 11px; color: var(--muted); }
+.term { flex: 1; overflow-y: auto; padding: 10px 12px; font: 12px/18px var(--font-mono); color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.term .ln { min-height: 18px; }
+.term .user { color: var(--accent); }
+.term .assistant { color: var(--text); }
+.term .tool { color: var(--accent-sky); }
+.term .tool b { color: var(--text); font-weight: 600; }
+.term .result { color: var(--muted); }
+.term .sys { color: var(--muted-dim); }
+.term .warn { color: var(--status-blocked); }
+.term .ok { color: var(--status-done); }
+.term .caret { display: inline-block; width: 7px; height: 13px; background: var(--text); vertical-align: -2px; animation: blink 1s steps(2, end) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.term-empty { color: var(--muted); padding: 24px 12px; font-size: 12px; }
+.status-strip { display: flex; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--muted-dim); background: var(--panel); font: 11px/16px var(--font-mono); color: var(--muted); }
+.status-strip b { color: var(--text-secondary); font-weight: 500; }
+.hp { display: inline-block; width: 60px; height: 6px; border: 1px solid var(--line); vertical-align: middle; margin-right: 4px; background: var(--bg); }
+.hp i { display: block; height: 100%; background: var(--status-done); }
+
+/* roster strip */
+.roster-strip { display: flex; gap: 8px; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--line); overflow-x: auto; min-height: 88px; align-items: stretch; }
+.roster-card { position: relative; flex: none; width: 180px; display: flex; flex-direction: column; gap: 3px; padding: 8px; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--line); cursor: pointer; transition: transform 90ms steps(2, end), border-color 90ms steps(2, end); }
+.roster-card:hover { transform: translateY(-1px); border-color: var(--text-secondary); }
+.roster-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.roster-card.sub { width: 150px; border-left-style: dashed; }
+.roster-card .top { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.roster-card .face { width: 30px; height: 30px; flex: none; display: flex; align-items: flex-end; justify-content: center; overflow: hidden; background: var(--bg); border: 1px solid var(--muted-dim); }
+.roster-card .face img { image-rendering: pixelated; max-width: 28px; max-height: 28px; }
+.roster-card .id { display: flex; flex-direction: column; min-width: 0; }
+.roster-card .name { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roster-card .prov { font-size: 10px; color: var(--muted); }
+.roster-card .meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--text-secondary); }
+.roster-card .species { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roster-card .species .shiny { color: var(--shiny); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; line-height: 16px; padding: 0 6px 0 5px; white-space: nowrap; }
+.status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.status.working { background: var(--status-working-bg); } .status.working::before { background: var(--status-working); }
+.status.blocked { background: var(--status-blocked-bg); } .status.blocked::before { background: var(--status-blocked); }
+.status.done { background: var(--status-done-bg); } .status.done::before { background: var(--status-done); }
+.status.idle, .status.napping { background: var(--status-idle-bg); } .status.idle::before, .status.napping::before { background: var(--status-idle); }
+.status.starting { background: var(--status-starting-bg); } .status.starting::before { background: var(--status-starting); }
+.evo { height: 4px; background: var(--bg); border: 1px solid var(--muted-dim); }
+.evo i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+.roster-new { flex: none; width: 120px; display: flex; align-items: center; justify-content: center; color: var(--muted); border: 1px dashed var(--line); background: transparent; }
+.roster-new:hover { color: var(--text); }
+
+/* toasts */
+.toasts { position: fixed; right: 12px; bottom: 104px; display: flex; flex-direction: column; gap: 6px; z-index: 50; pointer-events: none; }
+.toast { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-hard); padding: 8px 10px; font-size: 12px; max-width: 320px; animation: toastin .18s steps(3, end); }
+.toast b { color: var(--accent); font-weight: 600; }
+@keyframes toastin { from { transform: translateX(12px); opacity: 0; } }
+
+/* showreel banner */
+.reel { position: absolute; left: 8px; top: 8px; z-index: 10; background: rgba(29,29,34,.92); border: 1px solid var(--accent); padding: 6px 10px; font: 8px/12px var(--font-display); color: var(--accent); display: none; }
+.reel.on { display: block; }
+.showreel-progress { height: 4px; background: var(--bg); border: 1px solid var(--muted-dim); }
+.showreel-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+@media (max-width: 1100px) { .main { grid-template-columns: 220px 1fr 320px; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="sil-white" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 .969  0 0 0 0 .969  0 0 0 0 .969  0 0 0 1 0"/></filter>
+  <filter id="sil-red" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 .33  0 0 0 0 .33  0 0 0 1 0"/></filter>
+  <symbol id="i-ball" viewBox="0 0 16 16"><path fill="currentColor" d="M5 1h6v1h2v1h1v2h1v6h-1v2h-1v1h-2v1H5v-1H3v-1H2v-2H1V5h1V3h1V2h2zM3 7v2h3V8h1V7H3zm6 0v1h1v1h3V7H9z"/><path fill="currentColor" d="M6 6h4v4H6z" opacity=".55"/></symbol>
+  <symbol id="i-star" viewBox="0 0 8 8"><path fill="currentColor" d="M3 0h2v2h1v1h2v2H6v1H5v2H3V6H2V5H0V3h2V2h1z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path fill="currentColor" d="M4 2h2v1h2v1h2v1h2v1h1v2h1v2h-1v2h-1v1h-2v1H8v1H6v1H4z"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 16 16"><path fill="currentColor" d="M2 6h3V5h1V4h1V3h2v10H7v-1H6v-1H5v-1H2zm9-1h1v1h1v4h-1v1h-1zm2-3h1v1h1v10h-1v1h-1v-1h1V4h-1z"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 16 16"><path fill="currentColor" d="M2 6h3V5h1V4h1V3h2v10H7v-1H6v-1H5v-1H2zm8 0h1v1h1V6h1v1h-1v1h1v1h-1v1h1v1h-1v-1h-1v1h-1v-1h1V9h-1V8h1V7h-1z"/></symbol>
+</svg>
+
+<div class="app">
+  <div class="topbar">
+    <span class="brand-lockup"><svg class="icon" style="color:var(--accent);width:18px;height:18px"><use href="#i-ball"/></svg><span class="brand">pokéharness</span><span class="brand-sub">demo</span></span>
+    <span class="chip" id="chip-sessions">sessions <b>0</b></span>
+    <span class="chip" id="chip-mode">mock sessions · no clis · no usage</span>
+    <span class="spacer"></span>
+    <button id="btn-audio" class="chip" title="cries + sfx"><svg class="icon"><use id="audio-glyph" href="#i-speaker"/></svg><span id="audio-label">sound on</span></button>
+  </div>
+
+  <div class="main">
+    <div class="panel">
+      <div class="panel-head">demo console</div>
+      <div class="console">
+        <div class="group">
+          <div class="group-title">showreel <small>hands-free</small></div>
+          <button id="btn-reel" class="primary"><svg class="icon"><use href="#i-play"/></svg> run showreel</button>
+          <div class="showreel-progress"><i id="reel-bar"></i></div>
+          <div class="hint" id="reel-hint">runs every scenario back to back with the terminal narrating. screen-record and walk away.</div>
+        </div>
+        <div class="group">
+          <div class="group-title">spawn</div>
+          <button id="btn-spawn">spawn a pokémon</button>
+          <button id="btn-spawn-shiny">spawn a shiny</button>
+          <button id="btn-subagent">spawn a subagent for selected</button>
+          <button id="btn-despawn" class="danger">recall selected (pokéball)</button>
+        </div>
+        <div class="group">
+          <div class="group-title">selected session state</div>
+          <div class="row"><select id="sel-tool"><option>Read</option><option>Grep</option><option>Glob</option><option>Edit</option><option>Write</option><option>Bash</option><option>WebFetch</option><option>WebSearch</option></select><button id="btn-tool">tool call</button></div>
+          <div class="row"><button id="btn-thinking">thinking</button><button id="btn-idle">idle</button></div>
+          <div class="row"><button id="btn-blocked">needs you</button><button id="btn-done">done</button></div>
+          <div class="row"><button id="btn-nap">nap (compacting)</button><button id="btn-loop">looping</button></div>
+          <div class="row"><button id="btn-chatter">small talk</button><button id="btn-berry">berry errand</button></div>
+        </div>
+        <div class="group">
+          <div class="group-title">evolution</div>
+          <select id="sel-evolve"></select>
+          <button id="btn-evolve">evolve now</button>
+          <div class="hint">real sessions evolve from accumulated working time (10m → stage 2, 30m → stage 3).</div>
+        </div>
+        <div class="group">
+          <div class="group-title">battle</div>
+          <select id="sel-battle-a"></select>
+          <select id="sel-battle-b"></select>
+          <button id="btn-battle">battle</button>
+          <div class="hint">they walk to each other, square up, trade tool moves, winner celebrates.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="garden-pane" id="pane">
+      <div class="reel" id="reel-banner">showreel</div>
+      <div class="garden-hud"><button id="btn-fit">fit</button></div>
+      <div class="garden-empty" id="garden-empty">no sessions yet<br><br>spawn a pokémon to begin</div>
+      <div class="world" id="world">
+        <canvas class="ground" id="ground" width="832" height="576"></canvas>
+        <div class="actors" id="actors"></div>
+        <div class="roof" id="roof"></div>
+        <div class="dim" id="dim"></div>
+        <div class="flash" id="flash"></div>
+        <canvas class="fx" id="fx" width="832" height="576"></canvas>
+        <div class="bubbles" id="bubbles"></div>
+      </div>
+    </div>
+
+    <div class="drawer">
+      <div class="drawer-head"><span class="title" id="term-title">terminal</span><span class="species" id="term-species"></span><span class="spacer"></span><span class="status starting" id="term-status">no session</span></div>
+      <div class="term" id="term"><div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div></div>
+      <div class="status-strip"><span><b id="strip-model">—</b></span><span><span class="hp"><i id="strip-ctx" style="width:0"></i></span>context <b id="strip-ctx-num">0%</b></span><span>working <b id="strip-work">0:00</b></span></div>
+    </div>
+  </div>
+
+  <div class="roster-strip" id="roster"></div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+/*__DEMO_DATA__*/
+</script>
+<script>
+'use strict';
+// ───────────────────────────── data & helpers ─────────────────────────────
+const D = DEMO_DATA;
+const TILE = D.tile, MW = D.W, MH = D.H, OX = 32, OY = 32;
+const SPECIES = new Map(D.species.map(([id, name, num, line, stage, evolvesTo, locomotion]) => [id, { id, name, num, line, stage, evolvesTo, locomotion }]));
+const STARTER_LINES = ['pichu','eevee','bulbasaur','charmander','squirtle','chikorita','cyndaquil','totodile','psyduck','igglybuff','gastly','munchlax','larvitar'];
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
+/** Simulation clock, advanced by the frame loop — every wait in the demo is sim-time, so flows stay in lockstep with the animations. */
+let simTime = 0; const simTimers = [];
+const sleep = (ms) => new Promise((r) => simTimers.push({ at: simTime + ms, r }));
+const el = (id) => document.getElementById(id);
+const CDN = 'https://play.pokemonshowdown.com';
+
+// ───────────────────────────── audio (cries from showdown, synthesized sfx) ─────────────────────────────
+const audio = {
+  muted: false, ctx: null,
+  init() { try { this.muted = localStorage.getItem('demo-muted') === '1'; } catch {} this.render(); },
+  toggle() { this.muted = !this.muted; try { localStorage.setItem('demo-muted', this.muted ? '1' : '0'); } catch {} this.render(); },
+  render() { el('audio-label').textContent = this.muted ? 'sound off' : 'sound on'; el('audio-glyph').setAttribute('href', this.muted ? '#i-mute' : '#i-speaker'); },
+  ac() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (this.ctx.state === 'suspended') this.ctx.resume(); return this.ctx; },
+  cry(id) { if (this.muted) return; const a = new Audio(`${CDN}/audio/cries/${id}.mp3`); a.volume = 0.35; a.play().catch(() => {}); },
+  tone(f0, f1, dur, type = 'square', vol = 0.08) {
+    if (this.muted) return; const c = this.ac(); const o = c.createOscillator(); const g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, c.currentTime); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), c.currentTime + dur);
+    g.gain.setValueAtTime(vol, c.currentTime); g.gain.exponentialRampToValueAtTime(0.0005, c.currentTime + dur);
+    o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + dur);
+  },
+  hit() { this.tone(220, 60, 0.14, 'square', 0.07); },
+  victory() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.tone(f, f, 0.16, 'square', 0.06), i * 90)); },
+  evolveRiser() { this.tone(200, 1600, 1.4, 'triangle', 0.05); },
+  evolveDone() { [784, 988, 1175, 1568].forEach((f, i) => setTimeout(() => this.tone(f, f, 0.2, 'square', 0.06), i * 110)); },
+  poof() { this.tone(900, 200, 0.18, 'sawtooth', 0.04); },
+  select() { this.tone(660, 990, 0.06, 'square', 0.04); },
+  berry() { this.tone(880, 1320, 0.08, 'square', 0.04); }
+};
+
+// ───────────────────────────── sprite loading ─────────────────────────────
+const spriteCache = new Map();
+function spriteUrl(id, { shiny = false, back = false } = {}) {
+  return `${CDN}/sprites/gen5ani${back ? '-back' : ''}${shiny ? '-shiny' : ''}/${id}.gif`;
+}
+/** Resolves to { url, w, h } or null on 404 (most species lack back sprites — expected). */
+function loadSprite(id, opts = {}) {
+  const url = spriteUrl(id, opts);
+  if (!spriteCache.has(url)) {
+    spriteCache.set(url, new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ url, w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => resolve(null);
+      img.src = url;
+    }));
+  }
+  return spriteCache.get(url);
+}
+async function loadForms(id, shiny) {
+  const front = await loadSprite(id, { shiny });
+  const back = await loadSprite(id, { shiny, back: true });
+  return { front, back };
+}
+/** spriteScale.ts: normalise native height toward 2..3.5 tiles, snapped to eighths. */
+function spriteScale(nativeH) {
+  const t = clamp((nativeH - 37) / (91 - 37), 0, 1);
+  const wanted = ((2 + t * 1.5) * TILE) / nativeH;
+  return Math.max(1 / 8, Math.round(wanted * 8) / 8);
+}
+const LIFT = { walk: 0, levitate: 10, fly: 16 };
+const BOB = { walk: { amp: 2, rate: 7, still: false }, levitate: { amp: 3, rate: 2.4, still: true }, fly: { amp: 4, rate: 2, still: true } };
+
+// ───────────────────────────── map ─────────────────────────────
+const map = {
+  walk: [], water: [], tiles: [], anims: new Map(), animFrame: 0, animElapsed: 0, spawns: D.spawns, zones: D.zones,
+  init() {
+    const col = D.layers.collision, wat = D.layers.water;
+    for (let y = 0; y < MH; y++) { this.walk[y] = []; this.water[y] = []; for (let x = 0; x < MW; x++) { this.walk[y][x] = col[y * MW + x] === 0; this.water[y][x] = wat[y * MW + x] !== 0; } }
+    for (const [name, [x, y]] of Object.entries(this.spawns)) if (/^(patch|stump|pond|signpost|mailbox|wander)-|^entrance$/.test(name)) this.walk[y][x] = true;
+    for (const [gid, frames] of Object.entries(D.anims)) this.anims.set(+gid, frames);
+    return Promise.all(D.tilesets.map((t) => new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.src = t.image; }))).then((imgs) => { this.imgs = imgs; this.drawGround(); this.buildCanopy(); });
+  },
+  isWalkable(x, y) { return x >= 0 && y >= 0 && x < MW && y < MH && this.walk[y][x]; },
+  isWater(x, y) { return x >= 0 && y >= 0 && x < MW && y < MH && this.water[y][x]; },
+  tsFor(gid) { for (let i = D.tilesets.length - 1; i >= 0; i--) if (gid >= D.tilesets[i].firstgid) return i; return -1; },
+  drawTile(ctx, gid, dx, dy) {
+    const i = this.tsFor(gid); if (i < 0) return; const t = D.tilesets[i]; const local = gid - t.firstgid;
+    ctx.drawImage(this.imgs[i], (local % t.columns) * TILE, Math.floor(local / t.columns) * TILE, TILE, TILE, dx, dy, TILE, TILE);
+  },
+  drawGround() {
+    const ctx = el('ground').getContext('2d'); ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, 832, 576);
+    // hedge ring, 2 tiles thick (mapBorder.ts DEFAULT_GARDEN_BORDER: kenney bush tile 5)
+    const bush = D.tilesets[0].firstgid + 5;
+    for (let y = 0; y < MH + 4; y++) for (let x = 0; x < MW + 4; x++) if (x < 2 || y < 2 || x >= MW + 2 || y >= MH + 2) this.drawTile(ctx, bush, x * TILE, y * TILE);
+    for (const name of ['floor', 'walls', 'furniture-below']) {
+      const data = D.layers[name];
+      for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+        let gid = data[y * MW + x]; if (!gid) continue;
+        const a = this.anims.get(gid); if (a) gid = a[this.animFrame % a.length];
+        this.drawTile(ctx, gid, OX + x * TILE, OY + y * TILE);
+      }
+    }
+  },
+  buildCanopy() {
+    const data = D.layers['furniture-above']; const shed = this.zones.find((z) => z.type === 'structure');
+    for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+      const gid = data[y * MW + x]; if (!gid) continue;
+      const i = this.tsFor(gid); const t = D.tilesets[i]; const local = gid - t.firstgid;
+      const d = document.createElement('div'); d.className = 'canopy';
+      d.style.left = x * TILE + 'px'; d.style.top = y * TILE + 'px';
+      d.style.backgroundImage = `url(${t.image})`; d.style.backgroundPosition = `-${(local % t.columns) * TILE}px -${Math.floor(local / t.columns) * TILE}px`;
+      const inShed = shed && x >= shed.x && x < shed.x + shed.w && y >= shed.y && y < shed.y + shed.h;
+      if (inShed) el('roof').appendChild(d); else { d.style.zIndex = (y + 2) * TILE; el('actors').appendChild(d); }
+    }
+    this.shed = shed;
+  },
+  update(dtMs, occupants) {
+    this.animElapsed += dtMs;
+    if (this.animElapsed >= D.animMs) { this.animElapsed -= D.animMs; this.animFrame++; this.drawGround(); }
+    if (this.shed) {
+      const inside = occupants.some((t) => t.x >= this.shed.x && t.x < this.shed.x + this.shed.w && t.y >= this.shed.y && t.y < this.shed.y + this.shed.h);
+      el('roof').style.opacity = inside ? 0.25 : 1;
+    }
+  },
+  spawn(name) { const s = this.spawns[name]; return { x: s[0], y: s[1] }; }
+};
+
+/** BFS, ported verbatim in spirit from pathfinding.ts. */
+function findPath(start, goal, canEnter) {
+  if (start.x === goal.x && start.y === goal.y) return [];
+  if (!canEnter(goal.x, goal.y)) return null;
+  const key = (p) => p.x + ',' + p.y; const visited = new Set([key(start)]); const parent = new Map(); const q = [start];
+  const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  while (q.length) {
+    const c = q.shift();
+    for (const [dx, dy] of dirs) {
+      const n = { x: c.x + dx, y: c.y + dy }; const k = key(n);
+      if (visited.has(k) || !canEnter(n.x, n.y)) continue;
+      visited.add(k); parent.set(k, c);
+      if (n.x === goal.x && n.y === goal.y) { const path = []; let cur = n; while (!(cur.x === start.x && cur.y === start.y)) { path.unshift(cur); cur = parent.get(key(cur)); } return path; }
+      q.push(n);
+    }
+  }
+  return null;
+}
+function randomWalkableTile(canEnter, avoid) {
+  for (let i = 0; i < 64; i++) { const x = Math.floor(Math.random() * MW), y = Math.floor(Math.random() * MH); if (canEnter(x, y) && !(avoid && avoid.x === x && avoid.y === y)) return { x, y }; }
+  return null;
+}
+const manhattan = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+// ───────────────────────────── fx canvas (world coords, map-origin) ─────────────────────────────
+const fx = { list: [], ctx: el('fx').getContext('2d'),
+  add(tick, owner) { this.list.push({ tick, owner }); },
+  purge(owner) { this.list = this.list.filter((f) => f.owner !== owner); },
+  update(dt) {
+    const ctx = this.ctx; ctx.clearRect(0, 0, 832, 576); ctx.save(); ctx.translate(OX, OY); ctx.imageSmoothingEnabled = false;
+    this.list = this.list.filter((f) => { ctx.save(); const done = f.tick(dt, ctx); ctx.restore(); return !done; });
+    ctx.restore();
+  }
+};
+function plus(ctx, x, y, size, color) { ctx.fillStyle = color; ctx.fillRect(x - size, y - 0.5, size * 2, 1); ctx.fillRect(x - 0.5, y - size, 1, size * 2); }
+function fxHitFlash(w, width, height) {
+  let t = 0; fx.add((dt, ctx) => { t += dt; ctx.globalAlpha = Math.max(0, 1 - t / 0.16) * 0.75; ctx.fillStyle = '#fff';
+    const x = w.px - width / 2, y = w.py - height; ctx.beginPath(); ctx.roundRect(x, y, width, height, 3); ctx.fill(); return t >= 0.16; }, w);
+}
+function fxSparkleBurst(w) {
+  const parts = Array.from({ length: 8 }, (_, i) => ({ s: 1.5 + Math.random() * 1.5, a: (i / 8) * Math.PI * 2 + Math.random() * .3, v: 14 + Math.random() * 10 })); let t = 0;
+  fx.add((dt, ctx) => { t += dt; const p = t / 0.6; ctx.globalAlpha = Math.max(0, 1 - p); for (const q of parts) plus(ctx, w.px + Math.cos(q.a) * q.v * t, w.py - 10 - Math.sin(q.a) * q.v * t, q.s, '#fff6c8'); return p >= 1; }, w);
+}
+function fxShinySparkle(w, aboveY) {
+  const n = 4 + Math.floor(Math.random() * 3); const sizes = [1.5, 2.5, 3.5]; const colors = ['#ffffff', '#fff2a8'];
+  const parts = Array.from({ length: n }, (_, i) => ({ a: (i / n) * Math.PI * 2 + Math.random() * .4, si: Math.floor(Math.random() * 3), ci: i % 2, timer: Math.random() * 120 })); let t = 0;
+  fx.add((dt, ctx) => { t += dt; const p = t; const r = 16 * Math.min(1, p * 1.4); ctx.globalAlpha = p < .15 ? p / .15 : Math.max(0, 1 - (p - .15) / .85);
+    for (const q of parts) { q.timer += dt * 1000; if (q.timer >= 120) { q.timer -= 120; q.si = Math.floor(Math.random() * 3); q.ci = Math.random() < .5 ? 0 : 1; } plus(ctx, w.px + Math.cos(q.a) * r, w.py + aboveY + Math.sin(q.a) * r * .5, sizes[q.si], colors[q.ci]); }
+    return p >= 1; }, w);
+}
+function fxExclaim(w, aboveY, onDone) {
+  let t = 0; const POP = .15, HOLD = .65, OUT = .15;
+  fx.add((dt, ctx) => { t += dt; let s = 0, a = 1;
+    if (t < POP) { const u = t / POP; s = u < .7 ? (u / .7) * 1.15 : 1.15 - ((u - .7) / .3) * .15; a = Math.min(1, u / .6); }
+    else if (t < POP + HOLD) s = 1; else if (t < POP + HOLD + OUT) { const u = (t - POP - HOLD) / OUT; s = 1 - u; a = 1 - u; } else { onDone && onDone(); return true; }
+    ctx.globalAlpha = a; ctx.translate(w.px, w.py + aboveY); ctx.scale(s * .5, s * .5);
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(-8, -12, 16, 16, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e5484d'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', 0, -3); return false; }, w);
+}
+const BALL_GRID = ['......DDDD......','....DDDDDDDD....','...DDRRRRRRDD...','..DDRRRRRRRRDD..','..DRRRRRRRRRRD..','.DRRRRRRRRRRRRD.','.DRRRRRRRRRRRRD.','DDDDDDDDDDDDDDDD','.DWWWWWWWWWWWWD.','.DWWWWWWWWWWWWD.','.DWWWWWWWWWWWWD.','.DWWWWWWWWWWWWD.','..DWWWWWWWWWWD..','..DDWWWWWWWWDD..','....DDDDDDDD....','......DDDD......'];
+function drawBall(ctx, cx, cy, r) {
+  const cell = (r * 2) / 16; const colors = { D: '#1b1b1b', R: '#e5484d', W: '#f2f2f2' };
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const c = colors[BALL_GRID[y][x]]; if (!c) continue; ctx.fillStyle = c; ctx.fillRect(cx + x * cell - r, cy + y * cell - r, cell + .2, cell + .2); }
+  ctx.fillStyle = '#1b1b1b'; for (const [x, y] of [[6,6],[7,6],[8,6],[9,6],[5,7],[6,7],[7,7],[8,7],[9,7],[10,7],[5,8],[6,8],[7,8],[8,8],[9,8],[10,8],[6,9],[7,9],[8,9],[9,9]]) ctx.fillRect(cx + x * cell - r, cy + y * cell - r, cell + .2, cell + .2);
+  ctx.fillStyle = '#f2f2f2'; ctx.fillRect(cx + 7 * cell - r, cy + 7 * cell - r, cell + .2, cell + .2);
+  ctx.fillStyle = '#f06a63'; ctx.fillRect(cx + 4 * cell - r, cy + 3 * cell - r, cell + .2, cell + .2); ctx.fillRect(cx + 3 * cell - r, cy + 4 * cell - r, cell + .2, cell + .2);
+}
+/** GBA-style recall: ball presents above, sprite goes red and is sucked in, ball snaps/wobbles, vanishes with glints. */
+function fxRecall(w, onDone) {
+  const r = Math.max(5, w.drawnHeight * 0.16); const ballY = -w.drawnHeight * 0.72; const F = 0.06;
+  const frames = [];
+  [0.7, 1.12, 1].forEach((s, i) => frames.push({ ball: { s, dy: [-2, -1, 0][i] } }));
+  frames.push({ ball: { s: 1 }, red: true, sx: 1, sy: 1 }, { ball: { s: 1 }, red: true, sx: .88, sy: .82 }, { ball: { s: 1 }, red: true, sx: .7, sy: .62 }, { ball: { s: 1 }, red: true, sx: .52, sy: .42 }, { ball: { s: 1 }, red: true, sx: .33, sy: .08 });
+  frames.push({ ball: { sx: 1.14, sy: .82 }, hide: true }, { ball: { sx: .88, sy: 1.12 }, hide: true }, { ball: { s: 1 }, hide: true });
+  [0, -2, 2, 0].forEach((dx) => frames.push({ ball: { s: 1, dx }, hide: true }));
+  frames.push({ ball: { s: 1 }, hide: true, impact: true }, { hide: true, glints: 1 }, { hide: true, glints: 2 }, { hide: true, glints: 3 }, { hide: true });
+  let t = 0; let idx = -1;
+  fx.add((dt, ctx) => {
+    t += dt; const f = Math.min(frames.length - 1, Math.floor(t / F));
+    if (f !== idx) { idx = f; const fr = frames[f]; w.setRecallPose(fr); }
+    const fr = frames[f];
+    if (fr.ball) { const s = fr.ball.s ?? 1; ctx.save(); ctx.translate(w.px + (fr.ball.dx || 0), w.py + ballY + (fr.ball.dy || 0)); ctx.scale(fr.ball.sx ?? s, fr.ball.sy ?? s); drawBall(ctx, 0, 0, r); ctx.restore(); }
+    if (fr.impact) { ctx.fillStyle = '#fff'; const p = Math.max(1, Math.round(r / 8)); const cx = w.px, cy = w.py + ballY; ctx.fillRect(cx - p, cy - p, p * 2, p * 2); ctx.fillRect(cx - p * 3, cy - p / 2, p * 2, p); ctx.fillRect(cx + p, cy - p / 2, p * 2, p); ctx.fillRect(cx - p / 2, cy - p * 3, p, p * 2); ctx.fillRect(cx - p / 2, cy + p, p, p * 2); }
+    if (fr.glints) { const g = fr.glints; const cx = w.px, cy = w.py + ballY; plus(ctx, cx - r * 1.2 * g * .5, cy - r * .8 * g * .5, 1.5, '#fff'); plus(ctx, cx + r * 1.1 * g * .5, cy - r * .2 - g, 1.5, '#fff6c8'); if (g > 1) plus(ctx, cx, cy + r * .6 * g * .4, 1.5, '#fff'); }
+    if (t >= frames.length * F) { onDone(); return true; } return false;
+  }, w);
+}
+
+// ───────────────────────────── bubble (ToolBubble.ts) ─────────────────────────────
+const TOOL_ICONS = { Read: '<', Edit: '>', MultiEdit: '>', Write: '>', Bash: '$', Grep: '?', Glob: '?', WebFetch: '@', WebSearch: '@', TodoWrite: '=', Task: '*' };
+class Bubble {
+  constructor() {
+    this.el = document.createElement('div'); this.el.className = 'bubble'; this.el.innerHTML = '<div class="box"></div><div class="tail"></div>';
+    this.box = this.el.firstChild; el('bubbles').appendChild(this.el); this.state = 'hidden'; this.t = 0; this.linger = 0; this.dots = null;
+  }
+  show(tool, target) {
+    const icon = TOOL_ICONS[tool] ?? '*';
+    if (!tool && target === '...') { this.dots = 0; this.box.textContent = '.'; }
+    else { this.dots = null; this.box.textContent = tool ? `${icon} ${tool}${target ? ' ' + target : ''}` : target; }
+    this.state = 'in'; this.t = 0; this.linger = 0;
+  }
+  showText(text) { this.dots = null; this.box.textContent = text; this.state = 'in'; this.t = 0; this.linger = 0; }
+  startLinger() { if (this.state === 'visible' || this.state === 'in') this.state = 'linger', this.linger = 0; }
+  hide() { if (this.state !== 'hidden') this.state = 'out', this.t = 0; }
+  update(dt) {
+    if (this.dots !== null) { this.dots += dt; this.box.textContent = '.'.repeat(1 + Math.floor(this.dots / .5) % 3); }
+    let a = 1, s = 1;
+    if (this.state === 'in') { this.t += dt; const p = Math.min(1, this.t / .08); a = p; s = .55 + .45 * p; if (p >= 1) this.state = 'visible'; }
+    else if (this.state === 'linger') { this.linger += dt; if (this.linger >= 2) this.state = 'out', this.t = 0; }
+    else if (this.state === 'out') { this.t += dt; a = Math.max(0, 1 - this.t / .3); if (a <= 0) this.state = 'hidden'; }
+    else if (this.state === 'hidden') a = 0;
+    this.el.style.opacity = a; this.scale = s;
+  }
+  setPosition(x, y) { this.el.style.left = x + 'px'; this.el.style.top = y - 6 + 'px'; this.el.style.transform = `translate(-50%, -100%) scale(${0.5 * (this.scale ?? 1)})`; }
+  destroy() { this.el.remove(); }
+}
+
+// ───────────────────────────── walker (Walker.ts + WalkerSprite.ts) ─────────────────────────────
+const SPEED = 44;
+class Walker {
+  constructor({ species, shiny, forms, startTile, label, accent, kind }) {
+    this.kind = kind || 'session'; this.species = species; this.shiny = !!shiny; this.forms = forms; this.label = label; this.accent = accent || '#e8b740';
+    this.px = startTile.x * TILE + TILE / 2; this.py = startTile.y * TILE + TILE;
+    this.path = []; this.facing = 'left'; this.walking = false; this.wandering = false; this.wanderTimer = 0; this.wanderDelay = 1.5;
+    this.status = 'starting'; this.napping = false; this.bobPhase = 0; this.backView = false; this.forcedBack = false; this.backBias = 0; this.segTarget = null;
+    this.locked = false; this.bounceT = null; this.zzzT = 0; this.badgePulse = 0; this.ceremony = null; this.floats = []; this.scaleMul = 1; this.recalling = false; this.destroyed = false;
+    this.el = document.createElement('div'); this.el.className = 'walker';
+    this.el.innerHTML = '<div class="shadow"></div><div class="body"><img alt=""></div><div class="ring"></div><div class="badge"></div><div class="tag"></div><div class="zzz">z z z</div><div class="star"><svg><use href="#i-star"/></svg></div>';
+    this.shadowEl = this.el.children[0]; this.bodyEl = this.el.children[1]; this.img = this.bodyEl.firstChild; this.ringEl = this.el.children[2]; this.badgeEl = this.el.children[3]; this.tagEl = this.el.children[4]; this.zzzEl = this.el.children[5]; this.starEl = this.el.children[6];
+    this.tagEl.textContent = label; this.ringEl.style.borderColor = this.accent; if (this.shiny) this.starEl.style.display = 'block';
+    el('actors').appendChild(this.el); this.bubble = new Bubble();
+    this.el.addEventListener('click', (e) => { e.stopPropagation(); this.onClick && this.onClick(); });
+    this.configure(species, forms); this.sync();
+  }
+  configure(species, forms) {
+    this.species = species; this.forms = forms; this.locomotion = species.locomotion;
+    this.scale = spriteScale(forms.front.h); this.backView = false; this.backBias = 0; this.segTarget = null; this.applyView(); this.layout();
+  }
+  applyView() {
+    const f = (this.backView && this.forms.back) ? this.forms.back : this.forms.front;
+    if (this.img.getAttribute('src') !== f.url) this.img.src = f.url;
+    const w = f.w * this.scale, h = f.h * this.scale; this.drawnW = this.forms.front.w * this.scale; this.drawnH = this.forms.front.h * this.scale + LIFT[this.locomotion];
+    this.img.style.width = w + 'px'; this.img.style.height = h + 'px'; this.img.style.left = -w / 2 + 'px'; this.img.style.top = -h + 'px';
+    this.img.style.transform = this.facing === 'left' ? 'none' : 'scaleX(-1)';
+  }
+  layout() {
+    const rx = this.forms.front.w * this.scale * 0.3, ry = rx * 0.38;
+    this.shadowEl.style.width = rx * 2.5 + 'px'; this.shadowEl.style.height = ry * 2.5 + 'px'; this.shadowEl.style.top = -ry * .5 + 'px';
+    const ringX = Math.max(9, this.drawnW * .42); this.ringEl.style.width = ringX * 2 + 'px'; this.ringEl.style.height = ringX * .84 + 'px';
+    this.badgeEl.style.top = -this.drawnH - 4 + 'px'; this.zzzEl.style.top = -this.drawnH - 6 + 'px'; this.starEl.style.top = -this.drawnH - 2 + 'px'; this.starEl.style.left = this.drawnW * .5 + 2 + 'px';
+  }
+  get tile() { return { x: Math.floor(this.px / TILE), y: Math.floor((this.py - 1) / TILE) }; }
+  get drawnHeight() { return this.drawnH; }
+  get canFly() { return this.locomotion !== 'walk'; }
+  canEnter = (x, y) => map.isWalkable(x, y) || (this.canFly && map.isWater(x, y));
+  goTo(tile) {
+    if (this.ceremony || this.napping) return false;
+    const path = findPath(this.tile, tile, this.canEnter); if (!path) return false;
+    this.wandering = false; this.path = path; this.walking = path.length > 0; return true;
+  }
+  get arrived() { return this.path.length === 0 && !this.walking; }
+  beginWander() { if (this.ceremony || this.napping || this.locked || this.status !== 'working') return; this.path = this.path.slice(0, 1); this.wandering = true; this.wanderTimer = 0; this.wanderDelay = 1.5; }
+  stayPut() { if (this.ceremony) return; this.path = this.path.slice(0, 1); this.wandering = false; if (!this.path.length) { this.walking = false; this.restView(); } }
+  setStatus(s) { if (s === this.status) return; this.status = s; if (s !== 'working') this.stayPut(); else this.beginWander(); this.redrawBadge(); }
+  setSelected(on) { this.selected = on; if (!this.ceremony) this.ringEl.style.display = on ? 'block' : 'none'; }
+  bounce() { this.bounceT = 0; }
+  setLabel(l) { this.label = l; this.tagEl.textContent = l; }
+  showTool(tool, target) { this.bubble.show(tool, target); }
+  showText(t) { this.bubble.showText(t); }
+  lingerBubble() { this.bubble.startLinger(); }
+  hideBubble() { this.bubble.hide(); }
+  setForcedBackView(on) { this.forcedBack = on; if (!on) { this.backBias = 0; this.segTarget = null; } if (this.ceremony) return; this.setBackView(on); }
+  setBackView(on) { const target = on && !!this.forms.back; if (target === this.backView) return; this.backView = target; this.applyView(); }
+  faceDirection(f) { if (this.ceremony) return; this.facing = f; this.applyView(); }
+  setNapping(on) {
+    if (on === this.napping || this.ceremony) return; this.napping = on;
+    if (on) { this.stayPut(); this.zzzEl.style.display = 'block'; this.zzzT = 0; this.hideBubble(); }
+    else { this.zzzEl.style.display = 'none'; this.bounce(); if (this.status === 'working') this.beginWander(); else this.stayPut(); }
+  }
+  showFloatingText(text) {
+    const f = document.createElement('div'); f.className = 'float'; f.textContent = text; this.el.appendChild(f);
+    this.floats.push({ el: f, life: 0, y: -this.drawnH - 6 });
+  }
+  setChromeHidden(h) {
+    this.chromeHidden = h; this.tagEl.style.visibility = h ? 'hidden' : ''; this.badgeEl.style.visibility = h ? 'hidden' : ''; this.starEl.style.visibility = h ? 'hidden' : '';
+    this.ringEl.style.display = (!h && this.selected) ? 'block' : 'none'; this.bubble.el.style.visibility = h ? 'hidden' : '';
+  }
+  /** Evolution: swap art mid-flash. `forms` for the new species must be preloaded. */
+  evolve(nextSpecies, nextForms, onSwap, onDone) {
+    if (this.ceremony) return false;
+    this.ceremony = new Ceremony(this, nextSpecies, nextForms, () => { this.configure(nextSpecies, nextForms); onSwap && onSwap(); }, () => { this.ceremony = null; onDone && onDone(); });
+    return true;
+  }
+  get isEvolving() { return !!this.ceremony; }
+  startRecall(onDone) {
+    if (this.recalling) return; this.recalling = true; this.path = []; this.walking = false; this.wandering = false; this.hideBubble(); this.setSelected(false); this.tagEl.style.visibility = 'hidden'; this.badgeEl.style.display = 'none';
+    fxRecall(this, onDone);
+  }
+  setRecallPose(fr) {
+    this.img.style.filter = fr.red ? 'url(#sil-red)' : ''; this.img.style.visibility = fr.hide ? 'hidden' : '';
+    const sx = fr.sx ?? 1, sy = fr.sy ?? 1; this.bodyEl.style.transform = `scale(${sx}, ${sy})`; this.bodyEl.style.transformOrigin = `0 ${-this.drawnH * .72}px`;
+    this.shadowEl.style.opacity = fr.hide ? 0 : sy;
+  }
+  update(dt) {
+    if (this.ceremony) this.ceremony.update(dt);
+    else { if (this.walking) this.updateWalk(dt); else if (this.wandering) this.updateWander(dt); this.updateBob(dt); }
+    for (const f of [...this.floats]) { f.life += dt; const p = f.life / 1.8; if (p >= 1) { f.el.remove(); this.floats.splice(this.floats.indexOf(f), 1); continue; } f.y -= dt * 10; f.el.style.top = f.y + 'px'; f.el.style.opacity = p < .15 ? p / .15 : Math.min(1, (1 - p) / .25); }
+    if (this.napping) { this.zzzT += dt; this.zzzEl.style.top = -this.drawnH - 6 - Math.sin(this.zzzT * 1.6) * 2 + 'px'; this.zzzEl.style.opacity = .65 + .35 * Math.sin(this.zzzT * 1.6); }
+    if (this.status === 'blocked') { this.badgePulse += dt; this.badgeEl.style.opacity = .55 + .45 * Math.sin(this.badgePulse * 6); }
+    this.bubble.update(dt); this.bubble.setPosition(this.px, this.py - this.drawnH);
+    if (this.bounceT !== null) { this.bounceT += dt; const t = Math.min(1, this.bounceT / .32); this.bounceY = -Math.sin(t * Math.PI) * 6; if (t >= 1) { this.bounceT = null; this.bounceY = 0; } }
+    this.sync();
+  }
+  updateBob(dt) {
+    const b = BOB[this.locomotion]; const riding = this.walking || b.still;
+    if (riding) this.bobPhase += dt * b.rate; else this.bobPhase = 0;
+    this.bodyY = -LIFT[this.locomotion] - (riding ? Math.abs(Math.sin(this.bobPhase)) * b.amp : 0);
+  }
+  updateWalk(dt) {
+    if (!this.path.length) { this.walking = false; this.restView(); return; }
+    const t = this.path[0]; if (t !== this.segTarget) { this.segTarget = t; this.noteSegment(t); }
+    const tx = t.x * TILE + TILE / 2, ty = t.y * TILE + TILE; const dx = tx - this.px, dy = ty - this.py; const dist = Math.hypot(dx, dy);
+    if (dist < 1) { this.px = tx; this.py = ty; this.path.shift(); this.segTarget = null; if (!this.path.length) { this.walking = false; this.restView(); if (this.status === 'working' && !this.napping && !this.locked && !this.wandering) { this.wandering = true; this.wanderTimer = 0; this.wanderDelay = rand(1.5, 4.5); } } return; }
+    const step = Math.min(SPEED * dt, dist); this.px += (dx / dist) * step; this.py += (dy / dist) * step;
+    if (Math.abs(dx) > Math.abs(dy)) { const f = dx > 0 ? 'right' : 'left'; if (f !== this.facing) { this.facing = f; this.applyView(); } }
+  }
+  noteSegment(t) { const c = this.tile; const up = t.y < c.y && t.x === c.x; this.backBias = up ? Math.min(this.backBias + 1, 3) : Math.max(this.backBias - 1, -3); if (this.backBias >= 2) this.setBackView(true); else if (this.backBias <= -1) this.setBackView(false); }
+  restView() { if (this.ceremony || this.forcedBack || (this.status === 'working' && !this.napping)) return; this.backBias = 0; this.segTarget = null; this.setBackView(false); }
+  updateWander(dt) {
+    this.wanderTimer += dt; if (this.wanderTimer < this.wanderDelay) return; this.wanderTimer = 0; this.wanderDelay = rand(1.5, 4.5);
+    const cur = this.tile; for (let i = 0; i < 16; i++) { const t = randomWalkableTile(this.canEnter, cur); if (!t) continue; const p = findPath(cur, t, this.canEnter); if (p && p.length) { this.path = p; this.walking = true; return; } }
+  }
+  sync() {
+    const x = Math.round(this.px), y = Math.round(this.py);
+    this.el.style.left = x + 'px'; this.el.style.top = y + 'px'; this.el.style.zIndex = this.ceremony ? 7000 : y;
+    if (!this.recalling) this.bodyEl.style.transform = `translateY(${(this.bodyY || 0) + (this.bounceY || 0)}px) scale(${this.scaleMul})`;
+  }
+  redrawBadge() { const b = this.badgeEl; b.className = 'badge'; b.style.opacity = 1; this.badgePulse = 0; if (['blocked', 'working', 'done'].includes(this.status)) { b.classList.add(this.status); b.style.display = 'block'; } else b.style.display = 'none'; }
+  destroy() { this.destroyed = true; fx.purge(this); this.ceremony && this.ceremony.dispose(); for (const f of this.floats) f.el.remove(); this.bubble.destroy(); this.el.remove(); }
+}
+
+// ───────────────────────────── evolution ceremony (EvolutionCeremony.ts timings) ─────────────────────────────
+const HALT_END = 1000, CROSSFADE_END = 1800, RAY_START = 2500, RAY_END = 2830, STATIC_END = 4000, OSC_B1 = 6000, OSC_B2 = 9000, OSC_END = 10830, BUBBLES_IN = 10000, LOCK_END = 11750, FLASH_END = 12000, FLASH_HOLD_END = 12550;
+const DECAY_STEPS = [212, 175, 142, 109, 79, 49, 23, 0], FLASH_STEPS = [0, 23, 49, 109, 142, 212, 247], DECAY_END = FLASH_HOLD_END + 250 * DECAY_STEPS.length;
+const DURATION_SCALE = 0.6;
+class Ceremony {
+  constructor(w, nextSpecies, nextForms, applySwap, onDone) {
+    this.w = w; this.next = nextSpecies; this.nextForms = nextForms; this.applySwap = applySwap; this.onDone = onDone; this.v = 0; this.done = false;
+    w.path = []; w.walking = false; w.wandering = false; w.setBackView(false); w.setChromeHidden(true); w.hideBubble();
+    el('dim').style.display = 'block'; el('flash').style.display = 'block'; el('flash').style.opacity = 0;
+    const mk = (forms) => { const im = document.createElement('img'); im.className = 'sil'; const s = spriteScale(forms.front.h); im.src = forms.front.url; im.style.width = forms.front.w * s + 'px'; im.style.height = forms.front.h * s + 'px'; im.style.left = -forms.front.w * s / 2 + 'px'; im.style.top = -forms.front.h * s + 'px'; im.style.transform = w.facing === 'left' ? 'none' : 'scaleX(-1)'; im.style.opacity = 0; w.bodyEl.appendChild(im); return im; };
+    this.oldSil = mk(w.forms); this.newSil = mk(nextForms); this.newSil.style.display = 'none';
+    this.bubbles = Array.from({ length: 7 }, (_, i) => ({ a: (i / 7) * Math.PI * 2, r: w.drawnW * (.25 + Math.random() * .2), sp: 1.2 + Math.random() * .6, size: 2 + Math.random() * 3, alpha: 0, rain: null }));
+    this.stars = null; this.rays = null; this.osc = null; this.swapped = false; this.flashStarted = false;
+    w.showFloatingText(`What? ${w.species.name} is evolving!`); audio.evolveRiser();
+    fx.add((dt, ctx) => this.draw(dt, ctx), this);
+  }
+  update(dt) {
+    if (this.done) return; this.v += (dt * 1000) / DURATION_SCALE; const v = this.v; const w = this.w;
+    this.orbitT = (this.orbitT || 0) + dt;
+    if (v < HALT_END) {}
+    else if (v < CROSSFADE_END) { const t = (v - HALT_END) / (CROSSFADE_END - HALT_END); w.img.style.opacity = 1 - t; w.shadowEl.style.opacity = 1 - t; this.oldSil.style.opacity = t; }
+    else if (v < STATIC_END) { w.img.style.opacity = 0; this.oldSil.style.opacity = 1; if (!this.rays && v >= RAY_START) this.rays = Array.from({ length: 8 }, (_, i) => ({ a: -Math.PI / 2 + (i / 7 - .5) * Math.PI * .8, len: w.drawnW * (.35 + Math.random() * .25) })); }
+    else if (v < OSC_END) this.oscillate(dt);
+    else if (v < LOCK_END) { this.showForm('new'); this.setBlobScale(1); }
+    else if (v < FLASH_END) { if (!this.flashStarted) { this.flashStarted = true; el('dim').style.display = 'none'; } const t = (v - LOCK_END) / (FLASH_END - LOCK_END); el('flash').style.opacity = FLASH_STEPS[Math.min(6, Math.floor(t * 6 + 1e-6))] / 255; }
+    else if (v < FLASH_HOLD_END) { el('flash').style.opacity = 247 / 255; if (!this.raining) { this.raining = true; for (const b of this.bubbles) { b.rain = { x: (Math.random() - .5) * w.drawnW, y: -w.drawnH - Math.random() * 30, vy: 60 + Math.random() * 40 }; b.alpha = .9; } } }
+    else if (v < DECAY_END) {
+      const i = Math.min(7, Math.floor((v - FLASH_HOLD_END) / 250)); el('flash').style.opacity = DECAY_STEPS[i] / 255;
+      if (!this.swapped) { this.swapped = true; this.oldSil.remove(); this.newSil.remove(); this.applySwap(); w.img.style.opacity = 1; w.shadowEl.style.opacity = 1; w.showFloatingText(`Congratulations! ${this.w.species.name}!`); audio.cry(this.w.species.id); audio.evolveDone(); }
+    } else this.finish();
+    // bubbles orbit feet from crossfade onward; fade in over the crossfade
+    if (v >= HALT_END && !this.raining) for (const b of this.bubbles) { b.a += dt * b.sp; b.alpha = Math.min(1, (v - HALT_END) / 800) * .9; }
+    if (this.raining) for (const b of this.bubbles) { b.rain.y += b.rain.vy * dt; if (b.rain.y > 4) b.alpha = Math.max(0, b.alpha - dt * 3); }
+    if (v >= BUBBLES_IN && !this.stars) this.stars = Array.from({ length: 20 }, () => ({ x: (Math.random() - .5) * w.drawnW * 2.2, y: -Math.random() * (w.drawnH + 24), si: Math.floor(Math.random() * 3), t: Math.random() * 120 }));
+  }
+  oscillate(dt) {
+    const v = this.v; const dv = (dt * 1000) / DURATION_SCALE;
+    if (!this.osc) this.osc = { form: 'old', el: 0, dur: this.cycleDur(STATIC_END, dt), s: this.blobScale(), swapped: false };
+    const o = this.osc; o.el += dv; const ph = Math.min(1, o.el / o.dur); let s;
+    if (ph < .5) s = lerp(1, o.s, ph / .5); else { if (!o.swapped) { o.swapped = true; this.showForm(o.form === 'old' ? 'new' : 'old'); } s = lerp(o.s, 1, (ph - .5) / .5); }
+    this.setBlobScale(Math.round(s * 8) / 8);
+    if (o.el >= o.dur) { o.el = 0; o.dur = this.cycleDur(v, dt); o.s = this.blobScale(); o.swapped = false; }
+  }
+  cycleDur(v, dt) { let d; if (v < OSC_B1) d = lerp(500, 300, (v - STATIC_END) / (OSC_B1 - STATIC_END)); else if (v < OSC_B2) d = lerp(250, 150, (v - OSC_B1) / (OSC_B2 - OSC_B1)); else d = lerp(70, 30, (v - OSC_B2) / (OSC_END - OSC_B2)); return Math.max(d, (dt * 1000 * 4) / DURATION_SCALE); }
+  blobScale() { return Math.sqrt(.35 + Math.random() * .4); }
+  showForm(f) { if (this.osc) this.osc.form = f; this.oldSil.style.display = f === 'old' ? '' : 'none'; this.newSil.style.display = f === 'new' ? '' : 'none'; this.oldSil.style.opacity = 1; this.newSil.style.opacity = 1; }
+  setBlobScale(s) { this.w.scaleMul = s; }
+  draw(dt, ctx) {
+    if (this.done) return true; const w = this.w; const v = this.v;
+    if (this.rays) { const t = clamp((v - RAY_START) / (RAY_END - RAY_START), 0, 1); if (v >= RAY_END) this.rays = null; else { ctx.globalAlpha = 1 - t; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; for (const r of this.rays) { ctx.beginPath(); ctx.moveTo(w.px, w.py - w.drawnH); ctx.lineTo(w.px + Math.cos(r.a) * r.len, w.py - w.drawnH + Math.sin(r.a) * r.len); ctx.stroke(); } } }
+    for (const b of this.bubbles) { if (b.alpha <= 0) continue; const x = b.rain ? w.px + b.rain.x : w.px + Math.cos(b.a) * b.r, y = b.rain ? w.py + b.rain.y : w.py - 2 + Math.sin(b.a) * b.r * .4;
+      ctx.globalAlpha = b.alpha; for (const [m, a] of [[1.4, .18], [1, .4], [.55, .9]]) { ctx.globalAlpha = b.alpha * a; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, b.size * m, 0, Math.PI * 2); ctx.fill(); } }
+    if (this.stars) { const sizes = [1.5, 2.5, 3.5]; const fadeIn = clamp((v - BUBBLES_IN) / 800, 0, 1); const fadeOut = v > FLASH_HOLD_END ? clamp(1 - (v - FLASH_HOLD_END) / 1000, 0, 1) : 1; ctx.globalAlpha = fadeIn * fadeOut; for (const s of this.stars) { s.t += dt * 1000; if (s.t >= 120) { s.t -= 120; s.si = Math.floor(Math.random() * 3); } plus(ctx, w.px + s.x, w.py + s.y, sizes[s.si], '#fff'); } }
+    return false;
+  }
+  finish() {
+    if (this.done) return; this.done = true; this.dispose(); this.w.scaleMul = 1; this.w.setChromeHidden(false); this.onDone();
+  }
+  dispose() { this.done = true; fx.purge(this); el('dim').style.display = 'none'; el('flash').style.display = 'none'; this.oldSil.remove(); this.newSil.remove(); this.w.img.style.opacity = 1; this.w.shadowEl.style.opacity = 1; this.w.scaleMul = 1; }
+}
+
+// ───────────────────────────── battles (BattleManager.ts choreography) ─────────────────────────────
+const LUNGE_MS = 150, HOLD_MS = 150, RETURN_MS = 180, ATTACK_MS = LUNGE_MS + HOLD_MS + RETURN_MS, LUNGE_FRACTION = .28, SHAKE_MS = 180, FACEOFF_MS = 550, ENDING_MS = 550;
+const battles = [];
+/** One battle between `p` (parent/session, back view) and `c` (challenger, front view). Resolves when the wave is over. */
+function runBattle(p, c, { rounds = 4, tools = ['Read', 'Grep', 'Edit', 'Bash'], challengerTools = ['Task', 'Read', 'Bash'], onAttack, onEnd } = {}) {
+  return new Promise((resolve) => {
+    p.stayPut(); c.stayPut(); p.locked = true; c.locked = true; p.wandering = false; c.wandering = false;
+    const gap = Math.max(2, Math.ceil((p.drawnW / 2 + c.drawnW / 2) / TILE) + 1);
+    const anchor = findMeetingAnchor(p, c, gap);
+    const b = { p, c, wave: 'alert', t: 0, attacks: 0, attack: null, anchor, gap, rounds, tools, challengerTools, onAttack, onEnd, resolve, offP: { x: 0, y: 0 }, offC: { x: 0, y: 0 }, lastAttackerParent: false, roundRobin: 0, stuck: 0 };
+    battles.push(b);
+    fxExclaim(p, -p.drawnH - 8, () => { b.wave = 'approaching'; b.t = 0; p.goTo(b.anchor.p); c.goTo(b.anchor.c); });
+    fxExclaim(c, -c.drawnH - 6);
+  });
+}
+function findMeetingAnchor(p, c, gap) {
+  const pt = p.tile, ct = c.tile; const mid = { x: Math.round((pt.x + ct.x) / 2), y: Math.round((pt.y + ct.y) / 2) };
+  const both = (x, y) => map.isWalkable(x, y) || (p.canFly && c.canFly && map.isWater(x, y));
+  const ok = (a) => both(a.x, a.y) && both(a.x + gap, a.y) && findPath(pt, a, p.canEnter) && findPath(ct, { x: a.x + gap, y: a.y }, c.canEnter);
+  // ring search outward from the midpoint; parent stands left, challenger right
+  for (let r = 0; r < 24; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; const a = { x: mid.x + dx - Math.floor(gap / 2), y: mid.y + dy }; if (ok(a)) return { p: a, c: { x: a.x + gap, y: a.y } }; }
+  return { p: pt, c: ct };
+}
+function updateBattles(dt) {
+  for (const b of [...battles]) {
+    const { p, c } = b; b.offP = { x: 0, y: 0 }; b.offC = { x: 0, y: 0 };
+    if (p.destroyed || c.destroyed) { endBattle(b); continue; }
+    if (b.wave === 'approaching') {
+      b.t += dt; const pa = p.arrived, ca = c.arrived;
+      if (pa && !p.walking && manhattan(p.tile, b.anchor.p) > 0 && b.t > 1) p.goTo(b.anchor.p);
+      if (ca && !c.walking && manhattan(c.tile, b.anchor.c) > 0 && b.t > 1) c.goTo(b.anchor.c);
+      const parr = manhattan(p.tile, b.anchor.p) === 0 && pa, carr = manhattan(c.tile, b.anchor.c) === 0 && ca;
+      if ((parr && carr) || b.t > 25) { b.wave = 'faceoff'; b.t = 0; p.stayPut(); c.stayPut(); p.setForcedBackView(true); p.faceDirection(p.px < c.px ? 'right' : 'left'); c.setBackView(false); c.faceDirection(c.px < p.px ? 'right' : 'left'); p.hideBubble(); c.hideBubble(); }
+    } else if (b.wave === 'faceoff') { b.t += dt * 1000; if (b.t >= FACEOFF_MS) { b.wave = 'looping'; startAttack(b); } }
+    else if (b.wave === 'looping') {
+      const a = b.attack; a.t += dt * 1000;
+      if (!a.hit && a.t >= LUNGE_MS) { a.hit = true; applyHit(b, a); }
+      let prog; if (a.t < LUNGE_MS) prog = a.t / LUNGE_MS; else if (a.t < LUNGE_MS + HOLD_MS) prog = 1; else prog = Math.max(0, 1 - (a.t - LUNGE_MS - HOLD_MS) / RETURN_MS);
+      const att = a.parent ? p : c, def = a.parent ? c : p; const dx = def.px - att.px, dy = def.py - att.py;
+      const off = a.parent ? b.offP : b.offC; off.x = Math.round(dx * LUNGE_FRACTION * prog); off.y = Math.round(dy * LUNGE_FRACTION * prog);
+      if (a.hit) { const st = (a.t - LUNGE_MS) / SHAKE_MS; if (st >= 0 && st < 1) { const s = (1 - st) * 3; const doff = a.parent ? b.offC : b.offP; doff.x += Math.round((Math.random() - .5) * 2 * s); doff.y += Math.round((Math.random() - .5) * 2 * s); } }
+      if (a.t >= ATTACK_MS) { b.attacks++; if (b.attacks < b.rounds) startAttack(b); else { b.wave = 'ending'; b.t = 0; p.setForcedBackView(false); p.showFloatingText('Victory!'); fxSparkleBurst(p); audio.victory(); } }
+    } else if (b.wave === 'ending') { b.t += dt * 1000; b.offP.y = -Math.round(Math.sin(Math.min(1, b.t / ENDING_MS) * Math.PI) * 8); if (b.t >= ENDING_MS) endBattle(b); }
+    p.el.style.left = Math.round(p.px) + b.offP.x + 'px'; p.el.style.top = Math.round(p.py) + b.offP.y + 'px';
+    c.el.style.left = Math.round(c.px) + b.offC.x + 'px'; c.el.style.top = Math.round(c.py) + b.offC.y + 'px';
+  }
+}
+function startAttack(b) { const parent = !b.lastAttackerParent; b.lastAttackerParent = parent; b.attack = { parent, tool: parent ? b.tools[b.roundRobin++ % b.tools.length] : pick(b.challengerTools), t: 0, hit: false }; }
+function applyHit(b, a) {
+  const att = a.parent ? b.p : b.c, def = a.parent ? b.c : b.p; const text = `${att.species.name} used ${a.tool}!`;
+  att.showFloatingText(text); fxHitFlash(def, Math.max(16, def.drawnH * .7), def.drawnH); audio.hit(); b.onAttack && b.onAttack(att, a.tool, text);
+}
+function endBattle(b) { battles.splice(battles.indexOf(b), 1); b.p.locked = false; b.c.locked = false; b.p.setForcedBackView(false); if (b.c.status === 'working') b.c.beginWander(); if (b.p.status === 'working') b.p.beginWander(); b.onEnd && b.onEnd(); b.resolve(); }
+const isBattling = (w) => battles.some((b) => b.p === w || b.c === w);
+
+// ───────────────────────────── store: mock sessions ─────────────────────────────
+const ACCENTS = ['#e08c82', '#74c096', '#6fb3c4', '#cfaa57', '#a896e3', '#dfa57f'];
+const TASKS = [
+  ['fix flaky auth test', 'the login spec fails intermittently on ci, find the race and fix it'],
+  ['add dark mode', 'wire a theme toggle through the settings store and persist it'],
+  ['refactor store', 'split store.ts into per-domain slices without changing behaviour'],
+  ['docs sweep', 'update README for the new cli flags and fix stale links'],
+  ['perf pass', 'profile the garden ticker and cut idle cpu'],
+  ['migrate to vite 6', 'bump vite + plugins, fix the config breakages'],
+  ['api pagination', 'add cursor pagination to /sessions and update the client'],
+  ['flaky e2e', 'stabilise the playwright suite, it times out on the roster strip']
+];
+const FILES = ['src/store/store.ts', 'src/auth/session.ts', 'src/renderer/App.tsx', 'src/main/pty.ts', 'tests/auth.test.ts', 'src/components/RosterStrip.tsx', 'src/scene/garden/Walker.ts', 'package.json', 'README.md', 'src/shared/types.ts'];
+const TOOL_MOCK = {
+  Read: () => { const f = pick(FILES); return [`Read(${f})`, `Read ${40 + Math.floor(Math.random() * 300)} lines`]; },
+  Grep: () => { const q = pick(['useStore(', 'sessionId', 'TODO', 'setStatus', 'findPath']); return [`Grep(pattern: "${q}")`, `Found ${1 + Math.floor(Math.random() * 20)} matches in ${1 + Math.floor(Math.random() * 6)} files`]; },
+  Glob: () => [`Glob(pattern: "src/**/*.ts")`, `Found ${20 + Math.floor(Math.random() * 80)} files`],
+  Edit: () => { const f = pick(FILES); return [`Edit(${f})`, `Updated ${f} with ${1 + Math.floor(Math.random() * 6)} additions and ${Math.floor(Math.random() * 3)} removals`]; },
+  Write: () => { const f = pick(FILES); return [`Write(${f})`, `Wrote ${20 + Math.floor(Math.random() * 120)} lines to ${f}`]; },
+  Bash: () => { const c = pick(['npm test -- auth', 'npm run typecheck', 'git status --short', 'npm run build', 'npx vitest run store']); return [`Bash(${c})`, pick(['12 passed, 0 failed (3.2s)', 'tsc: no errors', 'M src/store/store.ts', 'built in 4.1s', '8 passed (1.9s)'])]; },
+  WebFetch: () => [`WebFetch(url: "https://vitejs.dev/guide/migration")`, `Received 41.7KB (text/html)`],
+  WebSearch: () => [`WebSearch(query: "vite 6 migration breaking changes")`, `Did 1 search in 2.4s`],
+  Task: (desc) => [`Task(${desc})`, `Launching subagent (sonnet)…`]
+};
+const IDLE_LINES = ['chasing its own tail', 'sniffing around the patch', 'watching the pond ripple', 'a little sleepy today', 'stretching in the sun', 'rustling through the grass', 'humming to itself', 'digging, just because', 'napping on a warm rock', 'chasing a butterfly', 'sniffing the berry bushes', 'rolling in the flowers', 'staring at the clouds', 'kicking up dust on the path', 'listening for something', 'practicing a battle pose', 'scratching an itch', 'sunbathing by the stump', 'watching the water for fish', 'poking at a mushroom'];
+const BERRY_GO = ['smells something sweet…', 'off to the berry bush', 'berry time!', 'one more berry, promise', 'snack break'];
+const BERRY_EAT = ['yum!', 'tasty!', 'mmm, ripe one', 'delicious'];
+const SUB_TASKS = ['explore the auth module', 'find every caller of setStatus', 'run the test suite', 'review the diff', 'search docs for the api', 'draft the migration plan'];
+
+const store = { sessions: [], subs: [], selected: null, seq: 0, usedSpecies: new Set() };
+const activeWalkers = () => [...store.sessions.map((s) => s.walker), ...store.subs.map((s) => s.walker)].filter((w) => w && !w.destroyed);
+
+async function spawnSession({ shiny = false, species } = {}) {
+  const lineBase = species || pick(STARTER_LINES.filter((l) => !store.usedSpecies.has(l))) || pick(STARTER_LINES);
+  store.usedSpecies.add(lineBase);
+  const sp = SPECIES.get(lineBase); const forms = await loadForms(sp.id, shiny);
+  if (!forms.front) { toast(`couldn't fetch the sprite for <b>${sp.name}</b> — are you online?`); return null; }
+  const [title, task] = pick(TASKS); const id = 's' + (++store.seq);
+  const s = { id, kind: 'session', title, task, provider: 'claude', model: 'opus 5', species: sp, stage: sp.stage, shiny, status: 'starting', tool: null, napping: false, looping: false, accent: ACCENTS[store.seq % ACCENTS.length], lines: [], workingMs: 0, ctx: 4 + Math.floor(Math.random() * 20), subs: [] };
+  s.walker = new Walker({ species: sp, shiny, forms, startTile: map.spawn('entrance'), label: title, accent: s.accent });
+  s.walker.onClick = () => select(s.id);
+  store.sessions.push(s);
+  term(s, 'sys', `$ claude --resume  ·  ${s.task}`); term(s, 'sys', `pokéharness: ${sp.name} joins the garden${shiny ? ' — shiny!' : ''}`);
+  audio.cry(sp.id); if (shiny) { fxShinySparkle(s.walker, -s.walker.drawnH * .6); s.walker.showFloatingText('Shiny!'); }
+  setStatus(s, 'working'); s.walker.wanderTimer = 99;
+  select(id); renderRoster(); return s;
+}
+function setStatus(s, status) { s.status = status; if (status !== 'working') { s.tool = null; } s.walker.setStatus(status); syncBubble(s); renderRoster(); renderTermHead(); }
+function syncBubble(s) {
+  const w = s.walker; if (isBattling(w)) { w.hideBubble(); return; }
+  if (s.looping) w.showText('looping'); else if (s.napping) w.hideBubble(); else if (s.status === 'working' && s.tool) w.showTool(s.tool, s.toolTarget || ''); else if (s.status === 'working') w.showTool('', '...'); else if (s.status === 'blocked') w.hideBubble(); else w.lingerBubble();
+}
+function toolCall(s, tool) {
+  const [call, result] = TOOL_MOCK[tool](); s.tool = tool; s.toolTarget = call.slice(call.indexOf('(') + 1, -1).replace(/^pattern: |^url: |^query: /, '').replace(/"/g, '').slice(0, 28);
+  if (s.status !== 'working') setStatus(s, 'working'); else syncBubble(s);
+  term(s, 'tool', call); sleep(500 + Math.random() * 600).then(() => term(s, 'result', `  ⎿  ${result}`)); renderRoster();
+}
+function thinking(s) { s.tool = null; s.toolTarget = ''; setStatus(s, 'working'); term(s, 'assistant', pick(['Let me look at how this is wired first.', 'I\'ll check the failing spec before touching anything.', 'Reading the store to understand the state shape.', 'Okay — narrowing this down.'])); }
+function idle(s) { s.napping = false; s.walker.setNapping(false); s.looping = false; s.walker.setLabel(s.title); setStatus(s, 'idle'); term(s, 'assistant', pick(['Done for now — the tests pass and the change is committed.', 'That should do it. Let me know if you want the follow-up too.'])); term(s, 'sys', '(waiting for your input)'); }
+function blocked(s) { setStatus(s, 'blocked'); term(s, 'warn', pick(['Allow Bash(rm -rf dist)?  [y/n]', 'Edit(src/main/pty.ts) needs approval  [y/n]', 'Which approach do you prefer: (1) fix the race (2) skip the test?'])); term(s, 'sys', 'pokéharness: needs you'); }
+function done(s) { setStatus(s, 'done'); term(s, 'ok', 'session ended (exit 0)'); }
+function nap(s) { s.napping = !s.napping; s.walker.setNapping(s.napping); if (s.napping) term(s, 'sys', 'compacting conversation… (PreCompact)'); else term(s, 'sys', 'compaction complete — resumed (SessionStart)'); renderRoster(); renderTermHead(); syncBubble(s); }
+function loop(s) { s.looping = !s.looping; s.walker.setLabel(s.looping ? `${s.title} (looping)` : s.title); if (s.looping) { for (let i = 0; i < 3; i++) term(s, 'tool', 'Bash(npm test -- auth)'); term(s, 'warn', 'pokéharness: same tool call 3× in a row — looping?'); } syncBubble(s); renderRoster(); }
+function chatter(s) { const w = s.walker; if (s.status === 'working') return toast('small talk only happens while idle — set the session idle first'); w.showText(pick(IDLE_LINES)); w.lingerBubble(); }
+async function berry(s) {
+  const w = s.walker; if (s.status === 'working' || w.isEvolving || isBattling(w)) return toast('berry errands only happen while idle');
+  const bush = map.spawn(pick(['wander-1', 'wander-2'])); w.showText(pick(BERRY_GO)); w.lingerBubble(); w.stayPut(); if (!w.goTo(bush)) return;
+  const t0 = simTime; while (!w.arrived && simTime - t0 < 20000) await sleep(100);
+  w.showText(pick(BERRY_EAT)); w.lingerBubble(); w.showFloatingText('+1 berry'); audio.berry(); w.bounce();
+}
+function despawn(s) {
+  if (!s || s.walker.recalling) return; if (isBattling(s.walker)) return toast('finish the battle first');
+  term(s, 'sys', 'pokéharness: recalled'); s.walker.startRecall(() => { s.walker.destroy(); store.sessions.splice(store.sessions.indexOf(s), 1); store.usedSpecies.delete(s.species.line); if (store.selected === s.id) select(null); renderRoster(); });
+  audio.poof();
+}
+
+/** Subagent battler lifecycle: poof-in at a far corner, roam with its task label, task completes → walks to the parent and fights, loses, poofs. */
+async function spawnSubagent(parent, { autoBattleMs = 6000 } = {}) {
+  const pool = [...SPECIES.values()].filter((e) => e.stage === 1 && !STARTER_LINES.includes(e.line) && !store.subs.some((s) => s.species.line === e.line));
+  const sp = pick(pool); const shiny = Math.random() < 1 / 64; const forms = await loadForms(sp.id, shiny);
+  if (!forms.front) return toast('sprite fetch failed');
+  const far = pick(['wander-1', 'wander-2', 'wander-3', 'wander-4'].map((n) => map.spawn(n)).sort((a, b) => manhattan(b, parent.walker.tile) - manhattan(a, parent.walker.tile)).slice(0, 2));
+  const label = pick(SUB_TASKS); const sub = { id: 'sub' + (++store.seq), kind: 'sub', parent, species: sp, shiny, label, status: 'working' };
+  sub.walker = new Walker({ species: sp, shiny, forms, startTile: far, label: sp.name, accent: parent.accent, kind: 'sub' }); sub.walker.onClick = () => select(sub.id);
+  const w = sub.walker; w.scaleMul = .4; w.status = 'working'; store.subs.push(sub); renderRoster();
+  const [call, result] = TOOL_MOCK.Task(label); term(parent, 'tool', call); term(parent, 'result', `  ⎿  ${result}`); term(parent, 'sys', `pokéharness: ${sp.name} materialised as a subagent`); audio.poof();
+  if (shiny) { fxShinySparkle(w, -w.drawnH * .6); w.showFloatingText('Shiny!'); }
+  const t0 = simTime; while (simTime - t0 < 260) { w.scaleMul = .4 + .6 * ((simTime - t0) / 260); await sleep(16); } w.scaleMul = 1;
+  w.beginWander(); w.showText(label); w.lingerBubble();
+  sub.pending = true;
+  (async () => { while (sub.pending && !w.destroyed) { await sleep(8000); if (sub.pending && !w.destroyed && !isBattling(w)) { w.showText(label); w.lingerBubble(); } } })(); await sleep(autoBattleMs); if (w.destroyed || parent.walker.destroyed) return;
+  await subagentCompletes(sub); return sub;
+}
+async function subagentCompletes(sub) {
+  const parent = sub.parent, w = sub.walker; if (!sub.pending || w.destroyed) return; sub.pending = false;
+  term(parent, 'result', `  ⎿  subagent finished: ${sub.label}`); term(parent, 'sys', `pokéharness: completion battle — ${parent.species.name} vs ${sub.species.name}`);
+  const before = parent.status; parent.tool = null; setStatus(parent, 'working');
+  await runBattle(parent.walker, w, { rounds: 4, tools: ['Read', 'Grep', 'Edit', 'Bash'], challengerTools: ['Task', 'Read', 'Glob'], onAttack: (att, tool, text) => term(parent, att === parent.walker ? 'tool' : 'result', att === parent.walker ? `${tool}(…)  ·  ${text}` : `  ⎿  ${text}`) });
+  term(parent, 'ok', `${parent.species.name} wins — ${sub.species.name} returns`); audio.poof();
+  const t0 = simTime; while (simTime - t0 < 220) { w.scaleMul = Math.max(.001, 1 - (simTime - t0) / 220); await sleep(16); }
+  w.destroy(); store.subs.splice(store.subs.indexOf(sub), 1); if (store.selected === sub.id) select(parent.id); if (before !== 'working') setStatus(parent, before); renderRoster();
+}
+async function evolveSession(s) {
+  const w = s.walker; if (w.isEvolving) return toast('already evolving'); if (isBattling(w)) return toast('finish the battle first');
+  const nextId = s.species.evolvesTo.length ? pick(s.species.evolvesTo) : null; if (!nextId) return toast(`<b>${s.species.name}</b> is fully evolved`);
+  const next = SPECIES.get(nextId); const forms = await loadForms(next.id, s.shiny); if (!forms.front) return toast('sprite fetch failed');
+  const from = s.species.name; term(s, 'sys', `pokéharness: what? ${from} is evolving!`);
+  return new Promise((res) => w.evolve(next, forms, () => { s.species = next; s.stage = next.stage; renderRoster(); renderTermHead(); }, () => { term(s, 'ok', `pokéharness: ${from} evolved into ${next.name}!`); if (s.status === 'working') w.beginWander(); syncBubble(s); res(); }));
+}
+async function battleSessions(a, b) {
+  if (a === b) return toast('pick two different pokémon'); if (isBattling(a.walker) || isBattling(b.walker)) return toast('one of them is already battling');
+  if (a.walker.isEvolving || b.walker.isEvolving) return toast('wait for the evolution to finish'); if (a.napping || b.napping) return toast('wake the napping one first');
+  const sa = a.status, sb = b.status; term(a, 'sys', `pokéharness: ${a.species.name} challenges ${b.species.name}!`); if (b.kind === 'session') term(b, 'sys', `pokéharness: ${a.species.name} challenges ${b.species.name}!`);
+  await runBattle(a.walker, b.walker, { rounds: 4, onAttack: (att, tool, text) => { const s = att === a.walker ? a : b; if (s.kind === 'session') term(s, 'tool', `${tool}(…)  ·  ${text}`); } });
+  if (a.kind === 'session') setStatus(a, sa); if (b.kind === 'session') setStatus(b, sb);
+}
+
+// ───────────────────────────── ui: select, roster, terminal, toasts ─────────────────────────────
+function find(id) { return store.sessions.find((s) => s.id === id) || store.subs.find((s) => s.id === id) || null; }
+let lastSelectAt = 0;
+function select(id) {
+  const prev = find(store.selected); if (prev) prev.walker.setSelected(false);
+  store.selected = id; const s = find(id);
+  if (s) { s.walker.setSelected(true); s.walker.bounce(); if (performance.now() - lastSelectAt > 600) { audio.cry(s.species.id); audio.select(); lastSelectAt = performance.now(); } }
+  renderRoster(); renderTerm();
+}
+function renderRoster() {
+  const r = el('roster'); r.innerHTML = '';
+  for (const s of store.sessions) {
+    r.appendChild(card(s));
+    for (const sub of store.subs.filter((x) => x.parent === s)) r.appendChild(card(sub));
+  }
+  const add = document.createElement('button'); add.className = 'roster-new'; add.textContent = '+ new session'; add.onclick = () => spawnSession(); r.appendChild(add);
+  el('chip-sessions').innerHTML = `sessions <b>${store.sessions.length}</b>${store.subs.length ? ` · subagents <b>${store.subs.length}</b>` : ''}`;
+  el('garden-empty').style.display = store.sessions.length ? 'none' : 'flex';
+  const opts = (sel, list) => { const cur = sel.value; sel.innerHTML = list.map((s) => `<option value="${s.id}">${s.species.name}${s.shiny ? ' ✦' : ''} — ${s.kind === 'sub' ? 'subagent' : s.title}</option>`).join('') || '<option value="">no pokémon alive</option>'; if ([...sel.options].some((o) => o.value === cur)) sel.value = cur; };
+  const alive = [...store.sessions, ...store.subs]; opts(el('sel-evolve'), alive); opts(el('sel-battle-a'), alive); opts(el('sel-battle-b'), alive);
+  if (alive.length > 1 && el('sel-battle-b').value === el('sel-battle-a').value) el('sel-battle-b').selectedIndex = 1;
+}
+function card(s) {
+  const d = document.createElement('div'); d.className = 'roster-card' + (s.kind === 'sub' ? ' sub' : '') + (store.selected === s.id ? ' selected' : ''); d.dataset.id = s.id; d.style.borderLeftColor = s.accent || s.parent.accent;
+  const st = s.kind === 'sub' ? 'working' : s.napping ? 'napping' : s.status; const label = s.kind === 'sub' ? 'battler' : s.napping ? 'napping' : s.status === 'blocked' ? 'needs you' : s.status;
+  const pct = s.kind === 'sub' ? 0 : Math.min(1, s.workingMs / (s.stage === 1 ? 600000 : 1800000));
+  d.innerHTML = `<div class="top"><span class="face"><img src="${s.walker.forms.front.url}" alt=""></span><span class="id"><span class="name">${s.kind === 'sub' ? s.label : s.title}</span><span class="prov">${s.kind === 'sub' ? '↳ ' + s.parent.title : s.provider + ' · ' + s.model}</span></span></div>
+    <div class="meta"><span class="species">${s.species.name}${s.shiny ? ' <span class="shiny">✦ shiny</span>' : ''}${s.kind === 'session' ? ` · stage ${s.stage}` : ''}</span><span class="status ${st}">${label}${s.looping ? ' · looping' : ''}</span></div>
+    ${s.kind === 'session' ? `<div class="evo" title="working time toward next stage"><i style="width:${Math.round(pct * 100)}%"></i></div>` : ''}`;
+  d.onclick = () => select(s.id); return d;
+}
+function term(s, cls, text) { s.lines.push({ cls, text }); if (s.lines.length > 400) s.lines.shift(); if (store.selected === s.id) appendTermLine({ cls, text }); }
+function appendTermLine(l) { const t = el('term'); const d = document.createElement('div'); d.className = 'ln ' + l.cls; d.textContent = (l.cls === 'tool' ? '● ' : l.cls === 'assistant' ? '● ' : l.cls === 'user' ? '> ' : '') + l.text; const caret = t.querySelector('.ln.caret-line'); if (caret) t.insertBefore(d, caret); else t.appendChild(d); t.scrollTop = t.scrollHeight; }
+function renderTerm() {
+  const s = find(store.selected); const t = el('term'); t.innerHTML = ''; renderTermHead();
+  if (!s) { t.innerHTML = '<div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div>'; return; }
+  const src = s.kind === 'sub' ? s.parent : s; for (const l of src.lines) appendTermLine(l); const c = document.createElement('div'); c.className = 'ln caret-line'; c.innerHTML = '<span class="caret"></span>'; t.appendChild(c); t.scrollTop = t.scrollHeight;
+}
+function renderTermHead() {
+  const s = find(store.selected); const src = s && (s.kind === 'sub' ? s.parent : s);
+  el('term-title').textContent = src ? src.title : 'terminal'; el('term-species').textContent = s ? `${s.species.name}${s.kind === 'sub' ? ' (subagent)' : ''}` : '';
+  const st = el('term-status'); st.className = 'status ' + (src ? (src.napping ? 'napping' : src.status) : 'starting'); st.textContent = src ? (src.napping ? 'napping' : src.status === 'blocked' ? 'needs you' : src.status) : 'no session';
+  el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.width = (src ? src.ctx : 0) + '%'; el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
+  el('strip-work').textContent = src ? fmtMs(src.workingMs) : '0:00';
+}
+const fmtMs = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+function toast(html) { const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = html; el('toasts').appendChild(t); setTimeout(() => t.remove(), 3200); }
+
+// ───────────────────────────── camera ─────────────────────────────
+const cam = { k: 1, x: 0, y: 0,
+  fit() { const p = el('pane'); this.k = Math.min(p.clientWidth / 832, p.clientHeight / 576); this.x = (p.clientWidth - 832 * this.k) / 2; this.y = (p.clientHeight - 576 * this.k) / 2; this.apply(); },
+  apply() { el('world').style.transform = `translate(${this.x}px, ${this.y}px) scale(${this.k})`; },
+  init() {
+    const p = el('pane'); this.fit(); new ResizeObserver(() => this.fit()).observe(p); el('btn-fit').onclick = () => this.fit();
+    p.addEventListener('wheel', (e) => { e.preventDefault(); const r = p.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const nk = clamp(this.k * Math.exp(-e.deltaY * .0015), .5, 4); this.x = mx - (mx - this.x) * (nk / this.k); this.y = my - (my - this.y) * (nk / this.k); this.k = nk; this.apply(); }, { passive: false });
+    let drag = null; p.addEventListener('mousedown', (e) => { drag = { x: e.clientX, y: e.clientY, cx: this.x, cy: this.y, moved: false }; p.classList.add('dragging'); });
+    window.addEventListener('mousemove', (e) => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true; this.x = drag.cx + dx; this.y = drag.cy + dy; this.apply(); });
+    window.addEventListener('mouseup', () => { this.justDragged = !!(drag && drag.moved); drag = null; p.classList.remove('dragging'); });
+    p.addEventListener('click', (e) => { if (this.justDragged) return; if (e.target === p || e.target.id === 'world' || e.target.id === 'ground' || e.target.classList.contains('canopy')) select(null); });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') select(null); });
+  }
+};
+
+// ───────────────────────────── main loop ─────────────────────────────
+let last = performance.now(), scheduled = false;
+function schedule() {
+  if (scheduled) return; scheduled = true;
+  // rAF pauses in hidden tabs; fall back to a (throttled) timer so mock sessions keep living.
+  if (document.hidden) setTimeout(() => { scheduled = false; frame(performance.now()); }, 50);
+  else requestAnimationFrame((t) => { scheduled = false; frame(t); });
+}
+function frame(now) {
+  const dt = clamp((now - last) / 1000, 0, .1); last = now; simTime += dt * 1000;
+  for (let i = simTimers.length - 1; i >= 0; i--) if (simTimers[i].at <= simTime) { const t = simTimers[i]; simTimers.splice(i, 1); t.r(); }
+  for (const w of activeWalkers()) w.update(dt);
+  updateBattles(dt); fx.update(dt);
+  map.update(dt * 1000, activeWalkers().map((w) => w.tile));
+  for (const s of store.sessions) if (s.status === 'working' && !s.napping) s.workingMs += dt * 1000;
+  if ((tick++ & 31) === 0) { renderTermHead(); for (const s of store.sessions) { const bar = el('roster').querySelector(`[data-id="${s.id}"] .evo i`); if (bar) bar.style.width = Math.round(Math.min(1, s.workingMs / (s.stage === 1 ? 600000 : 1800000)) * 100) + '%'; } }
+  schedule();
+}
+let tick = 0;
+
+// ───────────────────────────── demo console wiring ─────────────────────────────
+const selectedSession = () => { const s = find(store.selected); if (!s) { toast('select a session first (click a pokémon or a card)'); return null; } if (s.kind === 'sub') { toast('that\'s a subagent — select its parent session'); return null; } return s; };
+el('btn-spawn').onclick = () => spawnSession();
+el('btn-spawn-shiny').onclick = () => spawnSession({ shiny: true });
+el('btn-subagent').onclick = () => { const s = selectedSession(); if (s) spawnSubagent(s); };
+el('btn-despawn').onclick = () => { const s = selectedSession(); if (s) despawn(s); };
+el('btn-tool').onclick = () => { const s = selectedSession(); if (s) toolCall(s, el('sel-tool').value); };
+el('btn-thinking').onclick = () => { const s = selectedSession(); if (s) thinking(s); };
+el('btn-idle').onclick = () => { const s = selectedSession(); if (s) idle(s); };
+el('btn-blocked').onclick = () => { const s = selectedSession(); if (s) blocked(s); };
+el('btn-done').onclick = () => { const s = selectedSession(); if (s) done(s); };
+el('btn-nap').onclick = () => { const s = selectedSession(); if (s) nap(s); };
+el('btn-loop').onclick = () => { const s = selectedSession(); if (s) loop(s); };
+el('btn-chatter').onclick = () => { const s = selectedSession(); if (s) chatter(s); };
+el('btn-berry').onclick = () => { const s = selectedSession(); if (s) berry(s); };
+el('btn-evolve').onclick = () => { const s = find(el('sel-evolve').value); if (!s) return toast('nothing alive to evolve'); if (s.kind === 'sub') return toast('subagents don\'t evolve — they return to their ball'); evolveSession(s); };
+el('btn-battle').onclick = () => { const a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value); if (!a || !b) return toast('need two pokémon alive'); battleSessions(a, b); };
+el('btn-audio').onclick = () => audio.toggle();
+
+// ───────────────────────────── showreel ─────────────────────────────
+let reel = null;
+const REEL = [
+  ['a session hatches', async () => { reel.a = await spawnSession({ species: 'pichu' }); await sleep(2500); }],
+  ['thinking, then tool calls', async () => { const s = reel.a; thinking(s); await sleep(1800); for (const t of ['Read', 'Grep', 'Edit', 'Bash']) { toolCall(s, t); await sleep(1900); } }],
+  ['idle small talk', async () => { const s = reel.a; idle(s); await sleep(1200); chatter(s); await sleep(2600); }],
+  ['a shiny hatches', async () => { reel.b = await spawnSession({ shiny: true, species: 'eevee' }); await sleep(2600); select(reel.b.id); toolCall(reel.b, 'Read'); await sleep(1500); }],
+  ['needs you', async () => { const s = reel.a; select(s.id); blocked(s); await sleep(3200); term(s, 'user', 'y'); thinking(s); toolCall(s, 'Bash'); await sleep(2000); }],
+  ['a subagent is dispatched — and battles on completion', async () => { const s = reel.a; select(s.id); toolCall(s, 'Read'); await sleep(800); await spawnSubagent(s, { autoBattleMs: 5000 }); await sleep(800); }],
+  ['evolution', async () => { const s = reel.a; select(s.id); toolCall(s, 'Edit'); await sleep(600); await evolveSession(s); await sleep(1400); }],
+  ['compaction nap', async () => { const s = reel.b; select(s.id); nap(s); await sleep(3000); nap(s); toolCall(s, 'Grep'); await sleep(1500); }],
+  ['berry errand', async () => { const s = reel.b; idle(s); await sleep(600); await berry(s); await sleep(1600); }],
+  ['looping detector', async () => { const s = reel.a; select(s.id); loop(s); await sleep(2600); loop(s); await sleep(400); }],
+  ['session vs session', async () => { const a = reel.a, b = reel.b; select(a.id); await battleSessions(a, b); await sleep(1200); }],
+  ['done, and recalled', async () => { const s = reel.b; select(s.id); done(s); await sleep(1500); despawn(s); await sleep(2200); select(reel.a.id); idle(reel.a); await sleep(800); }]
+];
+async function runShowreel() {
+  if (reel) { reel.stop = true; return; }
+  reel = { stop: false }; el('btn-reel').textContent = 'stop showreel'; el('reel-banner').classList.add('on');
+  try {
+    for (const [i, [name, step]] of REEL.entries()) {
+      if (reel.stop) break; el('reel-banner').textContent = `showreel ${i + 1}/${REEL.length} · ${name}`; el('reel-hint').textContent = `${i + 1}/${REEL.length} — ${name}`; el('reel-bar').style.width = Math.round((i / REEL.length) * 100) + '%';
+      await step(); await sleep(900);
+    }
+  } catch (e) { console.error('showreel', e); toast('showreel hit an error — see console'); }
+  el('reel-bar').style.width = reel.stop ? '0%' : '100%'; el('reel-hint').textContent = reel.stop ? 'stopped.' : 'that\'s the whole harness. run it again, or poke at the triggers.';
+  reel = null; el('btn-reel').innerHTML = '<svg class="icon"><use href="#i-play"/></svg> run showreel'; el('reel-banner').classList.remove('on');
+}
+el('btn-reel').onclick = runShowreel;
+
+// ───────────────────────────── boot ─────────────────────────────
+audio.init();
+map.init().then(() => { cam.init(); renderRoster(); renderTerm(); schedule(); });
+document.addEventListener('visibilitychange', schedule);
+</script>
+</body>
+</html>
