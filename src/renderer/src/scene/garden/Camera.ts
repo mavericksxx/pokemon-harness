@@ -20,6 +20,21 @@ export class Camera {
   private mapWidth = 640;
   private mapHeight = 480;
   private manualOverride = false;
+  /** The `container` transform actually applied by the last `update()` call
+   *  — compared against the freshly-computed one on the NEXT call so it can
+   *  report whether anything actually moved (dirty-flag rendering,
+   *  renderDirty.ts). Deliberately the rendered OUTPUT (post-lerp,
+   *  post-clamp), not `current*`/`target*`: `pan()`/`zoomAt()` write
+   *  `current*` directly (bypassing the lerp) so a drag/wheel gesture tracks
+   *  the pointer exactly, which means comparing against a stale `current*`
+   *  snapshot would miss the very first `update()` call after one of those
+   *  (the lerp step itself would see `target === current` already and add
+   *  zero) — comparing the actual container transform catches every path
+   *  that can move it (lerp settling toward a target, a direct pan/zoom
+   *  write, or a resize-driven clamp) uniformly, with no per-path bookkeeping. */
+  private lastAppliedX = NaN;
+  private lastAppliedY = NaN;
+  private lastAppliedZoom = NaN;
   /** True once the user has panned/zoomed away from whatever focusOn/
    *  fitToScreen last set — GardenScene's ticker stops calling either while
    *  this is set, so a drag/wheel gesture isn't immediately overridden on
@@ -133,7 +148,11 @@ export class Camera {
     this.currentZoom = newZoom;
   }
 
-  update(): void {
+  /** Returns whether `container`'s transform actually changed this call —
+   *  see `lastAppliedX`'s own comment. GardenScene's ticker calls this
+   *  unconditionally every frame (free-look or not, settled or not) and
+   *  uses the return value as a dirty-flag rendering source. */
+  update(): boolean {
     this.currentX += (this.targetX - this.currentX) * LERP_SPEED;
     this.currentY += (this.targetY - this.currentY) * LERP_SPEED;
     this.currentZoom += (this.targetZoom - this.currentZoom) * LERP_SPEED;
@@ -154,5 +173,14 @@ export class Camera {
     } else {
       this.container.y = Math.min(0, Math.max(this.viewHeight - scaledH, this.container.y));
     }
+
+    const changed =
+      this.container.x !== this.lastAppliedX ||
+      this.container.y !== this.lastAppliedY ||
+      this.currentZoom !== this.lastAppliedZoom;
+    this.lastAppliedX = this.container.x;
+    this.lastAppliedY = this.container.y;
+    this.lastAppliedZoom = this.currentZoom;
+    return changed;
   }
 }

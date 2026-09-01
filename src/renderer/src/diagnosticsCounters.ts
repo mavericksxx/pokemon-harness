@@ -39,6 +39,16 @@ export interface Counters {
    *  through a lost WebGL context, since only the GL calls inside a frame
    *  go silent, not the frame itself. */
   rendererTicks: number;
+  /** Bumped once per ACTUAL `app.render()` call (GardenScene.tsx's dirty-flag
+   *  rendering, idle-energy pass follow-up 2026-09-01 — see renderDirty.ts).
+   *  `rendererTicks` counts every game-logic tick regardless; this counts
+   *  only the ones that painted. The two together are the verification this
+   *  pass exists to make possible: an idle garden's `renderedFrames` growth
+   *  should read at roughly the sprite idle-animation rate (a handful of
+   *  frames/sec) against `rendererTicks` still climbing at a steady ~60/sec
+   *  — a garden with something ACTUALLY animating (a battle, camera
+   *  movement) should instead show the two nearly 1:1. */
+  renderedFrames: number;
 }
 
 const counters: Counters = {
@@ -51,7 +61,8 @@ const counters: Counters = {
   subagentsMaterialized: 0,
   subagentsCleanedUp: 0,
   battleSignalErrors: 0,
-  rendererTicks: 0
+  rendererTicks: 0,
+  renderedFrames: 0
 };
 
 export function bumpCounter(key: keyof Counters): void {

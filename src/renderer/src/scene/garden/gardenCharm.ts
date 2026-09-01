@@ -3,6 +3,7 @@ import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { Walker } from './Walker';
 import type { SessionStatus } from '@shared/types';
 import { pickBerryEatenLine, pickBerryErrandLine, pickIdleLine } from './gardenLines';
+import { markDirty } from './renderDirty';
 
 /**
  * Garden charm (Phase 8 §7): idle Pokemon occasionally wander to a berry
@@ -80,6 +81,16 @@ export interface CharmSessionLike {
   status: SessionStatus;
 }
 
+/** One registered alpha "breathe" pulse — see `GardenCharm.pulse()`/
+ *  `updatePulses()`. `lastAlpha255` is the last alpha this actually PAINTED,
+ *  quantized to an 8-bit channel value; -1 (below any real alpha) so the
+ *  very first `updatePulses()` call always applies and marks dirty. */
+interface Pulse {
+  g: Graphics;
+  t: number;
+  lastAlpha255: number;
+}
+
 export class GardenCharm {
   private map: TiledMapRenderer;
   private layer: Container;
@@ -87,6 +98,7 @@ export class GardenCharm {
   private bushes: BerryBush[] = [];
   private clockS = 0;
   private charmStates = new Map<string, CharmState>();
+  private pulses: Pulse[] = [];
 
   constructor(opts: GardenCharmOptions) {
     this.map = opts.map;
@@ -200,16 +212,55 @@ export class GardenCharm {
   /** Very slow alpha breathe, just enough to read as "this thing is alive
    *  and clickable" without violating the UI layer's own "no ambient idle
    *  animation" rule (DESIGN.md §12.2) — that rule is scoped to chrome
-   *  panels, not the game layer, where motion communicates. */
+   *  panels, not the game layer, where motion communicates.
+   *
+   *  Dirty-flag rendering (idle-energy pass follow-up, 2026-09-01): this
+   *  used to be its own independent `requestAnimationFrame` loop, running
+   *  forever — visibility-blind — the instant the well prop was built, with
+   *  no way to stop it short of the Graphics itself being destroyed. Now
+   *  just registers into `pulses`, stepped by `updatePulses()` from
+   *  GardenScene's own game-logic ticker (see that method's own comment). */
   private pulse(g: Graphics): void {
-    let t = Math.random() * Math.PI * 2;
-    const tick = (): void => {
-      if (g.destroyed) return;
-      t += 0.02;
-      g.alpha = 0.85 + Math.sin(t) * 0.15;
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+    this.pulses.push({ g, t: Math.random() * Math.PI * 2, lastAlpha255: -1 });
+  }
+
+  /** rad/sec matching the old loop's `t += 0.02` per `requestAnimationFrame`
+   *  call at an assumed 60fps browser refresh (0.02 * 60) — now driven by
+   *  real `dt` instead of a raw per-callback increment, so this reads the
+   *  same on a 120Hz ProMotion display as a 60Hz one (the same mismatch the
+   *  idle-energy pass's own `Ticker.shared.maxFPS` cap exists to fix
+   *  elsewhere in this app). */
+  private static readonly PULSE_RATE = 1.2;
+
+  /** Advance every registered "breathe" pulse (currently just the well
+   *  hotspot) by `dt` seconds — called every game-logic tick from
+   *  GardenScene.tsx, gated there on the same `renderPaused` flag that stops
+   *  everything else, which is what actually earns this "stop while the
+   *  garden is paused" (the old rAF loop never did). Marks the frame dirty
+   *  only when the alpha change is large enough to move an 8-bit colour
+   *  channel (1/255) — a change smaller than that renders as the exact same
+   *  pixel, so it isn't "actually" a change (renderDirty.ts's own wording);
+   *  this also caps how often this one subtle, ambient prop can force a
+   *  repaint on its own (a handful of times a second at this rate, not 60),
+   *  rather than defeating the whole point of render-on-change for
+   *  something this minor. */
+  updatePulses(dt: number): void {
+    let anyDestroyed = false;
+    for (const p of this.pulses) {
+      if (p.g.destroyed) {
+        anyDestroyed = true;
+        continue;
+      }
+      p.t += GardenCharm.PULSE_RATE * dt;
+      const alpha = 0.85 + Math.sin(p.t) * 0.15;
+      const alpha255 = Math.round(alpha * 255);
+      if (alpha255 !== p.lastAlpha255) {
+        p.lastAlpha255 = alpha255;
+        p.g.alpha = alpha;
+        markDirty();
+      }
+    }
+    if (anyDestroyed) this.pulses = this.pulses.filter((p) => !p.g.destroyed);
   }
 
   private maybeRegrowBushes(): void {

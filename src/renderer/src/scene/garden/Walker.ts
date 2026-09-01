@@ -6,6 +6,7 @@ import { ToolBubble } from './ToolBubble';
 import { EvolutionCeremony } from './EvolutionCeremony';
 import { purgeBattleFxFor, prefersReducedMotion, spawnPokeballRecall } from './battle/battleFx';
 import { evolutionConfig } from './evolution';
+import { markDirty } from './renderDirty';
 import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { SessionStatus } from '@shared/types';
 
@@ -279,6 +280,7 @@ export class Walker {
       return;
     }
     this.selectionRing.visible = selected;
+    markDirty();
   }
 
   /** Kick off the select hop (Phase 8 §4) — a single sine arc, restarted from
@@ -290,6 +292,7 @@ export class Walker {
 
   setLabel(label: string): void {
     this.nameTag.text = label;
+    markDirty();
   }
 
   /** Walk to a tile. Wandering stops until the walker is put back into it.
@@ -476,6 +479,12 @@ export class Walker {
       if (this.status === 'working') this.beginWander();
       else this.stayPut();
     }
+    // The visible toggle above isn't guaranteed to land alongside a position/
+    // texture change this same frame (a walker that was already stationary
+    // and front-facing has nothing else to mark stayPut()/bounce() dirty
+    // with) — explicit here so the "z z z" popping in/out is never the one
+    // frame render-on-change silently skips.
+    markDirty();
   }
 
   /** Instant, no-flash art swap — used when a lazily-fetched species' real
@@ -609,31 +618,42 @@ export class Walker {
   update(dt: number): void {
     if (this.ceremony) {
       this.ceremony.update(dt);
+      // Dirty-flag rendering (renderDirty.ts) — the ceremony has its own
+      // multi-phase animated timeline (flash/silhouette/oscillate/lock/
+      // flash-out, see EvolutionCeremony.ts) with no single property worth
+      // instrumenting piecemeal; "a ceremony is running" is itself a clear
+      // enough active flag to mark dirty every frame it's true, same
+      // shortcut BattleManager/ClosingRitual take below in GardenScene.tsx.
+      markDirty();
       if (this.ceremony.done) this.ceremony = null;
     } else {
       if (this.walking) this.updateWalk(dt);
       else if (this.wandering) this.updateWander(dt);
-      this.sprite.update(dt);
+      this.sprite.update(dt); // marks dirty itself on frame-step/bob — see WalkerSprite.ts
     }
     // Runs regardless of ceremony state — cancelMegaFlash() at evolve()'s
     // own start already guarantees nothing is in flight the instant a
     // ceremony begins owning the sprite, so this has nothing left to step
     // once one is.
     this.updateMegaFlash(dt);
+    if (this.megaFlashT !== null) markDirty(); // g.alpha/g.x/g.y step every frame it's in flight
     this.updateFloatingText(dt);
+    if (this.floatLayer.children.length > 0) markDirty(); // y/alpha tween every frame text is up
 
     if (this.napping) {
       this.zzzT += dt;
       this.zzz.y = -this.sprite.drawnHeight - 6 - Math.sin(this.zzzT * 1.6) * 2;
       this.zzz.alpha = 0.65 + 0.35 * Math.sin(this.zzzT * 1.6);
+      markDirty();
     }
 
     if (this.status === 'blocked') {
       this.badgePulse += dt;
       this.badge.alpha = 0.55 + 0.45 * Math.sin(this.badgePulse * 6);
+      markDirty();
     }
 
-    this.bubble.update(dt);
+    this.bubble.update(dt); // ToolBubble marks dirty itself on any visible change — see ToolBubble.ts
     // Above the head, not the feet: these sprites are several tiles tall, and a
     // foot-anchored bubble would sit across the Pokemon's chest.
     this.bubble.setPosition(this.px, this.py - this.sprite.drawnHeight);
@@ -646,6 +666,7 @@ export class Walker {
         this.bounceT = null;
         this.sprite.container.y = 0;
       }
+      markDirty();
     }
   }
 
@@ -795,6 +816,13 @@ export class Walker {
     this.container.y = Math.round(this.py);
     // Depth-sort by feet Y so a walker further down the map draws in front.
     this.container.zIndex = Math.round(this.py);
+    // Dirty-flag rendering (renderDirty.ts) — the explicit, direct source
+    // for "position changes" (updateWalk/goTo's own completion branch both
+    // funnel through here). Not relying on WalkerSprite's own bob-driven
+    // markDirty as a proxy for movement: every locomotion currently bobs
+    // while moving, so it would happen to cover this today, but that's an
+    // incidental coupling, not a guarantee.
+    markDirty();
   }
 
   private redrawBadge(): void {
@@ -824,6 +852,7 @@ export class Walker {
       this.chromeWasVisible[0] = this.badge.visible;
       this.badge.visible = false;
     }
+    markDirty();
   }
 
   destroy(): void {

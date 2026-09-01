@@ -170,8 +170,14 @@ export class TiledMapRenderer {
   }
 
   /** Advance Tiled tile animations (the pond's water) and enclosed-structure
-   *  roof fades. Call once per frame. */
-  update(deltaMs: number): void {
+   *  roof fades. Call once per frame. Returns whether either actually
+   *  changed a texture/alpha this call — dirty-flag rendering
+   *  (renderDirty.ts, GardenScene.tsx's ticker): pond water only flips
+   *  texture every `group.durations[frame]` ms, far slower than every
+   *  frame, so this is genuinely most-of-the-time `false`, not a rubber-
+   *  stamp `true`. */
+  update(deltaMs: number): boolean {
+    let changed = false;
     for (const group of this.animatedTiles.values()) {
       if (group.sprites.length === 0) continue;
       group.elapsedMs += deltaMs;
@@ -182,10 +188,12 @@ export class TiledMapRenderer {
         advanced = true;
       }
       if (!advanced) continue;
+      changed = true;
       const texture = group.textures[group.frame];
       for (const sprite of group.sprites) sprite.texture = texture;
     }
-    this.updateStructureFade(deltaMs);
+    if (this.updateStructureFade(deltaMs)) changed = true;
+    return changed;
   }
 
   getContainer(): Container {
@@ -467,8 +475,8 @@ export class TiledMapRenderer {
    *  every sprite this renderer put there itself is in `canopySprites` and
    *  skipped, so whatever's left is a walker's body or speech-bubble
    *  container (both track the walker's world position via `.x`/`.y`). */
-  private updateStructureFade(deltaMs: number): void {
-    if (this.structureZones.size === 0) return;
+  private updateStructureFade(deltaMs: number): boolean {
+    if (this.structureZones.size === 0) return false;
 
     const occupantTiles: Point[] = [];
     for (const child of this.characterContainer.children) {
@@ -483,6 +491,7 @@ export class TiledMapRenderer {
       occupantTiles.push(this.pixelToTile(px, py - 1));
     }
 
+    let changed = false;
     const rate = Math.min(1, deltaMs / STRUCTURE_FADE_MS);
     for (const [name, rect] of this.structureZones) {
       const occupied = occupantTiles.some(
@@ -491,10 +500,12 @@ export class TiledMapRenderer {
       const target = occupied ? STRUCTURE_FADE_ALPHA : 1;
       const current = this.structureAlpha.get(name) ?? 1;
       const next = current + (target - current) * rate;
+      if (next !== current) changed = true;
       this.structureAlpha.set(name, next);
       const roof = this.structureRoofs.get(name);
       if (roof) roof.alpha = next;
     }
+    return changed;
   }
 
   private findLayer(name: string, type: 'tilelayer' | 'objectgroup'): TiledLayer | undefined {

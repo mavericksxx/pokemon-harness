@@ -637,6 +637,19 @@ export class BattleManager {
     return this.battles.get(parentId)?.currentAttack != null;
   }
 
+  /** True while ANY parent has a live `ParentBattle` entry — a wave in
+   *  progress, or subagents merely roaming/queued/retired. Dirty-flag
+   *  rendering (renderDirty.ts, GardenScene.tsx's ticker): rather than
+   *  instrumenting every individual Battler movement/lunge/poof and battleFx
+   *  effect, this one blanket flag is deliberately coarse — `this.battles`
+   *  only ever holds a parent with something actually live (see
+   *  `updateOneBattle`'s own `finishedParents` cleanup), so "any entry
+   *  exists" already means "something in this subsystem could be moving
+   *  this frame." */
+  hasActiveBattles(): boolean {
+    return this.battles.size > 0;
+  }
+
   /** World position of a live battler's sprite, by its store key (the same
    *  key `onBattlerSpawned`/`onBattlerRemoved` mirror into `LiveBattler`) —
    *  GardenScene's ticker uses this to pan the camera onto a subagent's own
