@@ -14,16 +14,15 @@ Working list of known issues and planned work — open items only; completed wor
 - **windows build**: gaps assessed and code-verified (2026-08-29): hookBridge already has win32 branches (`poke-node.cmd`); node-pty/xterm/pixi are windows-fine. Known gaps: (1) shellEnv.ts is darwin/linux-only — windows should inherit process env; (2) hooks.sock is a UDS filesystem path — windows needs the `\\.\pipe\` named-pipe form (small but load-bearing); (3) usage service's keychain read needs its file fallback verified against windows claude code's credential location; (4) Cmd-flavored accelerators need Ctrl equivalents; (5) packaging: nsis target + .ico (icon pipeline is mac-shaped: icns + Assets.car) + release.cjs assumes mac artifacts; (6) unsigned builds hit SmartScreen ("More info → Run anyway" — brief testers). Build via GitHub Actions windows runner (free); the REAL bottleneck is verification — no windows machine in the loop, so a windows-owning friend is the test loop for first boots (pty spawn, named pipe, `claude` on PATH are the likeliest breakage points).
 - decide whether the GitHub repo renames to match the app (redirects make it safe).
 
-## phase F — performance & battery (first slice SHIPPED 2026-09-01, see CHANGELOG unreleased)
+## phase F — performance & battery (two slices SHIPPED 2026-09-01, see CHANGELOG unreleased)
 
-Shipped: render pause when hidden/minimized/terminal-only, 60fps cap on both Pixi tickers, timer audit (all already gated or cheap). Remaining, in payoff order — all from code survey, not profiling:
+Shipped: render pause when hidden/minimized/terminal-only; 60fps cap on both Pixi tickers; dirty-flag rendering while visible (1s heartbeat); main pollers back off when idle; gardenCharm pulse gated; low-res garden experiment toggle (default off). Remaining:
 
-1. **dirty-flag / idle-downshift rendering while VISIBLE** (biggest remaining win): on screen and idle we still render 60 near-identical frames/sec; sprite idle animations only change every ~100-200ms. Render only when something changed (walker moved, sprite frame advanced, camera moved, fx/bubble/day-night tick), else a low heartbeat. Needs an "is anything animating" signal from Walker, BattleManager, Camera, battleFx, gardenCharm, ToolBubble — medium task, skipped in the first slice for that reason.
-2. **render resolution experiment**: `GardenScene.tsx` forces `resolution: max(devicePixelRatio, 2)` — 4× the fragments of a 1× canvas. Nearest-neighbor pixel art would look near-identical at 1× via compositor upscale, but Pixi `Text` (labels, bubbles) gets softer. Make it a toggle and A/B with the user's eyes before committing.
-3. **main-process pollers never back off**: `taskNotificationWatcher` (2s), `arceusRelay` (2s), `costWatcher` (5s) run unconditionally. Gate them: cost only while some session is `working`; task notifications only while a session has outstanding async agents; relay only while arceus is live with a non-empty queue — else ~30s or stopped. (`fs.watch` instead of polling is the proper fix but bigger.)
-4. **`gardenCharm.ts` well-pulse rAF loop** is visibility-blind — gate on the same pause signal.
+1. **measure**: the whole phase is code-evidence so far. Success criteria: app leaves macOS's "Using Significant Energy" list during normal idle use; `renderedFrames` vs `rendererTicks` in a diagnostics export shows an idle ratio well under 1:4. Ties into the load-test item below (same measurement pass).
+2. **battler presence pins full-rate rendering**: `BattleManager.hasActiveBattles()` is `battles.size > 0`, so any live subagent pokemon (even a roaming idle one) marks every frame dirty. Refine to "any battler walking/animating/mid-fx" so an idle garden with roaming subagents also downshifts.
+3. **low-res garden A/B**: user flips the toggle, restarts, compares label softness vs. GPU energy; decide whether to make 1× the default.
+4. **taskNotificationWatcher gate can stick fast**: a parent that exits naturally (not `pty:kill`) with `pending > 0` keeps the 2s cadence until the app kills it — same class as the file's own header caveat. Unregister on natural exit too.
 5. Not fixable from our side: a window fully covered by another app (no minimize) — recent Chromium may already map macOS occlusion to `document.hidden`; unmeasured.
-6. Success criteria unchanged: app leaves macOS's "Using Significant Energy" list during normal idle use; garden CPU ≈ zero when hidden. Ties into the load-test item below (same measurement pass).
 
 ## watch items (no action unless they recur)
 
