@@ -1,26 +1,22 @@
 /**
  * Shared idle-queue + pty-injection helper (BACKLOG phase E) — extracted
- * from main/arceusRelay.ts's original hand-rolled per-target `Map` so focus
- * mode's queue composer can reuse the exact same safety rail instead of
- * re-implementing it: never write into a session's pty unless it's genuinely
- * idle (a permission prompt must never get auto-answered), queue the payload
- * otherwise, and deliver it (FIFO) the moment that session next goes idle —
- * dropping the queue outright once the session closes or finishes.
+ * from main/arceusRelay.ts's original hand-rolled per-target `Map` so its
+ * safety rail is isolated from the relay logic around it: never write into a
+ * session's pty unless it's genuinely idle (a permission prompt must never
+ * get auto-answered), queue the payload otherwise, and deliver it (FIFO) the
+ * moment that session next goes idle — dropping the queue outright once the
+ * session closes or finishes.
  *
  * Dependency-free (no node/electron imports — same "shared wire shape"
- * convention as costTypes.ts/audioTypes.ts) so one instance can live
- * main-side (arceusRelay.ts, writing synchronously via ptyManager.write) and
- * a second, independent instance can live renderer-side (focus mode's
- * composer, writing over the async `window.api.writePty` IPC bridge —
- * src/renderer/src/pty/focusQueue.ts) without duplicating the queueing logic
- * itself — only the `writePty` callback, `toPayload`, and the logging/UI
- * hooks differ per caller.
+ * convention as costTypes.ts/audioTypes.ts) so an instance can live main-side
+ * (arceusRelay.ts, writing synchronously via ptyManager.write) without
+ * pulling in electron itself; a renderer-side instance, writing over the
+ * async `window.api.writePty` IPC bridge, would only need to supply its own
+ * `writePty` callback, `toPayload`, and logging/UI hooks.
  *
- * Generic over the queued item type `T` (plain `string` for arceusRelay,
- * `{ text, payload }` for focus mode, whose composer chips need to show the
- * original human-readable text while injecting the bracketed-paste-wrapped
- * bytes) — `toPayload` is how the queue turns one `T` into the exact string
- * written to the pty.
+ * Generic over the queued item type `T` (plain `string` for arceusRelay) —
+ * `toPayload` is how the queue turns one `T` into the exact string written
+ * to the pty.
  */
 import type { PtyResult, SessionRecord } from './types';
 

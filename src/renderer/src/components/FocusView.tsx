@@ -46,18 +46,14 @@ interface Props {
  * the trailing block) when he's selected. Every other mode keeps the
  * pre-phase-E drawer-meta / dispatch-box-above-terminal layout, unchanged.
  *
- * Parity sweep item 8 — the "queue" composer (FocusComposer.tsx) that used
- * to sit below the terminal in focus mode for every non-Arceus session is
- * gone (user report: it wasted vertical space the terminal itself could use
- * — the CLI already queues typed input on its own). FocusComposer.tsx and
- * its backing store (pty/focusQueue.ts's `submitFocusMessage`/
- * `useFocusQueue`/`removeFocusQueueItem`, and its own `.focus-composer*`
- * CSS) are left in place, not deleted — this was their only mount site, so
- * they're now orphaned/dead code, reported rather than pruned here.
- * `.terminal-panel`'s existing `flex: 1` means the terminal simply expands
- * into the reclaimed space with no CSS change needed. Arceus's dispatch box
- * (ArceusDispatchBox.tsx) is a wholly different component — writes straight
- * into his pty, never touches focusQueue.ts — and is untouched.
+ * Parity sweep item 8 — the "queue" composer that used to sit below the
+ * terminal in focus mode for every non-Arceus session is gone entirely (user
+ * report: it wasted vertical space the terminal itself could use — the CLI
+ * already queues typed input on its own). `.terminal-panel`'s existing
+ * `flex: 1` means the terminal simply expands into the reclaimed space with
+ * no CSS change needed. Arceus's dispatch box (ArceusDispatchBox.tsx) is a
+ * wholly different component — writes straight into his pty — and is
+ * untouched.
  */
 export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }: Props): JSX.Element {
   const focus = viewMode === 'terminal';
