@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## v1.7.7 — 2026-09-01
+
+- added a terminal-mode `+` quick action that opens a normal shell in the active workspace without selecting a Pokémon or spawning a garden agent
+
 ## v1.7.6 — 2026-08-30
 
 Delegated to codex gpt-5.6-luna, reviewed/verified/merged by the orchestrator.
