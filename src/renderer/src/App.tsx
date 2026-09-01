@@ -27,6 +27,7 @@ import { useWorkspaceStore } from '@/store/workspaceStore';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 import { cancelClosingTime, isClosingTimeActive, startClosingTime } from '@/closingTime';
 import { OverflowChipRow, type OverflowChipRenderContext } from '@/components/OverflowChipRow';
+import { NewTerminalButton } from '@/components/NewTerminalButton';
 import type { Session } from '@/store/store';
 
 /** Cmd/Ctrl+1..3 → the three view modes, matching ViewModeSwitcher's order.
@@ -201,6 +202,7 @@ export function App(): JSX.Element {
             rather than sitting inside it. */}
         <SummonArceusButton />
         <WorkspaceSwitcher />
+        <NewTerminalButton className="topbar-new-terminal" />
         {!hideTopbarChips && (
           <>
             <button className="primary" onClick={() => setDialogOpen(true)}>

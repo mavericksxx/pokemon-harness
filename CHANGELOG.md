@@ -2,6 +2,11 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## v1.7.8 — 2026-09-01
+
+- added a quick-settings "check for updates" button with inline up-to-date/offline feedback and the existing update toast when a newer release is found
+- moved the new-terminal shell action into the topbar so it is available across views, removing the duplicate focus-sidebar action
+
 ## v1.7.7 — 2026-09-01
 
 - added a terminal-mode `+` quick action that opens a normal shell in the active workspace without selecting a Pokémon or spawning a garden agent

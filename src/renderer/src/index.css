@@ -582,6 +582,11 @@ body {
 }
 
 .garden-chip-new {
+  /* The garden row's edge fade is an affordance for overflowing chips, but
+   * it must not wash out the always-visible create action that happens to be
+   * rendered at the row's trailing edge. */
+  position: relative;
+  z-index: 1;
   flex: none;
   white-space: nowrap;
   color: var(--muted);
@@ -2647,6 +2652,31 @@ button.icon:active {
   border-color: var(--accent-text);
 }
 
+.topbar-new-terminal {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--topbar-icon-size);
+  height: var(--topbar-icon-size);
+  padding: 0;
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.topbar-new-terminal:hover {
+  border-color: var(--accent-text);
+}
+
+.topbar-new-terminal svg {
+  width: 15px;
+  height: 15px;
+}
+
 /* ── Focus-mode left sidebar (Munder Difflin restyle, FocusSidebar.tsx) ─────
  * 'terminal' view mode's own vertical roster — replaces the bottom strip for
  * that mode only; RosterStrip.tsx/`.roster-strip` above is unchanged and
@@ -2687,23 +2717,6 @@ button.icon:active {
 
 .focus-sidebar-actions .focus-sidebar-new {
   flex: 1;
-}
-
-.focus-sidebar-new-terminal {
-  flex: none;
-  width: 42px;
-  padding: 10px 0;
-  color: var(--muted);
-  background: var(--panel-2);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-md);
-  font-size: 18px;
-  line-height: 1;
-}
-
-.focus-sidebar-new-terminal:hover {
-  color: var(--text);
-  border-color: var(--accent-text);
 }
 
 .focus-sidebar-list {
@@ -4322,6 +4335,19 @@ body.is-splitting .garden canvas {
 
 .quick-settings-hint {
   margin: -4px 0 0;
+  font-size: 11px;
+}
+
+.quick-settings-update {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.quick-settings-update p {
+  margin: 0;
   font-size: 11px;
 }
 

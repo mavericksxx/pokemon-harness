@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useAudioStore } from '@/audio/audioStore';
+import { showUpdateToast } from '@/updateNotifier';
 
 /**
  * Topbar "quick settings" popover — the handful of things worth reaching
  * mid-flow without leaving the garden for the full settings dialog
  * (SettingsPanel.tsx): theme, mute-all + music on/off + volume, the claude
- * provider's auto-mode, and keep-awake. Same anchored-popover shape as
- * AudioPopover.tsx (outside-click via a full-screen catcher, Escape closes)
+ * provider's auto-mode, keep-awake, and an on-demand update check. Same
+ * anchored-popover shape as AudioPopover.tsx (outside-click via a full-screen
+ * catcher, Escape closes)
  * — deliberately NOT a duplicate of AudioPopover's mini-player; the sound
  * row here just links back to it for transport/search/the full track list.
  *
@@ -36,6 +38,10 @@ export function QuickSettings(): JSX.Element {
   const setMusicOn = useAudioStore((s) => s.setMusicOn);
   const setMusicVolume = useAudioStore((s) => s.setMusicVolume);
 
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<
+    'idle' | 'checking' | 'up to date' | 'checked — offline?'
+  >('idle');
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -48,6 +54,17 @@ export function QuickSettings(): JSX.Element {
   const openFullSettings = (): void => {
     setOpen(false);
     setFullSettingsOpen(true);
+  };
+
+  const checkForUpdateNow = async (): Promise<void> => {
+    setUpdateCheckStatus('checking');
+    const result = await window.api.checkForUpdateNow();
+    if (result?.available) {
+      showUpdateToast(result);
+      setUpdateCheckStatus('idle');
+    } else {
+      setUpdateCheckStatus(result ? 'up to date' : 'checked — offline?');
+    }
   };
 
   return (
@@ -135,6 +152,22 @@ export function QuickSettings(): JSX.Element {
                 </span>
               </span>
             </label>
+
+            <div className="quick-settings-update">
+              <button
+                type="button"
+                className="quick-settings-all"
+                onClick={() => void checkForUpdateNow()}
+                disabled={updateCheckStatus === 'checking'}
+              >
+                {updateCheckStatus === 'checking' ? 'checking…' : 'check for updates'}
+              </button>
+              {updateCheckStatus !== 'idle' && updateCheckStatus !== 'checking' && (
+                <p className="hint" aria-live="polite">
+                  {updateCheckStatus}
+                </p>
+              )}
+            </div>
 
             <button type="button" className="quick-settings-all" onClick={openFullSettings}>
               all settings…
