@@ -54,6 +54,13 @@ startUpdateCheckListener();
 // arrives, same rationale as the quit-intercept listener above.
 window.api.onFullscreenChange((isFullScreen) => useStore.getState().setIsFullScreen(isFullScreen));
 
+// Idle-energy pass (2026-09-01) — window hide/show/minimize/restore, one of
+// the two signals GardenScene's `syncRenderState` combines to decide when to
+// stop the garden's render loop (the other is its own local
+// `document.visibilitychange` listener). Registered synchronously here, same
+// rationale as the fullscreen listener above.
+window.api.onWindowVisibilityChange((visible) => useStore.getState().setWindowVisible(visible));
+
 // In-app provider usage-limits panel (BACKLOG "next up" item 1) — same
 // independent-of-boot()'s-async-work wiring as the fullscreen listener
 // above; main only ever actually PUSHES on this channel while the toggle is

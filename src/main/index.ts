@@ -703,6 +703,11 @@ function createWindow(backgroundColor: string): void {
     // navigation — including the render-process-gone auto-reload path —
     // starts with the correct inset instead of assuming windowed.
     win.webContents.send('window:fullscreenChanged', win.isFullScreen());
+    // Idle-energy pass (2026-09-01) — same "push current state on every
+    // fresh navigation" rationale as fullscreenChanged above, so a reload
+    // (including the render-process-gone auto-reload path) starts the
+    // garden's render-pause state correctly instead of assuming visible.
+    win.webContents.send('window:visibilityChanged', win.isVisible());
     // Usage can finish its launch poll before or during renderer boot. Replay
     // the cache after the page load so the startup push cannot be lost; this
     // is push-only and never triggers credential access.
@@ -723,6 +728,28 @@ function createWindow(backgroundColor: string): void {
   win.on('leave-full-screen', () => {
     if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', false);
   });
+
+  // Idle-energy pass (2026-09-01) — the garden ticker's render pass is real
+  // GPU/CPU work the OS counts toward "Significant Energy" even while
+  // nothing is visible. `document.hidden` (checked in the renderer) already
+  // flips correctly on minimize — that's a Chromium page-visibility signal,
+  // independent of this window's `backgroundThrottling: false` (which only
+  // disables Chromium's timer/rAF THROTTLING, not visibility reporting) —
+  // but macOS's Cmd+H "Hide <app>" (wired to the app menu's `role: 'hide'`
+  // above) hides every window without necessarily flipping it, so
+  // GardenScene's `syncRenderState` needs this main-authoritative signal too.
+  // `win.isVisible()` is false for both hidden and minimized, so this and
+  // `document.hidden` are redundant on the minimize path and complementary
+  // on the hide path — GardenScene ORs them (either saying "hidden" pauses
+  // rendering), matching that fail-open design (a dropped/late event here
+  // must never be the ONLY thing keeping the garden paused).
+  const sendWindowVisibility = (): void => {
+    if (!win.webContents.isDestroyed()) win.webContents.send('window:visibilityChanged', win.isVisible());
+  };
+  win.on('hide', sendWindowVisibility);
+  win.on('show', sendWindowVisibility);
+  win.on('minimize', sendWindowVisibility);
+  win.on('restore', sendWindowVisibility);
 
   // A renderer OOM-kill or fatal GPU/WebGL loss leaves the native chrome (this
   // window, its title bar) alive but the page a permanent white screen — the

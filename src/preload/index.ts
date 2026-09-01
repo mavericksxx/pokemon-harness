@@ -268,6 +268,16 @@ const api = {
     return () => ipcRenderer.removeListener('window:fullscreenChanged', listener);
   },
 
+  /** Window hide/show/minimize/restore (idle-energy pass, 2026-09-01) — see
+   *  main/index.ts's `hide`/`show`/`minimize`/`restore` handlers and
+   *  GardenScene.tsx's `syncRenderState`, which combines this with its own
+   *  `document.visibilitychange` listener to decide when to stop rendering. */
+  onWindowVisibilityChange: (cb: (visible: boolean) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, visible: boolean): void => cb(visible);
+    ipcRenderer.on('window:visibilityChanged', listener);
+    return () => ipcRenderer.removeListener('window:visibilityChanged', listener);
+  },
+
   // ─── App version + updates (ship-cut item 4) ───────────────────────────
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),

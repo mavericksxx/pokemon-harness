@@ -164,6 +164,15 @@ interface HarnessState {
    *  `enter-full-screen`/`leave-full-screen` handlers). Drives the topbar's
    *  traffic-light-safe inset in App.tsx. */
   isFullScreen: boolean;
+  /** Window hide/minimize/show/restore state, pushed from main (main.tsx's
+   *  `window.api.onWindowVisibilityChange` listener; see main/index.ts's
+   *  `hide`/`show`/`minimize`/`restore` handlers) — idle-energy pass
+   *  (2026-09-01). GardenScene combines this with its own
+   *  `document.visibilitychange` listener to decide when to stop rendering;
+   *  see that component's `syncRenderState`. Defaults true (fail-open: a
+   *  dropped IPC event must never leave the garden frozen while genuinely
+   *  visible). */
+  windowVisible: boolean;
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>,
@@ -204,6 +213,7 @@ interface HarnessState {
   setSettingsOpen(open: boolean): void;
   setQuitDialogOpen(open: boolean, count?: number): void;
   setIsFullScreen(isFullScreen: boolean): void;
+  setWindowVisible(windowVisible: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
@@ -259,6 +269,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   quitDialogOpen: false,
   quitDialogCount: 0,
   isFullScreen: false,
+  windowVisible: true,
 
   addSession: (s, options) => {
     const session: Session = {
@@ -335,6 +346,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setQuitDialogOpen: (open, count) => set((st) => ({ quitDialogOpen: open, quitDialogCount: count ?? st.quitDialogCount })),
   setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
+  setWindowVisible: (windowVisible) => set({ windowVisible }),
 
   pushToast: (text, action) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
