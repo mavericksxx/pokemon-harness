@@ -784,6 +784,88 @@ export function GardenScene(): JSX.Element {
         onBattlerDone: (key, done) => useStore.getState().setBattlerDone(key, done)
       });
 
+      // Click-resolution fix (v1.8.0 bug report — a battler click jumping
+      // to a DIFFERENT session's walker): both Walker and Battler give
+      // their `container` an explicit rectangular `hitArea` sized off the
+      // drawn sprite (generous — it covers transparent padding, not just
+      // opaque pixels), and both are direct children of `charLayer`
+      // (`sortableChildren = true`, zIndex = feet Y). Pixi's own
+      // `EventBoundary.hitTestRecursive` walks `charLayer.children` highest-
+      // zIndex-first and returns the FIRST container whose hitArea contains
+      // the point — so whichever walker/battler happens to be "in front"
+      // (bigger py) wins any overlap, even where its rectangle is empty air
+      // and the point is actually over a DIFFERENT, smaller-zIndex sprite's
+      // visible pixels standing just behind it. Battlers cluster near their
+      // parent (`pickRoamHome`) and idle walkers cluster near their own
+      // station, so this overlap is common with several sessions live.
+      //
+      // Fix: intercept every character click at `charLayer` during the
+      // CAPTURE phase (before Pixi's own bubbling reaches whichever
+      // container it picked). Only clicks Pixi ALREADY resolved to a
+      // walker or battler are touched — `charLayer` also parents
+      // GardenCharm's well/signpost hotspots (gardenCharm.ts's `well`/`hot`,
+      // also charLayer descendants with their own hitArea/zIndex), and
+      // those are left entirely alone so a walker overlapping a hotspot
+      // can't steal ITS click the same way. For a walker/battler `e.target`,
+      // independently re-test every walker and battler's own hitArea
+      // against the same point and redispatch to whichever one's FEET are
+      // nearest the click — not whichever Pixi's first-hit walk happened to
+      // reach first. `event.getLocalPosition(candidate)` conveniently
+      // returns the click in that candidate's own local space, i.e. exactly
+      // its (dx, dy) offset from its own feet (`container.x/y`), so no
+      // separate distance computation against a shared coordinate space is
+      // needed. `charLayer.eventMode = 'static'` is required for it to
+      // receive ANY event at all (`EventBoundary.notifyTarget` drops
+      // ancestors that aren't interactive) but, since `charLayer` itself
+      // has no `hitArea`/`containsPoint`, it never becomes a hit TARGET on
+      // its own — existing background hit-testing is unchanged (bare ground
+      // never reaches this handler at all: `world`'s own hitArea only
+      // resolves once every `content`/`charLayer` descendant fails ITS OWN
+      // test first).
+      charLayer.eventMode = 'static';
+      // A container Pixi itself would prune from hit-testing (hidden —
+      // GardenScene's reconcile sets an inactive-workspace walker's
+      // `container.visible = false`, and BattleManager.setVisible does the
+      // same for that parent's battlers — or otherwise non-renderable/
+      // non-interactive) must never win here: `hitTestRecursive`'s own
+      // `_interactivePrune` (EventBoundary.mjs) already keeps such a
+      // container from ever becoming `e.target`, but this manual re-scan
+      // bypasses that pruning entirely unless it's re-applied itself. A
+      // stale/hidden pokemon from another workspace could otherwise "win"
+      // nearest-feet and get the redispatched click, selecting a session
+      // from a garden the click never visually touched.
+      const isClickable = (c: Container): boolean =>
+        c.visible && c.renderable && c.eventMode !== 'none';
+      const resolveCharacterClick = (e: FederatedPointerEvent): void => {
+        const candidates: Container[] = [];
+        for (const rt of runtimes.values()) {
+          if (isClickable(rt.walker.container)) candidates.push(rt.walker.container);
+        }
+        for (const candidate of battleManager.getClickCandidates()) {
+          if (isClickable(candidate.container)) candidates.push(candidate.container);
+        }
+        if (!(e.target instanceof Container) || !candidates.includes(e.target)) return;
+        let winner = e.target;
+        const targetLocal = e.getLocalPosition(winner);
+        let winnerDistSq = targetLocal.x * targetLocal.x + targetLocal.y * targetLocal.y;
+        for (const container of candidates) {
+          if (!container.hitArea) continue;
+          const local = e.getLocalPosition(container);
+          if (!container.hitArea.contains(local.x, local.y)) continue;
+          const distSq = local.x * local.x + local.y * local.y;
+          if (distSq < winnerDistSq) {
+            winner = container;
+            winnerDistSq = distSq;
+          }
+        }
+        // Pixi's own pick was already the nearest-feet winner — nothing to
+        // correct, leave normal propagation alone.
+        if (winner === e.target) return;
+        e.stopPropagation();
+        winner.emit('pointertap', e);
+      };
+      charLayer.addEventListener('pointertap', resolveCharacterClick, { capture: true });
+
       // Phase 8 §7 — garden charm: berry-bush errands, idle chatter, and the
       // signpost/well clickable props. Same instantiate-here/destroy-in-
       // cleanup lifecycle as battleManager above, for the same reason (needs
@@ -1541,6 +1623,7 @@ export function GardenScene(): JSX.Element {
         canvas.removeEventListener?.('webglcontextrestored', onContextRestored);
         if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
         world.off('pointerdown', onWorldPointerDown);
+        charLayer.removeEventListener('pointertap', resolveCharacterClick, { capture: true });
         window.removeEventListener('pointermove', onWindowPointerMove);
         window.removeEventListener('pointerup', endDrag);
         window.removeEventListener('pointercancel', endDrag);
