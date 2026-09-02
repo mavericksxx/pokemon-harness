@@ -293,9 +293,13 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
       // next byte from that shell would fall through to full regex scraping
       // — the exact hazard the `provider === 'shell'` branch above exists to
       // avoid for a plain-shell session from birth (see `Entry.parser`'s own
-      // comment). Once dropped it stays dropped: nothing in this app resumes
-      // a 'done' session's CLI in place, so there's no path that would need
-      // a parser back.
+      // comment). Once dropped it stays dropped for THIS terminal entry —
+      // Arceus is the one exception (provider-aware Arceus, BACKLOG item 1:
+      // he no longer sits outside the shell-fallback path, so his own
+      // mid-run resume, arceus.ts's `tryResumeArceus`, can find this exact
+      // entry with `parser === null`) and that function deliberately
+      // disposes and recreates the entry before resuming, rather than
+      // reusing it, so it never inherits a dead parser.
       parser = null;
     }
     term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
