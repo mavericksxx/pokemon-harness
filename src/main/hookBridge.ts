@@ -24,7 +24,7 @@
  * `hive-node` launcher.
  */
 import { createServer, type Server } from 'node:net';
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WebContents } from 'electron';
 import { log } from './diagnostics';
@@ -262,6 +262,27 @@ export class HookBridge {
   private readonly delegateCliFile: string;
   private readonly launcherFile: string;
   readonly sockPath: string;
+  /** Identity of the socket file we're CURRENTLY bound to, captured right
+   *  after `listen()` succeeds. Existence alone can't tell "our socket" from
+   *  a foreign one at the same path — a second app instance `rmSync`s +
+   *  recreates `hooks.sock` at this exact path (see this file's header for
+   *  the incident this fixes), so `checkSocketHealth` below compares the
+   *  live file's (dev, ino) against this rather than just checking presence. */
+  private sockIdentity: { dev: number; ino: number } | null = null;
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
+  /** True from the moment `bind()` calls `listen()` until its callback (or
+   *  its `'error'` handler) fires. `listen()` binds the path synchronously
+   *  but Node defers that callback to a later tick — a `checkSocketHealth()`
+   *  landing in that window would see a live, correct socket file but a
+   *  still-stale (or null) `sockIdentity`, read that as "foreign", and tear
+   *  down the very server it's mid-bind. Both `checkSocketHealth` call sites
+   *  (the timer and pty.ts's on-demand call) are guarded by this instead. */
+  private bindPending = false;
+  /** Guards "one toast per incident" (checkSocketHealth's doc comment) — set
+   *  the moment self-heal fires, cleared once a rebind actually succeeds
+   *  (`recordSockIdentity`) so a LATER, separate incident still gets its own
+   *  toast rather than being silently swallowed forever by one stale flag. */
+  private toastSentForIncident = false;
   /** BACKLOG "next up" item 2 — mirrors index.ts's `keepAwakeEnabled` module
    *  variable pattern for a setting read at spawn time rather than passed
    *  through per-call. Default off so a freshly-constructed bridge (tests,
@@ -341,11 +362,21 @@ export class HookBridge {
    *  shim run (verification) must be able to reach it with no session live. */
   start(): void {
     if (this.server) return;
-    try {
-      if (existsSync(this.sockPath)) rmSync(this.sockPath);
-    } catch {
-      /* best-effort — a stale socket file from a crashed prior run */
-    }
+    this.bind();
+    // Socket inode self-heal (hooks.sock clobber bug) — periodic safety net
+    // for whenever nothing proactively calls `checkSocketHealth` in time
+    // (e.g. a second app instance replaces hooks.sock while every session is
+    // idle, between spawns). unref()'d so this timer never itself keeps the
+    // app process alive.
+    this.healthTimer = setInterval(() => this.checkSocketHealth(), 5000);
+    this.healthTimer.unref();
+  }
+
+  /** Actual bind/listen, factored out of `start()` so `checkSocketHealth`'s
+   *  rebind path can reuse it verbatim. */
+  private bind(): void {
+    this.bindPending = true;
+    this.removeForeignSocketFile();
     this.server = createServer((conn) => {
       let buf = '';
       conn.on('data', (d) => {
@@ -393,7 +424,10 @@ export class HookBridge {
       // EADDRINUSE here means a second app instance is running (both bind
       // the same per-userData sockPath) — harmless: the first instance's
       // socket keeps serving hooks fine, the second just won't route any
-      // (see BACKLOG's known-items note this closes).
+      // (see BACKLOG's known-items note this closes). Should be rare now
+      // that index.ts holds a single-instance lock (a second launch quits
+      // before ever reaching hookBridge), but kept as a defensive fallback.
+      this.bindPending = false;
       if (e.code === 'EADDRINUSE') {
         log('hooks', 'warn', 'hooks socket already in use — likely a second app instance; its hook events will be dropped', {
           sockPath: this.sockPath
@@ -402,21 +436,214 @@ export class HookBridge {
         log('hooks', 'error', 'hooks socket server error', { message: e.message, code: e.code });
       }
     });
-    this.server.listen(this.sockPath);
+    this.server.listen(this.sockPath, () => this.recordSockIdentity());
   }
 
-  stop(): void {
+  /** Remove whatever currently sits at `sockPath` before a (re)bind — but
+   *  ONLY if it's itself a socket. A stale UDS file (a crashed prior run, or
+   *  one a foreign instance left behind) is safe to unlink; a REGULAR file
+   *  never is, on the off chance something else ever collides on this exact
+   *  path — same rule `stop()` applies on the way out. */
+  private removeForeignSocketFile(): void {
     try {
-      this.server?.close();
+      if (existsSync(this.sockPath) && statSync(this.sockPath).isSocket()) {
+        rmSync(this.sockPath);
+      }
     } catch {
-      /* noop */
+      /* best-effort — a stale socket file from a crashed prior run */
     }
+  }
+
+  /** Captures (dev, ino) for the socket file right after a successful
+   *  `listen()`, and clears the "already toasted" guard so a later, separate
+   *  incident gets its own toast. */
+  private recordSockIdentity(): void {
+    try {
+      const st = statSync(this.sockPath);
+      this.sockIdentity = { dev: st.dev, ino: st.ino };
+    } catch (e) {
+      log('hooks', 'error', 'failed to stat hooks.sock right after listen', {
+        message: e instanceof Error ? e.message : String(e)
+      });
+    }
+    this.toastSentForIncident = false;
+    this.bindPending = false;
+  }
+
+  /** True only while `sockPath` still points at the exact socket we're bound
+   *  to. False for a missing path (ENOENT) or one that now resolves to a
+   *  different (dev, ino) — either way, someone else has the name now. */
+  private isSockPathOurs(): boolean {
+    if (!this.sockIdentity) return false;
+    try {
+      const st = statSync(this.sockPath);
+      return st.dev === this.sockIdentity.dev && st.ino === this.sockIdentity.ino;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Socket inode self-heal. Cheap (one `statSync`) — safe to call both from
+   *  the periodic timer above and on-demand, right before the main process
+   *  spawns a session or a delegate (see pty.ts's `spawn()`), so a session
+   *  that's about to need working hooks gets a freshly-verified socket
+   *  rather than waiting up to 5s for the next timer tick.
+   *
+   *  If the path is missing or foreign (a second app instance clobbered it —
+   *  this file's header), closes the OLD server and binds a fresh one at the
+   *  same path. `server.close()` only stops the OLD server from accepting
+   *  NEW connections; any connection already in flight on it (a shim mid
+   *  round-trip) finishes normally — closing doesn't touch it — so this
+   *  never drops an in-flight hook beyond that already-existing `close()`
+   *  contract.
+   *
+   *  Deliberately does NOT protect a foreign file the way `stop()` does
+   *  (see that method's own comment on `close()`'s unlink-by-path
+   *  behavior): reclaiming the path is the entire point of a rebind, and
+   *  `bind()`'s own `removeForeignSocketFile()` already removes a foreign
+   *  SOCKET on purpose (never a regular file). In the real scenario this
+   *  fixes — a dead file a since-exited second instance left behind —
+   *  that's exactly correct. It's only asymmetric with `stop()` if the
+   *  "foreign" owner at this path happens to be a second instance that's
+   *  still genuinely alive (a lock-bypass edge case `stop()` treats as
+   *  "leave it alone"); this method still reclaims the path in that case,
+   *  since a bridge that can't route hooks at all is worse than one that
+   *  wins a rare race against another live bridge doing the same thing. */
+  checkSocketHealth(): void {
+    if (!this.server) return; // start() never called — standalone/test usage
+    if (this.bindPending) return; // mid-(re)bind — see `bindPending`'s own comment
+    if (this.isSockPathOurs()) return;
+    log('hooks', 'warn', 'hooks.sock replaced/missing — re-binding', { sockPath: this.sockPath });
+    if (!this.toastSentForIncident) {
+      this.toastSentForIncident = true;
+      this.sendToast('hook socket was replaced by another app instance — re-bound');
+    }
+    const old = this.server;
     this.server = null;
     try {
-      if (existsSync(this.sockPath)) rmSync(this.sockPath);
+      old.close();
     } catch {
       /* noop */
     }
+    this.bind();
+  }
+
+  private sendToast(text: string): void {
+    const wc = this.getWebContents();
+    if (!wc || wc.isDestroyed()) return;
+    try {
+      wc.send('app:toast', text);
+    } catch {
+      /* window tore down mid-send */
+    }
+  }
+
+  /** Only remove the socket file if it's still OURS — another instance may
+   *  now own this path, and removing it out from under a live owner would
+   *  just reproduce this exact bug from the other side.
+   *
+   *  This can't be a simple "check ownership, then maybe rmSync" guard
+   *  around `server.close()`, because `close()` itself already deletes
+   *  whatever socket file currently sits at the bound path — by path
+   *  string, not by the file's actual identity. Confirmed empirically
+   *  (macOS, Node v25.6.1): bind server A at `p`, replace `p` with a
+   *  DIFFERENT server B's socket without A's knowledge, then call
+   *  `A.close()` — B's socket file is deleted too, even though A never
+   *  touched `p` again after B rebound it. A `rmSync` guarded on ownership
+   *  is powerless against that: the unlink already happened inside
+   *  `close()`, before any guard of ours runs. So when the path isn't ours,
+   *  the foreign file is moved aside before closing and restored once
+   *  `close()`'s callback confirms the handle is actually gone — the only
+   *  way to let our own handle release its file descriptor without
+   *  destroying whatever another instance is now serving from that name. */
+  stop(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    // Snapshotted, NOT re-read off `this.sockIdentity` from inside `finish`
+    // below: `this.sockIdentity` is nulled out a couple of lines down, and
+    // `isOurs` needs a value to compare against regardless of when it's
+    // called. Called BOTH now (to decide whether to protect the file before
+    // closing) and again inside `finish` (to decide whether to actually
+    // delete it) — the second call matters even against the exact same
+    // identity, because a rebind by another instance in between (the same
+    // clobber this file exists to fix, just happening to land in this
+    // narrow window) must be re-detected against a LIVE `statSync`, not a
+    // cached true/false from before `close()` ran.
+    const ourIdentity = this.sockIdentity;
+    const isOurs = (): boolean => {
+      if (!ourIdentity) return false;
+      try {
+        const st = statSync(this.sockPath);
+        return st.dev === ourIdentity.dev && st.ino === ourIdentity.ino;
+      } catch {
+        return false;
+      }
+    };
+    const srv = this.server;
+    this.server = null;
+    this.sockIdentity = null;
+
+    let backupPath: string | null = null;
+    if (!isOurs()) {
+      try {
+        if (existsSync(this.sockPath)) {
+          backupPath = `${this.sockPath}.pokeharness-stop-${process.pid}`;
+          renameSync(this.sockPath, backupPath);
+        }
+      } catch (e) {
+        // Foreign file couldn't be moved aside — `close()` below may still
+        // delete it. Nothing further we can do (it isn't ours to touch
+        // otherwise), but this must not silently read as "protected".
+        backupPath = null;
+        log('hooks', 'warn', 'could not protect a foreign socket during stop() — it may be deleted by close()', {
+          message: e instanceof Error ? e.message : String(e)
+        });
+      }
+    }
+
+    const finish = (): void => {
+      if (backupPath) {
+        try {
+          if (existsSync(backupPath)) renameSync(backupPath, this.sockPath);
+        } catch (e) {
+          // Best-effort — if this fails, the foreign instance's own
+          // self-heal (checkSocketHealth) will notice its socket is gone
+          // and re-bind on its own next check/spawn.
+          log('hooks', 'warn', 'could not restore a foreign socket after stop()', {
+            message: e instanceof Error ? e.message : String(e)
+          });
+        }
+        return;
+      }
+      // Re-check NOW, not the value from before `close()` was called — see
+      // this method's own header.
+      try {
+        if (isOurs() && existsSync(this.sockPath)) rmSync(this.sockPath);
+      } catch {
+        /* noop */
+      }
+    };
+
+    // `finish` runs SYNCHRONOUSLY right after `close()`, not as its
+    // callback: `stop()` is called from index.ts's `before-quit`, and
+    // Electron proceeds to quit as soon as that handler returns — the event
+    // loop isn't guaranteed to turn again, so a callback deferred to the
+    // 'close' event could simply never fire and leave a foreign socket
+    // stranded at its `.pokeharness-stop-<pid>` backup path forever. Verified
+    // this is safe (not just assumed): a standalone harness test drove
+    // `close()` immediately followed by the rename-back with ZERO event-loop
+    // ticks in between (no `await`/`setTimeout` between the `stop()` call and
+    // asserting the foreign file survived, unchanged, and still serving
+    // connections) — the OS-level unlink `close()` triggers is not something
+    // this needs to wait for a callback to observe.
+    try {
+      srv?.close();
+    } catch {
+      /* noop */
+    }
+    finish();
   }
 
   /** Absolute, quoted `<launcher> <shim>` command for a settings hook entry.
