@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { formatRosterLine } from '@shared/arceus';
 import { useStore } from '@/store/store';
 import { toRosterEntries } from '@/arceus';
+import { echoArceusDispatch, isDemoSession } from '@/demo';
 
 interface Props {
   sessionId: string;
@@ -25,6 +26,13 @@ export function ArceusDispatchBox({ sessionId }: Props): JSX.Element {
   const send = (): void => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    // In-app demo mode (demo.ts) — a demo Arceus has no real pty to write
+    // into; echo the dispatch and a canned reply into his terminal instead.
+    if (isDemoSession(sessionId)) {
+      echoArceusDispatch(trimmed);
+      setText('');
+      return;
+    }
     const roster = formatRosterLine(toRosterEntries(useStore.getState().sessions));
     void window.api.writePty(sessionId, `${roster} ${trimmed}\r`);
     setText('');
