@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
+import { NewTerminalButton } from '@/components/NewTerminalButton';
 
 interface Props {
   onNewSession(): void;
@@ -34,6 +35,7 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
         <button type="button" className="focus-sidebar-new" onClick={onNewSession}>
           + add agent
         </button>
+        <NewTerminalButton className="focus-sidebar-terminal" />
       </div>
       <div className="focus-sidebar-list">
         {sessions.map((s) => (
