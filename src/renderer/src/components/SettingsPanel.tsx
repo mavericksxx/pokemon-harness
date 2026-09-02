@@ -18,6 +18,7 @@ import { PROVIDER_LIST } from '@shared/agentProvider';
 import { showUpdateToast } from '@/updateNotifier';
 import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
 import type { UsageProviderId } from '@shared/usageTypes';
+import { closeDemoConsole, enterDemo, exitDemo, toggleDemoConsole, useDemoActive } from '@/demo';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
  *  item 1) — the ones with a verified `autoModeArgs` in agentProvider.ts. */
@@ -49,6 +50,7 @@ const SECTIONS = [
   { id: 'usage', label: 'usage' },
   { id: 'harness-home', label: 'harness home' },
   { id: 'arceus', label: 'arceus' },
+  { id: 'demo', label: 'demo' },
   { id: 'sound', label: 'sound' },
   { id: 'terminal', label: 'terminal' },
   { id: 'config', label: 'config' },
@@ -92,6 +94,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setDefaultAgentProvider = useAppSettingsStore((s) => s.setDefaultAgentProvider);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const demoActive = useDemoActive();
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
   const setShellFallbackEnabled = useAppSettingsStore((s) => s.setShellFallbackEnabled);
   const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
@@ -436,6 +439,34 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                   <button type="button" onClick={() => setResetArceusOpen(true)}>
                     reset arceus…
                   </button>
+                </div>
+              )}
+
+              {activeSection === 'demo' && (
+                <div className="settings-card">
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={demoActive}
+                      onChange={(e) => (e.target.checked ? enterDemo() : exitDemo())}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">demo mode</span>
+                      <span className="settings-row-hint">mock sessions — nothing is spawned, nothing is saved</span>
+                    </span>
+                  </label>
+                  {demoActive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDemoConsole();
+                        setOpen(false);
+                        toggleDemoConsole();
+                      }}
+                    >
+                      open demo console (⌘D)
+                    </button>
+                  )}
                 </div>
               )}
 
