@@ -62,6 +62,11 @@ setHideClaudeStatusline(v: boolean): void;
    *  rebuild (nothing to pixelate yet at the old resolution) and correct
    *  immediately after it. */
   setLowResGarden(v: boolean): void;
+  /** Harness-owned instructions file (HARNESS.md) toggle — same
+   *  persist-immediately pattern as every other setter here; main's
+   *  `appSettings:saveSettings` handler reaches pty.ts's
+   *  `setHarnessInstructions` off this value. */
+  setHarnessInstructionsEnabled(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -181,6 +186,12 @@ setHideClaudeStatusline: (v) => {
     set({ settings });
     persist(settings);
     applyLowResGardenClass(v);
+  },
+
+  setHarnessInstructionsEnabled: (v) => {
+    const settings = { ...get().settings, harnessInstructionsEnabled: v };
+    set({ settings });
+    persist(settings);
   },
 
   addRecentFolder: (path) => {

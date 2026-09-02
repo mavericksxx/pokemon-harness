@@ -79,6 +79,7 @@ export function useDemoConsoleOpen(): boolean {
 }
 
 export function toggleDemoConsole(): void {
+  if (!activeAtom.get()) return;
   consoleOpenAtom.set(!consoleOpenAtom.get());
 }
 
@@ -91,6 +92,7 @@ export function enterDemo(): void {
 }
 
 export function exitDemo(): void {
+  closeDemoConsole();
   if (!activeAtom.get()) return;
   cancelShowreel();
   const ids = [...demoIds];
@@ -182,13 +184,13 @@ function beat(id: string): void {
 // ─── triggers ───────────────────────────────────────────────────────────────
 
 export function spawn(): string {
-  enterDemo();
+  if (!activeAtom.get()) return '';
   const picked = pickFreeLine(useStore.getState().takenLines());
   return addDemoSession(picked.name, picked.line, false);
 }
 
 export function shiny(): string {
-  enterDemo();
+  if (!activeAtom.get()) return '';
   const picked = pickFreeLine(useStore.getState().takenLines());
   return addDemoSession(picked.name, picked.line, true);
 }
@@ -204,9 +206,9 @@ const TOOL_CYCLE: readonly { tool: string; target: string }[] = [
 const toolCycleIndex = new Map<string, number>();
 
 export function toolCall(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   const i = (toolCycleIndex.get(id) ?? 0) % TOOL_CYCLE.length;
   toolCycleIndex.set(id, i + 1);
@@ -216,9 +218,9 @@ export function toolCall(): void {
 }
 
 export function thinking(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   useStore.getState().updateSession(id, { status: 'working', tool: undefined, toolTarget: undefined });
   void typeLines(id, ['> thinking…']);
@@ -226,9 +228,9 @@ export function thinking(): void {
 
 /** hookRouter.ts:324's `Stop` patch. */
 export function idle(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   useStore.getState().updateSession(id, { status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
   void typeLines(id, ['> idle.']);
@@ -236,9 +238,9 @@ export function idle(): void {
 
 /** hookRouter.ts:422's "needs you" patch. */
 export function needsYou(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   useStore.getState().updateSession(id, { status: 'blocked', station: 'signpost' });
   void typeLines(id, ['> waiting for your input…']);
@@ -246,42 +248,42 @@ export function needsYou(): void {
 
 /** terminalRegistry.ts:270-276's PtyExit patch. */
 export function done(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   useStore.getState().updateSession(id, { status: 'done', exitCode: 0, tool: undefined, toolTarget: undefined, station: 'wander' });
   void typeLines(id, ['\x1b[90m[process exited with code 0]\x1b[0m']);
 }
 
 export function nap(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   const s = useStore.getState().sessions.find((x) => x.id === id);
   useStore.getState().updateSession(id, { napping: !s?.napping });
 }
 
 export function looping(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   const s = useStore.getState().sessions.find((x) => x.id === id);
   useStore.getState().updateSession(id, { looping: !s?.looping });
 }
 
 export function smallTalk(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   emitCharmSignal({ type: 'chatter', sessionId: id });
 }
 
 export function berry(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   beat(id);
   emitCharmSignal({ type: 'berry', sessionId: id });
 }
@@ -310,6 +312,7 @@ function spawnSubagentFor(parentId: string): void {
  *  spawned session (same tick) has no walker yet; callers that chain off
  *  `spawn`/`shiny` should give it ~300ms first (see `showreel`/`mega`). */
 export function subagent(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
   const parent = useStore.getState().sessions.find((s) => s.id === id);
@@ -317,11 +320,11 @@ export function subagent(): void {
     useStore.getState().pushToast('pick a non-arceus, non-terminal demo session first');
     return;
   }
-  enterDemo();
   spawnSubagentFor(id);
 }
 
 export function subagentDone(): void {
+  if (!activeAtom.get()) return;
   if (!lastSubagentParentId || !lastSubagentToolUseId) {
     useStore.getState().pushToast('no demo subagent to complete');
     return;
@@ -337,7 +340,7 @@ export function subagentDone(): void {
  *  coverage) since it's both a MEGA_FORMS key and one of the 42 bundled
  *  species, so this never needs a lazy-sprite fetch. */
 export function mega(): void {
-  enterDemo();
+  if (!activeAtom.get()) return;
   const line = speciesEntry('charizard')?.line ?? 'charizard';
   const id = addDemoSession('charizard', line, false);
   void (async () => {
@@ -359,9 +362,9 @@ export function mega(): void {
  *  AFTER `status` flips to 'working', not before — otherwise the very next
  *  1Hz tick sees `workAccumMs` still at 0 and skips the session outright. */
 export function evolve(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
-  enterDemo();
   const session = useStore.getState().sessions.find((s) => s.id === id);
   if (!session) return;
   const entry = speciesEntry(session.pokemon);
@@ -385,6 +388,7 @@ export function evolve(): void {
  *  is guarded (sessions.ts) to skip `killPty` for a demo id, so nothing here
  *  ever touches a real pty. */
 export function recall(): void {
+  if (!activeAtom.get()) return;
   const id = selectedDemoId();
   if (!id) return;
   const session = useStore.getState().sessions.find((s) => s.id === id);
@@ -404,7 +408,7 @@ const ARCEUS_TRANSCRIPT: readonly string[] = [
 ];
 
 export function arceus(): void {
-  enterDemo();
+  if (!activeAtom.get()) return;
   if (isDemoSession(ARCEUS_SESSION_ID)) {
     useStore.getState().select(ARCEUS_SESSION_ID);
     return;
@@ -434,6 +438,7 @@ export function arceus(): void {
 /** ArceusDispatchBox.tsx's demo-Arceus branch — echoes the dispatched text
  *  and a canned reply into his terminal instead of writing a real pty. */
 export function echoArceusDispatch(text: string): void {
+  if (!activeAtom.get()) return;
   writeReplayNow(ARCEUS_SESSION_ID, `\r\n> ${text}\r\n`);
   writeReplayNow(ARCEUS_SESSION_ID, 'on it — dispatching now.\r\n');
 }
@@ -443,7 +448,7 @@ export function echoArceusDispatch(text: string): void {
 /** Fires the ritual signal directly — NEVER `startClosingTime()`
  *  (closingTime.ts), which quits the app on completion. */
 export function closingRitual(): void {
-  enterDemo();
+  if (!activeAtom.get()) return;
   emitClosingRitualSignal({ type: 'start' });
 }
 
@@ -451,7 +456,7 @@ export function closingRitual(): void {
  *  looping-session "steer" offer store.ts's `Toast.action` doc comment
  *  describes) rather than an invented demo-only string. */
 export function toast(): void {
-  enterDemo();
+  if (!activeAtom.get()) return;
   useStore.getState().pushToast('demo agent finished.');
   useStore.getState().pushToast('demo agent is looping — want to steer it?', {
     label: 'steer',
@@ -493,7 +498,7 @@ export async function showreel(): Promise<void> {
     cancelShowreel();
     return;
   }
-  enterDemo();
+  if (!activeAtom.get()) return;
   showreelAbort = false;
   showreelAtom.set(true);
   try {

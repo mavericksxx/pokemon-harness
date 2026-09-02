@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useAudioStore } from '@/audio/audioStore';
 import { showUpdateToast } from '@/updateNotifier';
+import { enterDemo, exitDemo, useDemoActive } from '@/demo';
 
 /**
  * Topbar "quick settings" popover — the handful of things worth reaching
@@ -31,6 +32,7 @@ export function QuickSettings(): JSX.Element {
   const setTheme = useAppSettingsStore((s) => s.setTheme);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const demoActive = useDemoActive();
   const claudeAutoMode = appSettings.autoModeByProvider.claude ?? false;
 
   const audioSettings = useAudioStore((s) => s.settings);
@@ -150,6 +152,18 @@ export function QuickSettings(): JSX.Element {
                 <span className="settings-row-hint">
                   {appSettings.keepAwake ? 'your mac stays awake while sessions run' : 'your mac can sleep normally'}
                 </span>
+              </span>
+            </label>
+
+            <label className="settings-row">
+              <input
+                type="checkbox"
+                checked={demoActive}
+                onChange={(e) => (e.target.checked ? enterDemo() : exitDemo())}
+              />
+              <span className="settings-row-text">
+                <span className="settings-row-label">demo mode</span>
+                <span className="settings-row-hint">mock sessions — nothing is spawned, nothing is saved</span>
               </span>
             </label>
 

@@ -18,6 +18,7 @@ import { PROVIDER_LIST } from '@shared/agentProvider';
 import { showUpdateToast } from '@/updateNotifier';
 import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
 import type { UsageProviderId } from '@shared/usageTypes';
+import { closeDemoConsole, enterDemo, exitDemo, toggleDemoConsole, useDemoActive } from '@/demo';
 
 /** Providers whose auto-permission-mode is actually wireable (parity sweep
  *  item 1) — the ones with a verified `autoModeArgs` in agentProvider.ts. */
@@ -49,6 +50,7 @@ const SECTIONS = [
   { id: 'usage', label: 'usage' },
   { id: 'harness-home', label: 'harness home' },
   { id: 'arceus', label: 'arceus' },
+  { id: 'demo', label: 'demo' },
   { id: 'sound', label: 'sound' },
   { id: 'terminal', label: 'terminal' },
   { id: 'config', label: 'config' },
@@ -92,6 +94,7 @@ export function SettingsPanel(): JSX.Element | null {
   const setDefaultAgentProvider = useAppSettingsStore((s) => s.setDefaultAgentProvider);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const demoActive = useDemoActive();
 const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatusline);
   const setShellFallbackEnabled = useAppSettingsStore((s) => s.setShellFallbackEnabled);
   const setUsageLimitsEnabled = useAppSettingsStore((s) => s.setUsageLimitsEnabled);
@@ -99,6 +102,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   const setMainUsageProvider = useAppSettingsStore((s) => s.setMainUsageProvider);
   const setDiagnosticsLoggingEnabled = useAppSettingsStore((s) => s.setDiagnosticsLoggingEnabled);
   const setLowResGarden = useAppSettingsStore((s) => s.setLowResGarden);
+  const setHarnessInstructionsEnabled = useAppSettingsStore((s) => s.setHarnessInstructionsEnabled);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -137,6 +141,17 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
     const picked = await window.api.chooseFolder();
     if (picked) setHarnessHomeDir(picked);
   };
+
+  // Harness-owned instructions file (HARNESS.md) — resolved path for the
+  // "harness instructions" row's mono display. Re-fetched whenever
+  // `harnessHomePath` changes (not just once on mount, unlike `appVersion`
+  // above) since HARNESS.md lives inside that directory — otherwise picking
+  // a new harness home from this very panel would leave the mono row
+  // showing the old, now-stale path.
+  const [harnessInstructionsPath, setHarnessInstructionsPathState] = useState('');
+  useEffect(() => {
+    void window.api.getHarnessInstructionsPath().then(setHarnessInstructionsPathState);
+  }, [harnessHomePath]);
 
   // Diagnostics (BACKLOG item 1) — version/logs-path/error-count row.
   // Polled every few seconds while the panel is open (not pushed — main has
@@ -363,25 +378,57 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
               )}
 
               {activeSection === 'harness-home' && (
-                <div className="settings-card">
-                  <p className="hint">
-                    where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
-                  </p>
-                  <div className="row harness-home-row">
-                    <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
-                    <button type="button" onClick={() => void pickHarnessHome()}>
-                      choose…
-                    </button>
+                <>
+                  <div className="settings-card">
+                    <p className="hint">
+                      where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
+                    </p>
+                    <div className="row harness-home-row">
+                      <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
+                      <button type="button" onClick={() => void pickHarnessHome()}>
+                        choose…
+                      </button>
+                    </div>
+                    {appSettings.harnessHomeDir && (
+                      <button type="button" onClick={() => setHarnessHomeDir(null)}>
+                        reset to default
+                      </button>
+                    )}
+                    <p className="hint">
+                      changing this only points future writes at the new folder — nothing already on disk moves.
+                    </p>
                   </div>
-                  {appSettings.harnessHomeDir && (
-                    <button type="button" onClick={() => setHarnessHomeDir(null)}>
-                      reset to default
-                    </button>
-                  )}
-                  <p className="hint">
-                    changing this only points future writes at the new folder — nothing already on disk moves.
-                  </p>
-                </div>
+
+                  <div className="settings-card">
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.harnessInstructionsEnabled}
+                        onChange={(e) => setHarnessInstructionsEnabled(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">load HARNESS.md into every session</span>
+                        <span className="settings-row-hint">
+                          appends this file's contents to every session's system prompt — claude and codex alike.
+                          edit the file itself to change what agents are told; new sessions pick up the change on
+                          their next start.
+                        </span>
+                      </span>
+                    </label>
+                    <div className="row harness-home-row">
+                      <input
+                        value={harnessInstructionsPath}
+                        readOnly
+                        spellCheck={false}
+                        title={harnessInstructionsPath}
+                        style={{ fontFamily: 'var(--font-mono)' }}
+                      />
+                      <button type="button" onClick={() => void window.api.openHarnessInstructions()}>
+                        open file
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
 
               {activeSection === 'arceus' && (
@@ -392,6 +439,34 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                   <button type="button" onClick={() => setResetArceusOpen(true)}>
                     reset arceus…
                   </button>
+                </div>
+              )}
+
+              {activeSection === 'demo' && (
+                <div className="settings-card">
+                  <label className="settings-row">
+                    <input
+                      type="checkbox"
+                      checked={demoActive}
+                      onChange={(e) => (e.target.checked ? enterDemo() : exitDemo())}
+                    />
+                    <span className="settings-row-text">
+                      <span className="settings-row-label">demo mode</span>
+                      <span className="settings-row-hint">mock sessions — nothing is spawned, nothing is saved</span>
+                    </span>
+                  </label>
+                  {demoActive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDemoConsole();
+                        setOpen(false);
+                        toggleDemoConsole();
+                      }}
+                    >
+                      open demo console (⌘D)
+                    </button>
+                  )}
                 </div>
               )}
 

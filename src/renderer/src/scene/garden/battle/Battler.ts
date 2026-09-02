@@ -79,8 +79,29 @@ export class Battler {
     this.container.cursor = 'pointer';
     if (opts.onClick) this.container.on('pointertap', opts.onClick);
     this.container.scale.set(POOF_IN_START_SCALE);
+    this.layoutHitArea();
     this.syncPosition();
     this.syncBubblePosition();
+  }
+
+  /** Explicit hit-test rectangle, sized off the drawn sprite exactly like
+   *  Walker's own `layoutForSprite` — parity that matters for
+   *  GardenScene.tsx's charLayer click resolver (the hit-test-theft fix,
+   *  see its own comment): the resolver treats every walker AND battler as a
+   *  candidate purely by testing `container.hitArea`, so a battler with no
+   *  hitArea would never even be considered a candidate, let alone win one.
+   *  This does NOT reintroduce theft on its own — Pixi's own default
+   *  first-hit resolution never gets to use it, because the resolver
+   *  intercepts every charLayer click during the capture phase before any
+   *  individual container's own hitArea can decide a winner. Re-run from
+   *  `setAnimation` too, since a lazy-loaded sprite swap can change the
+   *  drawn size after spawn. */
+  private layoutHitArea(): void {
+    const halfW = Math.max(8, this.sprite.drawnWidth / 2);
+    const top = -Math.max(16, this.sprite.drawnHeight);
+    this.container.hitArea = {
+      contains: (x: number, y: number) => x > -halfW && x < halfW && y > top && y < 4
+    };
   }
 
   get worldX(): number {
@@ -135,6 +156,7 @@ export class Battler {
    *  non-ceremony setAnimation. */
   setAnimation(animation: PokemonAnimation): void {
     this.sprite.configure(animation);
+    this.layoutHitArea();
   }
 
   /** The floating "«Species» used «Tool»!" move text. */
