@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## Unreleased
+## v1.9.0 — 2026-09-03
 
 - **garden no longer loses its WebGL context (and "refreshes" or needs a rebuild) when many pokemon spawn at once**: sprite decoding allocated one 2D canvas per GIF frame and left them to garbage collection, and every disposed terminal WebGL context lingered because the xterm addon never calls `loseContext`; under a spawn burst Chrome evicted the oldest context, which is the garden's. Frames now composite straight into the sheet canvas (a 60-frame pokemon goes from 126 transient canvases to 6, two of which persist), at most two decodes run at a time, and disposed terminal contexts are released explicitly. The rebuild budget is 4 attempts per minute instead of 2, and the context-lost log row records the attempt and seconds since the previous loss. Claude Sonnet subagent, reviewed/merged by the orchestrator
 - **Arceus is no longer claude-only, and the app has a first-run step**: his setup dialog has a provider picker (claude / codex; codex gets his persona typed after a short delay since the app wires no hooks into a top-level codex session, and `@@relay` stays claude-only for now — flagged inline). A welcome dialog on first launch picks the default provider (the same setting new agents use) and offers to summon Arceus; the app never auto-summons him before that choice is made, and an existing summon.json survives "not now". Existing installs see the welcome once. Claude Sonnet subagent, reviewed/merged by the orchestrator
