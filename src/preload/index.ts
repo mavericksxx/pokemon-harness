@@ -204,6 +204,14 @@ const api = {
   // ─── Harness home directory (Phase 8.7) ────────────────────────────────
   getHarnessHomePath: (): Promise<string> => ipcRenderer.invoke('harnessHome:getResolvedPath'),
 
+  // ─── Harness-owned instructions file (HARNESS.md) ──────────────────────
+  /** Resolved `<harnessHomeDir>/HARNESS.md` path — Settings' "harness
+   *  instructions" row displays this in mono. */
+  getHarnessInstructionsPath: (): Promise<string> => ipcRenderer.invoke('harness:instructionsPath'),
+  /** Settings' "open file" button — `shell.openPath` via IPC, same
+   *  fire-and-forget contract as `openLogsFolder` below. */
+  openHarnessInstructions: (): Promise<string> => ipcRenderer.invoke('harness:openInstructions'),
+
   // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────
   /** Ensures agents/arceus/SYSTEM.md exists and returns its current
    *  contents + path, plus the live roster file's path (arceusRosterFile.ts)
