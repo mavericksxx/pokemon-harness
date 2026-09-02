@@ -561,6 +561,10 @@ export class EvolutionCeremony {
     if (this.finished) return;
     this.finished = true;
     notifyEvolutionEnd(); // hands the music bus back to battle/ambient — runs on force-end too
+    // Restore the normal body state on both the completed and disposed paths;
+    // Walker.destroy() currently follows disposal, but teardown should not
+    // leave a partially faded sprite behind if its ownership changes later.
+    this.deps.sprite.setBodyAlpha(1);
     this.deps.setChromeHidden(false);
     this.blackOverlay.destroy();
     this.whiteOverlay.destroy();
