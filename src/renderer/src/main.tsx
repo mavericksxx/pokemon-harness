@@ -345,8 +345,16 @@ async function boot(): Promise<void> {
     // reads back. Fire-and-forget: never blocks first paint (or the
     // `render()` below), and a failure becomes a quiet toast, never a
     // dialog — see arceus.ts's `autoSummonArceus`.
+    // First-run welcome dialog (BACKLOG item 2) — a brand-new install (or
+    // one whose settings predate this field, merged to `false` — see
+    // appSettingsTypes.ts's `onboardingDone` comment) must NOT auto-summon
+    // Arceus out from under the welcome dialog, even when a summon.json
+    // already exists on disk (only possible for the pre-existing-settings
+    // case: a genuinely fresh install has no summon.json yet either). The
+    // dialog's own "summon arceus" button is what starts him for a true
+    // first-timer instead — see WelcomeDialog.tsx/App.tsx.
     const arceusRestoredLive = restored.some((r) => r.session.isArceus && !r.session.error);
-    if (!arceusRestoredLive) {
+    if (!arceusRestoredLive && appSettings.onboardingDone) {
       void autoSummonArceus().then((outcome) => {
         if (outcome === 'failed') {
           useStore.getState().pushToast("arceus couldn't return — click his chip to re-summon.");

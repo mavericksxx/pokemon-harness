@@ -17,7 +17,6 @@ import { join } from 'node:path';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
-import { ARCEUS_SESSION_ID } from '../shared/arceus';
 import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
@@ -263,21 +262,27 @@ export class PtyManager {
         // BUG/UX fix — a real terminal drops you to a shell when the
         // foreground process exits; this app used to just leave the tab
         // dead. Respawn the user's shell under the SAME id so it stays a
-        // live, usable terminal. Skipped for: Arceus (his own resume/
-        // re-summon flow — arceus.ts's `tryResumeArceus`/`autoSummonArceus`
-        // — owns his pty lifecycle and treats a dead pty as ITS cue to act;
-        // a shell riding along under his id would fight that, and his
-        // resume always spawns a brand-new pty anyway via spawn()'s
-        // reused-id kill, so nothing is lost by excluding him), a fallback
-        // shell's OWN exit (`session.isFallback` — no chained respawn
-        // loop), and the opt-out setting. Computed BEFORE the `pty:exit`
-        // send below (not after spawning) so the renderer's `PtyExit.fallback`
-        // flag is set in the SAME message as the exit notice — see that
-        // field's own comment on why: its regex tool-call parser must stop
-        // reading this channel before the fallback shell's first byte, not
-        // after.
-        const willFallback =
-          this.shellFallbackEnabled && opts.id !== ARCEUS_SESSION_ID && !session.isFallback && !session.isDelegate;
+        // live, usable terminal. Skipped for: a fallback shell's OWN exit
+        // (`session.isFallback` — no chained respawn loop), a delegate
+        // (`session.isDelegate` must stay dead), and the opt-out setting.
+        // Arceus is DELIBERATELY no longer excluded here (BACKLOG item 3 —
+        // "when his CLI exits, the terminal is dead") — he now gets the
+        // exact same drop-to-shell behavior as any other session. His own
+        // resume/re-summon flow (arceus.ts's `tryResumeArceus`/
+        // `autoSummonArceus`) still owns re-summoning him, but only ever
+        // runs from an explicit user action (his topbar chip/roster card, or
+        // once at boot) — never from this pty's own exit — so a fallback
+        // shell riding under his id has nothing auto-re-summoning out from
+        // under it while the user types into it. A later re-summon still
+        // replaces that shell cleanly: spawn()'s reused-id kill (below in
+        // this same file) tears down whatever is currently running under an
+        // id before starting the new process, shell fallback included.
+        // Computed BEFORE the `pty:exit` send below (not after spawning) so
+        // the renderer's `PtyExit.fallback` flag is set in the SAME message
+        // as the exit notice — see that field's own comment on why: its
+        // regex tool-call parser must stop reading this channel before the
+        // fallback shell's first byte, not after.
+        const willFallback = this.shellFallbackEnabled && !session.isFallback && !session.isDelegate;
         this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal, fallback: willFallback });
 
         if (willFallback) {
