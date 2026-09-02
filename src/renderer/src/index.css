@@ -4337,9 +4337,9 @@ body.is-splitting .garden canvas {
 }
 
 /* ── Demo console (in-app demo mode — DemoConsole.tsx) ────────────────────────
- * Same anchored-popover shape as `.quick-settings-panel` above (this reuses
- * that block's catcher directly); wider to fit a grid of short trigger
- * buttons instead of a settings form. Self-contained block, appended at the
+ * Same anchored-popover shape as `.quick-settings-panel` above; compact and
+ * non-modal so the garden remains interactive while the trigger list is open.
+ * Self-contained block, appended at the
  * end of the file same as quick-settings' own. */
 .demo-console {
   position: relative;
@@ -4349,10 +4349,12 @@ body.is-splitting .garden canvas {
 .demo-console-panel {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  right: 0;
   z-index: 20;
-  width: 300px;
+  width: 220px;
   max-width: 90vw;
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
