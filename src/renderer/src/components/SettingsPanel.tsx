@@ -99,6 +99,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   const setMainUsageProvider = useAppSettingsStore((s) => s.setMainUsageProvider);
   const setDiagnosticsLoggingEnabled = useAppSettingsStore((s) => s.setDiagnosticsLoggingEnabled);
   const setLowResGarden = useAppSettingsStore((s) => s.setLowResGarden);
+  const setHarnessInstructionsEnabled = useAppSettingsStore((s) => s.setHarnessInstructionsEnabled);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -137,6 +138,17 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
     const picked = await window.api.chooseFolder();
     if (picked) setHarnessHomeDir(picked);
   };
+
+  // Harness-owned instructions file (HARNESS.md) — resolved path for the
+  // "harness instructions" row's mono display. Re-fetched whenever
+  // `harnessHomePath` changes (not just once on mount, unlike `appVersion`
+  // above) since HARNESS.md lives inside that directory — otherwise picking
+  // a new harness home from this very panel would leave the mono row
+  // showing the old, now-stale path.
+  const [harnessInstructionsPath, setHarnessInstructionsPathState] = useState('');
+  useEffect(() => {
+    void window.api.getHarnessInstructionsPath().then(setHarnessInstructionsPathState);
+  }, [harnessHomePath]);
 
   // Diagnostics (BACKLOG item 1) — version/logs-path/error-count row.
   // Polled every few seconds while the panel is open (not pushed — main has
@@ -363,25 +375,57 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
               )}
 
               {activeSection === 'harness-home' && (
-                <div className="settings-card">
-                  <p className="hint">
-                    where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
-                  </p>
-                  <div className="row harness-home-row">
-                    <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
-                    <button type="button" onClick={() => void pickHarnessHome()}>
-                      choose…
-                    </button>
+                <>
+                  <div className="settings-card">
+                    <p className="hint">
+                      where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
+                    </p>
+                    <div className="row harness-home-row">
+                      <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
+                      <button type="button" onClick={() => void pickHarnessHome()}>
+                        choose…
+                      </button>
+                    </div>
+                    {appSettings.harnessHomeDir && (
+                      <button type="button" onClick={() => setHarnessHomeDir(null)}>
+                        reset to default
+                      </button>
+                    )}
+                    <p className="hint">
+                      changing this only points future writes at the new folder — nothing already on disk moves.
+                    </p>
                   </div>
-                  {appSettings.harnessHomeDir && (
-                    <button type="button" onClick={() => setHarnessHomeDir(null)}>
-                      reset to default
-                    </button>
-                  )}
-                  <p className="hint">
-                    changing this only points future writes at the new folder — nothing already on disk moves.
-                  </p>
-                </div>
+
+                  <div className="settings-card">
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.harnessInstructionsEnabled}
+                        onChange={(e) => setHarnessInstructionsEnabled(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">load HARNESS.md into every session</span>
+                        <span className="settings-row-hint">
+                          appends this file's contents to every session's system prompt — claude and codex alike.
+                          edit the file itself to change what agents are told; new sessions pick up the change on
+                          their next start.
+                        </span>
+                      </span>
+                    </label>
+                    <div className="row harness-home-row">
+                      <input
+                        value={harnessInstructionsPath}
+                        readOnly
+                        spellCheck={false}
+                        title={harnessInstructionsPath}
+                        style={{ fontFamily: 'var(--font-mono)' }}
+                      />
+                      <button type="button" onClick={() => void window.api.openHarnessInstructions()}>
+                        open file
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
 
               {activeSection === 'arceus' && (
