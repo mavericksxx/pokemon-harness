@@ -67,6 +67,12 @@ setHideClaudeStatusline(v: boolean): void;
    *  `appSettings:saveSettings` handler reaches pty.ts's
    *  `setHarnessInstructions` off this value. */
   setHarnessInstructionsEnabled(v: boolean): void;
+  /** First-launch welcome dialog (BACKLOG item 2) — same persist-immediately
+   *  pattern as every other setter here. Set once, by either of the
+   *  welcome dialog's two buttons (WelcomeDialog.tsx) — never reset from
+   *  inside the app; a user who wants to see it again would have to edit
+   *  app-settings.json by hand, same reach as `harnessHomeDir`. */
+  setOnboardingDone(v: boolean): void;
   /** Pushes `path` to the front of the recent-folders list, deduping and
    *  capping at MAX_RECENT_FOLDERS — see sessions.ts's `startSession`. */
   addRecentFolder(path: string): void;
@@ -190,6 +196,12 @@ setHideClaudeStatusline: (v) => {
 
   setHarnessInstructionsEnabled: (v) => {
     const settings = { ...get().settings, harnessInstructionsEnabled: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setOnboardingDone: (v) => {
+    const settings = { ...get().settings, onboardingDone: v };
     set({ settings });
     persist(settings);
   },
