@@ -476,6 +476,14 @@ body {
   background: var(--status-done);
 }
 
+/* Demo chip (in-app demo mode, DemoConsole.tsx) — same `.summon-arceus`
+ * pill, tinted sky instead of the gold accent so it reads as a distinct,
+ * lower-stakes affordance next to Arceus's own chip. */
+.summon-arceus.demo-chip {
+  border-color: var(--accent-sky);
+  color: var(--accent-sky);
+}
+
 /* ── Garden chips (Phase 8.7, inlined into the topbar — parity sweep) ───────
  * Replaces the old dropdown workspace switcher: every garden is a chip in
  * the topbar's own flex row instead of a menu behind a click. Same
@@ -4325,5 +4333,57 @@ body.is-splitting .garden canvas {
 }
 
 .quick-settings-all {
+  width: 100%;
+}
+
+/* ── Demo console (in-app demo mode — DemoConsole.tsx) ────────────────────────
+ * Same anchored-popover shape as `.quick-settings-panel` above (this reuses
+ * that block's catcher directly); wider to fit a grid of short trigger
+ * buttons instead of a settings form. Self-contained block, appended at the
+ * end of the file same as quick-settings' own. */
+.demo-console {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.demo-console-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+}
+
+.demo-console-title {
+  margin: 0;
+  font-size: 13px;
+}
+
+.demo-console-hint {
+  margin: -4px 0 0;
+  font-size: 11px;
+}
+
+.demo-console-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.demo-console-grid button {
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+.demo-console-exit {
   width: 100%;
 }
