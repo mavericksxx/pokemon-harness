@@ -113,6 +113,14 @@ export interface AppSettings {
    *  next scene rebuild/app restart, not live — see GardenScene.tsx's own
    *  comment at the `resolution:` line for why. */
   lowResGarden: boolean;
+  /** Harness-owned instructions file (HARNESS.md, main/harnessInstructions.ts)
+   *  — whether it's appended into every top-level claude/codex session's
+   *  argv (see pty.ts's spawn()). Default ON: the file always exists (seeded
+   *  at boot) and starts as sane orchestrator guidance, so this only needs
+   *  flipping by someone who wants a session with zero extra instructions.
+   *  Never applies to a poke-delegate subagent spawn, regardless of this
+   *  setting. */
+  harnessInstructionsEnabled: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -129,5 +137,6 @@ hideClaudeStatusline: false,
   mainUsageProvider: 'auto',
   diagnosticsLoggingEnabled: true,
   codexDelegateHooks: true,
-  lowResGarden: false
+  lowResGarden: false,
+  harnessInstructionsEnabled: true
 };
