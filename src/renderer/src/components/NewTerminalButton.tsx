@@ -9,7 +9,7 @@ interface Props {
   className: string;
 }
 
-/** Shared quick action for creating a shell-only session from any roster. */
+/** Shared quick action for creating a shell-only session — lives at the end of the drawer tab strip and in the focus sidebar's action row. */
 export function NewTerminalButton({ className }: Props): JSX.Element {
   const pushToast = useStore((s) => s.pushToast);
   const recentFolders = useAppSettingsStore((s) => s.settings.recentFolders);
