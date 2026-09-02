@@ -1249,7 +1249,14 @@ handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === 
 // ─── Arceus summon-once (Phase 8.9) ────────────────────────────────────────
 // See arceusSummonConfig.ts's own header — this file's mere existence gates
 // the setup dialog vs. a silent auto-summon on every later launch.
-handle('arceus:loadSummonConfig', () => loadArceusSummonConfig(harnessHomeDir));
+// Provider-aware Arceus (BACKLOG item 1) — a summon.json predating the
+// `provider` field (or one that never named a supported one) falls back to
+// the app's own default provider (settings' "default agent provider" row),
+// not a hardcoded 'claude'; see loadArceusSummonConfig's own comment.
+handle('arceus:loadSummonConfig', async () => {
+  const settings = await loadAppSettings();
+  return loadArceusSummonConfig(harnessHomeDir, settings.defaultAgentProvider);
+});
 handle('arceus:saveSummonConfig', (_e, config: ArceusSummonConfig) =>
   saveArceusSummonConfig(harnessHomeDir, config)
 );

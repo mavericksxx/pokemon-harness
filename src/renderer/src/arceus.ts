@@ -35,6 +35,10 @@ export interface SummonArceusRequest {
   cwd: string;
   model?: string;
   autoMode: boolean;
+  /** Provider-aware Arceus (BACKLOG item 1) — 'claude' or 'codex' in
+   *  practice; same shape as (and always what's persisted into)
+   *  shared/arceus.ts's `ArceusSummonConfig`. */
+  provider: AgentProviderId;
 }
 
 function arceusRecord(): Session | undefined {
@@ -115,14 +119,33 @@ async function spawnArceus(
   }
 }
 
-/** How long a fresh Arceus summon waits for the SessionStart hook before
- *  delivering the persona anyway (BACKLOG item 3 §1) — hooks going quiet is
- *  a documented possibility elsewhere in this app (hookRouter.ts's own
- *  HOOK_SILENCE_MS fallback), and a session that never gets its persona
+/** How long a fresh CLAUDE Arceus summon waits for the SessionStart hook
+ *  before delivering the persona anyway (BACKLOG item 3 §1) — hooks going
+ *  quiet is a documented possibility elsewhere in this app (hookRouter.ts's
+ *  own HOOK_SILENCE_MS fallback), and a session that never gets its persona
  *  would otherwise sit mute forever. Generous backstop, not the expected
  *  path — SessionStart fires within milliseconds of the CLI being up on
  *  every real hook observation this app relies on elsewhere. */
 const FIRST_PROMPT_FALLBACK_MS = 10_000;
+
+/** Same job, for a CODEX Arceus (provider-aware Arceus, BACKLOG item 1) —
+ *  but NOT a backstop: pty.ts only wires the per-session hooks shim for
+ *  `provider === 'claude'`, and codex's own global hooks.json merge
+ *  (codexHooks.ts) only ever routes a delegate `codex exec`'s SessionStart
+ *  (hookBridge.ts's `handleDelegate` requires `harness_delegate_parent`,
+ *  which a plain top-level codex session never carries) — so a codex
+ *  Arceus has NO readiness signal to wait on at all, hook or otherwise (see
+ *  this file's `armFirstPromptDelivery` for where that's exercised).
+ *  `FIRST_PROMPT_FALLBACK_MS` above is deliberately not reused here: that
+ *  constant's own comment describes it as a rare-path backstop, and reusing
+ *  it would make a codex persona wait a claude-sized 10s for a signal that
+ *  will NEVER arrive. Picked as a short, plausible CLI-startup delay (same
+ *  ballpark as this file's own `RESUME_GRACE_MS`, used elsewhere for a
+ *  similar "give the process a moment" wait) — UNVERIFIED against a real
+ *  codex spawn, same caveat `wrapBracketedPaste` below already carries; if
+ *  codex's TUI takes longer than this to accept input, the persona paste
+ *  lands too early and this is the first place to look. */
+const CODEX_FIRST_PROMPT_DELAY_MS = 3_000;
 
 /** Wraps text in the bracketed-paste escape sequence (`ESC[200~ … ESC[201~`)
  *  so its internal newlines land as literal multi-line content in a CLI's
@@ -132,9 +155,11 @@ const FIRST_PROMPT_FALLBACK_MS = 10_000;
  *  trailing `\r` after this to actually press Enter and submit the whole
  *  paste as one turn. Caller: `armFirstPromptDelivery` below (Arceus's
  *  persona, delivered as his first typed prompt). UNVERIFIED against a live
- *  CLI (this app must never spawn a real claude session for its own testing)
- *  — if Claude Code's input box doesn't honor bracketed paste the way
- *  assumed here, this is the first place to look. */
+ *  CLI (this app must never spawn a real claude/codex session for its own
+ *  testing) — if a CLI's input box doesn't honor bracketed paste the way
+ *  assumed here, this is the first place to look; applies equally to a
+ *  codex Arceus (provider-aware Arceus, BACKLOG item 1) — codex's TUI was
+ *  never separately confirmed to support it either. */
 export function wrapBracketedPaste(text: string): string {
   return `\x1b[200~${text}\x1b[201~`;
 }
@@ -171,8 +196,15 @@ export function toRosterEntries(sessions: Session[]): ArceusRosterEntry[] {
  *  So `summonArceus` — reached only for a genuinely fresh conversation, from
  *  `SummonArceusDialog`'s first-ever summon, or `autoSummonArceus`'s fallback
  *  when there's nothing resumable (no saved id, or a dead `--resume`) — is
- *  the one path that should ever get this. */
-function armFirstPromptDelivery(personaText: string, rosterFilePath: string): void {
+ *  the one path that should ever get this.
+ *
+ *  Provider-aware Arceus (BACKLOG item 1): a claude Arceus waits on the
+ *  SessionStart hook, with `FIRST_PROMPT_FALLBACK_MS` as a rare-path
+ *  backstop (unchanged from before this field existed); a codex Arceus has
+ *  no such hook at all (see `CODEX_FIRST_PROMPT_DELAY_MS`'s own comment),
+ *  so it skips the listener entirely and relies solely on
+ *  `CODEX_FIRST_PROMPT_DELAY_MS`'s timer to deliver. */
+function armFirstPromptDelivery(provider: AgentProviderId, personaText: string, rosterFilePath: string): void {
   // Belt-and-suspenders: every spawn point already disarms a pending
   // delivery itself (see `disarmFirstPrompt`'s own comment) before this is
   // ever called, but a stale arm left over from a caller that doesn't is
@@ -199,10 +231,18 @@ function armFirstPromptDelivery(personaText: string, rosterFilePath: string): vo
     void window.api.writePty(ARCEUS_SESSION_ID, wrapBracketedPaste(prompt) + '\r');
   };
 
-  offHook = window.api.onHookEvent(ARCEUS_SESSION_ID, (evt) => {
-    if (evt.event === 'SessionStart') deliver();
-  });
-  timer = setTimeout(deliver, FIRST_PROMPT_FALLBACK_MS);
+  // Only claude ever fires a SessionStart hook for this id (pty.ts wires
+  // the hooks shim for `provider === 'claude'` only — see
+  // `CODEX_FIRST_PROMPT_DELAY_MS`'s comment for why codex has no
+  // equivalent); attaching this listener for codex would just be a
+  // subscription that can never fire, so it's skipped rather than left as
+  // dead weight.
+  if (provider === 'claude') {
+    offHook = window.api.onHookEvent(ARCEUS_SESSION_ID, (evt) => {
+      if (evt.event === 'SessionStart') deliver();
+    });
+  }
+  timer = setTimeout(deliver, provider === 'claude' ? FIRST_PROMPT_FALLBACK_MS : CODEX_FIRST_PROMPT_DELAY_MS);
   disarmFirstPrompt = disarm;
 }
 
@@ -232,7 +272,8 @@ function guardedSummon(run: () => Promise<void>): Promise<void> {
   return p;
 }
 
-/** Real summon — a genuine `claude` session, spawned PLAIN (no
+/** Real summon — a genuine `claude` or `codex` session (provider-aware
+ *  Arceus, BACKLOG item 1 — `req.provider`), spawned PLAIN (no
  *  `--append-system-prompt`); agents/arceus/SYSTEM.md's CURRENT contents
  *  (re-read fresh here every call; see main/arceusPrompt.ts) are instead
  *  typed in as his first prompt once his session reports ready — see
@@ -243,9 +284,9 @@ export async function summonArceus(req: SummonArceusRequest): Promise<void> {
     if (!prompt.trim()) {
       throw new Error(`${path} is empty — write Arceus's instructions there and summon again.`);
     }
-    const args = buildArceusArgs(req.model, req.autoMode);
-    await spawnArceus(AGENT_PROVIDERS.claude.defaultCommand, args, 'claude', req);
-    armFirstPromptDelivery(prompt, rosterPath);
+    const args = buildArceusArgs(req.provider, req.model, req.autoMode);
+    await spawnArceus(AGENT_PROVIDERS[req.provider].defaultCommand, args, req.provider, req);
+    armFirstPromptDelivery(req.provider, prompt, rosterPath);
   });
 }
 
@@ -315,14 +356,26 @@ function sleep(ms: number): Promise<void> {
  *  carries a `claudeSessionId` (set once by hookRouter.ts's SessionStart
  *  case and never cleared).
  *
- *  Deliberately does NOT go through `spawnArceus`: that helper always tears
- *  down and rebuilds the terminal (right for a genuinely fresh conversation,
- *  wrong here) — a session that merely went 'done' mid-run keeps its
- *  terminal (terminalRegistry.ts's exit handler only ever updates `status`),
- *  so `createTerminal`'s own `entries.has` guard makes the call below a
- *  no-op unless something already disposed it. Never arms
- *  `armFirstPromptDelivery` — the persona is already in this conversation's
- *  history.
+ *  Does NOT go through `spawnArceus` (that helper also tears down the
+ *  STORE session record and re-adds it — right for a genuinely fresh
+ *  conversation, wrong here, where the existing record just needs its
+ *  status/cwd/exitCode refreshed in place). It DOES dispose and recreate
+ *  the TERMINAL, though (same as `spawnArceus`) — unlike before shell
+ *  fallback covered Arceus too (see pty.ts's `willFallback`), a not-live
+ *  Arceus record here may have a fallback shell riding under his id right
+ *  now, and that shell's exit already permanently nulled the terminal
+ *  entry's parser (terminalRegistry.ts's onPtyExit — its own "nothing in
+ *  this app resumes a 'done' session's CLI in place" comment stopped being
+ *  true the day this became reachable with a fallback shell attached).
+ *  Resuming into that entry unchanged would leave the conversation running
+ *  with a dead parser forever. `hasTerminal`'s guard makes the dispose a
+ *  no-op when there's nothing to tear down (a genuinely dead pty, shell
+ *  fallback disabled or otherwise never spawned) — this is safe to call
+ *  either way; whatever was on screen (a fallback shell's scrollback, or a
+ *  truly dead session's last output) is discarded, which is correct: it's
+ *  about to be replaced by a live resumed conversation, not continued.
+ *  Never arms `armFirstPromptDelivery` — the persona is already in this
+ *  conversation's history.
  *
  *  Returns whether the resume is still alive after the grace period; `false`
  *  (spawn failure, or a dead resume caught by the grace period) tells
@@ -337,6 +390,7 @@ async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<bo
   // has it (see `disarmFirstPrompt`'s own comment).
   disarmFirstPrompt?.();
   disarmFirstPrompt = null;
+  if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
   createTerminal(ARCEUS_SESSION_ID, 'claude');
   const res = await window.api.spawnPty({
     id: ARCEUS_SESSION_ID,
@@ -359,16 +413,23 @@ async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<bo
  *  same way SummonArceusDialog does. Used both at launch (main.tsx boot(),
  *  when he isn't among the restored sessions) and from the topbar chip
  *  (SummonArceusButton, when he's saved-but-not-live). Never throws —
- *  `'failed'` covers claude missing from PATH, a dead `--resume` AND a
- *  failed fresh spawn, or any other spawn error; the caller turns that into
- *  a quiet toast, never a dialog.
+ *  `'failed'` covers the config's provider CLI missing from PATH, a dead
+ *  `--resume` AND a failed fresh spawn, or any other spawn error; the
+ *  caller turns that into a quiet toast, never a dialog.
  *
  *  Tries a mid-run `--resume` (`tryResumeArceus` above) before ever falling
  *  back to a fresh summon — the not-live record already in the store (if
  *  any) is the one source of truth for whether a resumable conversation
  *  exists, same signal main's own boot-time restore keys off, so the
  *  decision never depends on which caller (chip, roster card, or boot)
- *  reached here. */
+ *  reached here. Claude-only in practice: `tryResumeArceus` needs a
+ *  `claudeSessionId`, which nothing else ever captures (hookRouter.ts's
+ *  SessionStart case is claude-only). A codex Arceus therefore ALWAYS falls
+ *  through to a genuinely fresh `summonArceus(config)` here — persona
+ *  re-typed, same as this file's `disarmFirstPrompt` already assumes for
+ *  "nothing resumable" — every time this function re-summons him mid-run;
+ *  sessionRespawn.ts's `shouldResume` makes the identical choice for the
+ *  separate app-relaunch case (see that function's own comment). */
 export async function autoSummonArceus(): Promise<AutoSummonOutcome> {
   const config = await loadArceusSummonConfig();
   if (!config) return 'no-config';

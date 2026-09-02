@@ -16,6 +16,7 @@
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { AgentProviderId } from '../shared/agentProvider';
 import type { ArceusSummonConfig } from '../shared/arceus';
 
 function arceusDir(harnessHomeDir: string): string {
@@ -28,14 +29,31 @@ function summonConfigPath(harnessHomeDir: string): string {
 
 /** Null if never summoned, or the saved file is missing/corrupt — both
  *  treated as "first run" by the caller, same as workspacePersistence.ts's
- *  corrupt-registry handling. */
-export async function loadArceusSummonConfig(harnessHomeDir: string): Promise<ArceusSummonConfig | null> {
+ *  corrupt-registry handling.
+ *
+ *  `fallbackProvider` fills in `provider` for a summon.json written before
+ *  that field existed (provider-aware Arceus, BACKLOG item 1) — the
+ *  caller (main/index.ts) passes the app's own default provider
+ *  (appSettingsTypes.ts's `defaultAgentProvider`) so an existing user's
+ *  Arceus keeps spawning as whatever they'd already picked as their main
+ *  provider, not silently as claude. Only 'claude'/'codex' are real spawn
+ *  targets for Arceus (item 1's scope — cursor-agent's autoModeArgs/summon
+ *  flow were never verified for him); an on-disk value outside that pair
+ *  (hand-edited, or a stale/foreign `fallbackProvider`) falls through to
+ *  'claude', same last-resort default agentProvider.ts's own
+ *  `DEFAULT_PROVIDER` uses. */
+export async function loadArceusSummonConfig(
+  harnessHomeDir: string,
+  fallbackProvider: AgentProviderId
+): Promise<ArceusSummonConfig | null> {
   const p = summonConfigPath(harnessHomeDir);
   if (!existsSync(p)) return null;
   try {
     const raw = JSON.parse(await readFile(p, 'utf8')) as Partial<ArceusSummonConfig>;
     if (!raw.cwd || typeof raw.cwd !== 'string') return null;
-    return { cwd: raw.cwd, model: raw.model, autoMode: !!raw.autoMode };
+    const validFallback = fallbackProvider === 'claude' || fallbackProvider === 'codex' ? fallbackProvider : 'claude';
+    const provider = raw.provider === 'claude' || raw.provider === 'codex' ? raw.provider : validFallback;
+    return { cwd: raw.cwd, model: raw.model, autoMode: !!raw.autoMode, provider };
   } catch {
     return null;
   }
