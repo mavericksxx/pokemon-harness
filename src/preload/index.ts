@@ -301,6 +301,16 @@ const api = {
     return () => ipcRenderer.removeListener('update:available', listener);
   },
 
+  /** Generic main→renderer toast push (hooks.sock self-heal — main/
+   *  hookBridge.ts's `checkSocketHealth`) — a one-line text-only channel for
+   *  a main-side warning that doesn't already have a dedicated push/pull
+   *  path the way update/crash/restore notices do. */
+  onToast: (cb: (text: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, text: string): void => cb(text);
+    ipcRenderer.on('app:toast', listener);
+    return () => ipcRenderer.removeListener('app:toast', listener);
+  },
+
   // ─── Diagnostics (BACKLOG item 1) — local-only, nothing here leaves the
   // machine. ─────────────────────────────────────────────────────────────
   logDiagnostic: (area: string, level: LogLevel, message: string, data?: unknown): Promise<void> =>

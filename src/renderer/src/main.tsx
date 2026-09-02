@@ -54,6 +54,11 @@ startUpdateCheckListener();
 // arrives, same rationale as the quit-intercept listener above.
 window.api.onFullscreenChange((isFullScreen) => useStore.getState().setIsFullScreen(isFullScreen));
 
+// Generic main-side toast push (hooks.sock self-heal — main/hookBridge.ts's
+// `checkSocketHealth`) — same independent-of-boot() wiring as the listeners
+// above.
+window.api.onToast((text) => useStore.getState().pushToast(text));
+
 // Idle-energy pass (2026-09-01) — window hide/show/minimize/restore, one of
 // the two signals GardenScene's `syncRenderState` combines to decide when to
 // stop the garden's render loop (the other is its own local
