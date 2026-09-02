@@ -188,8 +188,9 @@
  * lifecycle, `retired`, instead: `retireSub` walks the sub back to its own
  * `wanderHome` and hands it right back to `updateRoaming` (same idle-wander
  * code roaming already uses — see `updateOneBattle`'s sub loop), so it reads
- * as an ordinary off-duty pokemon rather than one about to vanish, dimmed to
- * `alpha = 0.75` as the one cheap, pixel-scale-legible "off duty" cue. It
+ * as an ordinary off-duty pokemon rather than one about to vanish, tinted
+ * with the opaque, hue-neutral `RETIRED_TINT` as the one cheap, pixel-scale-
+ * legible "off duty" cue. It
  * never re-queues (`retired` is excluded from every MIN_ROAM_MS/MAX_ROAM_MS
  * check) and is never reaped by `reapSubs` — it stays in `pb.subs`, and
  * therefore on the roster strip, until a player explicitly despawns it
@@ -235,6 +236,9 @@ import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime }
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
+
+/** Opaque, hue-neutral off-duty cue for battlers that have retired. */
+const RETIRED_TINT = 0xc8c8c8;
 
 const LUNGE_MS = 150;
 const HOLD_MS = 150;
@@ -766,7 +770,7 @@ export class BattleManager {
       });
       this.deps.charLayer.addChild(battler.container);
       this.deps.charLayer.addChild(battler.bubbleContainer);
-      if (entry.done) battler.container.alpha = 0.75; // same off-duty cue retireSub applies live
+      if (entry.done) battler.container.tint = RETIRED_TINT; // same off-duty cue retireSub applies live
       const bubbleTiming = roamingBubbleTiming(entry.key);
       const sub: SubBattler = {
         key: entry.key,
@@ -2018,9 +2022,10 @@ export class BattleManager {
   }
 
   /** Losing a completion battle no longer poofs a sub away for good (user-
-   *  approved change, 2026-08-29) — it goes `'retired'`: dimmed to
-   *  `alpha = 0.75` (cheap, subtle, reads as "off duty" at pixel scale
-   *  without a second sprite/tint pass), sent walking back toward its own
+   *  approved change, 2026-08-29) — it goes `'retired'`: tinted with the
+   *  opaque, hue-neutral `RETIRED_TINT` (cheap, subtle, reads as "off duty"
+   *  at pixel scale without a second sprite/tint pass), sent walking back
+   *  toward its own
    *  `wanderHome` (best-effort — `goTo` silently no-ops if that's
    *  unreachable from wherever the battle left it, same latitude every
    *  other roam call in this file already takes), and handed to
@@ -2033,7 +2038,7 @@ export class BattleManager {
     sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
-    sub.battler.container.alpha = 0.75;
+    sub.battler.container.tint = RETIRED_TINT;
     sub.wanderTimer = 0;
     sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
     sub.battler.goTo(sub.wanderHome);
@@ -2052,7 +2057,7 @@ export class BattleManager {
    *  `setBattlerDone(key, false)` clears `doneAt`. */
   private reviveRetired(sub: SubBattler): void {
     sub.lifecycle = 'roaming';
-    sub.battler.container.alpha = 1;
+    sub.battler.container.tint = 0xffffff;
     const bubbleTiming = roamingBubbleTiming(sub.key);
     sub.roamLabelElapsedMs = bubbleTiming.elapsedMs;
     sub.roamLabelCycleMs = bubbleTiming.cycleMs;
