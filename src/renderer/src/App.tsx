@@ -10,6 +10,8 @@ import { SessionsOverview } from '@/components/SessionsOverview';
 import { ViewModeSwitcher } from '@/components/ViewModeSwitcher';
 import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
+import { SummonArceusDialog } from '@/components/SummonArceusDialog';
+import { WelcomeDialog } from '@/components/WelcomeDialog';
 import { DemoConsole } from '@/components/DemoConsole';
 import { toggleDemoConsole } from '@/demo';
 import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon, TerminalIcon } from '@/components/icons';
@@ -24,6 +26,7 @@ import { QuitDialog } from '@/components/QuitDialog';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
+import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { sessionStatusLabel } from '@/design/sessionLabel';
@@ -80,6 +83,14 @@ function renderSessionChip(s: Session, { selected, onSelect }: OverflowChipRende
 
 export function App(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
+  // First-launch welcome dialog (BACKLOG item 2) — `onboardingDone` also
+  // gates boot's auto-summon (main.tsx), so this dialog and a silent
+  // Arceus reappearance never race. `welcomeArceusDialogOpen` is a SEPARATE
+  // mount of SummonArceusDialog from SummonArceusButton's own (that one's
+  // local state stays untouched) — the welcome flow's "summon arceus"
+  // button needs to open it without going through the topbar chip.
+  const onboardingDone = useAppSettingsStore((s) => s.settings.onboardingDone);
+  const [welcomeArceusDialogOpen, setWelcomeArceusDialogOpen] = useState(false);
   // Legacy topbar chips (Full view modes only, below) — scoped to the
   // ACTIVE workspace (Phase 8.7), same as the roster strip/overview. Arceus
   // is excluded (his topbar chip, SummonArceusButton, is his one home) —
@@ -290,6 +301,10 @@ export function App(): JSX.Element {
       <SessionsOverview />
       <SettingsPanel />
       <QuitDialog />
+      {!onboardingDone && <WelcomeDialog onSummonArceus={() => setWelcomeArceusDialogOpen(true)} />}
+      {welcomeArceusDialogOpen && (
+        <SummonArceusDialog onClose={() => setWelcomeArceusDialogOpen(false)} />
+      )}
       <Toasts />
       <BootWipe />
     </div>
