@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+- **+ terminal moved into the drawer tab strip**: the new-terminal icon no longer sits in the topbar beside "+ new garden"; it is the trailing item of the terminal drawer's session tabs (garden view) and, in terminal view, sits beside "+ add agent" in the focus sidebar's action row. Codex gpt-5.6-luna delegate, reviewed/merged by the orchestrator
+
 ## v1.8.0 — 2026-09-01
 
 Backlog sweep + phase F performance pass — seven items delegated to Claude Sonnet subagents in isolated worktrees, reviewed/verified/merged by the orchestrator.
