@@ -6,6 +6,7 @@ import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { createTerminal, disposeTerminal, hasTerminal, writeReplayNow } from '@/pty/terminalRegistry';
+import { isDemoSession } from '@/demo';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, speciesEntry } from '@/scene/garden/dexData';
 import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
@@ -272,7 +273,11 @@ export function swapSessionPokemon(sessionId: string, pickedId: string, frozen: 
 }
 
 export async function stopSession(id: string): Promise<void> {
-  await window.api.killPty(id);
+  // In-app demo mode (demo.ts) — a demo session has no real pty behind it;
+  // killPty would just fail (or worse, hit an unrelated real session if a
+  // demo id ever collided with one). Recall/exit still tear down the
+  // terminal + store entry exactly as below.
+  if (!isDemoSession(id)) await window.api.killPty(id);
   disposeTerminal(id);
   useStore.getState().removeSession(id);
 }
@@ -326,6 +331,14 @@ export function startRegistrySync(): void {
     if (state.sessions === lastSessions && state.selectedId === lastSelectedId) return;
     lastSessions = state.sessions;
     lastSelectedId = state.selectedId;
-    void window.api.checkpointSessions(state.sessions, state.selectedId);
+    // In-app demo mode (demo.ts) — demo sessions are already structurally
+    // never on `SessionRecord` beyond the fields every session has, but this
+    // is the one place a checkpoint could still round-trip one to disk (a
+    // crash/reload's `sessions:restore` would then resurrect a fake session
+    // with no terminal/pty behind it). Filtered out here instead, along with
+    // a demo selection.
+    const persistedSessions = state.sessions.filter((s) => !isDemoSession(s.id));
+    const persistedSelectedId = state.selectedId && isDemoSession(state.selectedId) ? null : state.selectedId;
+    void window.api.checkpointSessions(persistedSessions, persistedSelectedId);
   });
 }
