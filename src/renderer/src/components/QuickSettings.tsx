@@ -32,6 +32,7 @@ export function QuickSettings(): JSX.Element {
   const setTheme = useAppSettingsStore((s) => s.setTheme);
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
+  const setHarnessInstructionsEnabled = useAppSettingsStore((s) => s.setHarnessInstructionsEnabled);
   const demoActive = useDemoActive();
   const claudeAutoMode = appSettings.autoModeByProvider.claude ?? false;
 
@@ -151,6 +152,20 @@ export function QuickSettings(): JSX.Element {
                 <span className="settings-row-label">keep Mac awake</span>
                 <span className="settings-row-hint">
                   {appSettings.keepAwake ? 'your mac stays awake while sessions run' : 'your mac can sleep normally'}
+                </span>
+              </span>
+            </label>
+
+            <label className="settings-row">
+              <input
+                type="checkbox"
+                checked={appSettings.harnessInstructionsEnabled}
+                onChange={(e) => setHarnessInstructionsEnabled(e.target.checked)}
+              />
+              <span className="settings-row-text">
+                <span className="settings-row-label">load HARNESS.md into every session</span>
+                <span className="settings-row-hint">
+                  the harness&apos;s own instructions, added to each new agent session
                 </span>
               </span>
             </label>

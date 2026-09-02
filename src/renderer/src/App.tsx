@@ -18,6 +18,7 @@ import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon, TerminalIc
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { UsageChip } from '@/components/UsageChip';
+import { HarnessInstructionsChip } from '@/components/HarnessInstructionsChip';
 import { AudioPopover } from '@/components/AudioPopover';
 import { QuickSettings } from '@/components/QuickSettings';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -257,6 +258,7 @@ export function App(): JSX.Element {
             right. */}
         <div className="topbar-actions">
           <ViewModeSwitcher />
+          <HarnessInstructionsChip />
           <UsageChip />
           <AudioPopover />
           <ThemeToggle />

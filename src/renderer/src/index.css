@@ -2099,6 +2099,30 @@ body.garden-lowres .garden canvas {
   color: var(--status-blocked);
 }
 
+/* HARNESS.md indicator pill (HARNESS.md follow-up item 3) — same row-height
+ * token as the rest of `.topbar-actions`, but a visible muted border (unlike
+ * `.usage-chip`'s transparent one) since this one has no icon to anchor it,
+ * just mono text. Only rendered while the harness-instructions toggle is on
+ * (see HarnessInstructionsChip.tsx) so it never contributes to the
+ * cluster's fixed `flex: none` width otherwise. */
+.harness-instructions-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--topbar-icon-size);
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--font-body-sm-size);
+  color: var(--accent-text);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.harness-instructions-chip:hover {
+  border-color: var(--accent-text);
+}
+
 /* Chip-form mini gauges (session-status composite design, item 1) — up to
  * three "[hp-bar] label N%" chips (5h / 7d / 7d fable) inside the SAME
  * `.usage-chip` button as before, replacing its old plain-text readout; the
