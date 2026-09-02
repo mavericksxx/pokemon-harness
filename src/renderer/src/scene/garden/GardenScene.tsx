@@ -139,8 +139,29 @@ export function GardenScene(): JSX.Element {
     let rebuildInFlight = false;
     let rebuildAttempts = 0;
     let lastRebuildAttemptAt = 0;
-    const MAX_REBUILD_ATTEMPTS = 2;
+    // A burst of subagent battler spawns can knock the context out more than
+    // twice within a single burst (each loss its own genuine event, not a
+    // rebuild failing to stick) — 2 was tight enough that a busy burst alone
+    // could exhaust the budget and land on the crash overlay. 4 gives a
+    // burst (the triage log showed several losses inside one minute) real
+    // room to breathe while still catching a genuine rebuild-fails-
+    // immediately loop (see REBUILD_BUDGET_RESET_MS below for how the budget
+    // stays bounded regardless).
+    const MAX_REBUILD_ATTEMPTS = 4;
     const REBUILD_BUDGET_RESET_MS = 60_000;
+    // Cross-generation (survives a rebuild) so the "context lost" diagnostic
+    // row below can report how long it's been since the PREVIOUS loss, not
+    // just this generation's own downtime — that's what actually shows a
+    // burst in the log, one row at a time, versus several unrelated losses
+    // spread across a session.
+    let lastContextLossAt = 0;
+    // What `rebuild()` will treat `rebuildAttempts` as once it actually
+    // runs (it applies this same reset check itself, right before consulting
+    // the cap) — shared so the "context lost" row's own `attempt` field
+    // can't disagree with the "rebuilding renderer"/"attempts exhausted" row
+    // that follows it a couple seconds later.
+    const budgetAdjustedAttempts = (now: number): number =>
+      lastRebuildAttemptAt && now - lastRebuildAttemptAt > REBUILD_BUDGET_RESET_MS ? 0 : rebuildAttempts;
     // Snapshot of the store's `battlers` slice taken right before teardown —
     // `currentCleanup()` below tears down the old BattleManager, and its
     // `destroyBattle` calls `onBattlerRemoved` for every live battler
@@ -155,9 +176,7 @@ export function GardenScene(): JSX.Element {
         safeLogDiagnostic('gpu', 'info', 'context-loss signal ignored — rebuild already in flight', {});
         return;
       }
-      if (lastRebuildAttemptAt && Date.now() - lastRebuildAttemptAt > REBUILD_BUDGET_RESET_MS) {
-        rebuildAttempts = 0;
-      }
+      rebuildAttempts = budgetAdjustedAttempts(Date.now());
       if (rebuildAttempts >= MAX_REBUILD_ATTEMPTS) {
         safeLogDiagnostic('gpu', 'error', 'garden rebuild attempts exhausted — showing crash overlay', {
           attempts: rebuildAttempts
@@ -268,8 +287,19 @@ export function GardenScene(): JSX.Element {
         if (destroyed) return; // this generation is already being torn down
         event.preventDefault(); // required to allow the browser to restore it
         contextLostAt = Date.now();
+        // Both surface a burst in the log even though each loss is its own
+        // row: `attempt` is what `rebuild()` (below) will treat the budget
+        // as once its own 2s alarm actually fires — via the same
+        // `budgetAdjustedAttempts` reset check `rebuild()` applies itself,
+        // so this can't log a stale pre-reset count that the very next row
+        // then contradicts. `secondsSinceLastLoss` is null the very first
+        // loss this session has ever seen.
+        const secondsSinceLastLoss = lastContextLossAt ? Math.round((contextLostAt - lastContextLossAt) / 1000) : null;
+        lastContextLossAt = contextLostAt;
         safeLogDiagnostic('gpu', 'error', 'webgl context lost', {
-          statusMessage: (event as WebGLContextEvent).statusMessage || undefined
+          statusMessage: (event as WebGLContextEvent).statusMessage || undefined,
+          attempt: budgetAdjustedAttempts(contextLostAt),
+          secondsSinceLastLoss
         });
         if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
         contextRestoreTimer = setTimeout(() => {
