@@ -136,6 +136,13 @@ interface Entry {
    *  scrape, and scraping shell text risks a stray "● Task(" triggering a
    *  battle signal, which plain shells must never do. */
   parser: PtyParser | null;
+  /** The WebGL2 context `webgl`'s own canvas is using, captured right after
+   *  `loadAddon` (see attachTerminal) while the canvas is still attached —
+   *  `disposeWebgl` needs it to explicitly lose the context on teardown,
+   *  since xterm's own addon dispose does not, and by the time dispose()
+   *  runs the canvas may already be detached from the DOM. Null whenever
+   *  `webgl` is. */
+  webglGlContext: WebGL2RenderingContext | null;
   provider: AgentProviderId;
   offData: () => void;
   offExit: () => void;
@@ -162,7 +169,31 @@ function disposeWebgl(e: Entry, expected?: WebglAddon): void {
   } catch {
     /* already gone */
   }
+  // xterm's own addon dispose does not call WEBGL_lose_context — confirmed
+  // by grepping node_modules/@xterm/addon-webgl/lib/addon-webgl.js for
+  // "lose_context" (zero matches). Its dispose() above removes the canvas
+  // from the DOM, but the underlying WebGL2 context otherwise just sits
+  // there until GC — creating/switching many terminal sessions quickly can
+  // pile up enough live contexts to exceed Chrome's cap and evict the
+  // garden's own context instead. Explicitly losing it here frees it
+  // immediately. `e.webglGlContext` is captured at attach time (see
+  // attachTerminal) rather than looked up now, since `webgl.dispose()`
+  // above may already have detached the canvas.
+  //
+  // Both fields are nulled BEFORE the loseContext() call itself, not after:
+  // that makes a re-entrant disposeWebgl call (e.g. the addon's own
+  // onContextLoss firing synchronously as a side effect of losing the
+  // context here) see `e.webgl`/`e.webglGlContext` already cleared and
+  // no-op via the guard at the top of this function, rather than merely
+  // converging on the same end state.
+  const gl = e.webglGlContext;
+  e.webglGlContext = null;
   if (e.webgl === webgl) e.webgl = null;
+  try {
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch {
+    /* already gone */
+  }
 }
 
 /** Keep at most one xterm WebGL addon alive. A hidden drawer is a normal view
@@ -354,6 +385,7 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     fit,
     search,
     webgl: null,
+    webglGlContext: null,
     host,
     parser,
     provider,
@@ -384,14 +416,36 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
     try {
       const webgl = new WebglAddon();
       // Chromium can still evict this context under pressure; fall back quietly.
+      // Guarded against double-dispose the same way every other disposeWebgl
+      // caller is: disposeWebgl no-ops once `e.webgl` no longer matches (or
+      // is already null), so a stray context-loss signal after this session
+      // was already torn down some other way (releaseInactiveWebgl,
+      // disposeTerminal) does nothing.
       webgl.onContextLoss(() => {
         disposeWebgl(e, webgl);
       });
       e.term.loadAddon(webgl);
       e.webgl = webgl;
+      // Capture the addon's own WebGL2 context now, while its canvas is
+      // still attached — see the Entry.webglGlContext/disposeWebgl comments
+      // for why. The WebGL renderer also creates plain 2D canvases under
+      // `e.host` for overlay layers (selection, etc.); re-requesting
+      // 'webgl2' on one of those just returns null instead of creating a
+      // second context (a canvas's context type is fixed on first request),
+      // so this reliably finds the one real WebGL canvas regardless of how
+      // many sibling canvases exist.
+      e.webglGlContext = null;
+      for (const canvas of Array.from(e.host.querySelectorAll('canvas'))) {
+        const gl = canvas.getContext('webgl2');
+        if (gl) {
+          e.webglGlContext = gl;
+          break;
+        }
+      }
     } catch {
       // No WebGL available — xterm's DOM renderer still works fine.
       e.webgl = null;
+      e.webglGlContext = null;
     }
   }
 
