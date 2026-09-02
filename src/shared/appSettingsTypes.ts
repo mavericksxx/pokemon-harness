@@ -121,6 +121,19 @@ export interface AppSettings {
    *  Never applies to a poke-delegate subagent spawn, regardless of this
    *  setting. */
   harnessInstructionsEnabled: boolean;
+  /** First-launch welcome dialog (BACKLOG item 2) — false until the user
+   *  dismisses it (either button: "summon arceus" or "not now" both record
+   *  a choice, so this only ever needs to ask once). Gates two things: the
+   *  dialog itself (App.tsx shows it exactly while this is false) and
+   *  boot's auto-summon (main.tsx skips `autoSummonArceus()` while false,
+   *  even when `agents/arceus/summon.json` already exists — see that call
+   *  site's own comment). An EXISTING install's settings file predates this
+   *  field, so the defaults-merge in appSettings.ts's `loadAppSettings`
+   *  makes it `false` there too and the dialog shows once for them —
+   *  intentional (one-time, not a bug): their summon.json survives either
+   *  button ("not now" never deletes it), so nothing about their Arceus
+   *  setup is lost, they just see the welcome copy once. */
+  onboardingDone: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -138,5 +151,6 @@ hideClaudeStatusline: false,
   diagnosticsLoggingEnabled: true,
   codexDelegateHooks: true,
   lowResGarden: false,
-  harnessInstructionsEnabled: true
+  harnessInstructionsEnabled: true,
+  onboardingDone: false
 };

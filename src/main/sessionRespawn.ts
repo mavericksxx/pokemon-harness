@@ -66,7 +66,19 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
   return { ok: true, fallbackReason: reason };
 }
 
-/** Whether `record` should be resumed (vs. respawned fresh). */
+/** Whether `record` should be resumed (vs. respawned fresh). Claude-only by
+ *  design — `claudeSessionId` is only ever captured for a claude session
+ *  (hookRouter.ts's SessionStart case). This also governs a disk-persisted
+ *  Arceus record on app relaunch (provider-aware Arceus, BACKLOG item 1 —
+ *  `restoreFromDisk` in main/index.ts respawns him through this same
+ *  generic path, no Arceus-specific branch): a codex Arceus simply
+ *  respawns fresh here, persona re-typed on the renderer's next summon of
+ *  him, same as arceus.ts's own `autoSummonArceus` already does for a
+ *  mid-run (app-still-up) re-summon — see that function's comment for the
+ *  parallel case. Not a gap to close: codex has no resumable-conversation
+ *  flag in this app at all (no `--resume`-equivalent id captured for any
+ *  codex session, Arceus or otherwise), so "fresh, persona re-typed" is the
+ *  correct fallback rather than a workaround. */
 export function shouldResume(record: SessionRecord): boolean {
   return record.provider === 'claude' && !!record.claudeSessionId;
 }

@@ -10,7 +10,7 @@
  * this id is what makes "at most ONE Arceus across ALL workspaces" hold
  * without a separate registry to keep in sync.
  */
-import { AGENT_PROVIDERS, buildProviderArgs } from './agentProvider';
+import { AGENT_PROVIDERS, buildProviderArgs, type AgentProviderId } from './agentProvider';
 import type { SessionRecord } from './types';
 
 export const ARCEUS_SESSION_ID = 'arceus';
@@ -37,6 +37,15 @@ export interface ArceusSummonConfig {
   cwd: string;
   model?: string;
   autoMode: boolean;
+  /** Which CLI Arceus spawns as (provider-aware Arceus, BACKLOG item 1) —
+   *  'claude' or 'codex' in practice (main/arceusSummonConfig.ts's loader
+   *  only ever restores one of those two; see that file's own comment for
+   *  the fallback chain a config predating this field, or a hand-edited
+   *  one, goes through). Typed as the full `AgentProviderId` union rather
+   *  than a narrower one anyway — same reason agentProvider.ts's own
+   *  `AgentProviderPreset` isn't narrowed per feature — so a future
+   *  provider never needs this interface touched again. */
+  provider: AgentProviderId;
 }
 
 /** A session with no home workspace — currently just Arceus, but written
@@ -50,22 +59,25 @@ export function isGlobalSession(session: Pick<SessionRecord, 'isArceus'>): boole
 }
 
 /**
- * argv for a REAL `claude` spawn summoning Arceus. Pure/dependency-free —
- * exercised from a plain script, never a real spawn (this app must never
- * launch a real `claude` for its own testing).
+ * argv for a REAL spawn summoning Arceus, under whichever provider his
+ * summon config names. Pure/dependency-free — exercised from a plain
+ * script, never a real spawn (this app must never launch a real `claude`/
+ * `codex` for its own testing).
  *
  * BACKLOG "next up" item 3: no longer carries `--append-system-prompt` —
  * Arceus now spawns PLAIN and gets his persona typed as the first prompt
  * once his session is ready (see the renderer's arceus.ts `summonArceus`,
- * which waits on the SessionStart hook). This spawns exactly like an
- * ordinary claude session (buildProviderArgs + autoMode's own args); the
- * only reason this wrapper still exists rather than calling
- * buildProviderArgs directly is so a future Arceus-only arg has one place
- * to land.
+ * which waits on the SessionStart hook for a claude Arceus, or a bounded
+ * delay for codex — see that file's `armFirstPromptDelivery`). This spawns
+ * exactly like an ordinary session of `provider` (buildProviderArgs +
+ * autoMode's own args, both keyed off `provider` rather than hardcoded to
+ * claude — provider-aware Arceus, BACKLOG item 1); the only reason this
+ * wrapper still exists rather than calling buildProviderArgs directly is so
+ * a future Arceus-only arg has one place to land.
  */
-export function buildArceusArgs(model: string | undefined, autoMode: boolean): string[] {
-  const autoArgs = autoMode ? (AGENT_PROVIDERS.claude.autoModeArgs ?? []) : [];
-  return [...buildProviderArgs('claude', model), ...autoArgs];
+export function buildArceusArgs(provider: AgentProviderId, model: string | undefined, autoMode: boolean): string[] {
+  const autoArgs = autoMode ? (AGENT_PROVIDERS[provider].autoModeArgs ?? []) : [];
+  return [...buildProviderArgs(provider, model), ...autoArgs];
 }
 
 /** Verbatim, user-approved draft (Phase 8.8 spec, extended for BACKLOG "next
