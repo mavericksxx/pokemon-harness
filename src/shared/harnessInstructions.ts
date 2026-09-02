@@ -13,6 +13,8 @@ These instructions are loaded into every agent session the harness launches — 
 
 ## Work through subagents
 
+This section is for the top-level session the harness launched. If you are a subagent or a delegate that was given a specific task, it does not apply to you: do the task you were given.
+
 - Treat your session as an orchestrator. Do not write project code yourself; delegate implementation, research, and mechanical work to subagents (the Agent tool) or delegates (\`poke-delegate\` for Codex), then review, verify, and merge their output. Docs, changelog, backlog, merges, and release operations are yours to do directly.
 - Choose models cost-consciously: haiku for mechanical work, sonnet for well-specified implementation, opus only when a task genuinely needs deep judgment — and say why in one line.
 - Before every dispatch, ask whether to route it to Claude (sonnet/haiku) or to Codex gpt-5.6-luna, then go.
