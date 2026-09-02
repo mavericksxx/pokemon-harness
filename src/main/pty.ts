@@ -11,7 +11,7 @@
  */
 import * as pty from 'node-pty';
 import type { WebContents } from 'electron';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
@@ -65,6 +65,16 @@ export class PtyManager {
    *  `appSettings.shellFallbackEnabled` at boot and on every settings save
    *  (main/index.ts), mirroring HookBridge.setHideStatusline. Default true. */
   private shellFallbackEnabled = true;
+  /** Harness-owned instructions file (HARNESS.md) — whether the setting is
+   *  on, and its resolved `<harnessHomeDir>/HARNESS.md` path (null before
+   *  harness home is resolved at boot). Set at boot, on every settings save,
+   *  and whenever the harness home dir changes at runtime (main/index.ts),
+   *  same pattern as `shellFallbackEnabled` above. Read synchronously inside
+   *  `spawn()` itself (not cached) — the file's CURRENT on-disk contents are
+   *  the live source (see harnessInstructions.ts), so an edit takes effect
+   *  on the very next spawn, no settings save needed. */
+  private harnessInstructionsEnabled = true;
+  private harnessInstructionsPath: string | null = null;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -108,6 +118,16 @@ export class PtyManager {
     this.shellFallbackEnabled = enabled;
   }
 
+  /** Set from `appSettings.harnessInstructionsEnabled` + the resolved
+   *  HARNESS.md path at boot, on every settings save, and whenever the
+   *  harness home dir changes at runtime (main/index.ts) — see this class's
+   *  own field comment for why the path (not the file's contents) is what's
+   *  cached here. */
+  setHarnessInstructions(enabled: boolean, path: string | null): void {
+    this.harnessInstructionsEnabled = enabled;
+    this.harnessInstructionsPath = path;
+  }
+
   spawn(opts: SpawnPtyOptions): PtyResult {
     const cwd = expandTilde(opts.cwd);
     if (!existsSync(cwd)) {
@@ -139,6 +159,47 @@ export class PtyManager {
       const settingsPath = this.hookBridge.prepareSession(opts.id, hookTmpDir());
       args = [...args, '--settings', settingsPath];
       hookEnv = { [AGENT_ID_ENV]: opts.id, [HOOK_SOCK_ENV]: this.hookBridge.sockPath };
+    }
+
+    // Harness-owned instructions file (HARNESS.md) — the harness's own
+    // CLAUDE.md, appended into every TOP-LEVEL claude/codex session's argv.
+    // Deliberately excludes poke-delegate spawns (`opts.isDelegate` — see
+    // hookBridge.ts's `handleDelegateSpawn` and main/index.ts's
+    // `onDelegateSpawnRequest`): those are subagents given their own task
+    // prompt, not sessions that need the orchestrator's own operating
+    // instructions. Read synchronously, right here, rather than cached at
+    // `setHarnessInstructions` time — the file's CURRENT on-disk contents
+    // are the live source (harnessInstructions.ts's header), so an edit
+    // takes effect on the very next spawn. Missing/empty/unreadable file
+    // just means no flag gets appended — same best-effort posture as every
+    // other disk read in this function.
+    if (!opts.isDelegate && this.harnessInstructionsEnabled && this.harnessInstructionsPath) {
+      let instructions = '';
+      try {
+        instructions = readFileSync(this.harnessInstructionsPath, 'utf8');
+      } catch {
+        /* file missing/unreadable — spawn without it */
+      }
+      if (instructions.trim()) {
+        if (opts.provider === 'claude') {
+          // `claude --help`: --append-system-prompt-file <path> — appends to
+          // (never replaces) Claude Code's own system prompt.
+          args = [...args, '--append-system-prompt-file', this.harnessInstructionsPath];
+        } else if (opts.provider === 'codex') {
+          // Codex config docs (developers.openai.com/codex/config-reference)
+          // describe `developer_instructions` as "Additional developer
+          // instructions injected into the session (optional)" — additive,
+          // unlike `model_instructions_file` (the renamed
+          // `experimental_instructions_file`), which the SAME docs describe
+          // as a "Replacement for built-in instructions instead of
+          // AGENTS.md" — so that one is deliberately not used here. Passed
+          // as a `-c key=value` override (`codex --help`'s `-c, --config
+          // <key=value>`, "value ... parsed as TOML"); JSON.stringify
+          // produces a TOML-compatible double-quoted string literal (same
+          // \n/\"/\\ escaping) for ordinary text.
+          args = [...args, '-c', `developer_instructions=${JSON.stringify(instructions)}`];
+        }
+      }
     }
 
     const env: Record<string, string> = {

@@ -30,6 +30,7 @@ import { loadPersistedSessions, SessionPersistence } from './sessionPersistence'
 import { respawnSession } from './sessionRespawn';
 import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
+import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
 import { ensureArceusSystemPrompt } from './arceusPrompt';
 import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from './arceusSummonConfig';
 import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
@@ -882,6 +883,8 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   usageService.setEnabled(appSettings.usageLimitsEnabled);
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
+  await ensureHarnessInstructions(harnessHomeDir);
+  ptyManager.setHarnessInstructions(appSettings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
   initDiagnostics(harnessHomeDir);
   setDiagnosticsLoggingEnabled(appSettings.diagnosticsLoggingEnabled);
   // The log file's existence must never depend on the diagnostics toggle
@@ -1141,9 +1144,15 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
   if (nextHarnessHomeDir !== harnessHomeDir) {
     harnessHomeDir = nextHarnessHomeDir;
     await ensureHarnessHome(harnessHomeDir);
+    await ensureHarnessInstructions(harnessHomeDir);
     saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
     initDiagnostics(harnessHomeDir); // future log writes only — see its own comment
   }
+  // Harness-owned instructions file (HARNESS.md) — reached on every save
+  // (not just a dir change) so flipping the toggle off takes effect on the
+  // very next spawn, same immediacy as shellFallbackEnabled above. Re-reads
+  // the path off the (possibly just-updated) harnessHomeDir.
+  ptyManager.setHarnessInstructions(settings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
 
   await saveAppSettings(settings);
   return harnessHomeDir;
@@ -1154,6 +1163,14 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
 // Settings even when the setting itself is null (i.e. "use the default") —
 // only main can resolve that default (needs os.homedir()).
 handle('harnessHome:getResolvedPath', () => harnessHomeDir);
+
+// ─── Harness-owned instructions file (HARNESS.md) ──────────────────────────
+// Resolved path only (the file is seeded/ensured at boot and on every
+// harness-home-dir change above — see ensureHarnessInstructions' two call
+// sites) — Settings' "harness instructions" row displays this and its "open
+// file" button shells out to it, same shape as diagnostics:openLogs below.
+handle('harness:instructionsPath', () => harnessInstructionsPath(harnessHomeDir));
+handle('harness:openInstructions', () => shell.openPath(harnessInstructionsPath(harnessHomeDir)));
 
 // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────────
 // Ensures agents/arceus/SYSTEM.md exists (seeding it from the template on
