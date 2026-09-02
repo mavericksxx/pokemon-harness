@@ -4,6 +4,7 @@ Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
 ## Unreleased
 
+- **finished subagent pokemon no longer look translucent**: the "off duty" cue for retired battlers was 75% opacity, which read as ghosting at garden zoom (the map showed through). It is now an opaque hue-neutral darkening tint, applied on retire and on restore, cleared on revive; the evolution ceremony also restores sprite alpha on its teardown path. Codex gpt-5.6-luna delegate, reviewed/merged by the orchestrator
 - **+ terminal moved into the drawer tab strip**: the new-terminal icon no longer sits in the topbar beside "+ new garden"; it is the trailing item of the terminal drawer's session tabs (garden view) and, in terminal view, sits beside "+ add agent" in the focus sidebar's action row. Codex gpt-5.6-luna delegate, reviewed/merged by the orchestrator
 
 ## v1.8.0 — 2026-09-01
