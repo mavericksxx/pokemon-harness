@@ -109,6 +109,12 @@ export class PtyManager {
   }
 
   spawn(opts: SpawnPtyOptions): PtyResult {
+    // Socket inode self-heal (hooks.sock clobber bug) — on-demand check
+    // right before every spawn (session or delegate — both funnel through
+    // here), so a session that's about to need working hooks gets a
+    // freshly-verified socket instead of possibly waiting on the periodic
+    // timer (hookBridge.ts's `checkSocketHealth`).
+    this.hookBridge?.checkSocketHealth();
     const cwd = expandTilde(opts.cwd);
     if (!existsSync(cwd)) {
       // Surfaced to the user in NewSessionDialog's own error text, but that's

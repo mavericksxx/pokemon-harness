@@ -76,6 +76,47 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // bar in both dev and packaged builds.
 app.setName('Pokéharness');
 
+// ─── Single-instance lock (hooks.sock clobber bug) ─────────────────────────
+// A second launch sharing this app's userData dir — another packaged-app
+// open, or a dev run started while a packaged instance is already up — used
+// to race the first instance for hooks.sock: hookBridge.ensureFiles()/
+// start() unconditionally rmSync'd and recreated the socket at startup, so
+// the second launch would delete the FIRST instance's live socket out from
+// under it, bind its own, then exit and leave a dead file at the path — the
+// original process, still listening on the now-nameless inode, then got
+// ECONNREFUSED on every hook shim connect from then on (no subagent
+// battlers, no tool bubbles/status, poke-delegate spawns failing) until a
+// manual restart.
+//
+// Must run AFTER `app.setName` above, not before: `requestSingleInstanceLock`
+// keys its lock off `app.getPath('userData')`, which is itself derived from
+// `app.getName()` — and per the comment on `setName` above, a DEV run's
+// `getName()` defaults to the ascii npm `name` ("pokeharness") until
+// `setName` normalizes it to match the packaged build's identity. Locking
+// before that call would resolve dev and packaged to two DIFFERENT userData
+// dirs (no collision, lock never fires) even though "both share the same
+// userData dir" is exactly the scenario this fixes — every actual userData
+// read/write in this file (hookBridge, sessionPersistence, usageService, ...)
+// already happens well after `setName`, so this is the earliest point the
+// lock can mean the same thing "userData" means everywhere else in this file.
+// Still ahead of ANYTHING that touches userData — hookBridge.ensureFiles()/
+// start(), sessions.json, the usage snapshot — so the loser never gets a
+// chance to race the winner for any of it.
+//
+// `app.quit()` alone only REQUESTS a quit before the app is ready — it
+// doesn't stop the ~1400 synchronous lines below from still running to the
+// end, which is exactly what "do nothing else" rules out. `process.exit(0)`
+// is what actually guarantees that.
+//
+// `checkSocketHealth()` (hookBridge.ts) plus the on-demand call in pty.ts's
+// `spawn()` is this fix's second half — a self-heal for the rare case a
+// clobber still happens (e.g. someone kills this lock's holder process hard
+// enough that the OS releases the lock without a clean `before-quit`).
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
 // ─── Local-only diagnostics (BACKLOG item 1) ───────────────────────────────
 // Pointed at the DEFAULT harness home right away (settings aren't loaded
 // yet at module-load time) so even a very early startup crash gets logged
@@ -117,6 +158,16 @@ app.on('child-process-gone', (_event, details) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+
+// Single-instance lock (see the top of this file) — a second launch attempt
+// fires this on the WINNER instead of opening its own window; bring the
+// existing one to the front rather than silently dropping the attempt.
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
 // Set once a quit is CONFIRMED — either the sunset ritual's own final quit
