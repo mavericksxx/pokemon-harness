@@ -669,9 +669,35 @@ export class BattleManager {
     return undefined;
   }
 
+  /** Every currently-clickable battler, for GardenScene.tsx's charLayer
+   *  click resolver (hit-test-theft fix) — it needs the SAME candidate set
+   *  `handleBattlerClick` itself would accept, so a battler the resolver
+   *  picks as the click winner never turns out to be a no-op. Mirrors
+   *  `handleBattlerClick`'s own 'leaving'/'despawning' guard. */
+  getClickCandidates(): { parentId: string; key: string; container: Battler['container'] }[] {
+    const out: { parentId: string; key: string; container: Battler['container'] }[] = [];
+    for (const pb of this.battles.values()) {
+      for (const sub of pb.subs) {
+        if (sub.lifecycle === 'leaving' || sub.lifecycle === 'despawning') continue;
+        out.push({ parentId: pb.parentId, key: sub.key, container: sub.battler.container });
+      }
+    }
+    return out;
+  }
+
   private handleBattlerClick(parentId: string, key: string): void {
     const sub = this.battles.get(parentId)?.subs.find((candidate) => candidate.key === key);
     if (!sub || sub.lifecycle === 'leaving' || sub.lifecycle === 'despawning') return;
+    // Hit-test-theft diagnostics (see GardenScene.tsx's charLayer click
+    // resolver) — records the battler actually resolved for this click,
+    // including the session it selects (`parentId`), so a future "click
+    // landed on the wrong session" report is diagnosable from a diagnostics
+    // export without needing to reproduce it live.
+    safeLogDiagnostic('battle', 'info', 'battler clicked — resolved selection', {
+      key,
+      parentId,
+      species: sub.battler.species.id
+    });
     this.deps.onBattlerClick(parentId, key);
   }
 
