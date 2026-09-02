@@ -50,17 +50,39 @@ const viewCache = new Map<string, Promise<FrameSet | null>>();
 const animationCache = new Map<string, Promise<PokemonAnimation | null>>();
 const thumbnailCache = new Map<string, Promise<string | null>>();
 
-/** Composite a GIF's frames into full, disposal-correct images, matching how
- *  the bundled sheets were produced (see assets/ASSETS.md): each output frame
- *  is a complete picture, not a raw delta patch.
+/** Composite a GIF's frames into full, disposal-correct images and lay them
+ *  directly into one sheet canvas, matching how the bundled sheets were
+ *  produced (see assets/ASSETS.md): each frame's slot in the sheet ends up a
+ *  complete picture, not a raw delta patch. Sheet geometry (size, row/column
+ *  wrap once a row would exceed MAX_SHEET_WIDTH) is known up front from the
+ *  frame count, so each frame composites straight into its final `frameRect`
+ *  instead of first landing in its own per-frame snapshot canvas — a burst of
+ *  spawns used to allocate one extra canvas per frame (dozens-to-hundreds per
+ *  pokemon) that only GC freed; this way there's exactly one working canvas
+ *  for the whole decode.
  *
  * Standard algorithm (frame-owns-its-own-disposal): draw each frame's patch
- * onto a persistent canvas, snapshot the FULL canvas as that frame's image,
- * THEN apply that frame's disposal in preparation for the next one. Disposal
- * types: 0/1 leave the canvas as drawn; 2 clears the frame's own rect back to
- * transparent; 3 restores whatever the canvas looked like before this frame
- * was drawn. */
-function coalesceGif(frames: ParsedFrame[], width: number, height: number): { canvas: HTMLCanvasElement; durations: number[] }[] {
+ * onto the persistent working canvas, copy the FULL working canvas into the
+ * sheet at that frame's slot, THEN apply that frame's disposal in
+ * preparation for the next one. Disposal types: 0/1 leave the canvas as
+ * drawn; 2 clears the frame's own rect back to transparent; 3 restores
+ * whatever the canvas looked like before this frame was drawn — kept as one
+ * reused `ImageData` snapshot (already the case before this change), not a
+ * canvas, so there's nothing extra to allocate per frame for it either. */
+function coalesceGifToSheet(
+  frames: ParsedFrame[],
+  width: number,
+  height: number
+): { sheet: HTMLCanvasElement; meta: Omit<LazySpriteMeta, 'durations'> & { durations: number[] } } {
+  const columns = Math.max(1, Math.min(frames.length, Math.floor(MAX_SHEET_WIDTH / width)));
+  const rows = Math.ceil(frames.length / columns);
+
+  const sheet = document.createElement('canvas');
+  sheet.width = columns * width;
+  sheet.height = rows * height;
+  const sheetCtx = sheet.getContext('2d')!;
+  sheetCtx.imageSmoothingEnabled = false;
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -70,9 +92,9 @@ function coalesceGif(frames: ParsedFrame[], width: number, height: number): { ca
   const patchCtx = patchCanvas.getContext('2d')!;
 
   let savedForRestore: ImageData | null = null;
-  const out: { canvas: HTMLCanvasElement; durations: number[] }[] = [];
+  const durations: number[] = [];
 
-  for (const frame of frames) {
+  frames.forEach((frame, i) => {
     const { dims, patch, disposalType, delay } = frame;
 
     if (disposalType === 3) {
@@ -84,46 +106,27 @@ function coalesceGif(frames: ParsedFrame[], width: number, height: number): { ca
     patchCtx.putImageData(new ImageData(new Uint8ClampedArray(patch), dims.width, dims.height), 0, 0);
     ctx.drawImage(patchCanvas, dims.left, dims.top);
 
-    const snapshot = document.createElement('canvas');
-    snapshot.width = width;
-    snapshot.height = height;
-    snapshot.getContext('2d')!.drawImage(canvas, 0, 0);
-    out.push({ canvas: snapshot, durations: [delay || 100] });
+    const rect = frameRect({ frameWidth: width, frameHeight: height, frameCount: frames.length, columns }, i);
+    sheetCtx.drawImage(canvas, rect.x, rect.y);
+    durations.push(delay || 100);
 
     if (disposalType === 2) {
       ctx.clearRect(dims.left, dims.top, dims.width, dims.height);
     } else if (disposalType === 3 && savedForRestore) {
       ctx.putImageData(savedForRestore, 0, 0);
     }
-  }
-
-  return out;
-}
-
-/** Lay coalesced frames into one sheet canvas, wrapping rows once a single row
- *  would exceed MAX_SHEET_WIDTH, and return it plus the geometry to cache. */
-function buildSheet(
-  frames: { canvas: HTMLCanvasElement; durations: number[] }[],
-  frameWidth: number,
-  frameHeight: number
-): { sheet: HTMLCanvasElement; meta: Omit<LazySpriteMeta, 'durations'> & { durations: number[] } } {
-  const columns = Math.max(1, Math.min(frames.length, Math.floor(MAX_SHEET_WIDTH / frameWidth)));
-  const rows = Math.ceil(frames.length / columns);
-
-  const sheet = document.createElement('canvas');
-  sheet.width = columns * frameWidth;
-  sheet.height = rows * frameHeight;
-  const ctx = sheet.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-
-  const durations: number[] = [];
-  frames.forEach((f, i) => {
-    const rect = frameRect({ frameWidth, frameHeight, frameCount: frames.length, columns }, i);
-    ctx.drawImage(f.canvas, rect.x, rect.y);
-    durations.push(f.durations[0]);
   });
 
-  return { sheet, meta: { frameWidth, frameHeight, frameCount: frames.length, columns, rows, durations } };
+  // Both are pure scratch, never returned or referenced beyond this
+  // function — release their backing store now rather than waiting on GC.
+  // `sheet` is NOT released here: it's the return value, and `frameSetFromSheet`
+  // (below) wraps it in `Texture.from(sheet)`, which keeps the canvas itself
+  // as the texture's source for later GPU re-upload (e.g. after a WebGL
+  // context rebuild) — zeroing it would blank every walker using it.
+  canvas.width = canvas.height = 0;
+  patchCanvas.width = patchCanvas.height = 0;
+
+  return { sheet, meta: { frameWidth: width, frameHeight: height, frameCount: frames.length, columns, rows, durations } };
 }
 
 function canvasToPng(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
@@ -156,9 +159,7 @@ async function fetchAndDecode(
   const gif = parseGIF(gifBytes);
   const frames = decompressFrames(gif, true);
   if (frames.length === 0) return null;
-  const coalesced = coalesceGif(frames, gif.lsd.width, gif.lsd.height);
-  const { sheet, meta } = buildSheet(coalesced, gif.lsd.width, gif.lsd.height);
-  return { sheet, meta };
+  return coalesceGifToSheet(frames, gif.lsd.width, gif.lsd.height);
 }
 
 /** How long a static species' single frame "holds" — never advances, so the
@@ -186,6 +187,13 @@ async function fetchAndDecodeStatic(
     const texture = await loadPixelTexture(blobUrl);
     const { width, height } = texture;
     if (width <= 0 || height <= 0) return null;
+    // NOT released after use, unlike the transient canvases elsewhere in this
+    // file: this `sheet` is the return value, and a `loadView` caller wraps
+    // it in `Texture.from(sheet)` (frameSetFromSheet), which keeps the
+    // canvas itself as the texture's GPU-upload source — zeroing it would
+    // blank the walker later (e.g. on a context-loss rebuild's re-upload).
+    // A thumbnail-only caller (decodeThumbnailFrame) gets its own separate
+    // sheet instance here and releases that one itself once consumed.
     const sheet = document.createElement('canvas');
     sheet.width = width;
     sheet.height = height;
@@ -200,6 +208,20 @@ async function fetchAndDecodeStatic(
     URL.revokeObjectURL(blobUrl);
   }
 }
+
+/** Bounds how many GIF decodes/sheet builds (`fetchAndDecode`/
+ *  `fetchAndDecodeStatic`, below) run at once. Each one allocates working
+ *  canvases and can hold dozens-to-hundreds of frames' worth of pixel data
+ *  mid-decode; a burst of spawns (each pokemon = front + back, sometimes
+ *  shiny) used to fire all of them at once, which is what actually drove
+ *  canvas/GPU memory pressure high enough to evict the garden's own WebGL
+ *  context — see this file's header and the leak fixes above. `loadView`
+ *  below still returns its usual promise immediately; extra requests just
+ *  wait their turn behind this gate before decoding starts. Uses `makeGate`
+ *  (defined further down, alongside `thumbnailGate` — a separate gate, since
+ *  a picker thumbnail decodes at most one frame and isn't the burst source
+ *  this guards against). */
+const decodeGate = makeGate(2);
 
 /** One view (front or back) of one species: cache-hit from disk, or fetch +
  *  decode + cache-write. Returns null when the species has no such sprite at
@@ -223,9 +245,9 @@ async function loadView(id: string, view: SpriteView, shiny: boolean, evictOnNul
       return frameSetFromSheet(cached.meta, texture);
     }
 
-    const decoded = speciesEntry(id)?.static
-      ? await fetchAndDecodeStatic(id, view, shiny)
-      : await fetchAndDecode(id, view, shiny);
+    const decoded = await decodeGate(async () =>
+      speciesEntry(id)?.static ? fetchAndDecodeStatic(id, view, shiny) : fetchAndDecode(id, view, shiny)
+    );
     if (!decoded) return null;
 
     const frameSet = frameSetFromSheet(decoded.meta, decoded.sheet);
@@ -344,8 +366,8 @@ export function placeholderAnimation(id: string): PokemonAnimation {
   };
 }
 
-/** Small concurrency gate so a page of search results doesn't fire 30 fetches
- *  at once — only `limit` thumbnail loads run at a time, the rest queue. */
+/** Small concurrency gate so a burst of requests doesn't run unboundedly at
+ *  once — only `limit` calls run at a time, the rest queue in order. */
 function makeGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
   let active = 0;
   const queue: (() => void)[] = [];
@@ -368,10 +390,10 @@ function makeGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
 
 const thumbnailGate = makeGate(4);
 
-/** Decode ONLY a GIF's first frame — no `coalesceGif`, no `buildSheet`. Frame
- *  0 has no prior canvas state to composite against, so its own patch drawn
- *  onto an `lsd.width x lsd.height` canvas at its own (left, top) offset
- *  already IS the complete first image — the same rule `coalesceGif` applies
+/** Decode ONLY a GIF's first frame — no `coalesceGifToSheet`. Frame 0 has no
+ *  prior canvas state to composite against, so its own patch drawn onto an
+ *  `lsd.width x lsd.height` canvas at its own (left, top) offset already IS
+ *  the complete first image — the same rule `coalesceGifToSheet` applies
  *  frame-by-frame, with only one frame to apply it to here. `decompressFrame`
  *  (singular — unlike `decompressFrames`) decodes just that one block, so a
  *  picker preview never pays to LZW-decompress and canvas-composite the other
@@ -395,6 +417,12 @@ function decodeGifFirstFrame(gifBytes: ArrayBuffer): HTMLCanvasElement | null {
     .getContext('2d')!
     .putImageData(new ImageData(new Uint8ClampedArray(decoded.patch), decoded.dims.width, decoded.dims.height), 0, 0);
   ctx.drawImage(patchCanvas, decoded.dims.left, decoded.dims.top);
+  // Pure scratch, already copied into `canvas` above — release it now. Do
+  // NOT release `canvas` here: it's the return value, and this thumbnail
+  // path never wraps it in a Pixi Texture, but it's still consumed (via
+  // `canvas.toDataURL`) by the caller, which frees it once it's actually
+  // done reading from it — see `loadLazyThumbnail` below.
+  patchCanvas.width = patchCanvas.height = 0;
   return canvas;
 }
 
@@ -449,7 +477,13 @@ function cropFrame0(front: FrameSet): string | null {
     front.frameWidth,
     front.frameHeight
   );
-  return canvas.toDataURL('image/png');
+  const dataUrl = canvas.toDataURL('image/png');
+  // Purely local scratch — this `canvas` never escapes this function beyond
+  // the data URL above and is never wrapped in a Pixi Texture (unlike
+  // `frame.source.resource`, the sheet it was cropped FROM, which is left
+  // untouched here). Release it now rather than waiting on GC.
+  canvas.width = canvas.height = 0;
+  return dataUrl;
 }
 
 /** A single still frame of a lazy species, as a data URL, for the picker's
@@ -473,7 +507,15 @@ export function loadLazyThumbnail(id: string, shiny = false): Promise<string | n
       if (front) return cropFrame0(front);
     }
     const canvas = await decodeThumbnailFrameWithShinyFallback(id, shiny);
-    return canvas ? canvas.toDataURL('image/png') : null;
+    if (!canvas) return null;
+    const dataUrl = canvas.toDataURL('image/png');
+    // `canvas` here is either `decodeGifFirstFrame`'s composited first frame
+    // or (for a static species) a one-off `fetchAndDecodeStatic` sheet built
+    // just for this thumbnail — either way it's never wrapped in a Pixi
+    // Texture on this path, so nothing else retains it once the data URL
+    // above has been read out. Release it now rather than waiting on GC.
+    canvas.width = canvas.height = 0;
+    return dataUrl;
   });
 
   thumbnailCache.set(key, promise);
