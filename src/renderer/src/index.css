@@ -1079,6 +1079,29 @@ body.garden-lowres .garden canvas {
   flex: 1;
 }
 
+.drawer-tab-new {
+  flex: none;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px 0 14px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+
+.drawer-tab-new:hover {
+  color: var(--text);
+}
+
+.drawer-tab-new svg {
+  width: 15px;
+  height: 15px;
+}
+
 .tab {
   border: none;
   border-bottom: 2px solid transparent;
@@ -2604,31 +2627,6 @@ body.garden-lowres .garden canvas {
   border-color: var(--accent-text);
 }
 
-.topbar-new-terminal {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--topbar-icon-size);
-  height: var(--topbar-icon-size);
-  padding: 0;
-  color: var(--text);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  font-size: 15px;
-  line-height: 1;
-}
-
-.topbar-new-terminal:hover {
-  border-color: var(--accent-text);
-}
-
-.topbar-new-terminal svg {
-  width: 15px;
-  height: 15px;
-}
-
 /* ── Focus-mode left sidebar (Munder Difflin restyle, FocusSidebar.tsx) ─────
  * 'terminal' view mode's own vertical roster — replaces the bottom strip for
  * that mode only; RosterStrip.tsx/`.roster-strip` above is unchanged and
@@ -2669,6 +2667,29 @@ body.garden-lowres .garden canvas {
 
 .focus-sidebar-actions .focus-sidebar-new {
   flex: 1;
+}
+
+.focus-sidebar-terminal {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  align-self: stretch;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+}
+
+.focus-sidebar-terminal:hover {
+  color: var(--text);
+  border-color: var(--accent-text);
+}
+
+.focus-sidebar-terminal svg {
+  width: 15px;
+  height: 15px;
 }
 
 .focus-sidebar-list {

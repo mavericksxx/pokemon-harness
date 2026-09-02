@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { FocusView } from '@/components/FocusView';
+import { NewTerminalButton } from '@/components/NewTerminalButton';
 import { terminalWidthCss } from '@/gardenSplit';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
@@ -104,6 +105,7 @@ export function TerminalDrawer(): JSX.Element | null {
                 {s.title}
               </button>
             ))}
+            <NewTerminalButton className="drawer-tab-new" />
           </div>
           {viewMode === 'garden' && (
             <button className="icon tip" data-tip="hide terminal" onClick={() => setDrawerOpen(false)}>
