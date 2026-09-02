@@ -4,7 +4,7 @@ Working list of known issues and planned work — open items only; completed wor
 
 ## known bugs
 
-- **hooks.sock clobbered by a second app instance (found 2026-09-01, unfixed — user chose to defer)**: `hookBridge.ensureFiles()` (hookBridge.ts ~line 345) unconditionally `rmSync`s and re-creates `hooks.sock` at startup, and `main/index.ts` never calls `app.requestSingleInstanceLock()`. Observed: a second launch at 22:49 GST (harness.log `delegate CLI installed` at 18:49:49Z) deleted the live socket out from under the 21:39 instance and left a dead file at the path when it went away; the original process kept listening on the now-nameless inode, so EVERY hook shim connect from EVERY session got `ECONNREFUSED` from then on — no battlers for Agent-tool subagents, no tool bubbles/status, and `poke-delegate` spawns fail with the same error. Only an app restart re-binds it. Fix: (1) take the single-instance lock before `ensureFiles` and quit the loser (focus the existing window on `second-instance`); (2) have hookBridge watch its socket's inode (cheap periodic `statSync` compare, or on each session spawn) and re-bind if the path was replaced; (3) in `stop()` only `rmSync` the path if it's still our socket. Also consider a renderer-visible warning when hook connects fail so the symptom isn't silent.
+- (none open — the hooks.sock clobber shipped 2026-09-02, see CHANGELOG unreleased)
 
 ## awaiting user input
 
