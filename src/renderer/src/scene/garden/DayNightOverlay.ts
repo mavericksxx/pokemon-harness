@@ -42,12 +42,21 @@ import type { Point } from './TiledMapRenderer';
 // (still here in `nightLayer`, still above literally everything in `world`
 // including characters) — weakened/desaturated so it darkens without
 // crushing hue; Tier 2, `envWash`/`borderTierWash` — the ORIGINAL wash's
-// stronger, more saturated color, but confined to the environment only
-// (tile art + the border ring) by living BELOW `liveLayer` instead of above
-// it. Characters get Tier 1 alone (dim but keep their own color); the
-// environment gets Tier 1 * Tier 2 combined, landing close to the original
-// pre-split total darkening. Do not re-merge these back into one wash
-// without re-solving this same hue-crush problem.
+// stronger, more saturated color (see `ENV_WASH_STOPS` below), confined to
+// the environment. Tier 2 reaches the environment two ways: as the wash
+// sprite itself, below `liveLayer` inside `staticTiles`/`parent`, for
+// anything that can sit there (floor/walls/trunks/border ring); and, for
+// tree canopy + structure roofs — which TiledMapRenderer parents into or
+// above `characterContainer` (=`liveLayer`) for Y-sort occlusion against
+// walkers, so they can never receive the wash sprite — as an equivalent
+// per-sprite `.tint`, the same multiply-blend math evaluated at that
+// sprite's own Y instead of baked into a texture (`recompute()`'s
+// `tintForY` closure, handed to `opts.applyCanopyNightTint` — see
+// TiledMapRenderer's `setNightTint()`). Net effect: canopy, trunk and roof
+// all land at the same effective Tier 1 x Tier 2 darkening; only characters
+// (and anything else parented at/above `liveLayer`) get Tier 1 alone. Do
+// not re-merge these back into one wash without re-solving this same
+// hue-crush problem.
 
 /** Morning window: night fades out to pure day over this leg (old dawn
  *  window's start through the old day-start keyframe). */
@@ -103,6 +112,38 @@ function localHourNow(): number {
 }
 
 type GradientStop = [offset: number, color: string];
+
+/** Tier 2's two gradient stops (top -> bottom), numeric so the same numbers
+ *  drive both `envWash`/`borderTierWash`'s baked `verticalGradientTexture`
+ *  and the per-sprite tint math in `recompute()` below (canopy/roof sprites
+ *  can't sit below `liveLayer` for the wash sprite itself — see this file's
+ *  header comment) — keeps the two from drifting apart if either recipe
+ *  changes later. */
+const ENV_WASH_STOPS: { offset: number; alpha: number; r: number; g: number; b: number }[] = [
+  { offset: 0.0, alpha: 0.6, r: 80, g: 80, b: 245 },
+  { offset: 1.0, alpha: 0.7, r: 79, g: 79, b: 229 }
+];
+
+/** `ENV_WASH_STOPS` as the rgba-string stops `verticalGradientTexture`
+ *  expects — same numbers, just formatted; never diverges from the numeric
+ *  source above. */
+function envWashGradientStops(): GradientStop[] {
+  return ENV_WASH_STOPS.map((s) => [s.offset, `rgba(${s.r},${s.g},${s.b},${s.alpha})`]);
+}
+
+/** The exact tint a `multiply`-blend sprite of alpha `a` and color (r,g,b)
+ *  would produce on a backdrop: per channel, `result = base * (1 - a +
+ *  a*c)`. Pixi's `.tint` is itself a per-channel multiply of the base
+ *  texture's own color, so this packed value reproduces that blend on a
+ *  sprite that never receives the actual wash sprite (see `setNightTint()`
+ *  call in `recompute()`). */
+function multiplyTint(a: number, r: number, g: number, b: number): number {
+  const mix = (channel: number): number => {
+    const v = 1 - a + a * (channel / 255);
+    return Math.max(0, Math.min(255, Math.round(v * 255)));
+  };
+  return (mix(r) << 16) | (mix(g) << 8) | mix(b);
+}
 
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -219,6 +260,13 @@ export interface DayNightOverlayOptions {
    *  so that sprite lands directly in front of `border` without this class
    *  having to assume `world`'s exact child order. */
   content: Container;
+  /** TiledMapRenderer.setNightTint() — called every `recompute()` with a
+   *  closure that maps a sprite's own local Y (in `staticTiles`' frame) to
+   *  the packed `.tint` reproducing Tier 2's multiply wash at that Y, so
+   *  canopy/roof sprites (which live at/above `liveLayer` and so never
+   *  receive the `envWash` sprite itself) land at the same effective
+   *  darkening as everything below it. See this file's header comment. */
+  applyCanopyNightTint?: (tintForY: (yPx: number) => number) => void;
 }
 
 /** Cheap Pixi-side day/night lighting pass — see this file's header comment
@@ -310,12 +358,7 @@ export class DayNightOverlay {
     // NOT inserted into `staticTiles` yet — see the rim-bake block below for
     // why (this sprite starts at alpha 1, and the rim snapshot must not
     // bake in a full-strength night wash regardless of time of day).
-    const envWash = new Sprite(
-      verticalGradientTexture(staticTilesHeightPx, [
-        [0.0, 'rgba(80,80,245,0.60)'],
-        [1.0, 'rgba(79,79,229,0.70)']
-      ])
-    );
+    const envWash = new Sprite(verticalGradientTexture(staticTilesHeightPx, envWashGradientStops()));
     envWash.width = staticTilesWidthPx;
     envWash.blendMode = 'multiply';
     envWash.position.set(0, 0);
@@ -329,12 +372,7 @@ export class DayNightOverlay {
     // visible in the border margin outside `content` — restoring the
     // border ring's original (pre-split) darkening strength now that Tier 1
     // alone is too weak to do that on its own.
-    const borderTierWash = new Sprite(
-      verticalGradientTexture(heightPx, [
-        [0.0, 'rgba(80,80,245,0.60)'],
-        [1.0, 'rgba(79,79,229,0.70)']
-      ])
-    );
+    const borderTierWash = new Sprite(verticalGradientTexture(heightPx, envWashGradientStops()));
     borderTierWash.width = widthPx;
     borderTierWash.blendMode = 'multiply';
     parent.addChildAt(borderTierWash, parent.getChildIndex(content));
@@ -451,6 +489,23 @@ export class DayNightOverlay {
     // `nightWeight`.
     if (this.envWash) this.envWash.alpha = nightWeight;
     if (this.borderTierWash) this.borderTierWash.alpha = nightWeight;
+
+    // Canopy/roof sprites can't receive `envWash` itself (see header
+    // comment) — hand the caller a closure reproducing the same multiply
+    // blend as a `.tint`, sampling the same two stops at the sprite's own Y
+    // instead of the baked gradient's per-pixel Y, and folding in
+    // `nightWeight` the same way `envWash.alpha` above does.
+    const staticTilesHeightPx = this.opts.staticTilesHeightPx;
+    const [top, bottom] = ENV_WASH_STOPS;
+    const tintForY = (yPx: number): number => {
+      const yFrac = Math.max(0, Math.min(1, yPx / staticTilesHeightPx));
+      const alpha = (top.alpha + (bottom.alpha - top.alpha) * yFrac) * nightWeight;
+      const r = top.r + (bottom.r - top.r) * yFrac;
+      const g = top.g + (bottom.g - top.g) * yFrac;
+      const b = top.b + (bottom.b - top.b) * yFrac;
+      return multiplyTint(alpha, r, g, b);
+    };
+    this.opts.applyCanopyNightTint?.(tintForY);
   }
 
   /** Current night<->day crossfade weight (0 = full day, 1 = full night) —

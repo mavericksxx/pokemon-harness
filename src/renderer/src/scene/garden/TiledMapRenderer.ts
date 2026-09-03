@@ -203,6 +203,22 @@ export class TiledMapRenderer {
     return this.characterContainer;
   }
 
+  /** DayNightOverlay's per-sprite stand-in for its Tier 2 wash, for the two
+   *  sprite categories that live at/above `characterContainer` (for Y-sort
+   *  occlusion / roof stacking) and so never receive that wash sprite — see
+   *  DayNightOverlay.ts's header comment. `tintForY` is handed each
+   *  sprite's own `.y`, already in `staticTiles`' local frame (the same
+   *  frame the wash sprite occupies at local (0,0) — see `buildTileLayers()`
+   *  above), so no coordinate translation happens here. */
+  setNightTint(tintForY: (yPx: number) => number): void {
+    for (const sprite of this.canopySprites) sprite.tint = tintForY(sprite.y);
+    for (const roof of this.structureRoofs.values()) {
+      for (const child of roof.children) {
+        if (child instanceof Sprite) child.tint = tintForY(child.y);
+      }
+    }
+  }
+
   isWalkable(tx: number, ty: number): boolean {
     if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return false;
     return this.walkabilityGrid[ty][tx];
