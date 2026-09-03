@@ -303,12 +303,31 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
         // is literally 'advisor' (the global `advisor` agent this app's own
         // sessions consult before architecture decisions/deliverables — see
         // BACKLOG.md) gets an instantly-recognizable hovering companion
-        // instead of an ordinary wild-battler completion battle. MUTUALLY
-        // EXCLUSIVE with the battle-bus spawn below: exactly one of the two
-        // branches fires per dispatch, never both — an advisor consult must
-        // never also roam/queue/battle as a regular subagent, and an
-        // ordinary subagent must never spawn a companion.
-        const isAdvisor = evt.subagentType === 'advisor';
+        // instead of an ordinary wild-battler completion battle. THREE
+        // MUTUALLY EXCLUSIVE cases, exactly one fires per dispatch:
+        //   1. subagent_type 'advisor' dispatched by the top-level session
+        //      (no `evt.agent_id`) → spawn a companion.
+        //   2. subagent_type 'advisor' dispatched FROM WITHIN an
+        //      already-running subagent (`evt.agent_id` present — Claude
+        //      Code's own "this hook fired inside subagent X" stamp, see
+        //      shared/hookEvents.ts) → spawn NOTHING. A nested advisor
+        //      consult is a sidechain transcript entry
+        //      (`entry.isSidechain === true`), and taskNotificationWatcher.ts
+        //      deliberately excludes sidechain entries from ever producing a
+        //      correlate/end signal (same convention as costWatcher.ts and
+        //      arceusRelay.ts) — so a companion spawned here could never be
+        //      despawned via that path and would sit orphaned until
+        //      AdvisorManager's MAX_COMPANION_LIFETIME_MS backstop. Falling
+        //      back to an ordinary battle-spawn instead would trade one
+        //      orphan for another (same bug, different sprite), so this case
+        //      spawns neither — see taskNotificationWatcher.ts's sidechain
+        //      filter for the other half of this fix.
+        //   3. Not an advisor dispatch at all → ordinary wild-battler spawn.
+        // An advisor consult (cases 1 and 2) must never also roam/queue/
+        // battle as a regular subagent, and an ordinary subagent must never
+        // spawn a companion.
+        const isAdvisor = evt.subagentType === 'advisor' && !evt.agent_id;
+        const isNestedAdvisor = evt.subagentType === 'advisor' && !!evt.agent_id;
         if (isAdvisor) {
           try {
             emitAdvisorSignal({ type: 'spawn', parentId: sessionId, toolUseId: evt.toolUseId });
@@ -321,6 +340,19 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
               error: err instanceof Error ? (err.stack ?? err.message) : String(err)
             });
           }
+        } else if (isNestedAdvisor) {
+          safeLogDiagnostic(
+            'advisor',
+            'info',
+            'advisor companion spawn skipped — nested/sidechain dispatch, would orphan (no correlate path exists for sidechain)',
+            {
+              sessionId,
+              parentId: sessionId,
+              subagentId: evt.agent_id,
+              toolTarget: evt.toolTarget,
+              toolUseId: evt.toolUseId
+            }
+          );
         } else {
           try {
             // Parity sweep item 7 — `evt.toolTarget` for a `Task` PreToolUse
