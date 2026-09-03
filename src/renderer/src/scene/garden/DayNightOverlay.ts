@@ -34,6 +34,20 @@ import type { Point } from './TiledMapRenderer';
 // nudging the 3 lamp sprites' alpha/scale/position. `nightWeight` (0 = day,
 // 1 = night) is recomputed from local time on a 60s interval, not every
 // frame.
+//
+// Two-tier night wash (user complaint: "the pokemon look so washed out and
+// just - dull" at night — the single full-scene multiply wash above crushed
+// each sprite's own hue, e.g. Pikachu yellow -> olive-brown, because it
+// multiplied R/G far harder than B). Split into: Tier 1, `ambientWash`
+// (still here in `nightLayer`, still above literally everything in `world`
+// including characters) — weakened/desaturated so it darkens without
+// crushing hue; Tier 2, `envWash`/`borderTierWash` — the ORIGINAL wash's
+// stronger, more saturated color, but confined to the environment only
+// (tile art + the border ring) by living BELOW `liveLayer` instead of above
+// it. Characters get Tier 1 alone (dim but keep their own color); the
+// environment gets Tier 1 * Tier 2 combined, landing close to the original
+// pre-split total darkening. Do not re-merge these back into one wash
+// without re-solving this same hue-crush problem.
 
 /** Morning window: night fades out to pure day over this leg (old dawn
  *  window's start through the old day-start keyframe). */
@@ -198,6 +212,13 @@ export interface DayNightOverlayOptions {
    *  coordinate space — GardenScene's `borderPx`, since the map's content is
    *  inset by the border ring's thickness inside `world`. */
   staticTilesOffsetPx: Point;
+  /** GardenScene.tsx's `content` container — the exact same instance added
+   *  into `parent` (=`world`) there, sitting between `border` and the map's
+   *  own tile/character art. Used only to locate the correct insertion
+   *  index for `borderTierWash` (`parent.getChildIndex(this.opts.content)`)
+   *  so that sprite lands directly in front of `border` without this class
+   *  having to assume `world`'s exact child order. */
+  content: Container;
 }
 
 /** Cheap Pixi-side day/night lighting pass — see this file's header comment
@@ -214,6 +235,12 @@ export class DayNightOverlay {
   private readonly nightLayer = new Container();
   private readonly lampLayer = new Container();
   private readonly lamps: Lamp[] = [];
+  /** Tier 2 environment wash, live inside `staticTiles` (not a descendant of
+   *  `this.container`) — see `mount()`. Null until `mount()` runs. */
+  private envWash: Sprite | null = null;
+  /** Tier 2b border-ring wash, live inside `parent` (not a descendant of
+   *  `this.container`) — see `mount()`. Null until `mount()` runs. */
+  private borderTierWash: Sprite | null = null;
   private readonly reducedMotion: boolean;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private clockSeconds = 0;
@@ -246,19 +273,72 @@ export class DayNightOverlay {
       liveLayer,
       staticTilesWidthPx,
       staticTilesHeightPx,
-      staticTilesOffsetPx
+      staticTilesOffsetPx,
+      content
     } = this.opts;
 
     // ---- night ----
 
-    const nightWash = new Sprite(
+    // Tier 1 — weak "ambient" wash. Unchanged position in the stack (first
+    // child of `nightLayer`, above EVERYTHING in `world` including
+    // characters) but deliberately desaturated (R/G much closer to B than
+    // the old single-wash recipe) so it darkens every sprite, characters
+    // included, without crushing each one's own hue. See this file's header
+    // comment for the two-tier rationale.
+    const ambientWash = new Sprite(
       verticalGradientTexture(heightPx, [
-        [0.0, 'rgba(50,50,213,0.72)'],
-        [1.0, 'rgba(64,64,203,0.88)']
+        [0.0, 'rgba(110,110,205,0.50)'],
+        [1.0, 'rgba(110,110,205,0.60)']
       ])
     );
-    nightWash.width = widthPx;
-    nightWash.blendMode = 'multiply';
+    ambientWash.width = widthPx;
+    ambientWash.blendMode = 'multiply';
+
+    // Tier 2 — "environment" wash: the stronger, more saturated color the
+    // old single wash used, but confined to the map's own tile art by
+    // living INSIDE `staticTiles`, below `liveLayer` — so characters (and
+    // anything else parented above `liveLayer`'s index) never receive it,
+    // only Tier 1 above. Combines multiplicatively with Tier 1 on tile
+    // pixels to land close to the original pre-split total darkening.
+    // Positioned at local (0,0), NOT `staticTilesOffsetPx`: unlike
+    // `silverRim` below (which lives in `nightLayer`, i.e. directly in this
+    // overlay's own/world coordinate space, and so needs that offset to
+    // line up with `staticTiles`' content), this sprite is a child of
+    // `staticTiles` itself, so it's already in `staticTiles`' own
+    // coordinate frame — applying the offset again here would double it and
+    // misalign the wash from the tile art by one border-thickness.
+    // NOT inserted into `staticTiles` yet — see the rim-bake block below for
+    // why (this sprite starts at alpha 1, and the rim snapshot must not
+    // bake in a full-strength night wash regardless of time of day).
+    const envWash = new Sprite(
+      verticalGradientTexture(staticTilesHeightPx, [
+        [0.0, 'rgba(80,80,245,0.60)'],
+        [1.0, 'rgba(79,79,229,0.70)']
+      ])
+    );
+    envWash.width = staticTilesWidthPx;
+    envWash.blendMode = 'multiply';
+    envWash.position.set(0, 0);
+    this.envWash = envWash;
+
+    // Tier 2b — same Tier 2 gradient, but sized/positioned to cover the
+    // FULL border-inclusive bounds (like the old single wash did) and
+    // inserted into `parent` directly in front of `content`. `content`'s
+    // own opaque art, drawn afterward, occludes this sprite everywhere
+    // `content` actually paints something, so in practice it's only ever
+    // visible in the border margin outside `content` — restoring the
+    // border ring's original (pre-split) darkening strength now that Tier 1
+    // alone is too weak to do that on its own.
+    const borderTierWash = new Sprite(
+      verticalGradientTexture(heightPx, [
+        [0.0, 'rgba(80,80,245,0.60)'],
+        [1.0, 'rgba(79,79,229,0.70)']
+      ])
+    );
+    borderTierWash.width = widthPx;
+    borderTierWash.blendMode = 'multiply';
+    parent.addChildAt(borderTierWash, parent.getChildIndex(content));
+    this.borderTierWash = borderTierWash;
 
     const moonPool = new Sprite(
       radialGradientTexture(widthPx * 0.32, [
@@ -283,7 +363,12 @@ export class DayNightOverlay {
     // `staticTiles` as-is would bake in whatever happens to be in
     // `liveLayer` at mount time. Nearest-neighbor scale mode matches the
     // tile atlases' own — a 1px rim offset should stay a crisp edge, not
-    // soften into a linear-filtered haze.
+    // soften into a linear-filtered haze. `envWash` (built above, not yet
+    // parented into `staticTiles`) is added only AFTER this render call for
+    // the same reason `liveLayer` is hidden for it: `envWash` starts at
+    // alpha 1 (`recompute()` below hasn't run yet), so baking it in now
+    // would freeze a full-strength night tint into the rim snapshot
+    // regardless of actual time of day.
     const rimSource = RenderTexture.create({
       width: staticTilesWidthPx,
       height: staticTilesHeightPx,
@@ -293,6 +378,7 @@ export class DayNightOverlay {
     liveLayer.renderable = false;
     renderer.render({ container: staticTiles, target: rimSource });
     liveLayer.renderable = liveLayerWasRenderable;
+    staticTiles.addChildAt(envWash, staticTiles.getChildIndex(liveLayer));
 
     const silverRim = new Sprite(rimSource);
     silverRim.tint = 0xd6e0ff;
@@ -308,7 +394,7 @@ export class DayNightOverlay {
     );
     nightVignette.blendMode = 'multiply';
 
-    this.nightLayer.addChild(nightWash, moonPool, silverRim, nightVignette);
+    this.nightLayer.addChild(ambientWash, moonPool, silverRim, nightVignette);
 
     // ---- warm practical lights (fade in/out with `nightWeight`, same as
     // the rest of the night layer — lit only as night sets in, and fade
@@ -359,6 +445,12 @@ export class DayNightOverlay {
     const nightWeight = nightWeightAt(localHourNow());
     this.nightLayer.alpha = nightWeight;
     this.lampLayer.alpha = nightWeight;
+    // `envWash`/`borderTierWash` aren't descendants of `nightLayer` (they
+    // live inside `staticTiles`/`parent` respectively — see `mount()`), so
+    // they need their own alpha set explicitly to fade with the same
+    // `nightWeight`.
+    if (this.envWash) this.envWash.alpha = nightWeight;
+    if (this.borderTierWash) this.borderTierWash.alpha = nightWeight;
   }
 
   /** Current night<->day crossfade weight (0 = full day, 1 = full night) —
@@ -426,5 +518,13 @@ export class DayNightOverlay {
     // worth doing, to also free the underlying GPU/canvas resources rather
     // than just the Pixi objects wrapping them.
     this.container.destroy({ children: true, texture: true, textureSource: true });
+    // `envWash`/`borderTierWash` live outside `this.container` (inside
+    // `staticTiles`/`parent` respectively — see `mount()`), so the destroy
+    // above doesn't reach them; destroy each explicitly or they'd leak both
+    // their Pixi objects and their baked GPU textures.
+    this.envWash?.destroy({ texture: true, textureSource: true });
+    this.envWash = null;
+    this.borderTierWash?.destroy({ texture: true, textureSource: true });
+    this.borderTierWash = null;
   }
 }
