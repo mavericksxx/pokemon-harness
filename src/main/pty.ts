@@ -51,6 +51,8 @@ interface PtySession {
   isFallback: boolean;
   /** First-class delegate sessions never become fallback shells. */
   isDelegate: boolean;
+  provider?: string;
+  claudeSettingsPath?: string;
 }
 
 export class PtyManager {
@@ -160,8 +162,10 @@ export class PtyManager {
     // source instead of scraping terminal text. Other providers are unaffected.
     let args = opts.args ?? [];
     let hookEnv: Record<string, string> = {};
+    let claudeSettingsPath: string | undefined;
     if (opts.provider === 'claude' && this.hookBridge) {
       const settingsPath = this.hookBridge.prepareSession(opts.id, hookTmpDir());
+      claudeSettingsPath = settingsPath;
       args = [...args, '--settings', settingsPath];
       hookEnv = { [AGENT_ID_ENV]: opts.id, [HOOK_SOCK_ENV]: this.hookBridge.sockPath };
     }
@@ -238,6 +242,8 @@ export class PtyManager {
         replay: '',
         env,
         isFallback: false,
+        provider: opts.provider,
+        claudeSettingsPath,
         isDelegate: opts.isDelegate === true
       };
       this.sessions.set(opts.id, session);
@@ -286,7 +292,7 @@ export class PtyManager {
         this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal, fallback: willFallback });
 
         if (willFallback) {
-          this.spawnFallbackShell(opts.id, session.cwd, session.env);
+          this.spawnFallbackShell(opts.id, session.cwd, session.env, session);
         }
       });
 
@@ -311,24 +317,33 @@ export class PtyManager {
    *  is never called for them.
    *
    *  `env` is the exact env the previous process had, hook stamps included
-   *  (AGENT_ID_ENV/HOOK_SOCK_ENV — see pty.ts's spawn()). That keeps a
-   *  manually-relaunched `claude --settings <path>` routing hooks back to
-   *  this session id: the per-session settings file HookBridge.prepareSession
-   *  wrote survives a natural exit (only kill()'s cleanupSession call removes
-   *  it) and still names a valid socket/agent id. A BARE `claude` with no
-   *  flags, though, will NOT get hooks wired — Claude Code only loads hooks
-   *  from an explicit `--settings <path>` or its own global/project
-   *  settings.json, never from env vars alone, and this app's per-session
-   *  file lives at a throwaway temp path the CLI never auto-discovers. Env
-   *  alone is necessary but not sufficient; this is as far as "cosmetic
-   *  fallback terminal" scope goes without also printing/aliasing that path,
-   *  which the task's exact dim-line copy doesn't ask for. */
-  private spawnFallbackShell(id: string, cwd: string, env: Record<string, string>): void {
+   *  (AGENT_ID_ENV/HOOK_SOCK_ENV — see pty.ts's spawn()). The fallback
+   *  PATH shims add retained settings/instructions wiring when the user
+   *  hand-relaunches claude or codex in this shell. */
+  private spawnFallbackShell(id: string, cwd: string, env: Record<string, string>, source: PtySession): void {
     const shellCommand = process.env.SHELL || '/bin/zsh';
     const { path: file, found } = resolveCommand(shellCommand);
     if (!found) {
       log('pty', 'warn', 'shell fallback: shell not found on PATH', { id, shell: shellCommand });
       return;
+    }
+
+    const prior = source;
+    const fallbackEnv = { ...env };
+    if (this.hookBridge && prior?.provider && (prior.provider === 'claude' || prior.provider === 'codex')) {
+      const shimDir = this.hookBridge.cliShimPath();
+      fallbackEnv.PATH = `${shimDir}:${env.PATH || userShellPath()}`;
+      fallbackEnv.POKEHARNESS_CLI_SHIM_DIR = shimDir;
+      const real = resolveCommand(prior.provider);
+      if (real.found) fallbackEnv[`POKEHARNESS_REAL_${prior.provider.toUpperCase()}`] = real.path;
+      fallbackEnv.POKEHARNESS_NODE = this.hookBridge.nodeLauncherPath();
+      fallbackEnv.POKEHARNESS_JSON_HELPER = this.hookBridge.cliJsonHelperPath();
+      if (prior.provider === 'claude' && prior.claudeSettingsPath) {
+        fallbackEnv.POKEHARNESS_CLAUDE_SETTINGS = prior.claudeSettingsPath;
+      }
+      if (this.harnessInstructionsEnabled && this.harnessInstructionsPath && existsSync(this.harnessInstructionsPath)) {
+        fallbackEnv.POKEHARNESS_INSTRUCTIONS = this.harnessInstructionsPath;
+      }
     }
 
     try {
@@ -337,7 +352,7 @@ export class PtyManager {
         cols: 100,
         rows: 30,
         cwd,
-        env
+        env: fallbackEnv
       });
 
       // Dim, terse note (matches the app's own exit-notice styling in
@@ -346,7 +361,7 @@ export class PtyManager {
       // Seeded into `replay` (not just sent live) so a renderer crash/reload
       // while the fallback shell is up still backfills this line, same as
       // any other byte on this channel — see `getReplay`.
-      const notice = '\r\n\x1b[90mdropped to shell — relaunch your agent or keep working\x1b[0m\r\n';
+      const notice = '\r\n\x1b[90mdropped to shell — relaunch claude or codex here to keep pokeharness wiring\x1b[0m\r\n';
 
       const session: PtySession = {
         id,
@@ -355,8 +370,10 @@ export class PtyManager {
         command: file,
         lastOutputAt: Date.now(),
         replay: notice,
-        env,
+        env: fallbackEnv,
         isFallback: true,
+        provider: prior?.provider,
+        claudeSettingsPath: prior?.claudeSettingsPath,
         isDelegate: false
       };
       this.sessions.set(id, session);

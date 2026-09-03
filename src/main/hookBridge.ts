@@ -66,6 +66,8 @@ export const DELEGATE_PARENT_ENV = 'POKEHARNESS_DELEGATE_PARENT';
 export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
 
 const SHIM_FILENAME = 'cth-hook.cjs';
+const CLI_SHIM_DIRNAME = 'cli-shims';
+const CLI_JSON_HELPER_FILENAME = 'cli-json-string.cjs';
 /** Codex-flavored sibling shim's filename (see `CODEX_HOOK_SHIM` below) —
  *  also the substring codexHooks.ts matches on to recognize "this is our own
  *  hooks.json entry, from THIS install" regardless of the exact absolute
@@ -78,6 +80,68 @@ export const CODEX_SHIM_FILENAME = 'cth-hook-codex.cjs';
  *  orchestrator (a Claude CLI running inside a harness pty) runs this via its
  *  own Bash tool to ask the app to spawn a real `codex exec` pty session. */
 export const DELEGATE_CLI_FILENAME = 'poke-delegate.cjs';
+
+const CLI_JSON_HELPER = `#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+process.stdout.write(JSON.stringify(fs.readFileSync(process.argv[2], 'utf8')));
+`;
+
+/** Fallback-shell claude shim. The real path is resolved by PtyManager before
+ *  this directory is prepended to PATH, so the shim cannot resolve itself. */
+const CLAUDE_CLI_SHIM = `#!/bin/sh
+set -eu
+real=\${POKEHARNESS_REAL_CLAUDE:-}
+[ -n "\$real" ] || {
+  old_ifs=\$IFS; IFS=:
+  for dir in \$PATH; do
+    IFS=\$old_ifs
+    [ "\$dir" = "\${POKEHARNESS_CLI_SHIM_DIR:-}" ] && continue
+    if [ -x "\$dir/claude" ]; then real="\$dir/claude"; break; fi
+    IFS=:
+  done
+  IFS=\$old_ifs
+}
+[ -n "\$real" ] || { echo "claude: command not found" >&2; exit 127; }
+settings_present=false
+instructions_present=false
+for arg in "\$@"; do
+  [ "\$arg" = "--settings" ] && settings_present=true
+  case "\$arg" in --settings=*) settings_present=true;; esac
+  [ "\$arg" = "--append-system-prompt-file" ] && instructions_present=true
+  case "\$arg" in --append-system-prompt-file=*) instructions_present=true;; esac
+done
+if [ "\$settings_present" = false ] && [ -n "\${POKEHARNESS_CLAUDE_SETTINGS:-}" ]; then
+  set -- "\$@" --settings "\$POKEHARNESS_CLAUDE_SETTINGS"
+fi
+if [ "\$instructions_present" = false ] && [ -n "\${POKEHARNESS_INSTRUCTIONS:-}" ] && [ -f "\$POKEHARNESS_INSTRUCTIONS" ]; then
+  set -- "\$@" --append-system-prompt-file "\$POKEHARNESS_INSTRUCTIONS"
+fi
+exec "\$real" "\$@"
+`;
+
+/** Fallback-shell codex shim. JSON.stringify is delegated to the bundled
+ *  Node launcher so escaping matches spawn() exactly for every HARNESS.md. */
+const CODEX_CLI_SHIM = `#!/bin/sh
+set -eu
+real=\${POKEHARNESS_REAL_CODEX:-}
+[ -n "\$real" ] || {
+  old_ifs=\$IFS; IFS=:
+  for dir in \$PATH; do
+    IFS=\$old_ifs
+    [ "\$dir" = "\${POKEHARNESS_CLI_SHIM_DIR:-}" ] && continue
+    if [ -x "\$dir/codex" ]; then real="\$dir/codex"; break; fi
+    IFS=:
+  done
+  IFS=\$old_ifs
+}
+[ -n "\$real" ] || { echo "codex: command not found" >&2; exit 127; }
+if [ -n "\${POKEHARNESS_INSTRUCTIONS:-}" ] && [ -f "\$POKEHARNESS_INSTRUCTIONS" ]; then
+  quoted=\$("\${POKEHARNESS_NODE:?}" "\${POKEHARNESS_JSON_HELPER:?}" "\$POKEHARNESS_INSTRUCTIONS")
+  set -- "\$@" -c "developer_instructions=\$quoted"
+fi
+exec "\$real" "\$@"
+`;
 
 /** The generated shim script. Deliberately dumb: read stdin, add
  *  harness_agent_id from env, forward to the socket, print whatever comes
@@ -261,6 +325,8 @@ export class HookBridge {
   private readonly codexShimFile: string;
   private readonly delegateCliFile: string;
   private readonly launcherFile: string;
+  private readonly cliShimDir: string;
+  private readonly cliJsonHelperFile: string;
   readonly sockPath: string;
   /** Identity of the socket file we're CURRENTLY bound to, captured right
    *  after `listen()` succeeds. Existence alone can't tell "our socket" from
@@ -321,6 +387,8 @@ export class HookBridge {
     this.codexShimFile = join(this.binDir, CODEX_SHIM_FILENAME);
     this.delegateCliFile = join(this.binDir, DELEGATE_CLI_FILENAME);
     this.launcherFile = join(this.binDir, process.platform === 'win32' ? 'poke-node.cmd' : 'poke-node');
+    this.cliShimDir = join(this.binDir, CLI_SHIM_DIRNAME);
+    this.cliJsonHelperFile = join(this.cliShimDir, CLI_JSON_HELPER_FILENAME);
     this.sockPath = join(userDataDir, 'hooks.sock');
   }
 
@@ -334,10 +402,17 @@ export class HookBridge {
    *  behavior cost. */
   ensureFiles(): void {
     mkdirSync(this.binDir, { recursive: true });
+    mkdirSync(this.cliShimDir, { recursive: true });
     writeFileSync(this.shimFile, HOOK_SHIM, 'utf8');
     writeFileSync(this.codexShimFile, CODEX_HOOK_SHIM, 'utf8');
     writeFileSync(this.delegateCliFile, DELEGATE_CLI_SCRIPT, 'utf8');
+    writeFileSync(join(this.cliShimDir, 'claude'), CLAUDE_CLI_SHIM, 'utf8');
+    writeFileSync(join(this.cliShimDir, 'codex'), CODEX_CLI_SHIM, 'utf8');
+    writeFileSync(this.cliJsonHelperFile, CLI_JSON_HELPER, 'utf8');
     try {
+      chmodSync(join(this.cliShimDir, 'claude'), 0o755);
+      chmodSync(join(this.cliShimDir, 'codex'), 0o755);
+      chmodSync(this.cliJsonHelperFile, 0o755);
       if (process.platform === 'win32') {
         writeFileSync(
           this.launcherFile,
@@ -355,6 +430,21 @@ export class HookBridge {
     } catch (e) {
       console.error('[hooks] writing node launcher failed:', e);
     }
+  }
+
+  /** Directory prepended to fallback-shell PATH for hand-relaunched CLIs. */
+  cliShimPath(): string {
+    return this.cliShimDir;
+  }
+
+  /** Bundled Node launcher used by the codex shim's JSON.stringify helper. */
+  nodeLauncherPath(): string {
+    return this.launcherFile;
+  }
+
+  /** Helper that emits a JSON.stringify-compatible string literal. */
+  cliJsonHelperPath(): string {
+    return this.cliJsonHelperFile;
   }
 
   /** Start listening on the UDS. Independent of any live claude session — the
