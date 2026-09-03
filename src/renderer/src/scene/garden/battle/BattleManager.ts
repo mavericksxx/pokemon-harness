@@ -285,8 +285,6 @@ const WANDER_RANGE = 5;
 const ROAM_LABEL_VISIBLE_MS = 3_000;
 const ROAM_LABEL_CYCLE_MIN_MS = 7_000;
 const ROAM_LABEL_CYCLE_MAX_MS = 10_000;
-/** Live subagent tools briefly take priority over the roaming label cadence. */
-const SUB_TOOL_BUBBLE_MS = 3_000;
 /** How far in from the map edge a roam "home" corner sits — enough that a
  *  roaming subagent's own local jitter (WANDER_RANGE) never walks it off the
  *  map or into an unwalkable border. */
@@ -1223,11 +1221,14 @@ export class BattleManager {
     this.showSubagentTool(target, subagentId, tool, toolTarget);
   }
 
-  private showSubagentTool(sub: SubBattler, subagentId: string, tool: string, toolTarget: string): void {
+  // Attribution-only: raw per-tool-call bubbles (Tier 2) were removed per
+  // user feedback — frequent tool calls made the bubble flash almost
+  // constantly. `tool`/`toolTarget` are kept as params (call sites still
+  // pass them) but no longer rendered; only the subagentId correlation
+  // bookkeeping survives, since handleSubTool's `remembered` branch depends
+  // on a prior call here having set it.
+  private showSubagentTool(sub: SubBattler, subagentId: string, _tool: string, _toolTarget: string): void {
     sub.subagentId = subagentId;
-    sub.toolBubbleRemainingMs = SUB_TOOL_BUBBLE_MS;
-    sub.roamBubbleMode = 'tool';
-    sub.battler.showAttack(tool, toolTarget);
   }
 
   /** A real per-subagent completion (`onSubagentTaskNotification`, see file
@@ -2225,8 +2226,11 @@ export class BattleManager {
     }
   }
 
-  /** Drive Tier 1's intermittent label cadence and let a freshly observed
-   *  Tier 2 tool bubble take over until its short display window expires. */
+  /** Drive Tier 1's intermittent label cadence. The Tier 2 tool-bubble
+   *  takeover this once guarded is now dead (nothing sets
+   *  toolBubbleRemainingMs above 0 anymore — see showSubagentTool), so this
+   *  guard is a permanent no-op kept only because the field/type it reads
+   *  are still declared. */
   private updateRoamingBubble(sub: SubBattler, dt: number): void {
     sub.roamLabelElapsedMs = (sub.roamLabelElapsedMs + dt * 1000) % sub.roamLabelCycleMs;
     if (sub.toolBubbleRemainingMs > 0) {
