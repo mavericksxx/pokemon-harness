@@ -832,6 +832,7 @@ export function GardenScene(): JSX.Element {
         map,
         charLayer,
         getRuntime: (parentId) => runtimes.get(parentId),
+        getNightWeight: () => dayNight.nightWeight,
         onCompanionClick: (parentId) => {
           // Mirrors addWalker's own onClick below exactly — clicking the
           // companion focuses the PARENT session's terminal (the advisor
