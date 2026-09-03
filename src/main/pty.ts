@@ -76,6 +76,7 @@ export class PtyManager {
    *  on the very next spawn, no settings save needed. */
   private harnessInstructionsEnabled = true;
   private harnessInstructionsPath: string | null = null;
+  private terminalAppearance: 'light' | 'dark' = 'dark';
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -127,6 +128,12 @@ export class PtyManager {
   setHarnessInstructions(enabled: boolean, path: string | null): void {
     this.harnessInstructionsEnabled = enabled;
     this.harnessInstructionsPath = path;
+  }
+
+  /** Main owns this because boot respawns happen before the renderer exists;
+   *  already-running CLIs do not re-read env when the theme toggles. */
+  setTerminalAppearance(appearance: 'light' | 'dark'): void {
+    this.terminalAppearance = appearance;
   }
 
   spawn(opts: SpawnPtyOptions): PtyResult {
@@ -219,6 +226,10 @@ export class PtyManager {
       ...(opts.env ?? {}),
       ...hookEnv
     };
+    if (opts.env?.COLORFGBG === undefined) {
+      env.COLORFGBG = this.terminalAppearance === 'light' ? '0;15' : '15;0';
+    }
+    if (!env.TERM_PROGRAM) env.TERM_PROGRAM = 'pokeharness';
 
     try {
       const proc = pty.spawn(file, args, {
@@ -330,6 +341,8 @@ export class PtyManager {
 
     const prior = source;
     const fallbackEnv = { ...env };
+    fallbackEnv.COLORFGBG = this.terminalAppearance === 'light' ? '0;15' : '15;0';
+    if (!fallbackEnv.TERM_PROGRAM) fallbackEnv.TERM_PROGRAM = 'pokeharness';
     if (this.hookBridge && prior?.provider && (prior.provider === 'claude' || prior.provider === 'codex')) {
       const shimDir = this.hookBridge.cliShimPath();
       fallbackEnv.PATH = `${shimDir}:${env.PATH || userShellPath()}`;
