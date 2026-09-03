@@ -106,6 +106,7 @@ const api = {
    *  `codexHooksNoticePending`. Pulled on boot the same way
    *  `getDiskRestoreInfo` above is. */
   getCodexHooksNotice: (): Promise<string | null> => ipcRenderer.invoke('app:getCodexHooksNotice'),
+  getClaudeThemeNotice: (): Promise<string | null> => ipcRenderer.invoke('app:getClaudeThemeNotice'),
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
   resolveTerminalCwd: (candidates: string[]): Promise<string> => ipcRenderer.invoke('paths:resolveTerminalCwd', candidates),
