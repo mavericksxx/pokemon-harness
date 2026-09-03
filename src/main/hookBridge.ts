@@ -31,6 +31,7 @@ import { log } from './diagnostics';
 import {
   isKnownHookEvent,
   normalizeToolName,
+  subagentTypeFromInput,
   toolTargetFromInput,
   type DelegateHookSignal,
   type HookEvent,
@@ -875,6 +876,7 @@ export class HookBridge {
       source: p.source,
       claudeSessionId: p.session_id,
       toolUseId: p.tool_use_id,
+      subagentType: subagentTypeFromInput(tool, p.tool_input),
       agent_id: p.agent_id,
       agent_type: p.agent_type
     };
