@@ -103,6 +103,15 @@ export interface HookEvent {
    *  remains the harness parent/session id. */
   agent_id?: string;
   agent_type?: string;
+  /** Raw `subagent_type` off a `Task` call's `tool_input` (see
+   *  `subagentTypeFromInput`) — advisor-pokemon feature. Deliberately
+   *  separate from `toolTarget`'s merged description-or-subagent_type label:
+   *  a dispatch usually carries a `description` too, which is what
+   *  `toolTarget` picks instead, so that field alone can't reliably signal
+   *  "this Task call's `subagent_type` is literally `advisor`". hookRouter
+   *  .ts's `PreToolUse` `Task` branch reads this to route an advisor consult
+   *  to the advisor bus instead of an ordinary battle spawn. */
+  subagentType?: string;
 }
 
 /** External-codex-delegate feature — a delegate's SessionStart or Stop,
@@ -189,4 +198,18 @@ export function toolTargetFromInput(toolName: string | undefined, input: unknown
     default:
       return pick('file_path', 'path', 'notebook_path');
   }
+}
+
+/** Best-effort raw `subagent_type` off a `Task` call's `tool_input` —
+ *  advisor-pokemon feature. Unlike `toolTargetFromInput`'s `Task` case
+ *  (which falls back to `subagent_type` only when `description` is absent,
+ *  merging both into one display label), this reads `subagent_type` on its
+ *  own, unmerged, so hookRouter.ts can test it for the literal value
+ *  `'advisor'` regardless of whether a `description` is also present.
+ *  Undefined for every non-`Task` tool or an unexpected input shape — never
+ *  throws. */
+export function subagentTypeFromInput(toolName: string | undefined, input: unknown): string | undefined {
+  if (toolName !== 'Task' || !input || typeof input !== 'object') return undefined;
+  const v = (input as Record<string, unknown>).subagent_type;
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }

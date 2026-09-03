@@ -19,6 +19,7 @@ import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { initShinyConfig } from './shiny';
 import { randomAnimatedSpecies, speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
+import { AdvisorManager } from './battle/AdvisorManager';
 import { GardenCharm } from './gardenCharm';
 import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
@@ -821,6 +822,32 @@ export function GardenScene(): JSX.Element {
         onBattlerDone: (key, done) => useStore.getState().setBattlerDone(key, done)
       });
 
+      // Advisor-pokemon feature — a hovering companion beside the session an
+      // `advisor` subagent consult is advising, kept entirely separate from
+      // BattleManager's own roam->queue->battle lifecycle (see
+      // AdvisorManager.ts's own header). Instantiated here for the same
+      // reason battleManager is (this scene's own map/charLayer), and
+      // disposed alongside it in cleanup() below.
+      const advisorManager = new AdvisorManager({
+        map,
+        charLayer,
+        getRuntime: (parentId) => runtimes.get(parentId),
+        onCompanionClick: (parentId) => {
+          // Mirrors addWalker's own onClick below exactly — clicking the
+          // companion focuses the PARENT session's terminal (the advisor
+          // consult it's showing has no session of its own to open).
+          const store = useStore.getState();
+          if (store.viewMode === 'garden') {
+            store.select(parentId);
+            store.setViewMode('gardenFull');
+          } else if (store.viewMode === 'gardenFull') {
+            store.select(parentId);
+            store.setViewMode('garden');
+            store.setDrawerOpen(true);
+          }
+        }
+      });
+
       // Click-resolution fix (v1.8.0 bug report — a battler click jumping
       // to a DIFFERENT session's walker): both Walker and Battler give
       // their `container` an explicit rectangular `hitArea` sized off the
@@ -879,6 +906,9 @@ export function GardenScene(): JSX.Element {
           if (isClickable(rt.walker.container)) candidates.push(rt.walker.container);
         }
         for (const candidate of battleManager.getClickCandidates()) {
+          if (isClickable(candidate.container)) candidates.push(candidate.container);
+        }
+        for (const candidate of advisorManager.getClickCandidates()) {
           if (isClickable(candidate.container)) candidates.push(candidate.container);
         }
         if (!(e.target instanceof Container) || !candidates.includes(e.target)) return;
@@ -1381,6 +1411,9 @@ export function GardenScene(): JSX.Element {
       // harness.log at 60Hz the way a bare per-frame console.error used to
       // spam devtools with nothing captured at all.
       let loggedBattleUpdateThrow = false;
+      /** Same one-shot-log posture as `loggedBattleUpdateThrow`, for
+       *  `advisorManager.update()`'s own isolated try/catch below. */
+      let loggedAdvisorUpdateThrow = false;
       // Ticker-wide throw guard (BACKLOG friend-testing readiness) — the
       // per-parent battle isolation below only covers battleManager.update();
       // an uncaught throw anywhere ELSE in this callback (map/walker update,
@@ -1461,6 +1494,26 @@ export function GardenScene(): JSX.Element {
           if (!loggedBattleUpdateThrow) {
             loggedBattleUpdateThrow = true;
             safeLogDiagnostic('battle', 'error', 'battleManager.update() threw outside per-parent isolation', {
+              error: e instanceof Error ? (e.stack ?? e.message) : String(e)
+            });
+          }
+        }
+        // Advisor-pokemon feature — its own phase, isolated exactly like
+        // battleManager's above (same "one phase throwing must never block
+        // the others" philosophy this ticker already applies to every other
+        // phase). No separate dirty-flag hook is needed here: a companion's
+        // own continuous aura (battleFx.ts's `spawnAdvisorAura`) already
+        // keeps `hasActiveFx()` — read into `battleOrFxWasActive` above —
+        // true for its entire lifetime, which covers this call's own
+        // position-follow updates too (see AdvisorManager.update's own
+        // comment).
+        try {
+          advisorManager.update(dt);
+        } catch (e) {
+          console.error('[advisor] update() threw — skipping this frame:', e);
+          if (!loggedAdvisorUpdateThrow) {
+            loggedAdvisorUpdateThrow = true;
+            safeLogDiagnostic('advisor', 'error', 'advisorManager.update() threw', {
               error: e instanceof Error ? (e.stack ?? e.message) : String(e)
             });
           }
@@ -1683,6 +1736,7 @@ export function GardenScene(): JSX.Element {
         offCharm();
         for (const id of [...runtimes.keys()]) removeWalker(id);
         battleManager.dispose();
+        advisorManager.dispose();
         clearBattleFx();
         gardenCharm.destroy();
         dayNight.destroy();
