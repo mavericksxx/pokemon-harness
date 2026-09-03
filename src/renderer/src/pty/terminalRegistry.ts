@@ -31,7 +31,6 @@ import {
   dangerLight,
   ground,
   groundLight,
-  ink,
   inkLight,
   primaryAccent,
   primaryAccentLight,
@@ -40,6 +39,7 @@ import {
 } from '@/design/tokens';
 import type { AgentProviderId } from '@shared/agentProvider';
 import { DEFAULT_TERMINAL_SETTINGS, type TerminalSettings } from '@shared/terminalTypes';
+import { TERMINAL_COLORS } from '@shared/terminalColors';
 
 // Terminal type: JetBrains Mono at the spec's mono-md step (14/20 — see
 // design/tokens.ts). xterm's own `fontFamily`/`fontSize`/`lineHeight` are a
@@ -72,7 +72,7 @@ const SHELL_NAP_CHECK_MS = 5_000;
 // background) are what every session has always rendered with.
 const DARK_THEME: ITheme = {
   background: ground[0],
-  foreground: ink[900],
+  foreground: TERMINAL_COLORS.dark.foreground,
   cursor: primaryAccent,
   selectionBackground: ground[200]
 };
@@ -86,14 +86,14 @@ const DARK_THEME: ITheme = {
 // (goldLight's own contrast caveat, documented in tokens.ts, rules it out
 // as ANSI text on this background).
 const LIGHT_THEME: ITheme = {
-  background: groundLight.terminal,
-  foreground: inkLight[900],
+  background: TERMINAL_COLORS.light.background,
+  foreground: TERMINAL_COLORS.light.foreground,
   cursor: primaryAccentLight,
-  cursorAccent: groundLight.terminal,
+  cursorAccent: TERMINAL_COLORS.light.background,
   // `groundLight[200]` (a light cream tint) reads as nearly invisible
   // against `groundLight.terminal` — `disabled` carries real contrast.
   selectionBackground: groundLight.disabled,
-  black: inkLight[900],
+  black: TERMINAL_COLORS.light.foreground,
   red: dangerLight,
   green: accentLight.mint,
   yellow: '#9C7A1E',
@@ -108,7 +108,7 @@ const LIGHT_THEME: ITheme = {
   brightBlue: accentLight.sky,
   brightMagenta: accentLight.lilac,
   brightCyan: '#2F7480',
-  brightWhite: inkLight[900]
+  brightWhite: TERMINAL_COLORS.light.foreground
 };
 
 /** Theme applied to every terminal — new (via `createTerminal`) and already-

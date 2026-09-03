@@ -618,7 +618,7 @@ export class HookBridge {
     this.bind();
   }
 
-  private sendToast(text: string): void {
+  sendToast(text: string): void {
     const wc = this.getWebContents();
     if (!wc || wc.isDestroyed()) return;
     try {
