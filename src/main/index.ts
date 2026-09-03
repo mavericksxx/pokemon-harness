@@ -1187,8 +1187,8 @@ handle('app:getClaudeThemeNotice', () => {
 handle('sprites:getCached', (_e, id: string, view: SpriteView, shiny: boolean) =>
   getCachedSprite(id, view, shiny)
 );
-handle('sprites:fetchGif', (_e, id: string, view: SpriteView, shiny: boolean) =>
-  fetchSpriteGif(id, view, shiny)
+handle('sprites:fetchGif', (_e, id: string, view: SpriteView, shiny: boolean, explicitKind?: 'animated' | 'static') =>
+  fetchSpriteGif(id, view, shiny, explicitKind)
 );
 handle(
   'sprites:saveCache',

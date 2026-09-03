@@ -335,10 +335,9 @@ export function subagentDone(): void {
 /** Spawns a demo session whose species is a MEGA_FORMS key, then runs a
  *  subagent battle for it — BattleManager fires the mega beat itself once
  *  the fight reaches faceoff (megaForms.ts's own header). `charizard` is
- *  hardcoded (rather than picked from MEGA_FORMS, which isn't exported —
- *  see that file's header for why the table is deliberately incomplete
- *  coverage) since it's both a MEGA_FORMS key and one of the 42 bundled
- *  species, so this never needs a lazy-sprite fetch. */
+ *  hardcoded (rather than picked from MEGA_FORMS, which isn't exported — it's
+ *  simply convenient here because it's both a MEGA_FORMS key and one of the
+ *  42 bundled species, so this demo path never needs a lazy-sprite fetch). */
 export function mega(): void {
   if (!activeAtom.get()) return;
   const line = speciesEntry('charizard')?.line ?? 'charizard';
