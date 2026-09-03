@@ -4114,6 +4114,21 @@ body.garden-lowres .garden canvas {
   background: var(--text);
 }
 
+/* xterm.js owns its own scrollback scrolling (.xterm-viewport) inside
+ * .terminal-mount (FocusView.tsx — shared by both the drawer/split view and
+ * the full-screen 'terminal' view mode). The global chunky scrollbar above
+ * swept this up too: its 12px track/thumb clipped the CLI's own
+ * bottom-pinned input row. Scrolling itself is untouched (wheel/trackpad/
+ * keyboard all still work — only the visual scrollbar chrome is hidden). */
+.terminal-mount .xterm-viewport {
+  scrollbar-width: none; /* Firefox — harmless no-op in this Chromium-only app, kept for parity with the other scrollbar-hiding rules in this file (see .session-chips/.garden-chips near line 305) */
+}
+.terminal-mount .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 /* Custom I-beam text cursor on inputs — a light outline + dark core reads on
  * this app's dark surfaces everywhere the OS's own text cursor (which can
  * render near-invisible on some platform/scheme combinations) would not.
