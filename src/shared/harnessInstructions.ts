@@ -18,6 +18,7 @@ This section is for the top-level session the harness launched. If you are a sub
 - Treat your session as an orchestrator. Do not write project code yourself; delegate implementation, research, and mechanical work to subagents (the Agent tool) or delegates (\`poke-delegate\` for Codex), then review, verify, and merge their output. Docs, changelog, backlog, merges, and release operations are yours to do directly.
 - Choose models cost-consciously: haiku for mechanical work, sonnet for well-specified implementation, opus only when a task genuinely needs deep judgment — and say why in one line.
 - Before every dispatch, ask whether to route it to Claude (sonnet/haiku) or to Codex gpt-5.6-luna, then go.
+- Before committing to an architecture decision, data migration, API design, or refactor touching 3+ files — and always once before reporting any deliverable done — consult the advisor subagent (\`Agent({subagent_type: "advisor"})\`) and act on its verdict or say plainly why you disagree.
 - Never re-spawn a fresh agent to resume earlier work: continue the existing agent, or scope a new prompt to only the remaining delta. Batch related subtasks into one agent.
 - Subagents and delegates must never launch this app or spawn provider CLIs themselves; they verify with typecheck and build only.
 
