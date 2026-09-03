@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useUsageStore } from '@/store/usageStore';
 import { useStore } from '@/store/store';
@@ -177,18 +177,19 @@ function UsageCostStrip(): JSX.Element | null {
 /**
  * Topbar usage-limits chip + "trainer card" popover (BACKLOG "next up" item
  * 1) — same anchored-popover shape as AudioPopover.tsx/QuickSettings.tsx
- * (outside-click catcher, Escape closes). Renders NOTHING (not even the
- * trigger button) unless the settings toggle is on AND EITHER a provider has
- * a real number to show (`tightestWindow`) OR a provider needs the user's
- * action (`expired`/`unauthorized` — CodexBar-parity feedback: the chip must
- * stay reachable so that red re-authenticate row can be seen). A provider
- * that's merely `error` ("usage unavailable", nothing actionable) or
+ * (pointerdown outside-click dismissal, Escape closes). Renders NOTHING (not
+ * even the trigger button) unless the settings toggle is on AND EITHER a
+ * provider has a real number to show (`tightestWindow`) OR a provider needs
+ * the user's action (`expired`/`unauthorized` — CodexBar-parity feedback: the
+ * chip must stay reachable so that red re-authenticate row can be seen). A
+ * provider that's merely `error` ("usage unavailable", nothing actionable) or
  * `stale`-with-no-prior-data does NOT keep the chip alive on its own — task
  * spec: "chip renders ONLY when... at least one provider has data"; a
  * permanent contentless chip for a plain fetch failure would violate that.
  */
 export function UsageChip(): JSX.Element | null {
   const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
   const usageLimitsEnabled = useAppSettingsStore((s) => s.settings.usageLimitsEnabled);
   const mainUsageProvider = useAppSettingsStore((s) => s.settings.mainUsageProvider);
@@ -201,6 +202,18 @@ export function UsageChip(): JSX.Element | null {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  // Outside-click dismissal follows the document-level pointerdown +
+  // wrapper-ref `.contains()` pattern already established by
+  // OverflowChipRow.tsx, instead of using a full-screen catcher div.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !wrapperRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
 
   // Popover-open refresh (task spec) — throttled MAIN-side to once/min, so
@@ -232,7 +245,7 @@ export function UsageChip(): JSX.Element | null {
   const gauges = miniGauges(snapshot.providers, mainUsageProvider);
 
   return (
-    <div className="usage-popover">
+    <div className="usage-popover" ref={wrapperRef}>
       <button
         type="button"
         className={`tip usage-chip usage-chip--${tone}`}
@@ -270,15 +283,12 @@ export function UsageChip(): JSX.Element | null {
       </button>
 
       {open && (
-        <>
-          <div className="usage-popover-catcher" onClick={() => setOpen(false)} />
-          <div className="usage-popover-panel" role="dialog" aria-label="provider usage limits">
-            {snapshot.providers.map((p) => (
-              <UsageProviderSection key={p.provider} snapshot={p} now={now} />
-            ))}
-            <UsageCostStrip />
-          </div>
-        </>
+        <div className="usage-popover-panel" role="dialog" aria-label="provider usage limits">
+          {snapshot.providers.map((p) => (
+            <UsageProviderSection key={p.provider} snapshot={p} now={now} />
+          ))}
+          <UsageCostStrip />
+        </div>
       )}
     </div>
   );
