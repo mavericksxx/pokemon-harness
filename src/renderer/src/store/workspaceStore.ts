@@ -14,7 +14,7 @@
 import { create } from 'zustand';
 import { useStore, type Session } from '@/store/store';
 import { isGlobalSession } from '@shared/arceus';
-import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '@shared/workspaceTypes';
+import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot, type WorkspaceUpdate } from '@shared/workspaceTypes';
 
 /** A session's workspace, defaulting the implicit id for a pre-8.7 record
  *  that hasn't been migrated in memory yet (shouldn't normally happen —
@@ -33,6 +33,7 @@ interface WorkspaceState {
   hydrate(snapshot: WorkspaceSnapshot): void;
   createWorkspace(name: string, primaryFolder: string): Promise<void>;
   renameWorkspace(id: string, name: string): Promise<void>;
+  updateWorkspace(id: string, fields: WorkspaceUpdate): Promise<void>;
   setActiveWorkspace(id: string): Promise<void>;
   /** Resolves to null on success, or a human-readable reason it was
    *  refused (still has live sessions / it's the only workspace left). */
@@ -73,6 +74,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   renameWorkspace: async (id, name) => {
     const res = await window.api.renameWorkspace(id, name);
+    set({ workspaces: res.workspaces, activeWorkspaceId: res.activeWorkspaceId });
+  },
+
+  updateWorkspace: async (id, fields) => {
+    const res = await window.api.updateWorkspace(id, fields);
     set({ workspaces: res.workspaces, activeWorkspaceId: res.activeWorkspaceId });
   },
 

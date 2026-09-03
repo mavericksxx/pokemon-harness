@@ -23,6 +23,7 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
   const command = req.command.trim() || preset.defaultCommand;
   const isPlainTerminal = req.plainTerminal === true;
   let sessionAdded = false;
+  const previousSelectedId = useStore.getState().selectedId;
 
   try {
     // Create the terminal FIRST: it subscribes to the PTY channels (so no
@@ -102,7 +103,12 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     // terminal and the store entry together rather than surfacing the failure as
     // a permanently-"done" session.
     if (hasTerminal(id)) disposeTerminal(id);
-    if (sessionAdded) useStore.getState().removeSession(id);
+    if (sessionAdded) {
+      useStore.getState().removeSession(id);
+      if (previousSelectedId && useStore.getState().sessions.some((session) => session.id === previousSelectedId)) {
+        useStore.getState().select(previousSelectedId);
+      }
+    }
     throw err instanceof Error ? err : new Error(String(err));
   }
 }

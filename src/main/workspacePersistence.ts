@@ -7,11 +7,12 @@
  * debounced: workspace create/rename/delete/switch are rare, user-driven
  * actions, not a 60Hz stream of checkpoints.
  */
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
+import type { SessionRecord } from '../shared/types';
 
 function workspacesFilePath(harnessHomeDir: string): string {
   return join(harnessHomeDir, 'workspaces.json');
@@ -72,4 +73,41 @@ export async function initWorkspaceRegistry(
   const snapshot: WorkspaceSnapshot = { workspaces: [workspace], activeWorkspaceId: workspace.id };
   saveWorkspaceRegistry(harnessHomeDir, snapshot);
   return snapshot;
+}
+
+export interface WorkspaceRepair {
+  workspaceId: string;
+  oldPath: string;
+  newPath: string;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Repair paths and quick-picks before the renderer sees them at boot. */
+export function repairWorkspaceFolders(
+  snapshot: WorkspaceSnapshot,
+  sessions: SessionRecord[],
+  recentFolders: string[]
+): { snapshot: WorkspaceSnapshot; recentFolders: string[]; repairs: WorkspaceRepair[] } {
+  const repairs: WorkspaceRepair[] = [];
+  const workspaces = snapshot.workspaces.map((workspace) => {
+    if (isDirectory(workspace.primaryFolder)) return workspace;
+    const workspaceSessions = sessions.filter(
+      (session) => (session.workspaceId ?? DEFAULT_WORKSPACE_ID) === workspace.id
+    );
+    const replacement = [...workspaceSessions].reverse().find((session) => isDirectory(session.cwd))?.cwd ?? homedir();
+    repairs.push({ workspaceId: workspace.id, oldPath: workspace.primaryFolder, newPath: replacement });
+    return { ...workspace, primaryFolder: replacement };
+  });
+  return {
+    snapshot: { ...snapshot, workspaces },
+    recentFolders: recentFolders.filter(isDirectory),
+    repairs
+  };
 }
