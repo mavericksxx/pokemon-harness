@@ -170,6 +170,8 @@ export function GardenScene(): JSX.Element {
     // empty. This is what `respawnFromStore` (below, inside `mountScene`)
     // actually reads instead.
     let pendingRespawn: LiveBattler[] = [];
+    let pendingWalkerTiles = new Map<string, { x: number; y: number }>();
+    let snapshotWalkerTiles: () => Map<string, { x: number; y: number }> = () => new Map();
 
     const rebuild = async (): Promise<void> => {
       if (rebuildInFlight) {
@@ -196,6 +198,7 @@ export function GardenScene(): JSX.Element {
       });
       try {
         pendingRespawn = useStore.getState().battlers.slice();
+        pendingWalkerTiles = snapshotWalkerTiles();
         currentCleanup?.();
         currentCleanup = null;
         await mountScene();
@@ -220,6 +223,7 @@ export function GardenScene(): JSX.Element {
     };
 
     const mountScene = async (): Promise<void> => {
+      const sessionsAtMount = new Set(useStore.getState().sessions.map((session) => session.id));
       const app = new Application();
       let destroyed = false;
       let cleanup: (() => void) | null = null;
@@ -716,6 +720,9 @@ export function GardenScene(): JSX.Element {
 
       const patchPool = new SeatPool(STATION_SPAWNS.patch);
       const runtimes = new Map<string, Runtime>();
+      let restoredWanderSlot = 0;
+      snapshotWalkerTiles = () =>
+        new Map([...runtimes].map(([id, runtime]) => [id, runtime.walker.tile]));
 
       // Select-cry (Phase 8 §4): seeded from the CURRENT selection, not null,
       // so a restore-on-boot (or the initial `applyState()` call right after
@@ -980,14 +987,25 @@ export function GardenScene(): JSX.Element {
       };
 
       const addWalker = (session: Session): Runtime => {
-        const homePatch = patchPool.reserveNext() ?? STATION_SPAWNS.patch[0];
+        const reservedHomePatch = patchPool.reserveNext();
+        const homePatch = reservedHomePatch ?? STATION_SPAWNS.patch[0];
         const slot = Math.max(0, STATION_SPAWNS.patch.indexOf(homePatch));
         const animation = resolveAnimation(session.pokemon, session.shiny);
+        const restored = sessionsAtMount.has(session.id);
+        const restoredTile = pendingWalkerTiles.get(session.id);
+        // Restored idle walkers are already home; live sessions still walk in from the entrance.
+        const startTile =
+          restoredTile ??
+          (restored && session.status !== 'working'
+            ? reservedHomePatch
+              ? spawnTileFor('patch', slot, animation.info.locomotion !== 'walk')
+              : spawnTileFor('wander', restoredWanderSlot++, animation.info.locomotion !== 'walk')
+            : entrance);
         const walker = new Walker({
           sessionId: session.id,
           map,
           animation,
-          startTile: entrance,
+          startTile,
           accentColor: session.accent,
           label: session.title,
           dimLayer: evolutionDimLayer,
