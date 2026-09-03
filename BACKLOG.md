@@ -23,11 +23,19 @@ broken, finish phase F) · [`v1.13.0`](https://github.com/mavericksxx/pokemon-ha
 **Area** — `area:garden`, `area:terminal`, `area:orchestration`, `area:ui`, `area:perf`,
 `area:platform`.
 
-**Impact** — `P0` (broken right now), `P1` (hurts daily use). Absence means neither; scheduling is
-the milestone's job, not a label's.
+**Value** — `P1` (hurts daily use) · `P2` (real value, not urgent) · `P3` (someday, ideation).
+`P0` exists for "broken right now" and is currently unused. Priority is not a schedule — that's the
+milestone's job.
 
-**State** — `needs-input` marks an issue blocked on a decision only the owner can make. Start there
-when picking up work, since those are the ones that stall.
+**Effort** — `size:S` (under half a day) · `size:M` (one to two days) · `size:L` (multi-day, one
+lane) · `size:XL` (needs splitting before starting). Rough by design; re-estimate at dispatch.
+
+Every open issue carries exactly one value label and one effort label, so both axes are always
+filterable. **[Issue #28](https://github.com/mavericksxx/pokemon-harness/issues/28) is pinned and
+holds the ready-made "what next" queries** — start there rather than scrolling the list.
+
+**State** — `needs-input` marks an issue blocked on a decision only the owner can make. These stall
+everything downstream, so they are worth clearing first.
 
 ## the passive stuff
 
