@@ -36,6 +36,7 @@
  * follows — "pokéharness" is lowercase by design choice (App.tsx has the
  * font-rendering note), not because this rule forced it.
  */
+import { TERMINAL_COLORS } from '@shared/terminalColors';
 
 /** Ground/surface ramp — munder-difflin tokens.css dark theme: `--cth-cream-*`
  *  (app ground → panel fill → raised/inset fill) and `--cth-ink-300` for the
@@ -51,7 +52,7 @@ export const ground = {
    *  `.terminal-mount`, form inputs and pickers sat on `ground[0]` before,
    *  which is meant for the letterbox behind the garden, not a control's own
    *  surface. Deliberately darker than `ground[100]`/`ground[200]` (chrome). */
-  terminal: '#1A1A1F',
+  terminal: TERMINAL_COLORS.dark.background,
   /** Disabled control fill — spec-added; not yet consumed anywhere before
    *  this pass (see `button:disabled` below). */
   disabled: '#313139'
@@ -61,7 +62,7 @@ export const ground = {
  *  `700` secondary, `500` tertiary/muted, `300` the quietest divider tone
  *  (their comment: "meant to recede," 1.4-1.7:1 contrast — not for text). */
 export const ink = {
-  900: '#DEDBD6',
+  900: TERMINAL_COLORS.dark.foreground,
   700: '#B3B0AC',
   500: '#96919F',
   300: '#3E3D46' // cth-ink-100 — subtle dividers only, not a border/text tone
@@ -112,12 +113,12 @@ export const groundLight = {
   100: '#FFF8E7', // cream-100 (light) — panel fill
   200: '#F4E9C7', // cream-200 (light) — raised/inset fill
   300: '#A899B5', // ink-300 (light) — hairline borders
-  terminal: '#FCFAF0', // paper-100 (light)
+  terminal: TERMINAL_COLORS.light.background, // paper-100 (light)
   disabled: '#E8D9A0' // cream-300 (light)
 } as const;
 
 export const inkLight = {
-  900: '#1A1320',
+  900: TERMINAL_COLORS.light.foreground,
   700: '#3D2E4A',
   500: '#6B5878',
   300: '#D9CFE0' // ink-100 (light) — subtle dividers only

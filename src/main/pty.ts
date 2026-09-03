@@ -18,6 +18,7 @@ import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
 import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
+import { TERMINAL_COLORS } from '../shared/terminalColors';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
  *  userData: these are throwaway routing files, not app state. */
@@ -53,6 +54,8 @@ interface PtySession {
   isDelegate: boolean;
   provider?: string;
   claudeSettingsPath?: string;
+  rendererAttached: boolean;
+  oscCarry: string;
 }
 
 export class PtyManager {
@@ -77,6 +80,7 @@ export class PtyManager {
   private harnessInstructionsEnabled = true;
   private harnessInstructionsPath: string | null = null;
   private terminalAppearance: 'light' | 'dark' = 'dark';
+  private lastExitCodes = new Map<string, number>();
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -136,7 +140,7 @@ export class PtyManager {
     this.terminalAppearance = appearance;
   }
 
-  spawn(opts: SpawnPtyOptions): PtyResult {
+  spawn(opts: SpawnPtyOptions, rendererAttached = false): PtyResult {
     // Socket inode self-heal (hooks.sock clobber bug) — on-demand check
     // right before every spawn (session or delegate — both funnel through
     // here), so a session that's about to need working hooks gets a
@@ -156,6 +160,7 @@ export class PtyManager {
     // A respawn reusing a live id would orphan the old child. Kill it first.
     if (this.sessions.has(opts.id)) this.kill(opts.id);
     this.delegateExits.delete(opts.id);
+    this.lastExitCodes.delete(opts.id);
 
     const { path: file, found } = resolveCommand(opts.command);
     if (!found) {
@@ -255,7 +260,9 @@ export class PtyManager {
         isFallback: false,
         provider: opts.provider,
         claudeSettingsPath,
-        isDelegate: opts.isDelegate === true
+        isDelegate: opts.isDelegate === true,
+        rendererAttached,
+        oscCarry: ''
       };
       this.sessions.set(opts.id, session);
       this.onSessionsChanged?.();
@@ -263,8 +270,10 @@ export class PtyManager {
       proc.onData((data) => {
         if (this.sessions.get(opts.id) !== session) return;
         session.lastOutputAt = Date.now();
-        session.replay = (session.replay + data).slice(-REPLAY_MAX_CHARS);
-        this.safeSend(`pty:data:${opts.id}`, data);
+        const visible = this.handleDetachedQueries(session, data);
+        if (!visible) return;
+        session.replay = (session.replay + visible).slice(-REPLAY_MAX_CHARS);
+        this.safeSend(`pty:data:${opts.id}`, visible);
       });
 
       proc.onExit(({ exitCode, signal }) => {
@@ -272,6 +281,7 @@ export class PtyManager {
         if (exitCode !== 0) {
           log('pty', 'warn', 'session exited nonzero', { id: opts.id, command: session.command, exitCode, signal });
         }
+        this.lastExitCodes.set(opts.id, exitCode);
         this.sessions.delete(opts.id);
         this.onSessionsChanged?.();
         if (session.isDelegate) this.delegateExits.set(opts.id, { exitCode, signal });
@@ -331,6 +341,41 @@ export class PtyManager {
    *  (AGENT_ID_ENV/HOOK_SOCK_ENV — see pty.ts's spawn()). The fallback
    *  PATH shims add retained settings/instructions wiring when the user
    *  hand-relaunches claude or codex in this shell. */
+  spawnFallbackShellFromRespawn(id: string, cwd: string, provider?: string, claudeSettingsPath?: string): PtyResult {
+    const shellCommand = process.env.SHELL || '/bin/zsh';
+    const { path: file, found } = resolveCommand(shellCommand);
+    if (!found) return { ok: false, error: `shell not found on PATH: ${shellCommand}` };
+    const settingsPath = claudeSettingsPath ?? join(hookTmpDir(), `hook-settings-${id}.json`);
+    const env = this.buildFallbackEnv(process.env as Record<string, string>, provider, existsSync(settingsPath) ? settingsPath : undefined, id);
+    return this.spawnFallbackShellProcess(id, cwd, file, env, { provider, claudeSettingsPath: existsSync(settingsPath) ? settingsPath : undefined });
+  }
+
+  private buildFallbackEnv(env: Record<string, string>, provider?: string, claudeSettingsPath?: string, agentId?: string): Record<string, string> {
+    const fallbackEnv: Record<string, string> = {
+      ...env,
+      COLORFGBG: this.terminalAppearance === 'light' ? '0;15' : '15;0'
+    };
+    if (!fallbackEnv.TERM_PROGRAM) fallbackEnv.TERM_PROGRAM = 'pokeharness';
+    if (this.hookBridge && (provider === 'claude' || provider === 'codex')) {
+      const shimDir = this.hookBridge.cliShimPath();
+      fallbackEnv.PATH = `${shimDir}:${env.PATH || userShellPath()}`;
+      fallbackEnv.POKEHARNESS_CLI_SHIM_DIR = shimDir;
+      const real = resolveCommand(provider);
+      if (real.found) fallbackEnv[`POKEHARNESS_REAL_${provider.toUpperCase()}`] = real.path;
+      fallbackEnv.POKEHARNESS_NODE = this.hookBridge.nodeLauncherPath();
+      fallbackEnv.POKEHARNESS_JSON_HELPER = this.hookBridge.cliJsonHelperPath();
+      if (provider === 'claude') {
+        if (agentId) fallbackEnv[AGENT_ID_ENV] = agentId;
+        fallbackEnv[HOOK_SOCK_ENV] = fallbackEnv[HOOK_SOCK_ENV] || this.hookBridge.sockPath;
+      }
+      if (provider === 'claude' && claudeSettingsPath) fallbackEnv.POKEHARNESS_CLAUDE_SETTINGS = claudeSettingsPath;
+      if (this.harnessInstructionsEnabled && this.harnessInstructionsPath && existsSync(this.harnessInstructionsPath)) {
+        fallbackEnv.POKEHARNESS_INSTRUCTIONS = this.harnessInstructionsPath;
+      }
+    }
+    return fallbackEnv;
+  }
+
   private spawnFallbackShell(id: string, cwd: string, env: Record<string, string>, source: PtySession): void {
     const shellCommand = process.env.SHELL || '/bin/zsh';
     const { path: file, found } = resolveCommand(shellCommand);
@@ -340,24 +385,12 @@ export class PtyManager {
     }
 
     const prior = source;
-    const fallbackEnv = { ...env };
-    fallbackEnv.COLORFGBG = this.terminalAppearance === 'light' ? '0;15' : '15;0';
-    if (!fallbackEnv.TERM_PROGRAM) fallbackEnv.TERM_PROGRAM = 'pokeharness';
-    if (this.hookBridge && prior?.provider && (prior.provider === 'claude' || prior.provider === 'codex')) {
-      const shimDir = this.hookBridge.cliShimPath();
-      fallbackEnv.PATH = `${shimDir}:${env.PATH || userShellPath()}`;
-      fallbackEnv.POKEHARNESS_CLI_SHIM_DIR = shimDir;
-      const real = resolveCommand(prior.provider);
-      if (real.found) fallbackEnv[`POKEHARNESS_REAL_${prior.provider.toUpperCase()}`] = real.path;
-      fallbackEnv.POKEHARNESS_NODE = this.hookBridge.nodeLauncherPath();
-      fallbackEnv.POKEHARNESS_JSON_HELPER = this.hookBridge.cliJsonHelperPath();
-      if (prior.provider === 'claude' && prior.claudeSettingsPath) {
-        fallbackEnv.POKEHARNESS_CLAUDE_SETTINGS = prior.claudeSettingsPath;
-      }
-      if (this.harnessInstructionsEnabled && this.harnessInstructionsPath && existsSync(this.harnessInstructionsPath)) {
-        fallbackEnv.POKEHARNESS_INSTRUCTIONS = this.harnessInstructionsPath;
-      }
-    }
+    const fallbackEnv = this.buildFallbackEnv(env, prior.provider, prior.claudeSettingsPath);
+
+    this.spawnFallbackShellProcess(id, cwd, file, fallbackEnv, prior);
+  }
+
+  private spawnFallbackShellProcess(id: string, cwd: string, file: string, fallbackEnv: Record<string, string>, source: Pick<PtySession, 'provider' | 'claudeSettingsPath'>): PtyResult {
 
     try {
       const proc = pty.spawn(file, [], {
@@ -385,9 +418,11 @@ export class PtyManager {
         replay: notice,
         env: fallbackEnv,
         isFallback: true,
-        provider: prior?.provider,
-        claudeSettingsPath: prior?.claudeSettingsPath,
-        isDelegate: false
+        provider: source.provider,
+        claudeSettingsPath: source.claudeSettingsPath,
+        isDelegate: false,
+        rendererAttached: false,
+        oscCarry: ''
       };
       this.sessions.set(id, session);
       this.onSessionsChanged?.();
@@ -397,8 +432,10 @@ export class PtyManager {
       proc.onData((data) => {
         if (this.sessions.get(id) !== session) return;
         session.lastOutputAt = Date.now();
-        session.replay = (session.replay + data).slice(-REPLAY_MAX_CHARS);
-        this.safeSend(`pty:data:${id}`, data);
+        const visible = this.handleDetachedQueries(session, data);
+        if (!visible) return;
+        session.replay = (session.replay + visible).slice(-REPLAY_MAX_CHARS);
+        this.safeSend(`pty:data:${id}`, visible);
       });
 
       proc.onExit(({ exitCode, signal }) => {
@@ -412,12 +449,41 @@ export class PtyManager {
         this.onSessionsChanged?.();
         this.safeSend(`pty:exit:${id}`, { exitCode, signal });
       });
+      return { ok: true, cwd };
     } catch (e) {
       log('pty', 'warn', 'shell fallback: spawn threw', {
         id,
         message: e instanceof Error ? e.message : String(e)
       });
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  private handleDetachedQueries(session: PtySession, data: string): string {
+    if (session.rendererAttached) return data;
+    // Boot respawns have no xterm to answer OSC queries; consume them here so
+    // replay does not make xterm answer a stale query after it attaches.
+    let input = session.oscCarry + data;
+    session.oscCarry = '';
+    const query = /\x1b\](10|11);\?(\x07|\x1b\\)/g;
+    let output = '';
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    while ((match = query.exec(input))) {
+      output += input.slice(cursor, match.index);
+      const color = TERMINAL_COLORS[this.terminalAppearance];
+      const hex = color[match[1] === '10' ? 'foreground' : 'background'].match(/[0-9a-f]{2}/gi) as string[];
+      const channel = hex.map((part) => part + part).join('/');
+      try { session.proc.write(`\x1b]${match[1]};rgb:${channel}${match[2]}`); } catch { /* process is exiting */ }
+      cursor = query.lastIndex;
+    }
+    output += input.slice(cursor);
+    const lastEsc = output.lastIndexOf('\x1b');
+    if (lastEsc >= 0 && /^\x1b\](?:1[01](?:;\?)?)?$/.test(output.slice(lastEsc))) {
+      session.oscCarry = output.slice(lastEsc);
+      output = output.slice(0, lastEsc);
+    }
+    return output;
   }
 
   /** External-codex-delegate feature (HookBridge.handleDelegate) — whether a
@@ -523,8 +589,12 @@ export class PtyManager {
    *  reattaching terminal to repaint before live data resumes. Empty for an
    *  unknown/dead id — the caller just gets a blank terminal, same as today. */
   getReplay(id: string): string {
-    return this.sessions.get(id)?.replay ?? '';
+    const session = this.sessions.get(id);
+    if (session) session.rendererAttached = true;
+    return session?.replay ?? '';
   }
+
+  getLastExitCode(id: string): number | undefined { return this.lastExitCodes.get(id); }
 
   /** Bulk-kill for app quit. Closing the pty HUPs the child's process group, so
    *  trees die with it on POSIX. */
