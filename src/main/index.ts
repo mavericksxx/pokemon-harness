@@ -28,6 +28,7 @@ import { loadAudioSettings, saveAudioSettings } from './audioSettings';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
 import { respawnSession } from './sessionRespawn';
+import { ensureClaudeTheme } from './claudeTheme';
 import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
@@ -691,7 +692,7 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
       ...(outcome.fallbackReason ? { error: outcome.fallbackReason } : {})
     });
     if (outcome.fallbackReason) {
-      notes.push(`${record.title}: ${outcome.fallbackReason} — opened a plain shell instead.`);
+      notes.push(`${record.title}: ${outcome.fallbackReason} — opened a shell with pokeharness wiring.`);
     }
   }
 
@@ -979,6 +980,11 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
   Menu.setApplicationMenu(buildApplicationMenu());
   createWindow(resolveWindowBg(appSettings.theme));
+  ensureClaudeTheme(() => {
+    mainWindow?.webContents.once('did-finish-load', () => {
+      hookBridge.sendToast("set claude's theme to auto so it follows pokéharness — change it any time with /theme");
+    });
+  });
   diskRestorePromise = restoreFromDisk(appSettings);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(resolveWindowBg(appSettings.theme));
@@ -1040,7 +1046,7 @@ function handle(channel: string, fn: IpcListener): void {
 }
 
 // ─── PTY IPC ────────────────────────────────────────────────────────────────
-handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts));
+handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts, true));
 handle('pty:write', (_e, id: string, data: string) => ptyManager.write(id, data));
 handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
   ptyManager.resize(id, cols, rows)
