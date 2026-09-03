@@ -2,6 +2,11 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+- **advisor consults work out of the box on a fresh install, with zero personal config**: every claude spawn now carries a bundled `advisor` subagent (via Claude Code's `--agents` flag) matching the one this feature was modeled on — same "advises only, never edits" contract, restricted to `Read`/`Grep`/`Glob`. Previously the hovering-companion feature (v1.10.0) only ever fired for someone who'd independently hand-written their own `~/.claude/agents/advisor.md`; a fresh install had none, so the feature was silently dormant. Skipped automatically if you already have your own `advisor.md` (user- or project-level) — never shadows a hand-tuned one. HARNESS.md's own template now tells the session to actually call it before architecture decisions and before reporting a deliverable done. Claude Sonnet subagent, reviewed/merged by the orchestrator
+- **a stuck advisor companion can no longer linger forever**: the completion signal that despawns a companion pokemon occasionally never arrives (root cause not yet fully understood — suspected in the async-completion transcript-scraping mechanism for a long, continuously-busy session), leaving it hovering permanently until an app restart. Every companion now self-despawns after 15 minutes regardless, with a distinctly-logged diagnostic line so a recurrence is traceable. Claude Sonnet subagent, reviewed/merged by the orchestrator
+
 ## v1.10.0 — 2026-09-03
 
 - **advisor consults now spawn a hovering companion pokemon beside the session that called them**: a `Task` dispatched with `subagent_type: 'advisor'` gets a Lake Guardian (Uxie, Mesprit, or Azelf, cycling to whichever of the three isn't already in use) that appears at the parent's side with a soft breathing lilac aura and floats along with it for the consult's duration, instead of vanishing into the same undifferentiated subagent pool as every other dispatch. Click it to focus the parent session — it has no pty of its own. Runs on its own signal bus and manager, deliberately not layered onto the existing battle/roam system, since a consult never queues or fights. Under reduced motion the aura holds at a fixed brightness instead of breathing. Claude Sonnet subagent, reviewed/merged by the orchestrator
