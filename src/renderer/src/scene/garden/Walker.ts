@@ -4,6 +4,7 @@ import type { Locomotion, PokemonAnimation } from './showdownArt';
 import { findPath } from './pathfinding';
 import { ToolBubble } from './ToolBubble';
 import { EvolutionCeremony } from './EvolutionCeremony';
+import { MegaCeremony } from './battle/MegaCeremony';
 import { purgeBattleFxFor, prefersReducedMotion, spawnPokeballRecall } from './battle/battleFx';
 import { evolutionConfig } from './evolution';
 import { markDirty } from './renderDirty';
@@ -109,11 +110,21 @@ export class Walker {
   private zzz: Text;
   private zzzT = 0;
 
-  /** Mega evolution during battles (BattleManager's setTemporaryForm calls
-   *  only) — the animation to restore to on revert, or null while no
-   *  temporary form is showing. Set the instant a mega swap is requested
-   *  (before its flash even starts), so a same-battle re-check reads "mega
-   *  is active" immediately rather than only once the flash completes. */
+  /** Mega evolution during battles (BattleManager's setTemporaryForm /
+   *  startMegaCeremony calls only) — the animation to restore to on revert,
+   *  or null while no temporary form is showing.
+   *
+   *  INVARIANT (this is what makes a mid-ceremony abort clean): this is
+   *  written ONLY by the step that actually puts the mega sprite on screen —
+   *  `setTemporaryForm`'s instant/reduced-motion path, or the ceremony's own
+   *  flash-peak swap (`applyMegaCeremonySwap`) — never at the moment a mega is
+   *  merely REQUESTED. It used to be set at request time, which meant a battle
+   *  ending mid-buildup found it truthy and dutifully "reverted" a form that
+   *  had never been applied — flushing the pending swap on the way out, i.e.
+   *  applying-then-reverting. Harmless at the old 500ms flash, very visible at
+   *  a multi-second ceremony. BattleManager's own `megaActive` flag is what
+   *  answers "is a mega in flight for this wave" now; this answers only "is a
+   *  temporary form currently on screen". */
   private tempFormBase: PokemonAnimation | null = null;
   /** Elapsed ms into the current mega flash beat, or null when idle — see
    *  flashSwap(). */
@@ -125,6 +136,13 @@ export class Walker {
    *  (cancelMegaFlash, destroy()). */
   private megaFlashGraphic: Graphics | null = null;
   private static readonly MEGA_FLASH_MS = 500;
+
+  /** The staged mega-evolution ceremony (battle-only), or null when none is
+   *  running — see battle/MegaCeremony.ts. Distinct from `ceremony` below:
+   *  that one is real evolution's, owns the sprite exclusively, and reparents
+   *  the walker; this one only decorates it in place while a battle wave is
+   *  held. Only ever one at a time per walker. */
+  private megaCeremony: MegaCeremony | null = null;
 
   private ceremony: EvolutionCeremony | null = null;
   /** Saved badge/ring visibility while the ceremony hides all UI chrome
@@ -423,6 +441,11 @@ export class Walker {
     // eventual reveal) already clears `tempFormBase` for us; this just makes
     // sure nothing STILL IN FLIGHT sneaks a sprite.configure() in between.
     this.cancelMegaFlash();
+    // Same reasoning for a staged mega ceremony still building up: it decorates
+    // (and fades) the very sprite the evolution ceremony is about to take over.
+    // Cancel-without-applying — the mega form it was about to reveal is
+    // superseded by the species this walker is evolving into.
+    this.cancelMegaCeremony();
     const ts = this.map.tileSize;
     this.ceremony = new EvolutionCeremony({
       container: this.container,
@@ -496,6 +519,7 @@ export class Walker {
     // than let a later revert restore a form this call has already
     // superseded (evolving, or a fresh lazy sprite landing, mid-battle).
     this.cancelMegaFlash();
+    this.cancelMegaCeremony();
     this.tempFormBase = null;
     this.sprite.configure(animation);
     this.locomotion = animation.info.locomotion;
@@ -524,6 +548,13 @@ export class Walker {
    *  path. */
   setTemporaryForm(animation: PokemonAnimation | null): void {
     if (this.ceremony) return;
+    // Whatever this call is about to do, the staged ceremony no longer gets
+    // to finish its own version of it. Cancelling BEFORE the `tempFormBase`
+    // check below is the abort-without-applying path (see that field's
+    // invariant): a ceremony that never reached its flash peak leaves
+    // `tempFormBase` null, so the revert branch correctly finds nothing to
+    // revert instead of applying the pending mega and immediately undoing it.
+    this.cancelMegaCeremony();
     if (animation) {
       // Keep the ORIGINAL base if a mega is somehow re-triggered before its
       // own revert — never overwrite it with whatever's showing mid-swap.
@@ -535,6 +566,72 @@ export class Walker {
       this.tempFormBase = null;
       this.flashSwap(() => this.applyTempForm(base));
     }
+  }
+
+  /** Battle mega evolution's REAL entry point (BattleManager.startMega) — the
+   *  staged ceremony (battle/MegaCeremony.ts) rather than `setTemporaryForm`'s
+   *  bare half-second flash. The caller holds its battle wave in place while
+   *  `isMegaCeremonyActive` stays true, exactly the way `updateAlert` holds a
+   *  wave until the "!" bubble finishes; `onSwap` fires at the ceremony's
+   *  flash peak, the frame the mega form actually appears, so the "Mega
+   *  Evolved!" text lands with the reveal instead of ahead of it.
+   *
+   *  Under `prefers-reduced-motion` there IS no buildup: the swap is applied
+   *  instantly via `setTemporaryForm` and `isMegaCeremonyActive` is false from
+   *  the start, so the caller's hold is a no-op too — a reduced-motion viewer
+   *  never sits through a multi-second pause with nothing to look at.
+   *
+   *  Returns false only when an evolution ceremony owns the sprite (file
+   *  header invariant), in which case nothing at all was started. */
+  startMegaCeremony(animation: PokemonAnimation, onSwap?: () => void): boolean {
+    if (this.ceremony) return false;
+    if (prefersReducedMotion()) {
+      this.setTemporaryForm(animation);
+      onSwap?.();
+      return true;
+    }
+    // Never stack a ceremony on a still-running one (or on an in-flight
+    // flash) — cancel-without-applying, then start fresh.
+    this.cancelMegaCeremony();
+    this.cancelMegaFlash();
+    this.megaCeremony = new MegaCeremony({
+      container: this.container,
+      sprite: this.sprite,
+      flashLayer: this.flashLayer,
+      spriteWidth: () => this.sprite.drawnWidth,
+      spriteHeight: () => this.sprite.drawnHeight,
+      feet: () => ({ x: Math.round(this.px), y: Math.round(this.py) }),
+      applySwap: () => {
+        this.applyMegaCeremonySwap(animation);
+        onSwap?.();
+      }
+    });
+    return true;
+  }
+
+  /** True while the staged mega ceremony is mid-flight — the flag
+   *  BattleManager gates its wave-hold on. */
+  get isMegaCeremonyActive(): boolean {
+    return this.megaCeremony !== null;
+  }
+
+  /** The ceremony's flash-peak swap. Deliberately NOT routed through
+   *  `setTemporaryForm`: that cancels the ceremony as its first act, which
+   *  would dispose the very object currently mid-`update()`. */
+  private applyMegaCeremonySwap(animation: PokemonAnimation): void {
+    if (!this.tempFormBase) this.tempFormBase = this.sprite.animation;
+    this.applyTempForm(animation);
+  }
+
+  /** Drop a staged mega ceremony without ever performing its pending swap
+   *  (if it hasn't reached its flash peak yet) — the abort path, reached from
+   *  `setTemporaryForm(null)` (i.e. BattleManager's `revertMega`), from
+   *  `evolve`/`setAnimation` seizing the sprite, and from teardown. Safe to
+   *  call when nothing is running. When the ceremony HAS already swapped,
+   *  `tempFormBase` is set and the caller's normal revert still runs. */
+  private cancelMegaCeremony(): void {
+    this.megaCeremony?.dispose();
+    this.megaCeremony = null;
   }
 
   private applyTempForm(animation: PokemonAnimation): void {
@@ -637,6 +734,15 @@ export class Walker {
     // once one is.
     this.updateMegaFlash(dt);
     if (this.megaFlashT !== null) markDirty(); // g.alpha/g.x/g.y step every frame it's in flight
+    if (this.megaCeremony) {
+      this.megaCeremony.update(dt);
+      // Dirty-flag rendering (renderDirty.ts) — same blanket "a ceremony is
+      // running is itself the active flag" shortcut the evolution ceremony
+      // takes above: its orbs/ring/plumes/core all animate every frame, with
+      // no single property worth instrumenting piecemeal.
+      markDirty();
+      if (this.megaCeremony.done) this.megaCeremony = null;
+    }
     this.updateFloatingText(dt);
     if (this.floatLayer.children.length > 0) markDirty(); // y/alpha tween every frame text is up
 
@@ -867,6 +973,9 @@ export class Walker {
     // container, so it would otherwise survive this walker as an orphaned
     // white rect.
     this.cancelMegaFlash();
+    // Same for a staged mega ceremony: its flash-out burst also lives in the
+    // shared flashLayer, and its teardown is what puts the body's alpha back.
+    this.cancelMegaCeremony();
     this.bubble.destroy();
     this.container.destroy({ children: true });
   }
