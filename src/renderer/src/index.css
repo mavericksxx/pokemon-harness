@@ -253,6 +253,10 @@ body {
   flex: none;
 }
 
+.new-agent-icon {
+  display: none;
+}
+
 /* The usable width is the window width minus the 96px traffic-light inset and
  * 24px side padding: 980px (~1100px window) hides the brand text, 860px
  * (~980px) compacts the 83px new-agent button to 30px, and 812px (~932px)
@@ -284,10 +288,6 @@ body {
     width: 96px;
     min-width: 96px;
   }
-}
-
-.new-agent-icon {
-  display: none;
 }
 
 .session-chips {
