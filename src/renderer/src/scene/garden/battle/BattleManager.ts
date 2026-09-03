@@ -487,13 +487,21 @@ interface ParentBattle {
    *  in `admitBattle` from the actual walk distance (see WAVE_STUCK_MIN_MS's
    *  own comment on why this can't be a flat constant anymore). */
   waveStuckCapMs: number;
-  /** True from the moment `startMega` successfully applies a mega sprite
-   *  (async — see that method) until `revertMega` releases it. Gates every
-   *  revert call site to a no-op for the vastly more common case (no mega
-   *  form, or the load hasn't landed yet) — `Walker.setTemporaryForm(null)`
-   *  is itself idempotent too, so this is belt-and-braces, not the only
-   *  thing standing between a mega and getting stuck. */
+  /** True from the moment `startMega` successfully KICKS OFF a mega (async —
+   *  see that method) until `revertMega` releases it. Note "kicks off", not
+   *  "applies": the sprite itself only changes at the ceremony's flash peak
+   *  a few seconds later (Walker.startMegaCeremony), and this flag has to
+   *  cover the buildup too, or a second `startMega` for the same wave would
+   *  see no mega in flight. `revertMega` during the buildup is the abort
+   *  path and applies nothing — see Walker's `tempFormBase` invariant. */
   megaActive: boolean;
+  /** True while a mega ceremony is playing and this wave is therefore HELD in
+   *  place — nothing advances (no face-off countdown, no attack, no ending
+   *  beat) until the ceremony finishes, the same shape as `updateAlert`
+   *  holding the wave until the "!" bubble finishes its pop cycle. Always
+   *  false under reduced motion, where the mega swap is instant and there is
+   *  nothing to wait for. */
+  megaHold: boolean;
 }
 
 export interface BattleDeps {
@@ -940,24 +948,39 @@ export class BattleManager {
       this.forceConcludeWave(pb);
     }
 
-    switch (pb.wave) {
-      case 'alert':
-        this.updateAlert(pb);
-        break;
-      case 'approaching':
-        this.updateApproaching(pb);
-        break;
-      case 'faceoff':
-        this.updateFaceoff(pb, dt);
-        break;
-      case 'looping':
-        if (pb.currentAttack) this.advanceAttack(pb, dt);
-        break;
-      case 'ending':
-        this.updateEnding(pb, dt);
-        break;
-      case 'idle':
-        break;
+    // A mega ceremony HOLDS the wave in place while it plays (a real
+    // evolution ceremony beat, not something that resolves instantly
+    // mid-fight): the phase machine below is skipped entirely until the
+    // ceremony is done, so the face-off countdown, the attack in flight and
+    // the ending beat all freeze exactly where they were. Everything else —
+    // battle stance upkeep, each battler's own idle animation, position sync —
+    // keeps running. Cleared the moment the walker reports the ceremony
+    // finished (or it was cancelled out from under us by an abort/teardown),
+    // and never set at all under reduced motion. The wave's hard cap above
+    // still applies, so this can never wedge a wave even if the flag somehow
+    // outlives the ceremony.
+    if (pb.megaHold && !pb.parentWalker.isMegaCeremonyActive) pb.megaHold = false;
+
+    if (!pb.megaHold) {
+      switch (pb.wave) {
+        case 'alert':
+          this.updateAlert(pb);
+          break;
+        case 'approaching':
+          this.updateApproaching(pb);
+          break;
+        case 'faceoff':
+          this.updateFaceoff(pb, dt);
+          break;
+        case 'looping':
+          if (pb.currentAttack) this.advanceAttack(pb, dt);
+          break;
+        case 'ending':
+          this.updateEnding(pb, dt);
+          break;
+        case 'idle':
+          break;
+      }
     }
 
     // Mutual facing, re-derived every tick from actual current tiles —
@@ -1502,7 +1525,8 @@ export class BattleManager {
       nextSeq: 0,
       waveStartedAt: 0,
       waveStuckCapMs: WAVE_STUCK_MIN_MS,
-      megaActive: false
+      megaActive: false,
+      megaHold: false
     };
   }
 
@@ -1548,6 +1572,7 @@ export class BattleManager {
     pb.lastAttackerWasParent = false;
     pb.pendingTool = null;
     pb.pendingCombo = 0;
+    pb.megaHold = false;
 
     // Freeze the parent exactly where it is for the "!" alert beat —
     // goTo(its own tile) is a zero-length path (see pathfinding.ts) that
@@ -1765,7 +1790,9 @@ export class BattleManager {
    *     mega would frequently resolve after the fight already ended, land
    *     in the discard branch below, and silently never show — a `prefetch`
    *     call never applies anything itself (see the early return), it only
-   *     warms `loadView`'s own cache (lazySprites.ts) for #2.
+   *     warms `loadView`'s own cache (lazySprites.ts) for #2. That head
+   *     start matters more than ever now that the apply window is
+   *     'faceoff'-only (below).
    *  2. `updateApproaching`, the ONE spot a wave transitions into 'faceoff'
    *     — the real, apply-attempting call. By now #1's fetch is very likely
    *     already resolved (or resolves within a tick or two, off the SAME
@@ -1773,6 +1800,16 @@ export class BattleManager {
    *     `applyBattleStance` (re-applied every tick for facing upkeep —
    *     cheap idempotent no-ops), this fires exactly once: `updateApproaching`
    *     only ever sets `wave = 'faceoff'` the one time it does.
+   *
+   *  'faceoff' is the ONLY phase that still accepts an application (the
+   *  guard below used to allow 'looping' as well). Applying is no longer a
+   *  half-second flash but a ~3.6s ceremony that holds the wave in place, so
+   *  a fetch resolving mid-'looping' would buy a long hold and then get
+   *  reverted by `beginEnding` almost immediately — skipping the mega
+   *  entirely for that wave is the better trade. Because the ceremony's hold
+   *  freezes the phase machine, a wave that reaches 'faceoff' stays there for
+   *  the ceremony's whole duration, so this narrower window costs the normal
+   *  (warm-cache) path nothing.
    *
    *  No-op for the ~980 species with no mega form (the common case) and
    *  while the parent is mid-evolution-ceremony (file header invariant:
@@ -1791,27 +1828,48 @@ export class BattleManager {
     }
     const token = pb.waveStartedAt;
     void promise.then((anim) => {
-      // Stale if: this exact wave already has a mega applied (belt-and-
+      // Stale if: this exact wave already has a mega in flight (belt-and-
       // braces — the split above means only #2 ever reaches here, but this
       // costs nothing to keep), a later wave has since started for this
-      // same parent (token mismatch), this exact wave has moved past the
-      // actual fighting phase (faceoff/looping) — including into 'ending',
-      // the victory beat, where a fetch resolving now would visibly
-      // mega-evolve the parent AFTER the fight already reads as over, only
-      // to revert moments later — or evolution started meanwhile. Discard
-      // rather than apply.
+      // same parent (token mismatch), this exact wave has moved past
+      // 'faceoff' at all, or evolution started meanwhile. Discard rather
+      // than apply.
+      //
+      // 'looping' USED TO BE accepted here too, back when applying meant a
+      // 500ms flash that could then sit on screen for the rest of the fight.
+      // It isn't anymore: applying now kicks off a ~3.6s ceremony that HOLDS
+      // the wave (see startMegaCeremony/megaHold), and a fetch resolving
+      // partway through 'looping' would spend that whole hold on a reveal
+      // `beginEnding` reverts about a second later — the wave's remaining
+      // attacks are all that's left. A cold-cache mega simply not happening
+      // for that one wave is the better outcome, and it's silent for exactly
+      // the same reason the 'ending' case already was: a mega that lands
+      // after the fight reads as over is worse than no mega at all. The
+      // `admitBattle` prefetch (#1 above) is what keeps this the rare path.
       if (pb.megaActive) return;
       if (pb.waveStartedAt !== token) return;
-      if (pb.wave !== 'faceoff' && pb.wave !== 'looping') return;
+      if (pb.wave !== 'faceoff') return;
       if (pb.parentWalker.isEvolving) return;
       if (!anim) {
         safeLogDiagnostic('battle', 'warn', 'mega evolve failed — sprite unavailable', { speciesId, megaId, shiny });
         return;
       }
+      // The APPLICATION step is the staged ceremony now, not an instant
+      // flash-swap: it plays its own multi-second buildup and performs the
+      // real sprite swap at its flash peak (Walker.startMegaCeremony ->
+      // battle/MegaCeremony.ts), which is also when the reveal text lands.
+      // The trigger site, the prefetch split and every staleness guard above
+      // are deliberately unchanged.
+      const started = pb.parentWalker.startMegaCeremony(anim, () => {
+        pb.parentWalker.showFloatingText(`${this.deps.getParentLabel(pb.parentId)} Mega Evolved!`);
+      });
+      if (!started) return; // evolution seized the sprite between the guards above and here
       pb.megaActive = true;
-      pb.parentWalker.setTemporaryForm(anim);
-      pb.parentWalker.showFloatingText(`${this.deps.getParentLabel(pb.parentId)} Mega Evolved!`);
-      safeLogDiagnostic('battle', 'info', 'mega evolve started', { speciesId, megaId, shiny });
+      // Hold the wave for as long as the ceremony runs — same shape as
+      // `updateAlert`'s hold. False immediately under reduced motion (the swap
+      // was instant, there is no ceremony to wait for).
+      pb.megaHold = pb.parentWalker.isMegaCeremonyActive;
+      safeLogDiagnostic('battle', 'info', 'mega evolve started', { speciesId, megaId, shiny, held: pb.megaHold });
     });
   }
 
@@ -1822,8 +1880,15 @@ export class BattleManager {
    *  itself is idempotent on top of that (nothing to revert to if evolution
    *  already superseded the base mid-battle — see that method's own doc). */
   private revertMega(pb: ParentBattle): void {
+    pb.megaHold = false;
     if (!pb.megaActive) return;
     pb.megaActive = false;
+    // Doubles as the ABORT path: `setTemporaryForm(null)` cancels a ceremony
+    // still mid-buildup without ever applying its pending mega form (see
+    // Walker's `tempFormBase` invariant), so a battle that ends during the
+    // buildup leaves the parent looking exactly as it did before — rather
+    // than snapping into its mega form after the fight and reverting a frame
+    // later, which is what the old apply-at-request-time code did.
     pb.parentWalker.setTemporaryForm(null);
   }
 
@@ -1932,6 +1997,14 @@ export class BattleManager {
     const parentContainer = pb.parentWalker.container;
     parentContainer.x = Math.round(pb.parentWalker.worldX);
     parentContainer.y = Math.round(pb.parentWalker.worldY);
+
+    // Held for a mega ceremony: the parent stands on its own tile for the
+    // whole beat. The offsets below are all driven by clocks the hold has
+    // frozen (`waveElapsedMs`, `currentAttack.elapsedMs`) — a mega that
+    // starts mid-attack (a cold sprite cache can push the fetch past
+    // face-off; see startMega) would otherwise leave the parent stuck
+    // mid-lunge for seconds and then snap back.
+    if (pb.megaHold) return;
 
     if (pb.wave === 'ending') {
       const t = Math.min(1, pb.waveElapsedMs / ENDING_MS);
