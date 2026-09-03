@@ -72,7 +72,7 @@ export class Battler {
     this.container = new Container();
     this.container.sortableChildren = true;
     this.sprite = new WalkerSprite(opts.animation, ts);
-    this.bubble = new ToolBubble();
+    this.bubble = new ToolBubble('subagent');
     this.bubbleLabel = opts.label?.trim() || undefined;
     this.container.addChild(this.sprite.container);
     this.container.eventMode = 'static';
