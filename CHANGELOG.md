@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
-## Unreleased
+## v1.10.0 — 2026-09-03
 
 - **advisor consults now spawn a hovering companion pokemon beside the session that called them**: a `Task` dispatched with `subagent_type: 'advisor'` gets a Lake Guardian (Uxie, Mesprit, or Azelf, cycling to whichever of the three isn't already in use) that appears at the parent's side with a soft breathing lilac aura and floats along with it for the consult's duration, instead of vanishing into the same undifferentiated subagent pool as every other dispatch. Click it to focus the parent session — it has no pty of its own. Runs on its own signal bus and manager, deliberately not layered onto the existing battle/roam system, since a consult never queues or fights. Under reduced motion the aura holds at a fixed brightness instead of breathing. Claude Sonnet subagent, reviewed/merged by the orchestrator
 - **hand-relaunched CLIs in a dropped-to-shell pane keep their pokéharness wiring**: when a claude/codex process exits and the pane falls back to your shell, `claude`/`codex` typed there used to start bare — no lifecycle hooks (the pokemon froze in place and never reported status), your global statusline came back despite "hide claude statusline", and HARNESS.md wasn't appended. The fallback shell now gets PATH shims that exec the real binary with the session's `--settings` file and `--append-system-prompt-file` (claude) or `developer_instructions` (codex) added, unless you passed those flags yourself. The boot-time respawn's shell fallback (a `claude --resume` that didn't survive its grace period) gets the same shims, and the fallback is now logged with the exit code.
