@@ -2,7 +2,7 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { WalkerSprite, type Facing } from './WalkerSprite';
 import type { Locomotion, PokemonAnimation } from './showdownArt';
 import { findPath } from './pathfinding';
-import { ToolBubble } from './ToolBubble';
+import { ToolBubble, TOOL_BUBBLE_Z_BASE } from './ToolBubble';
 import { EvolutionCeremony } from './EvolutionCeremony';
 import { MegaCeremony } from './battle/MegaCeremony';
 import { purgeBattleFxFor, prefersReducedMotion, spawnPokeballRecall } from './battle/battleFx';
@@ -763,6 +763,14 @@ export class Walker {
     // Above the head, not the feet: these sprites are several tiles tall, and a
     // foot-anchored bubble would sit across the Pokemon's chest.
     this.bubble.setPosition(this.px, this.py - this.sprite.drawnHeight);
+    // Keep the bubble in the same "always above ordinary sprite bodies"
+    // overlay tier as before (TOOL_BUBBLE_Z_BASE), but now Y-sorted by its
+    // OWN walker's feet within that tier — rather than a flat identical
+    // value for every bubble — so an advisor companion (which sorts into
+    // this same tier at parentPy + 1, see AdvisorManager.positionCompanion)
+    // can win specifically against ITS OWN parent's bubble without having
+    // to unconditionally out-rank every bubble in the garden.
+    this.bubble.container.zIndex = TOOL_BUBBLE_Z_BASE + Math.round(this.py);
 
     if (this.bounceT !== null) {
       this.bounceT += dt;

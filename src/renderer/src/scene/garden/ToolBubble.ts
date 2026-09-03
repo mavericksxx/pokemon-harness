@@ -36,6 +36,9 @@ const BORDER_WIDTH = 2;
 const FILL_COLOR = 0xf4ecd3; // parchment — Game Boy dialogue-box paper
 const BORDER_COLOR = 0x2b2320; // near-black warm charcoal, not flat pure black
 const TEXT_COLOR = 0x2b2320;
+// Keep tool bubbles above ordinary sprite bodies while leaving room for
+// per-owner Y-sorting within this overlay tier.
+export const TOOL_BUBBLE_Z_BASE = 100000;
 const FONT_SIZE = 12;
 const RENDER_SCALE = 0.5; // render at 2x, scale down for crispness
 const MAX_WIDTH = 140;
@@ -87,7 +90,7 @@ export class ToolBubble {
 
   constructor() {
     this.container = new Container();
-    this.container.zIndex = 100000;
+    this.container.zIndex = TOOL_BUBBLE_Z_BASE;
     this.container.eventMode = 'none';
     this.container.alpha = 0;
     this.container.visible = false;

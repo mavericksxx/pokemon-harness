@@ -4,7 +4,7 @@ import type { PokemonAnimation } from '../showdownArt';
 import type { TiledMapRenderer } from '../TiledMapRenderer';
 import type { DexEntry } from '../dexData';
 import { findPath } from '../pathfinding';
-import { ToolBubble } from '../ToolBubble';
+import { ToolBubble, TOOL_BUBBLE_Z_BASE } from '../ToolBubble';
 import { purgeBattleFxFor, spawnMoveText, spawnPokeballRecall } from './battleFx';
 
 const SPEED = 44; // px/sec — matches Walker's SPEED so approach reads the same
@@ -282,6 +282,9 @@ export class Battler {
    *  Pixi container without changing the battler's logical world position. */
   syncBubblePosition(): void {
     this.bubble.setPosition(this.container.x, this.container.y - this.sprite.drawnHeight);
+    // Same overlay-tier Y-sort as Walker's own bubble — see that file's
+    // comment on this line for the full reasoning.
+    this.bubble.container.zIndex = TOOL_BUBBLE_Z_BASE + Math.round(this.py);
   }
 
   destroy(): void {
