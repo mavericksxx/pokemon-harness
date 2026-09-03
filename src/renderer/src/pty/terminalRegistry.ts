@@ -117,6 +117,12 @@ const LIGHT_THEME: ITheme = {
  *  call, before the persisted setting resolves). */
 let currentTheme: ITheme = DARK_THEME;
 
+// xterm 5.5.0's built-in OSC 10/11 handlers report the live theme service's
+// foreground/background as rgb:rrrr/gggg/bbbb through triggerDataEvent, so
+// term.onData receives the correct reply after applyTerminalTheme changes it.
+// No app handler is needed; registering one would risk bypassing xterm's own
+// support for non-query color-setting payloads.
+
 // Truecolor bypasses the ANSI palette; xterm's minimum contrast ratio is the
 // sanctioned fix for light backgrounds.
 function minimumContrastRatio(theme: ITheme): number {
