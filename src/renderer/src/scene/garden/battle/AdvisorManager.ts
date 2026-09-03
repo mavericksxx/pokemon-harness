@@ -97,6 +97,14 @@ export interface AdvisorDeps {
    *  same point made about an ordinary battler). Mirrors whatever click
    *  handler GardenScene.tsx already wires for an ordinary walker click. */
   onCompanionClick: (parentId: string) => void;
+  /** Current day<->night crossfade weight (0 = day, 1 = night) — a thin
+   *  pass-through to `DayNightOverlay.nightWeight` (GardenScene.tsx owns
+   *  that instance; AdvisorManager has no reference of its own). Read once
+   *  per aura tick by `spawnAdvisorAura` (battleFx.ts) so the companion's
+   *  own additive glow dims as the overlay's screen-blend night elements
+   *  (moonPool/silverRim) brighten the scene on top of it — see
+   *  battleFx.ts's `AURA_NIGHT_DIM` for why. */
+  getNightWeight: () => number;
 }
 
 function currentAuraTint(): number {
@@ -183,7 +191,7 @@ export class AdvisorManager {
 
     const diameterPx = sprite.drawnHeight * AURA_DIAMETER_MULTIPLIER;
     const centerY = -sprite.drawnHeight * 0.5;
-    const aura = spawnAdvisorAura(container, centerY, diameterPx, currentAuraTint());
+    const aura = spawnAdvisorAura(container, centerY, diameterPx, currentAuraTint(), this.deps.getNightWeight);
 
     const companion: Companion = {
       key,

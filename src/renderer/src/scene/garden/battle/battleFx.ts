@@ -562,6 +562,27 @@ const AURA_LAYERS: readonly AuraLayerSpec[] = [
   { fracDiameter: 0.74, peakAlpha: 0.3, k: 3.0, tinted: true, periodSec: 3.7, reversed: true } // pulse
 ];
 
+/** How much the aura's own peak alpha is cut back at full night (0 = no
+ *  change, 1 = fully invisible), scaling linearly with `DayNightOverlay`'s
+ *  `nightWeight` (0 at day, 1 at night — see `spawnAdvisorAura`'s
+ *  `getNightWeight` param). Root cause this offsets: this aura's three
+ *  layers are additive (`blendMode = 'add'`, peak alphas 0.3-0.55 above) and
+ *  were tuned against a plain daytime background, but `DayNightOverlay`'s
+ *  own container sits ABOVE this aura in `world` (see that file's header)
+ *  and, at night, paints two SCREEN-blend brighteners on top of it —
+ *  `moonPool` (up to 0.65 alpha, anchored at the map's pond) and
+ *  `silverRim` (0.1 alpha, whole tile area). Additive-under-screen is still
+ *  additive brightening stacked with more brightening: near the pond at
+ *  night this saturates toward white, which is the washed-out/hazy look
+ *  reported against the garden's night map. 0.35 was picked (mid-range of a
+ *  reasonable 0.25-0.45 band) so a full-night companion is dimmed enough to
+ *  stop clipping toward white next to the moon pool while still reading as
+ *  a distinctly brighter glow than its surroundings — not so much dimming
+ *  that the aura goes dim/grey against an already-dark night scene. Purely
+ *  additive to the existing recipe: at nightWeight=0 (full day) this is a
+ *  no-op, so the tuned daytime look above is completely unchanged. */
+const AURA_NIGHT_DIM = 0.35;
+
 const AURA_SCALE_LOW = 0.95;
 const AURA_SCALE_HIGH = 1.05;
 const AURA_OPACITY_LOW = 0.86;
@@ -640,14 +661,19 @@ function breatheHump(elapsedSec: number, periodSec: number, reversed: boolean): 
  *  for AdvisorManager's own placeholder-pokeball-swaps-to-real-sprite
  *  moment, when the companion's actual drawn size changes after the aura
  *  was already built off the placeholder's (usually close, not identical)
- *  size. */
+ *  size. `getNightWeight` is read once per tick (cheap — a property read on
+ *  `DayNightOverlay`, see that class's own `nightWeight` getter) to dim each
+ *  layer's peak alpha via `AURA_NIGHT_DIM` as night sets in — see that
+ *  constant's own comment for why. */
 export function spawnAdvisorAura(
   container: Container,
   centerY: number,
   diameterPx: number,
-  tint: number
+  tint: number,
+  getNightWeight: () => number
 ): { destroy: () => void; resize: (diameterPx: number, centerY: number) => void } {
   const reduced = prefersReducedMotion();
+  const nightDim = (): number => 1 - AURA_NIGHT_DIM * Math.min(1, Math.max(0, getNightWeight()));
   // Per-layer BASE scale (texture-natural-size -> intended on-screen
   // diameter), tracked separately from the breathe animation's own
   // scale.set() calls below — `sprite.scale.set(x)` REPLACES the sprite's
@@ -661,7 +687,7 @@ export function spawnAdvisorAura(
     sprite.scale.set(baseScale[i]);
     sprite.tint = spec.tinted ? tint : 0xffffff;
     sprite.blendMode = 'add';
-    sprite.alpha = spec.peakAlpha;
+    sprite.alpha = spec.peakAlpha * nightDim();
     sprite.position.set(0, centerY);
     // Inserted at index 0 (not appended) so it sits behind whatever the
     // caller adds to `container` afterward (the companion's own body
@@ -681,12 +707,13 @@ export function spawnAdvisorAura(
   };
   const tick = (dt: number): boolean => {
     if (stopped) return true;
+    const dim = nightDim();
     for (let i = 0; i < AURA_LAYERS.length; i++) {
       const spec = AURA_LAYERS[i];
       const sprite = sprites[i];
       if (reduced) {
         sprite.scale.set(baseScale[i]);
-        sprite.alpha = spec.peakAlpha;
+        sprite.alpha = spec.peakAlpha * dim;
         continue;
       }
       elapsed[i] += dt;
@@ -694,7 +721,7 @@ export function spawnAdvisorAura(
       const scaleFactor = AURA_SCALE_LOW + (AURA_SCALE_HIGH - AURA_SCALE_LOW) * s;
       const opacityFactor = AURA_OPACITY_LOW + (AURA_OPACITY_HIGH - AURA_OPACITY_LOW) * s;
       sprite.scale.set(baseScale[i] * scaleFactor);
-      sprite.alpha = spec.peakAlpha * opacityFactor;
+      sprite.alpha = spec.peakAlpha * opacityFactor * dim;
     }
     return false; // continuous — see this section's own header comment
   };

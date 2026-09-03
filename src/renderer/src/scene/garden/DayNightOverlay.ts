@@ -361,6 +361,19 @@ export class DayNightOverlay {
     this.lampLayer.alpha = nightWeight;
   }
 
+  /** Current night<->day crossfade weight (0 = full day, 1 = full night) —
+   *  a read-only mirror of `nightLayer.alpha`, which `recompute()` already
+   *  sets to exactly this value. Exposed so battleFx.ts's advisor-companion
+   *  aura (an effect that lives entirely outside this file, and outside
+   *  this class's own render order) can dim its own additive brightness as
+   *  night rises, since this overlay's screen-blend elements (`moonPool`,
+   *  `silverRim` above) paint on TOP of the aura and stack with it —
+   *  see battleFx.ts's `AURA_NIGHT_DIM` for the dimming math this feeds.
+   *  Adds no new state of its own. */
+  get nightWeight(): number {
+    return this.nightLayer.alpha;
+  }
+
   /** True while `update()` below is actually changing anything on screen —
    *  dirty-flag rendering (renderDirty.ts, GardenScene.tsx's ticker). Gated
    *  on `lampLayer.alpha` (set by `recompute()` to `nightWeight`, 0 during
