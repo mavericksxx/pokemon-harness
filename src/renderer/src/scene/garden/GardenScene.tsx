@@ -532,7 +532,8 @@ export function GardenScene(): JSX.Element {
         liveLayer: charLayer,
         staticTilesWidthPx: map.width * map.tileSize,
         staticTilesHeightPx: map.height * map.tileSize,
-        staticTilesOffsetPx: { x: borderPx, y: borderPx }
+        staticTilesOffsetPx: { x: borderPx, y: borderPx },
+        content
       });
       dayNight.mount(app.renderer, world);
 
