@@ -13,12 +13,18 @@
  * selection surface.
  *
  * Sprite ids follow Showdown's gen5 naming (`<species>-mega`, or
- * `<species>-megax`/`-megay` for the two Kalos-split forms). The 48 real,
- * official Mega Evolution forms across 46 species are now COMPLETE: art
- * comes from either the BW-animated `gen5ani` tier or the static `gen5` tier,
- * which is the same static-image fallback used by normal species #650-1025.
- * That includes Venusaur, Blastoise, Gengar, Diancie, and every other real
- * Mega form; speculative Smogon Future/CAP forms are intentionally absent.
+ * `<species>-megax`/`-megay` for the two Kalos-split forms). The table covers
+ * the complete classic/pre-Legends Z-A set: 48 real, official Mega Evolution
+ * forms across 46 species. Art comes from either the BW-animated `gen5ani`
+ * tier or the static `gen5` tier, which is the same static-image fallback used
+ * by normal species #650-1025. Pokémon Legends: Z-A (released October 2025)
+ * added roughly two dozen more real, official Mega Evolutions — including
+ * Dragonite, Victreebel, Clefable, Meganium, Feraligatr, and Skarmory —
+ * deliberately out of scope for this table and reserved for a separate,
+ * larger follow-up with its own id-verification pass. Showdown's raw
+ * `pokedex.json` also contains genuinely fan-made CAP entries under the same
+ * `forme: "Mega"` shape; those are not official Mega Evolutions and remain
+ * absent.
  * Every id below was curl-verified against the appropriate one of
  * `https://play.pokemonshowdown.com/sprites/gen5ani/<id>.gif` or
  * `https://play.pokemonshowdown.com/sprites/gen5/<id>.png` before being
