@@ -19,6 +19,16 @@ import type { Locomotion } from './showdownArt';
 import { BUNDLED_BY_NAME } from './showdownArt';
 import { ARCEUS_DEX_ID } from '@shared/arceus';
 
+/** The advisor-pokemon companion trio (#480-482, the Lake Guardians —
+ *  AdvisorManager.ts cycles through them for a hovering advisor-consult
+ *  companion, never a real battler/walker). Same reasoning as
+ *  `ARCEUS_DEX_ID`: none of the three are in the bundled 42-species roster
+ *  `pickFreeLine` draws from (showdownArt.ts's manifest), and `evolvesTo: []`
+ *  keeps them out of every species' evolution chain — so, like Arceus, they
+ *  already can't reach `randomAnimatedSpecies` in practice, but are excluded
+ *  there explicitly too (belt-and-braces, same as Arceus). */
+export const ADVISOR_DEX_IDS = ['uxie', 'mesprit', 'azelf'] as const;
+
 export interface DexEntry {
   id: string;
   name: string;
@@ -133,7 +143,13 @@ export function randomAnimatedSpecies(candidateIds: readonly string[]): string |
   // no species lists him in `evolvesTo` — but he's excluded here explicitly
   // too, same as `static` species, since this is the one function every
   // "pick something to randomly become" path already funnels through.
-  const eligible = candidateIds.filter((id) => !DEX[id]?.static && id !== ARCEUS_DEX_ID);
+  // Advisor-pokemon feature: the three companion ids get the identical
+  // exclusion, for the identical reason (see `ADVISOR_DEX_IDS`'s own
+  // comment) — they must never be handed out as an ordinary evolution/random
+  // pick, only ever assigned by AdvisorManager's own round-robin.
+  const eligible = candidateIds.filter(
+    (id) => !DEX[id]?.static && id !== ARCEUS_DEX_ID && !(ADVISOR_DEX_IDS as readonly string[]).includes(id)
+  );
   if (eligible.length === 0) return undefined;
   return eligible[Math.floor(Math.random() * eligible.length)];
 }

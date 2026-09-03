@@ -4,7 +4,7 @@
  * its already-public `container` — no changes to Walker/WalkerSprite/
  * EvolutionCeremony internals.
  */
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 
@@ -530,6 +530,197 @@ export function spawnPokeballRecall(
     return finished;
   };
   registerFx(container, tick, removeVisuals);
+}
+
+// ─── Advisor companion aura ────────────────────────────────────────────────
+// Everything above this point is a one-shot burst (see file header). This is
+// the first CONTINUOUS effect: it ticks for as long as an advisor consult's
+// companion is on screen (advisor-pokemon spec — see AdvisorManager.ts),
+// stopped only by its own `destroy()`. `registerFx`'s tick contract already
+// supports "never done" (a tick that always returns `false`), so this needs
+// no new machinery — just a tick that doesn't self-terminate.
+
+/** One layer of the aura: a fraction of the companion's own drawn size, a
+ *  peak alpha, the gaussian falloff's steepness (`k` — see
+ *  `auraFalloffTexture`), and its own breathe period/direction. Numbers are
+ *  the advisor-pokemon aura spec's exact figures (verified against the
+ *  reference artifact's baked CSS gradient stops — each layer's 13 stops
+ *  reproduce `a(r)` at this `k` to 4 decimal places). */
+interface AuraLayerSpec {
+  fracDiameter: number;
+  peakAlpha: number;
+  k: number;
+  /** false = always white (the hot core); true = tinted to the aura colour. */
+  tinted: boolean;
+  periodSec: number;
+  reversed: boolean;
+}
+
+const AURA_LAYERS: readonly AuraLayerSpec[] = [
+  { fracDiameter: 0.4, peakAlpha: 0.42, k: 4.5, tinted: false, periodSec: 5.4, reversed: false }, // core
+  { fracDiameter: 1.0, peakAlpha: 0.55, k: 3.2, tinted: true, periodSec: 5.4, reversed: false }, // body
+  { fracDiameter: 0.74, peakAlpha: 0.3, k: 3.0, tinted: true, periodSec: 3.7, reversed: true } // pulse
+];
+
+const AURA_SCALE_LOW = 0.95;
+const AURA_SCALE_HIGH = 1.05;
+const AURA_OPACITY_LOW = 0.86;
+const AURA_OPACITY_HIGH = 1;
+
+/** Raster size a falloff texture is baked at — reused (scaled via each
+ *  Sprite's own width/height) across every diameter and every simultaneous
+ *  advisor, so this is baked at most three times total (once per distinct
+ *  `k` above), ever, regardless of how many companions spawn. */
+const AURA_TEXTURE_SIZE = 128;
+
+const auraTextureCache = new Map<number, Texture>();
+
+/** One white radial falloff, baked once per `k` and cached forever: `a(r) =
+ *  (e^(-k*r^2) - e^(-k)) / (1 - e^(-k))`, sampled at 13 stops from r=0 to
+ *  r=1 (matching the reference artifact's own stop count) into a canvas
+ *  radial gradient. Normalizes to exactly zero alpha at r=1, unlike a naive
+ *  few-stop gradient — see the advisor-pokemon spec for the visible-rim bug
+ *  this avoids. Colour-neutral (pure white): every layer's colour comes from
+ *  its Sprite's own `.tint` instead, so a new aura colour never needs a new
+ *  bake. Mirrors DayNightOverlay.ts's own canvas-baked-Texture pattern. */
+function auraFalloffTexture(k: number): Texture {
+  const cached = auraTextureCache.get(k);
+  if (cached) return cached;
+  const size = AURA_TEXTURE_SIZE;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d')!;
+  const radius = size / 2;
+  const g = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+  const STOPS = 13;
+  const denom = 1 - Math.exp(-k);
+  for (let i = 0; i < STOPS; i++) {
+    const r = i / (STOPS - 1);
+    const a = Math.max(0, (Math.exp(-k * r * r) - Math.exp(-k)) / denom);
+    g.addColorStop(r, `rgba(255,255,255,${a.toFixed(4)})`);
+  }
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = Texture.from(c, true);
+  auraTextureCache.set(k, tex);
+  return tex;
+}
+
+/** Smooth 0 -> 1 -> 0 hump over one period, easing in/out at both ends (a
+ *  raised cosine) — close enough to the reference's CSS `ease-in-out` timing
+ *  for a breathing glow, without pulling in a cubic-bezier solver for one
+ *  curve. `reversed` plays the same hump from its other end; for a hump
+ *  whose start and end values are equal (this one always returns to 0), that
+ *  is mathematically identical in shape to the forward direction — it only
+ *  matters here because the pulse layer's period (3.7s) differs from body/
+ *  core's (5.4s), so starting them from the same wall-clock zero at
+ *  different periods (and, faithfully to the CSS spec, opposite directions)
+ *  is what keeps the three layers from ever breathing in lockstep. */
+function breatheHump(elapsedSec: number, periodSec: number, reversed: boolean): number {
+  const phase = (elapsedSec % periodSec) / periodSec;
+  const raw = (1 - Math.cos(phase * Math.PI * 2)) / 2;
+  return reversed ? 1 - raw : raw;
+}
+
+/** The advisor companion's hovering aura — three additive Sprites (core/
+ *  body/pulse) breathing per `AURA_LAYERS`, centered at `centerY` (local to
+ *  `container`) and sized off `diameterPx` (the companion's own drawn size
+ *  times the spec's ~2.9x multiplier — see AdvisorManager.ts, which computes
+ *  both). `tint` is the aura colour (lilac, resolved from `design/tokens.ts`
+ *  by the caller so this stays theme-neutral). Frozen under
+ *  `prefersReducedMotion()` (no scale/opacity modulation, held at each
+ *  layer's peak alpha and scale 1) rather than skipped outright — an
+ *  advisor consult should still read as visually distinct even with motion
+ *  off. Returns a handle whose `destroy()` stops the tick and removes the
+ *  sprites immediately (not on the next tick), so a caller mid-despawn (see
+ *  AdvisorManager's pokéball recall) never races a lingering glow against
+ *  the recall animation. `resize()` re-derives each layer's BASE size (the
+ *  breathe scale factor below is multiplied onto it, never replaces it) —
+ *  for AdvisorManager's own placeholder-pokeball-swaps-to-real-sprite
+ *  moment, when the companion's actual drawn size changes after the aura
+ *  was already built off the placeholder's (usually close, not identical)
+ *  size. */
+export function spawnAdvisorAura(
+  container: Container,
+  centerY: number,
+  diameterPx: number,
+  tint: number
+): { destroy: () => void; resize: (diameterPx: number, centerY: number) => void } {
+  const reduced = prefersReducedMotion();
+  // Per-layer BASE scale (texture-natural-size -> intended on-screen
+  // diameter), tracked separately from the breathe animation's own
+  // scale.set() calls below — `sprite.scale.set(x)` REPLACES the sprite's
+  // scale outright, so the tick has to multiply this back in every frame
+  // rather than setting `.width`/`.height` once and letting `.scale.set()`
+  // clobber it on the very next tick.
+  let baseScale = AURA_LAYERS.map((spec) => (diameterPx * spec.fracDiameter) / AURA_TEXTURE_SIZE);
+  const sprites = AURA_LAYERS.map((spec, i) => {
+    const sprite = new Sprite(auraFalloffTexture(spec.k));
+    sprite.anchor.set(0.5);
+    sprite.scale.set(baseScale[i]);
+    sprite.tint = spec.tinted ? tint : 0xffffff;
+    sprite.blendMode = 'add';
+    sprite.alpha = spec.peakAlpha;
+    sprite.position.set(0, centerY);
+    // Inserted at index 0 (not appended) so it sits behind whatever the
+    // caller adds to `container` afterward (the companion's own body
+    // sprite) — a glow drawn in FRONT of the pokemon it surrounds would
+    // read as a sticker, not a light source.
+    container.addChildAt(sprite, 0);
+    return sprite;
+  });
+
+  const elapsed = [0, 0, 0];
+  let stopped = false;
+  const destroySprites = (): void => {
+    for (const sprite of sprites) {
+      if (container.children.includes(sprite)) container.removeChild(sprite);
+      if (!sprite.destroyed) sprite.destroy();
+    }
+  };
+  const tick = (dt: number): boolean => {
+    if (stopped) return true;
+    for (let i = 0; i < AURA_LAYERS.length; i++) {
+      const spec = AURA_LAYERS[i];
+      const sprite = sprites[i];
+      if (reduced) {
+        sprite.scale.set(baseScale[i]);
+        sprite.alpha = spec.peakAlpha;
+        continue;
+      }
+      elapsed[i] += dt;
+      const s = breatheHump(elapsed[i], spec.periodSec, spec.reversed);
+      const scaleFactor = AURA_SCALE_LOW + (AURA_SCALE_HIGH - AURA_SCALE_LOW) * s;
+      const opacityFactor = AURA_OPACITY_LOW + (AURA_OPACITY_HIGH - AURA_OPACITY_LOW) * s;
+      sprite.scale.set(baseScale[i] * scaleFactor);
+      sprite.alpha = spec.peakAlpha * opacityFactor;
+    }
+    return false; // continuous — see this section's own header comment
+  };
+  // The `cleanup` callback is `registerFx`'s own belt-and-braces path
+  // (`purgeBattleFxFor`/`clearBattleFx`) for a companion torn down some
+  // OTHER way than this handle's `destroy()` — defensive parity with every
+  // other effect in this file, even though AdvisorManager is expected to
+  // always call `destroy()` itself first (mirroring Battler.destroy()'s own
+  // `purgeBattleFxFor` call).
+  registerFx(container, tick, () => {
+    if (stopped) return;
+    stopped = true;
+    destroySprites();
+  });
+
+  return {
+    destroy(): void {
+      if (stopped) return;
+      stopped = true;
+      destroySprites();
+    },
+    resize(newDiameterPx: number, newCenterY: number): void {
+      baseScale = AURA_LAYERS.map((spec) => (newDiameterPx * spec.fracDiameter) / AURA_TEXTURE_SIZE);
+      for (const sprite of sprites) sprite.position.set(0, newCenterY);
+    }
+  };
 }
 
 // A tiny shared ticker for these fire-and-forget effects, so callers never

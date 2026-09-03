@@ -14,6 +14,7 @@ import type { DelegateHookSignal, HookEvent } from '@shared/hookEvents';
 import { useStore } from '@/store/store';
 import { stationForTool } from '@/scene/garden/stations';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { emitAdvisorSignal } from '@/scene/garden/battle/advisorBus';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { noteToolUse, resetLoopStreak } from './loopDetector';
@@ -85,6 +86,22 @@ window.api.onSubagentTaskNotification((agentId, taskId) => {
       error: err instanceof Error ? (err.stack ?? err.message) : String(err)
     });
   }
+  // Belt-and-braces forward into the advisor bus too (advisor-pokemon
+  // feature) — this notification doesn't know in advance whether `taskId`
+  // belongs to an ordinary battler or an advisor companion, and AdvisorManager
+  // silently no-ops for a taskId it doesn't recognize, same tolerance
+  // BattleManager already has for a stale/unrecognized signal. Isolated in
+  // its own try/catch so a throw on this side can never affect the battle
+  // emit above.
+  try {
+    emitAdvisorSignal({ type: 'end', parentId: agentId, taskId });
+  } catch (err) {
+    bumpCounter('battleSignalErrors');
+    safeLogDiagnostic('advisor-task-notification', 'error', 'emitAdvisorSignal threw', {
+      sessionId: agentId,
+      error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+    });
+  }
 });
 
 // Battler ↔ task-id correlation (2026-08-29 fix) — see battleBus.ts's
@@ -96,6 +113,17 @@ window.api.onTaskCorrelated((agentId, toolUseId, taskId) => {
   } catch (err) {
     bumpCounter('battleSignalErrors');
     safeLogDiagnostic('battle-correlate', 'error', 'emitBattleSignal threw', {
+      sessionId: agentId,
+      error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+    });
+  }
+  // Belt-and-braces forward into the advisor bus too — see the matching
+  // comment on `onSubagentTaskNotification` above for why.
+  try {
+    emitAdvisorSignal({ type: 'correlate', parentId: agentId, toolUseId, taskId });
+  } catch (err) {
+    bumpCounter('battleSignalErrors');
+    safeLogDiagnostic('advisor-correlate', 'error', 'emitAdvisorSignal threw', {
       sessionId: agentId,
       error: err instanceof Error ? (err.stack ?? err.message) : String(err)
     });
@@ -271,34 +299,63 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // can never abort the `update()` below (see the forensic writeup on
       // v1.1.0's disappearing subagent-battle spawns).
       if (tool === 'Task') {
-        try {
-          // Parity sweep item 7 — `evt.toolTarget` for a `Task` PreToolUse
-          // is `toolTargetFromInput`'s `description`-or-`subagent_type` pick
-          // off this exact tool call's own input (shared/hookEvents.ts) —
-          // the one real "name" a subagent has at spawn time. Passed in the
-          // signal itself, not read back from the store below: `update()`
-          // right after this will overwrite `session.toolTarget` again on
-          // this session's very next tool call, so capturing it here is the
-          // only reliable moment. `evt.toolUseId` (battler ↔ task-id
-          // correlation fix) is this exact dispatch's `tool_use_id` — the one
-          // identity available at spawn time, before any CLI-internal
-          // task-id exists (see hookEvents.ts's `HookPayload.tool_use_id`).
-          emitBattleSignal({
-            type: 'spawn',
-            parentId: sessionId,
-            label: evt.toolTarget || undefined,
-            toolUseId: evt.toolUseId
-          });
-        } catch (err) {
-          bumpCounter('battleSignalErrors');
-          safeLogDiagnostic('battle-spawn', 'error', 'emitBattleSignal threw', {
-            sessionId,
-            event: evt.event,
-            tool: evt.tool,
-            error: err instanceof Error ? (err.stack ?? err.message) : String(err)
-          });
+        // advisor-pokemon feature: a Task dispatch whose raw `subagent_type`
+        // is literally 'advisor' (the global `advisor` agent this app's own
+        // sessions consult before architecture decisions/deliverables — see
+        // BACKLOG.md) gets an instantly-recognizable hovering companion
+        // instead of an ordinary wild-battler completion battle. MUTUALLY
+        // EXCLUSIVE with the battle-bus spawn below: exactly one of the two
+        // branches fires per dispatch, never both — an advisor consult must
+        // never also roam/queue/battle as a regular subagent, and an
+        // ordinary subagent must never spawn a companion.
+        const isAdvisor = evt.subagentType === 'advisor';
+        if (isAdvisor) {
+          try {
+            emitAdvisorSignal({ type: 'spawn', parentId: sessionId, toolUseId: evt.toolUseId });
+          } catch (err) {
+            bumpCounter('battleSignalErrors');
+            safeLogDiagnostic('advisor-spawn', 'error', 'emitAdvisorSignal threw', {
+              sessionId,
+              event: evt.event,
+              tool: evt.tool,
+              error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+            });
+          }
+        } else {
+          try {
+            // Parity sweep item 7 — `evt.toolTarget` for a `Task` PreToolUse
+            // is `toolTargetFromInput`'s `description`-or-`subagent_type` pick
+            // off this exact tool call's own input (shared/hookEvents.ts) —
+            // the one real "name" a subagent has at spawn time. Passed in the
+            // signal itself, not read back from the store below: `update()`
+            // right after this will overwrite `session.toolTarget` again on
+            // this session's very next tool call, so capturing it here is the
+            // only reliable moment. `evt.toolUseId` (battler ↔ task-id
+            // correlation fix) is this exact dispatch's `tool_use_id` — the one
+            // identity available at spawn time, before any CLI-internal
+            // task-id exists (see hookEvents.ts's `HookPayload.tool_use_id`).
+            emitBattleSignal({
+              type: 'spawn',
+              parentId: sessionId,
+              label: evt.toolTarget || undefined,
+              toolUseId: evt.toolUseId
+            });
+          } catch (err) {
+            bumpCounter('battleSignalErrors');
+            safeLogDiagnostic('battle-spawn', 'error', 'emitBattleSignal threw', {
+              sessionId,
+              event: evt.event,
+              tool: evt.tool,
+              error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+            });
+          }
+          // Not bumped for an advisor dispatch: this counter is paired with
+          // `subagentsMaterialized` (BattleManager.handleSpawn) as an
+          // invariant check — an advisor companion never bumps that one
+          // (AdvisorManager has no equivalent), so counting it here would
+          // introduce a permanent, expected mismatch that'd mask a real drop.
+          bumpCounter('subagentsSpawned');
         }
-        bumpCounter('subagentsSpawned');
       }
       update({
         status: 'working',
