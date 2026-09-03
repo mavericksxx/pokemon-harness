@@ -533,7 +533,11 @@ export function GardenScene(): JSX.Element {
         staticTilesWidthPx: map.width * map.tileSize,
         staticTilesHeightPx: map.height * map.tileSize,
         staticTilesOffsetPx: { x: borderPx, y: borderPx },
-        content
+        content,
+        // Canopy/roof sprites live at/above charLayer for Y-sort occlusion
+        // and so never receive envWash's own multiply-blend sprite — see
+        // DayNightOverlay.ts's header comment.
+        applyCanopyNightTint: (tintForY) => map.setNightTint(tintForY)
       });
       dayNight.mount(app.renderer, world);
 
