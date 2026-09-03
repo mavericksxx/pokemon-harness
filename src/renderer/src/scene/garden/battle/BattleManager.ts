@@ -240,15 +240,15 @@ import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
 /** Opaque, hue-neutral off-duty cue for battlers that have retired. */
 const RETIRED_TINT = 0xc8c8c8;
 
-const LUNGE_MS = 150;
-const HOLD_MS = 150;
-const RETURN_MS = 180;
+const LUNGE_MS = 300;
+const HOLD_MS = 280;
+const RETURN_MS = 320;
 const ATTACK_TOTAL_MS = LUNGE_MS + HOLD_MS + RETURN_MS;
 /** Lunge travels this fraction of the full gap toward the opponent and back
  *  — always well short of contact, whatever the gap or sprite size (see
  *  gapTilesForBatch). */
 const LUNGE_FRACTION = 0.28;
-const SHAKE_MS = 180;
+const SHAKE_MS = 320;
 const FACEOFF_MS = 550;
 const ENDING_MS = 550;
 /** Exactly one challenger per battle now (spec: "strictly one battle at a
@@ -260,10 +260,20 @@ const ENDING_MS = 550;
  *  deleting code that already generalizes fine. */
 const MAX_RING = 1;
 /** Scripted attack exchanges per skirmish before it concludes on its own —
- *  snappy by design, and the only thing that CAN conclude it now that real
- *  per-subagent signals can't be trusted for the moment-to-moment beat (see
- *  file header). */
-const WAVE_ATTACKS = 2;
+ *  the only thing that CAN conclude it now that real per-subagent signals
+ *  can't be trusted for the moment-to-moment beat (see file header). Was 2
+ *  attacks at a snappier 480ms each, which read as "just one attack each" —
+ *  the whole exchange needs 8-10s to read as a real fight rather than a
+ *  blip. Getting there is deliberately a combination of more hits AND
+ *  somewhat slower hits, not either alone: 8 attacks at the original 480ms
+ *  pace would be a rapid-fire blur, and 2 attacks stretched to fill the same
+ *  time would be a slow-motion crawl. So WAVE_ATTACKS goes to 8 (4x) while
+ *  LUNGE_MS/HOLD_MS/RETURN_MS each roughly double (150/150/180 ->
+ *  300/280/320, ATTACK_TOTAL_MS 480 -> 900) — proportional, not flat, so the
+ *  lunge/hold/return motion in applyPositions still reads the same shape,
+ *  just unhurried. Total: FACEOFF_MS + WAVE_ATTACKS * ATTACK_TOTAL_MS +
+ *  ENDING_MS = 550 + 8*900 + 550 = 8300ms, inside the 8-10s target. */
+const WAVE_ATTACKS = 8;
 
 /** Minimum face-off gap, in tiles, between the parent and a battler — chosen
  *  so two average-sized sprites (2-2.5 drawn tiles tall) read as clearly
@@ -351,9 +361,10 @@ const BATTLE_COOLDOWN_MAX_MS = 6_000;
  *  self-healing backstop if a bug (or a corrupted battler) ever wedges a
  *  wave partway through, so a stuck battle can never block the global queue
  *  forever (see file header's invisible-subagent writeup). A normal wave
- *  (alert + a walk-in + FACEOFF_MS + WAVE_ATTACKS attacks + ENDING_MS)
- *  totals a few seconds; this is deliberately generous so it never trips a
- *  legitimately long approach walk, only a genuinely stuck one. */
+ *  (alert + a walk-in + FACEOFF_MS + WAVE_ATTACKS attacks + ENDING_MS) now
+ *  totals roughly 8-9 seconds for the scripted exchange alone, plus whatever
+ *  the alert and walk-in add on top; this is deliberately generous so it
+ *  never trips a legitimately long approach walk, only a genuinely stuck one. */
 const WAVE_HARD_CAP_MS = 60_000;
 /** Floor under the per-wave, distance-based watchdog computed in
  *  `admitBattle` for the `alert`/`approaching` phases specifically — the
