@@ -10,9 +10,9 @@ import {
   shell
 } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { PtyManager } from './pty';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { CODEX_HOOKS_NOTICE_TEXT, ensureCodexHooks } from './codexHooks';
@@ -33,7 +33,7 @@ import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from 
 import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
 import { ensureArceusSystemPrompt } from './arceusPrompt';
 import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from './arceusSummonConfig';
-import { initWorkspaceRegistry, saveWorkspaceRegistry } from './workspacePersistence';
+import { initWorkspaceRegistry, repairWorkspaceFolders, saveWorkspaceRegistry } from './workspacePersistence';
 import { checkForUpdate } from './updateCheck';
 import {
   getLogDir,
@@ -625,7 +625,7 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
  * registry (a claude-resume respawn's grace-period wait can take several
  * seconds).
  */
-async function restoreFromDisk(): Promise<DiskRestoreInfo> {
+async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInfo> {
   const persisted = await loadPersistedSessions(app.getPath('userData'));
 
   // Workspaces (Phase 8.7): loaded/initialized here, not in whenReady(),
@@ -633,6 +633,21 @@ async function restoreFromDisk(): Promise<DiskRestoreInfo> {
   // pre-workspace persisted session's repo folder (if any) — this is the
   // one place that knows both `harnessHomeDir` and `persisted.sessions`.
   workspaceRegistry = await initWorkspaceRegistry(harnessHomeDir, persisted.sessions[0]?.cwd);
+  const repaired = repairWorkspaceFolders(workspaceRegistry, persisted.sessions, appSettings.recentFolders);
+  if (repaired.repairs.length > 0) {
+    workspaceRegistry = repaired.snapshot;
+    for (const repair of repaired.repairs) {
+      log('main', 'info', 'workspace folder missing — healed', {
+        workspaceId: repair.workspaceId,
+        oldPath: repair.oldPath,
+        newPath: repair.newPath
+      });
+    }
+    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  }
+  if (repaired.recentFolders.length !== appSettings.recentFolders.length) {
+    await saveAppSettings({ ...appSettings, recentFolders: repaired.recentFolders });
+  }
 
   if (persisted.sessions.length === 0) return { count: 0, notes: [] };
 
@@ -956,7 +971,7 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
   Menu.setApplicationMenu(buildApplicationMenu());
   createWindow(resolveWindowBg(appSettings.theme));
-  diskRestorePromise = restoreFromDisk();
+  diskRestorePromise = restoreFromDisk(appSettings);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(resolveWindowBg(appSettings.theme));
   });
@@ -1029,6 +1044,22 @@ handle('pty:kill', (_e, id: string) => {
 });
 handle('pty:list', () => ptyManager.list());
 handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
+handle('paths:resolveTerminalCwd', (_e, candidates: string[]) => {
+  const expand = (candidate: string): string => {
+    const trimmed = candidate.trim();
+    if (trimmed === '~') return homedir();
+    if (trimmed.startsWith('~/')) return join(homedir(), trimmed.slice(2));
+    return resolve(trimmed);
+  };
+  const isDirectory = (candidate: string): boolean => {
+    try {
+      return statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  return [...candidates, homedir()].map(expand).find(isDirectory) ?? homedir();
+});
 // First-class delegate sessions (shared/delegateSpawn.ts) — the renderer's
 // `delegate:sessionSpawned` listener (sessions.ts's `startDelegateSpawnListener`)
 // subscribes its terminal to `pty:data:<id>` FIRST, then pulls this to backfill
@@ -1295,6 +1326,26 @@ handle('workspaces:rename', (_e, id: string, name: string) => {
     workspaceRegistry = {
       ...workspaceRegistry,
       workspaces: workspaceRegistry.workspaces.map((w) => (w.id === id ? { ...w, name: trimmed } : w))
+    };
+    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
+  }
+  return { ok: true, ...workspaceRegistry };
+});
+
+handle('workspaces:update', (_e, id: string, fields: { name?: string; primaryFolder?: string; accent?: number }) => {
+  if (workspaceRegistry.workspaces.some((workspace) => workspace.id === id)) {
+    workspaceRegistry = {
+      ...workspaceRegistry,
+      workspaces: workspaceRegistry.workspaces.map((workspace) =>
+        workspace.id === id
+          ? {
+              ...workspace,
+              ...(fields.name?.trim() ? { name: fields.name.trim() } : {}),
+              ...(fields.primaryFolder?.trim() ? { primaryFolder: fields.primaryFolder.trim() } : {}),
+              ...(fields.accent !== undefined ? { accent: fields.accent } : {})
+            }
+          : workspace
+      )
     };
     saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
   }
