@@ -152,9 +152,10 @@ function frameSetFromSheet(meta: LazySpriteMeta, source: Texture | HTMLCanvasEle
 async function fetchAndDecode(
   id: string,
   view: SpriteView,
-  shiny: boolean
+  shiny: boolean,
+  forceKind?: 'animated' | 'static'
 ): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
-  const gifBytes = await window.api.fetchSpriteGif(id, view, shiny);
+  const gifBytes = await window.api.fetchSpriteGif(id, view, shiny, forceKind);
   if (!gifBytes) return null;
   const gif = parseGIF(gifBytes);
   const frames = decompressFrames(gif, true);
@@ -178,9 +179,10 @@ const STATIC_FRAME_MS = 1000;
 async function fetchAndDecodeStatic(
   id: string,
   view: SpriteView,
-  shiny: boolean
+  shiny: boolean,
+  forceKind?: 'animated' | 'static'
 ): Promise<{ sheet: HTMLCanvasElement; meta: LazySpriteMeta } | null> {
-  const pngBytes = await window.api.fetchSpriteGif(id, view, shiny);
+  const pngBytes = await window.api.fetchSpriteGif(id, view, shiny, forceKind);
   if (!pngBytes) return null;
   const blobUrl = URL.createObjectURL(new Blob([pngBytes], { type: 'image/png' }));
   try {
@@ -233,7 +235,13 @@ const decodeGate = makeGate(2);
  * same species retries the network instead of remembering the failure
  * forever. The back view is left cached even on failure: most species
  * genuinely have none, and that fact doesn't change between picks. */
-async function loadView(id: string, view: SpriteView, shiny: boolean, evictOnNull = true): Promise<FrameSet | null> {
+async function loadView(
+  id: string,
+  view: SpriteView,
+  shiny: boolean,
+  evictOnNull = true,
+  forceKind?: 'animated' | 'static'
+): Promise<FrameSet | null> {
   const key = `${id}:${view}:${shiny ? 'shiny' : 'normal'}`;
   const existing = viewCache.get(key);
   if (existing) return existing;
@@ -245,9 +253,12 @@ async function loadView(id: string, view: SpriteView, shiny: boolean, evictOnNul
       return frameSetFromSheet(cached.meta, texture);
     }
 
-    const decoded = await decodeGate(async () =>
-      speciesEntry(id)?.static ? fetchAndDecodeStatic(id, view, shiny) : fetchAndDecode(id, view, shiny)
-    );
+    const decoded = await decodeGate(async () => {
+      const useStatic = forceKind ? forceKind === 'static' : speciesEntry(id)?.static;
+      return useStatic
+        ? fetchAndDecodeStatic(id, view, shiny, forceKind)
+        : fetchAndDecode(id, view, shiny, forceKind);
+    });
     if (!decoded) return null;
 
     const frameSet = frameSetFromSheet(decoded.meta, decoded.sheet);
@@ -273,27 +284,34 @@ async function loadView(id: string, view: SpriteView, shiny: boolean, evictOnNul
  *  pokeball forever. Non-shiny calls, and the back view, pass straight
  *  through with no fallback — see this file's header for why the back view
  *  doesn't get one. */
-async function loadFrontWithShinyFallback(id: string, shiny: boolean): Promise<FrameSet | null> {
-  const primary = await loadView(id, 'front', shiny);
+async function loadFrontWithShinyFallback(
+  id: string,
+  shiny: boolean,
+  forceKind?: 'animated' | 'static'
+): Promise<FrameSet | null> {
+  const primary = await loadView(id, 'front', shiny, true, forceKind);
   if (primary || !shiny) return primary;
   console.error(`[lazySprites] ${id}: shiny front sprite unavailable — falling back to normal`);
-  return loadView(id, 'front', false);
+  return loadView(id, 'front', false, true, forceKind);
 }
 
 /** Front (required, shiny->normal fallback) + back (best-effort) FrameSets
  *  for an id that has no DexEntry at all — battle-only mega forms
- *  (megaForms.ts), which fetch through this same gen5ani pipeline
- *  (fetchSpriteGif's main-side `kind` lookup already defaults to 'animated'
- *  for any id dexIndex.json doesn't know, which every mega id is) but carry
- *  no dex number/line/evolution data to build a PokemonInfo from — the
+ *  (megaForms.ts), which fetch through the explicitly selected gen5ani or
+ *  gen5 tier (mega ids have no DexEntry/dexIndex entry to infer it from) but
+ *  carry no dex number/line/evolution data to build a PokemonInfo from — the
  *  caller supplies that itself. Reuses loadView's own cache (keyed by
  *  id/view/shiny), so a mega id never collides with a real species' entries.
  *  Returns null only when even the normal front sprite can't be obtained —
  *  same contract as loadLazyAnimation. */
-export async function loadRawFrameSets(id: string, shiny: boolean): Promise<{ front: FrameSet; back?: FrameSet } | null> {
-  const front = await loadFrontWithShinyFallback(id, shiny);
+export async function loadRawFrameSets(
+  id: string,
+  shiny: boolean,
+  forceKind?: 'animated' | 'static'
+): Promise<{ front: FrameSet; back?: FrameSet } | null> {
+  const front = await loadFrontWithShinyFallback(id, shiny, forceKind);
   if (!front) return null;
-  const back = await loadView(id, 'back', shiny, false).catch(() => null);
+  const back = await loadView(id, 'back', shiny, false, forceKind).catch(() => null);
   return { front, back: back ?? undefined };
 }
 

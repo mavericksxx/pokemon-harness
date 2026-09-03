@@ -98,9 +98,10 @@ export async function saveCachedSprite(
 export async function fetchSpriteGif(
   id: string,
   view: SpriteView,
-  shiny: boolean
+  shiny: boolean,
+  explicitKind?: 'animated' | 'static'
 ): Promise<ArrayBuffer | null> {
-  const kind = DEX[id]?.static ? 'static' : 'animated';
+  const kind = explicitKind ?? (DEX[id]?.static ? 'static' : 'animated');
   const ext = kind === 'static' ? 'png' : 'gif';
   const base = SPRITE_BASE[view][kind];
   try {

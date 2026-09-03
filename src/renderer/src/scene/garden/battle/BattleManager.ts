@@ -231,7 +231,7 @@ import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
 import { spawnExclaimBubble, spawnHitFlash, spawnShinySparkle, spawnSparkleBurst, tickBattleFx } from './battleFx';
 import { rollShiny } from '../shiny';
-import { loadMegaAnimation, pickMegaId } from '../megaForms';
+import { isMegaFormStatic, loadMegaAnimation, pickMegaId } from '../megaForms';
 import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
@@ -1851,7 +1851,7 @@ export class BattleManager {
     const megaId = pickMegaId(speciesId, `${pb.parentId}:${pb.waveStartedAt}`);
     if (!megaId) return; // no mega form for this species
     const shiny = this.deps.getParentShiny(pb.parentId);
-    const promise = loadMegaAnimation(speciesId, megaId, shiny);
+    const promise = loadMegaAnimation(speciesId, megaId, shiny, isMegaFormStatic(megaId) ? 'static' : 'animated');
     if (prefetchOnly) {
       void promise; // fire-and-forget — cache-warming only, see doc comment above
       return;

@@ -117,8 +117,8 @@ const api = {
 
   getCachedSprite: (id: string, view: SpriteView, shiny: boolean): Promise<CachedSprite | null> =>
     ipcRenderer.invoke('sprites:getCached', id, view, shiny),
-  fetchSpriteGif: (id: string, view: SpriteView, shiny: boolean): Promise<ArrayBuffer | null> =>
-    ipcRenderer.invoke('sprites:fetchGif', id, view, shiny),
+  fetchSpriteGif: (id: string, view: SpriteView, shiny: boolean, explicitKind?: 'animated' | 'static'): Promise<ArrayBuffer | null> =>
+    ipcRenderer.invoke('sprites:fetchGif', id, view, shiny, explicitKind),
   saveCachedSprite: (
     id: string,
     view: SpriteView,
