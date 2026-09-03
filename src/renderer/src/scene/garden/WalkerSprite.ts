@@ -1,4 +1,4 @@
-import { AnimatedSprite, Container, Graphics } from 'pixi.js';
+import { AnimatedSprite, Container, Graphics, type Texture } from 'pixi.js';
 import type { FrameSet, Locomotion, PokemonAnimation } from './showdownArt';
 import { spriteScale } from './spriteScale';
 import { markDirty } from './renderDirty';
@@ -148,6 +148,28 @@ export class WalkerSprite {
 
   get hasBackView(): boolean {
     return !!this.backFrames;
+  }
+
+  /** Frame 0 of the sheet CURRENTLY on screen (front or back) — the mega
+   *  ceremony silhouettes whatever the battle stance is actually showing,
+   *  unlike the evolution ceremony, which always faces the camera first and
+   *  can therefore just take the front sheet. */
+  get displayedFrameTexture(): Texture {
+    const set = this.usingBack && this.backFrames ? this.backFrames : this.frontFrames;
+    return set.frames[0].texture;
+  }
+
+  /** The uniform scale the body is drawn at. Exposed so an overlay sprite
+   *  (the mega ceremony's silhouette) matches it exactly rather than
+   *  re-deriving configure()'s own front-sheet-only rule. */
+  get drawnScale(): number {
+    return this.scale;
+  }
+
+  /** The body's current y offset (locomotion lift + bob) inside this
+   *  container — an overlay read this every frame to ride along with it. */
+  get bodyOffsetY(): number {
+    return this.body.y;
   }
 
   /** Pause/resume the idle loop without touching visibility — the evolution
