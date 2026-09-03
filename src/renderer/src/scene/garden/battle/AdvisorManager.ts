@@ -54,6 +54,23 @@ const FAN_STEP_TILES = 0.55;
  *  this map's own tile size. */
 const AURA_DIAMETER_MULTIPLIER = 2.9;
 
+/** Absolute cap on how long a companion may hover before it self-despawns
+ *  unconditionally, ignoring the `'end'` signal entirely — the backstop for
+ *  a completion notification that never arrives at all, the same posture
+ *  BattleManager.ts's own `MAX_ROAM_MS` takes for a roaming battler (see
+ *  that constant's doc comment for the full reasoning this mirrors). The
+ *  advisor consult this companion represents is a single bounded `Task`
+ *  dispatch (`subagent_type: 'advisor'`), not an open-ended agent session —
+ *  it's typically well under a few minutes — so this can be, and is, much
+ *  tighter than `MAX_ROAM_MS`'s 30 minutes; 15 is generous margin for a
+ *  slow/complex consult while still bounding a stuck companion to a single
+ *  digit number of minutes of visual noise instead of "until the app is
+ *  restarted." This is a backstop, not a fix: the actual gap is upstream,
+ *  in `taskNotificationWatcher.ts`'s own transcript-scraping mechanism for
+ *  a live, continuously-busy session (see that file's CAVEAT) — this only
+ *  guarantees a stuck companion can never be PERMANENT. */
+const MAX_COMPANION_LIFETIME_MS = 15 * 60_000;
+
 interface Companion {
   key: string;
   parentId: string;
@@ -64,6 +81,9 @@ interface Companion {
   sprite: WalkerSprite;
   aura: { destroy: () => void; resize: (diameterPx: number, centerY: number) => void };
   despawning: boolean;
+  /** `Date.now()` at spawn — the reference point for the
+   *  `MAX_COMPANION_LIFETIME_MS` safety net in `update()`. */
+  spawnedAt: number;
 }
 
 export interface AdvisorDeps {
@@ -173,7 +193,8 @@ export class AdvisorManager {
       container,
       sprite,
       aura,
-      despawning: false
+      despawning: false,
+      spawnedAt: Date.now()
     };
     this.companions.push(companion);
     this.positionCompanion(companion, rt.walker);
@@ -203,12 +224,23 @@ export class AdvisorManager {
     );
     if (!companion) return; // not ours (an ordinary battler's correlation) — silent no-op, see advisorBus.ts
     companion.taskId = taskId;
+    safeLogDiagnostic('advisor', 'info', 'advisor companion correlated to task', {
+      parentId,
+      toolUseId,
+      taskId
+    });
   }
 
   private handleEnd(parentId: string, taskId?: string): void {
     if (taskId) {
       const stamped = this.companions.find((c) => c.taskId === taskId && !c.despawning);
       if (stamped) {
+        safeLogDiagnostic('advisor', 'info', 'advisor companion despawning — matched by taskId', {
+          parentId,
+          taskId,
+          key: stamped.key,
+          speciesId: stamped.speciesId
+        });
         this.beginDespawn(stamped);
         return;
       }
@@ -220,7 +252,14 @@ export class AdvisorManager {
     // this completion belongs to the battle bus instead — silent no-op.
     const candidates = this.companions.filter((c) => c.parentId === parentId && !c.despawning);
     if (candidates.length === 0) return;
-    this.beginDespawn(candidates[0]);
+    const oldest = candidates[0];
+    safeLogDiagnostic('advisor', 'info', 'advisor companion despawning — fell back to oldest-live-for-parent', {
+      parentId,
+      taskId: taskId ?? null,
+      key: oldest.key,
+      speciesId: oldest.speciesId
+    });
+    this.beginDespawn(oldest);
   }
 
   private beginDespawn(companion: Companion): void {
@@ -263,6 +302,22 @@ export class AdvisorManager {
   update(dt: number): void {
     for (const companion of this.companions) {
       if (!companion.despawning) {
+        const aliveMs = Date.now() - companion.spawnedAt;
+        if (aliveMs >= MAX_COMPANION_LIFETIME_MS) {
+          // Safety net (see MAX_COMPANION_LIFETIME_MS's own comment) — an
+          // 'end' signal that was ever going to arrive should have arrived
+          // long before this. Logged distinctly from a normal despawn (see
+          // handleEnd) so this exact case — the real bug reproducing — is
+          // greppable on its own.
+          safeLogDiagnostic(
+            'advisor',
+            'warn',
+            'advisor companion despawned by max-lifetime safety net (no end signal ever arrived)',
+            { parentId: companion.parentId, key: companion.key, speciesId: companion.speciesId, aliveMs }
+          );
+          this.beginDespawn(companion);
+          continue;
+        }
         const rt = this.deps.getRuntime(companion.parentId);
         if (!rt) {
           // Parent gone without an 'end' ever arriving (shouldn't happen —
