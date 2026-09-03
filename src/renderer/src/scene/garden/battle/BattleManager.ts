@@ -219,6 +219,36 @@
  * pre-existing "never seen this task-id, nothing to resume from" no-op —
  * an accepted degradation (rare: rebuild AND a later resume of that exact
  * task-id), not a defect in the revive logic itself.
+ *
+ * DELEGATE BATTLE PARITY (2026-09-04): a `poke-delegate`-spawned Codex/Luna
+ * session now gets a completion battle too. Until now the two kinds of
+ * dispatched work ended differently — a Claude Agent-tool subagent (a
+ * `SubBattler` here: no pty, no `Session`, correlated purely to hook events)
+ * fought one; a delegate (a FULL session — own pty, terminal tab, roster card,
+ * independent `Walker`) just played a pokéball recall in GardenScene and tore
+ * down, deliberately, since commit f34f533. Now, when a delegate exits
+ * SUCCESSFULLY, its own walker fights one battle against its parent's first.
+ *
+ * The delegate is NOT modelled as a second `Battler`. `SubBattler.battler` is
+ * widened from the concrete `Battler` to the narrow `Challenger` interface
+ * (below), and `WalkerChallenger` adapts the delegate's ALREADY-LIVE `Walker`
+ * to it — so the whole alert/approach/faceoff/attack/mega machinery, and the
+ * GLOBAL one-battle-at-a-time queue, run completely unbranched. This adds a
+ * new WAY INTO the queue (`queueDelegateChallenge`, entering at `'queued'` and
+ * skipping `'roaming'`/`MIN_ROAM_MS` — a delegate already roamed as its own
+ * session, and its pty has genuinely exited); it changes nothing about how the
+ * queue is DRAINED (`pickNextQueued`/`admitBattle`/the derived lock) or about
+ * `startMega`, which keys off `pb.parentId` alone and so applies to a delegate
+ * battle for free.
+ *
+ * The one thing that IS special about such a sub is OWNERSHIP: GardenScene
+ * owns that walker's lifecycle, per-frame tick, visibility and recall, and
+ * this manager must never destroy, poof, tint, wander or re-parent it. That is
+ * the entire job of `delegateSessionId`/`isDelegateSub` — six skip-shaped
+ * guards at the sites that assume a manager-OWNED battler with a store-side
+ * `LiveBattler` entry (`getClickCandidates`, `setVisible`, `handleEndAll`,
+ * `destroyBattle`, `retireSub`, and the retired-sub wander in
+ * `updateOneBattle`). Every Claude-subagent path is untouched by all six.
  */
 import { Container } from 'pixi.js';
 import type { Walker } from '../Walker';
@@ -229,6 +259,7 @@ import { targetTileHeight } from '../spriteScale';
 import { findPath } from '../pathfinding';
 import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
+import { WalkerChallenger } from './WalkerChallenger';
 import { spawnExclaimBubble, spawnHitFlash, spawnShinySparkle, spawnSparkleBurst, tickBattleFx } from './battleFx';
 import { rollShiny } from '../shiny';
 import { isMegaFormStatic, loadMegaAnimation, pickMegaId } from '../megaForms';
@@ -380,10 +411,54 @@ const WAVE_STUCK_MIN_MS = 15_000;
  *  too. */
 const BATTLER_SPEED_PX_S = 44;
 
+/**
+ * Everything this manager's wave/attack/mega machinery actually touches on a
+ * sub's fighter — the FULL surface, taken from an exhaustive grep of every
+ * `sub.battler.*` / `s.battler.*` / `a.attacker.battler.*` in this file, not
+ * from a guess. (`setAnimation` is deliberately absent: it's only ever called
+ * on a local `const battler = new Battler(...)` inside the three spawn paths,
+ * never through a `SubBattler`.)
+ *
+ * DELEGATE BATTLE PARITY (the reason this exists at all): a `poke-delegate`
+ * session is a real `Session` with its own independent `Walker`, and when it
+ * finishes it should get the same one completion battle against its parent
+ * that a Claude Agent-tool subagent's `Battler` does — same choreography, same
+ * GLOBAL one-at-a-time lock, same mega eligibility. Widening `SubBattler.
+ * battler` from the concrete `Battler` to this interface is what lets
+ * `WalkerChallenger` (a thin adapter over that already-live `Walker`) enter
+ * the queue through the exact same path, with ZERO branches in the wave
+ * machinery itself. `Battler` satisfies this structurally and is unchanged —
+ * every existing Claude-subagent code path behaves identically.
+ */
+export interface Challenger {
+  readonly container: Container;
+  readonly bubbleContainer: Container;
+  readonly species: DexEntry;
+  /** Plain mutable field, not a getter — `admitBattle`/
+   *  `pickChallengerStandTileFor` assign it directly. */
+  standTile: { x: number; y: number } | null;
+  readonly tile: { x: number; y: number };
+  readonly drawnHeight: number;
+  readonly isSpawning: boolean;
+  readonly isPoofedOut: boolean;
+  readonly arrived: boolean;
+  goTo(tile: { x: number; y: number }): boolean;
+  update(dt: number): void;
+  syncBubblePosition(): void;
+  setBattleStance(): void;
+  showBubbleLabel(): void;
+  showAttack(tool: string, target?: string): void;
+  showMoveText(text: string): void;
+  hideBubble(): void;
+  startPoofOut(): void;
+  startRecall(onDone: () => void): void;
+  destroy(): void;
+}
+
 /** One spawned subagent's own battler + where it is in its lifecycle. */
 interface SubBattler {
   key: string;
-  battler: Battler;
+  battler: Challenger;
   /** 'retired': lost its completion battle (or aged out into one) and is now
    *  off-duty — resumes ordinary wandering (`updateRoaming`), never re-
    *  queues, stays until despawned. 'despawning': a player-initiated pokéball
@@ -416,6 +491,13 @@ interface SubBattler {
    *  one event, retaining it lets later events keep following that battler if
    *  another sibling starts roaming. */
   subagentId: string | null;
+  /** DELEGATE BATTLE PARITY — the SESSION id of the `poke-delegate` session
+   *  whose own `Walker` this sub wraps (`queueDelegateChallenge`), or null for
+   *  every ordinary Claude-subagent sub. This is the one discriminator: a
+   *  non-null value means the fighter is a `WalkerChallenger` over a live
+   *  session's walker that this manager does NOT own — see `isDelegateSub` for
+   *  the (small, all skip-shaped) set of places that has to matter. */
+  delegateSessionId: string | null;
   /** Where this battler roams — chosen once at spawn (`pickRoamHome`) and
    *  never recomputed; a battler never re-enters roaming after its one
    *  completion battle. */
@@ -658,6 +740,34 @@ export class BattleManager {
     return this.battles.get(parentId)?.currentAttack != null;
   }
 
+  /** DELEGATE BATTLE PARITY — true while `sessionId` is a delegate session
+   *  whose own `Walker` this manager is currently choreographing as a
+   *  challenger, in ANY lifecycle (queued, battling, or retired-awaiting-
+   *  recall). Deliberately NOT narrowed to `battling`: it answers two
+   *  questions, and both need the whole span.
+   *
+   *  1. IDEMPOTENCY for `queueDelegateChallenge`. `applyState` reconciles on
+   *     every store change, and a delegate sits at `status: 'done'` from the
+   *     moment it finishes until the player recalls it — the `lastStatus`
+   *     edge check is what makes the queue fire once, and this is the belt to
+   *     that braces (a rebuild, or any future second call site, must not
+   *     enqueue the same walker twice).
+   *  2. WHO OWNS THE WALKER. GardenScene's reconcile parks every non-working
+   *     session's walker with `stayPut()` on every pass; a delegate is `done`
+   *     (i.e. not working) for its entire battle, so without this in that
+   *     gate, `stayPut` would truncate the approach path mid-walk, every
+   *     reconcile, and fight the choreography for the same walker.
+   *
+   *  Note this is keyed by the DELEGATE's own session id, whereas
+   *  `isBattling` above is keyed by the PARENT's — a delegate battle is
+   *  `isBattling(parentId) && isChallenger(delegateId)` at once. */
+  isChallenger(sessionId: string): boolean {
+    for (const pb of this.battles.values()) {
+      if (pb.subs.some((sub) => sub.delegateSessionId === sessionId)) return true;
+    }
+    return false;
+  }
+
   /** True while ANY parent has a live `ParentBattle` entry — a wave in
    *  progress, or subagents merely roaming/queued/retired. Dirty-flag
    *  rendering (renderDirty.ts, GardenScene.tsx's ticker): rather than
@@ -696,6 +806,11 @@ export class BattleManager {
     for (const pb of this.battles.values()) {
       for (const sub of pb.subs) {
         if (sub.lifecycle === 'leaving' || sub.lifecycle === 'despawning') continue;
+        // A delegate challenger's container IS its session walker's, which
+        // that resolver already collects from `runtimes` — offering it again
+        // would double-register the same container and route the click through
+        // `onBattlerClick` with a key no `LiveBattler` ever had.
+        if (this.isDelegateSub(sub)) continue;
         out.push({ parentId: pb.parentId, key: sub.key, container: sub.battler.container });
       }
     }
@@ -733,6 +848,12 @@ export class BattleManager {
     const pb = this.battles.get(parentId);
     if (!pb) return;
     for (const sub of pb.subs) {
+      // A delegate challenger's visibility is its OWN session's business, not
+      // its parent's: GardenScene's reconcile already toggles that walker (and
+      // its bubble) against the DELEGATE session's workspace. Driving it from
+      // the parent's here would fight that every reconcile, and the two can
+      // legitimately disagree.
+      if (this.isDelegateSub(sub)) continue;
       sub.battler.container.visible = visible;
       sub.battler.bubbleContainer.visible = visible;
     }
@@ -827,6 +948,7 @@ export class BattleManager {
         toolUseId: null,
         taskId: null,
         subagentId: null,
+        delegateSessionId: null,
         wanderHome: home,
         wanderTimer: 0,
         wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
@@ -1042,10 +1164,15 @@ export class BattleManager {
           });
           this.queueForBattle(sub);
         }
-      } else if (sub.lifecycle === 'retired') {
+      } else if (sub.lifecycle === 'retired' && !this.isDelegateSub(sub)) {
         // Off-duty, done follow-up: the exact same idle wander 'roaming'
         // uses — it just never runs the queue-eligibility checks above, so a
         // retired battler can wander forever without ever fighting again.
+        // Excluded for a delegate challenger: this is the ONE place that would
+        // read a delegate sub's inert `wanderHome`/`wanderTimer`, and it would
+        // have this manager wandering a live session's own `Walker` around
+        // after the fight — driving a walker whose movement GardenScene owns,
+        // and which its own reconcile is meanwhile trying to keep parked.
         this.updateRoaming(sub, dt);
       }
       sub.battler.update(dt);
@@ -1131,6 +1258,7 @@ export class BattleManager {
       toolUseId: toolUseId ?? null,
       taskId: null,
       subagentId: null,
+      delegateSessionId: null,
       wanderHome: home,
       wanderTimer: 0,
       wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
@@ -1169,6 +1297,150 @@ export class BattleManager {
       void this.deps.loadLazyAnimation(species.id, shiny).then((real) => {
         if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
       });
+    }
+  }
+
+  // --- delegate battle parity ---------------------------------------------
+
+  /** True for a sub whose fighter is a live SESSION's own `Walker`
+   *  (`WalkerChallenger`) rather than a `Battler` this manager created and
+   *  owns. Every use is skip-shaped, at exactly the sites that assume
+   *  ownership or a store-side `LiveBattler` entry — so no Claude-subagent
+   *  path changes behavior. */
+  private isDelegateSub(sub: SubBattler): boolean {
+    return sub.delegateSessionId !== null;
+  }
+
+  /**
+   * A `poke-delegate` session finished successfully — enter its OWN walker in
+   * the very same completion-battle queue a Claude subagent's `Battler` uses
+   * (GardenScene's `applyState`, on the status edge into `'done'`).
+   *
+   * Mirrors `handleSpawn`'s battle-entry creation, with three deliberate
+   * differences, each because a delegate is a real session rather than a wild
+   * pokemon this manager conjured:
+   *
+   *  - Species is PASSED IN (the delegate's own `speciesEntry(session.pokemon)`),
+   *    not drawn by `pickSpecies()` — it already has an identity on its roster
+   *    card.
+   *  - No `charLayer.addChild`, no `onBattlerSpawned`, no
+   *    `subagentsMaterialized` bump: the walker is already a live scene object
+   *    GardenScene parented (adding it again would double-parent it), and it
+   *    already has a full roster CARD, so mirroring it into the store's
+   *    `battlers` slice would give it a second, subagent-style one.
+   *  - Starts DIRECTLY at `'queued'`, skipping `'roaming'` and therefore
+   *    `MIN_ROAM_MS` entirely. Roaming exists to let a Claude subagent live
+   *    visibly in the garden while its real work runs, and to guard against a
+   *    premature farewell for work that isn't actually finished (see the file
+   *    header) — a delegate has already done both: it roamed as an independent
+   *    session for its whole run, and its pty has genuinely exited. The
+   *    roaming-only bookkeeping (`wanderHome`/`wanderTimer`/`wanderDelay`/
+   *    `roamingSince`, and the `toolUseId`/`taskId`/`subagentId` hook-
+   *    correlation trio) is therefore set to inert values and never read:
+   *    every reader filters on `lifecycle === 'roaming'` or on a non-null
+   *    correlation id, and `updateOneBattle`'s post-battle `'retired'` wander
+   *    — the one place that WOULD have read `wanderHome` — skips delegate subs.
+   *
+   * From here the sub competes for the GLOBAL one-battle-at-a-time lock
+   * through the unmodified `pickNextQueued`/`admitBattle` path, which is also
+   * what gives it mega evolution for free: `startMega` keys off `pb.parentId`
+   * alone and never inspects the challenger.
+   */
+  queueDelegateChallenge(
+    delegateId: string,
+    parentId: string,
+    delegateWalker: Walker,
+    species: DexEntry,
+    label?: string
+  ): void {
+    if (this.isChallenger(delegateId)) return; // already queued/fighting/retired — see isChallenger
+    const rt = this.deps.getRuntime(parentId);
+    // Same "parent's walker is gone — nothing to fight beside, just skip" the
+    // Claude spawn path takes; the caller falls straight through to its
+    // ordinary recall with no battle.
+    if (!rt) return;
+    let pb = this.battles.get(parentId);
+    if (!pb) {
+      pb = this.createBattle(parentId, rt.walker);
+      this.battles.set(parentId, pb);
+    }
+
+    const sub: SubBattler = {
+      // Distinct from the `${parentId}#${nextSeq}` shape every owned battler
+      // uses, so a delegate's key can never collide with one — and so it reads
+      // as what it is in a diagnostics line. Never mirrored into the store, so
+      // nothing looks it up as a `LiveBattler`.
+      key: `${parentId}#delegate:${delegateId}`,
+      battler: new WalkerChallenger(delegateWalker, species, label),
+      lifecycle: 'queued',
+      label,
+      toolUseId: null,
+      taskId: null,
+      subagentId: null,
+      delegateSessionId: delegateId,
+      wanderHome: delegateWalker.tile,
+      wanderTimer: 0,
+      wanderDelay: 0,
+      roamingSince: Date.now(),
+      queuedSince: 0,
+      queueEligibleAt: null,
+      // Pre-set: that flag exists to catch a battler whose poof-in never
+      // completed (the invisible-subagent bug), and a delegate's walker has
+      // been on screen for its whole session — leaving it false would log a
+      // spurious "poof-in complete" for something that never poofed in.
+      visibleLogged: true,
+      roamLabelElapsedMs: 0,
+      roamLabelCycleMs: ROAM_LABEL_CYCLE_MIN_MS,
+      toolBubbleRemainingMs: 0,
+      roamBubbleMode: 'hidden'
+    };
+    pb.subs.push(sub);
+    // Reused rather than duplicated: `queueForBattle`'s body assumes nothing
+    // about prior roaming state — it just stamps the lifecycle/`queuedSince`
+    // and pins the bubble label — so it is exactly the right shared entry
+    // point, and keeps this sub's FIFO position computed the same way as
+    // every other queued sub's.
+    this.queueForBattle(sub);
+    safeLogDiagnostic('battle', 'info', 'delegate queued for completion battle', {
+      parentId,
+      delegateId,
+      species: species.id
+    });
+  }
+
+  /** The other half of `queueDelegateChallenge` — stop tracking a delegate's
+   *  walker as a challenger, because that walker is about to be recalled or
+   *  destroyed out from under us (GardenScene's `recallDelegate` and
+   *  `removeWalker` both call this BEFORE their own teardown). Without it, a
+   *  mid-battle sub would keep choreographing a `Walker` that no longer
+   *  exists.
+   *
+   *  A sub caught mid-wave force-concludes that wave first — the same
+   *  defensive path a stuck/throwing wave takes — so the GLOBAL lock is freed,
+   *  the parent's battle stance and any mega are released, and the cooldown
+   *  gap is armed, exactly as an ordinary conclusion would. Nothing is
+   *  destroyed, no counter is bumped and `onBattlerRemoved` is not called:
+   *  this manager never owned the walker and this sub was never mirrored into
+   *  the store. An emptied `ParentBattle` is left for `update`'s existing
+   *  `finishedParents` sweep to reap on the next tick rather than duplicating
+   *  that cleanup here. */
+  dropChallenger(sessionId: string): void {
+    for (const pb of this.battles.values()) {
+      const sub = pb.subs.find((s) => s.delegateSessionId === sessionId);
+      if (!sub) continue;
+      if (pb.waveRing.includes(sub)) this.forceConcludeWave(pb);
+      pb.waveRing = pb.waveRing.filter((s) => s !== sub);
+      pb.subs = pb.subs.filter((s) => s !== sub);
+      // Hand the walker back clean, exactly as `destroyBattle` does for the
+      // parent-killed case — see its own comment for both reasons. `update(0)`
+      // is the adapter's position resync (it ignores `dt`), undoing any lunge
+      // offset a wave interrupted mid-attack would otherwise leave baked in
+      // once this sub stops being ticked. `forceConcludeWave` above already
+      // hid the bubble via `retireSub` when there WAS a wave; this covers the
+      // still-'queued' case, where nothing has.
+      sub.battler.hideBubble();
+      sub.battler.update(0);
+      return;
     }
   }
 
@@ -1385,6 +1657,7 @@ export class BattleManager {
       toolUseId,
       taskId,
       subagentId: null,
+      delegateSessionId: null,
       wanderHome: home,
       wanderTimer: 0,
       wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
@@ -1469,6 +1742,14 @@ export class BattleManager {
     if (!pb) return;
     for (const sub of pb.subs) {
       if (sub.lifecycle === 'leaving' || sub.lifecycle === 'retired' || sub.lifecycle === 'despawning') continue;
+      // A delegate challenger is skipped for the same reason 'retired' is,
+      // only harder: this signal fires whenever the PARENT merely LOOKS
+      // blocked (ptyParser.ts), and it must never poof away a live session's
+      // own pokemon. It couldn't actually poof one — `WalkerChallenger`'s
+      // `startPoofOut`/`isPoofedOut` are inert — but marking it 'leaving'
+      // would strand it there forever, since `reapSubs` waits on an
+      // `isPoofedOut` that can never become true.
+      if (this.isDelegateSub(sub)) continue;
       sub.lifecycle = 'leaving';
       sub.toolBubbleRemainingMs = 0;
       sub.roamBubbleMode = 'hidden';
@@ -2167,6 +2448,17 @@ export class BattleManager {
     sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
+    // A delegate challenger stops here. Everything below is off-duty
+    // presentation for a battler this manager OWNS, and all three pieces
+    // would be wrong for a live session's walker: the tint would permanently
+    // grey a session that's still on the roster (nothing ever un-tints it —
+    // only `reviveRetired`, which a delegate can't reach), `wanderHome` is an
+    // inert placeholder for a sub that never roamed, and `onBattlerDone`
+    // patches a `LiveBattler` key the store doesn't have. The delegate simply
+    // stands where the fight left it until the player recalls it
+    // (`dropChallenger`), which is also the state its own card is already
+    // showing.
+    if (this.isDelegateSub(sub)) return;
     sub.battler.container.tint = RETIRED_TINT;
     sub.wanderTimer = 0;
     sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
@@ -2295,6 +2587,33 @@ export class BattleManager {
    *  rather than through reapSubs, which this bypasses entirely. */
   private destroyBattle(pb: ParentBattle): void {
     for (const sub of pb.subs) {
+      // A delegate challenger is dropped, never destroyed: its `Walker` belongs
+      // to a live session GardenScene owns (`removeWalker` -> `walker.destroy()`).
+      // The two bookkeeping calls below are skipped for the same reason — it
+      // was never mirrored into the store, so `onBattlerRemoved` has no entry
+      // to remove, and bumping `subagentsCleanedUp` without a matching
+      // `subagentsMaterialized` would push that pair permanently out of step
+      // and trip diagnosticsCounters.ts's own divergence check.
+      //
+      // But it must be HANDED BACK CLEAN, not merely let go — this is the one
+      // teardown path where the delegate's own session outlives the battle
+      // (a PARENT killed mid-fight, or a renderer rebuild), so nothing else
+      // ever tidies up after it:
+      //  - `hideBubble()` because the battle label/attack bubble would
+      //    otherwise sit over that walker until it's recalled. GardenScene's
+      //    bubble reconcile can't clear it: that only writes when its
+      //    `toolKey` changes, and every part of it is frozen at 'done'.
+      //  - `update(0)` is the adapter's position RESYNC (it ignores `dt`
+      //    entirely — see WalkerChallenger.update). Without it, a wave killed
+      //    mid-lunge leaves that frame's `applyPositions` `+=` offset baked
+      //    into the container forever: this sub is about to stop existing, so
+      //    its own per-tick resync never runs again, and a stationary `Walker`
+      //    never calls `syncPosition` on its own.
+      if (this.isDelegateSub(sub)) {
+        sub.battler.hideBubble();
+        sub.battler.update(0);
+        continue;
+      }
       sub.battler.destroy();
       bumpCounter('subagentsCleanedUp');
       this.deps.onBattlerRemoved(sub.key);

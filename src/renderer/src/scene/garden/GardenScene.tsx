@@ -61,6 +61,16 @@ interface Runtime {
   /** Mirrors session.status, refreshed each reconcile — the ticker's 1Hz
    *  work-time accumulator reads this instead of hitting the store per frame. */
   status: Session['status'];
+  /** The status this walker's session had on the PREVIOUS reconcile — the
+   *  edge detector for delegate battle parity (a delegate finishing is a
+   *  one-shot transition INTO 'done', but `applyState` re-runs on every store
+   *  change while it sits there). Same `rt.lastX`-diffed-each-pass convention
+   *  as `lastStation`/`lastToolKey`/`appliedPokemonId` above; seeded from the
+   *  session's CURRENT status at walker creation, like `appliedPokemonId`, so
+   *  a walker born into a state never reads as having just transitioned into
+   *  it. Distinct from `status` above, which is refreshed for the ticker's
+   *  own use and so can't double as a previous-value memory. */
+  lastStatus: Session['status'];
   /** Working-ms accumulated since the last flush into the store. */
   workAccumMs: number;
   /** Set the instant a threshold crossing is noticed, cleared once evolve()
@@ -1070,6 +1080,7 @@ export function GardenScene(): JSX.Element {
           lastStation: null,
           lastToolKey: '',
           status: session.status,
+          lastStatus: session.status,
           workAccumMs: 0,
           evolvePending: false,
           appliedPokemonId: session.pokemon
@@ -1143,6 +1154,16 @@ export function GardenScene(): JSX.Element {
       const removeWalker = (id: string): void => {
         const rt = runtimes.get(id);
         if (!rt) return;
+        // Delegate battle parity — FIRST, before anything below destroys the
+        // walker: if this session is a delegate currently entered as a
+        // challenger, BattleManager is holding a `WalkerChallenger` over the
+        // very walker this function is about to destroy. Dropping it here
+        // force-concludes any wave it was mid-way through (freeing the global
+        // battle lock and releasing the parent's stance/mega) instead of
+        // leaving a sub choreographing a destroyed sprite. A no-op for every
+        // ordinary session. `forceEnd` below is the mirror for this session's
+        // own role as a PARENT and can't cover this: it's keyed by parent id.
+        battleManager.dropChallenger(id);
         battleManager.forceEnd(id);
         patchPool.release(rt.homePatch);
         rt.walker.destroy();
@@ -1158,6 +1179,15 @@ export function GardenScene(): JSX.Element {
         const session = useStore.getState().sessions.find((s) => s.id === id);
         const rt = runtimes.get(id);
         if (!session?.delegateParentId || session.status !== 'done' || !rt) return;
+        // Delegate battle parity — stop BattleManager choreographing this
+        // walker before the recall animation seizes it. The player can hit
+        // recall at any point in the completion battle (the card's button is
+        // live from the moment the delegate is done), so this may be
+        // interrupting a queued, mid-fight or already-retired challenger;
+        // `dropChallenger` force-concludes an in-flight wave so the global
+        // battle lock is freed rather than left held by a walker that's about
+        // to shrink into a pokéball.
+        battleManager.dropChallenger(id);
         rt.walker.startRecall(() => {
           void stopSession(id);
         });
@@ -1231,6 +1261,67 @@ export function GardenScene(): JSX.Element {
           walker.setStatus(session.status);
           walker.setNapping(!!session.napping);
 
+          // Delegate battle parity — a first-class delegate that just finished
+          // SUCCESSFULLY gets one completion battle against its parent before
+          // the ordinary pokéball recall, the same way a Claude Agent-tool
+          // subagent's battler does (see BattleManager's own file header).
+          //
+          // Placed here on purpose:
+          //  - AFTER `setStatus` above, whose own `stayPut()` on the
+          //    working->done transition would otherwise truncate the approach
+          //    path this queues. Every LATER reconcile's `stayPut` is what the
+          //    `isChallenger` clause on that block (below) suppresses.
+          //  - BEFORE the `inActiveWorkspace` early-continue below, so a
+          //    delegate in a background garden still battles — matching Claude
+          //    subagents, whose battles run (merely hidden) in an inactive
+          //    workspace too.
+          //
+          // Conditions, in order: an EDGE into 'done' (this function re-runs on
+          // every store change while the delegate sits there); it really is a
+          // delegate; and it SUCCEEDED. Both real paths that set 'done' —
+          // terminalRegistry's `pty:exit` handler and sessions.ts's
+          // `adoptDelegateSession` early-exit — always write `exitCode`
+          // alongside it, so `=== 0` is the genuine success test; `undefined`
+          // is only reachable for a synthetic/restored 'done' and is treated
+          // as "no failure recorded" rather than as a crash. A nonzero exit
+          // falls straight through to today's plain recall with no fight.
+          // Napping is excluded because `Walker.goTo` returns false while
+          // napping, so such a challenger would stand still through its own
+          // approach until the wave's stuck watchdog force-concluded it.
+          // Evolution is excluded — both an in-flight ceremony and one merely
+          // DECIDED (`evolvePending`, set before `triggerEvolve` awaits a lazy
+          // sprite fetch, so `isEvolving` alone would miss it) — because a
+          // ceremony reparents the walker and owns it exclusively for ~9s,
+          // which would stall the approach walk (`Walker.goTo` self-guards)
+          // until the stuck watchdog fired. Together with the `isChallenger`
+          // clause added to the 1Hz evolution trigger below, this makes
+          // "challenger AND evolving" unreachable in both directions rather
+          // than something the battle code has to survive.
+          // A missing parent runtime, or an already-tracked challenger, are
+          // both handled inside `queueDelegateChallenge` — checked there, not
+          // duplicated here.
+          const finishedDelegate =
+            rt.lastStatus !== 'done' &&
+            session.status === 'done' &&
+            !!session.delegateParentId &&
+            (session.exitCode === undefined || session.exitCode === 0) &&
+            !walker.isNapping &&
+            !walker.isEvolving &&
+            !rt.evolvePending;
+          rt.lastStatus = session.status;
+          if (finishedDelegate) {
+            const species = speciesEntry(session.pokemon);
+            if (species) {
+              battleManager.queueDelegateChallenge(
+                session.id,
+                session.delegateParentId!,
+                walker,
+                species,
+                session.title
+              );
+            }
+          }
+
           // Workspace visibility (Phase 8.7) — a session's walker AND its
           // battle visuals (BattleManager.setVisible; see that method's own
           // comment for why it's a separate call, not automatic) go dark
@@ -1262,7 +1353,20 @@ export function GardenScene(): JSX.Element {
           // onBattleEnd, which resets lastStation so this picks up again. A
           // napping walker owns its own position the same way — it stays
           // parked until it wakes.
-          if (!battleManager.isBattling(session.id) && !walker.isNapping) {
+          //
+          // `isChallenger` is the delegate-parity half of that same rule, and
+          // belongs in this one condition rather than a second gate beside it:
+          // a delegate is `status: 'done'` (i.e. not working) for its whole
+          // completion battle, so the `stayPut()` branch below would otherwise
+          // fire on EVERY reconcile while BattleManager is walking that same
+          // walker up to its parent — truncating the approach path mid-stride.
+          // Keyed by the DELEGATE's id, where `isBattling` is keyed by the
+          // parent's; both are true at once during a delegate battle.
+          if (
+            !battleManager.isBattling(session.id) &&
+            !battleManager.isChallenger(session.id) &&
+            !walker.isNapping
+          ) {
             if (session.status !== 'working') {
               // Idle/starting/blocked/done walkers own their current
               // position. Reset the station marker so becoming working
@@ -1582,7 +1686,21 @@ export function GardenScene(): JSX.Element {
             // A battle mid-attack retries next tick — the evolution ceremony
             // waits for the current attack beat to finish, then takes over
             // (it's already exclusive), and the battle resumes after.
-            if (rt.evolvePending || rt.walker.isEvolving || battleManager.isMidAttack(session.id)) continue;
+            // Delegate battle parity adds `isChallenger` to this same skip:
+            // `isMidAttack` is keyed by PARENT id, so it can't see a delegate
+            // fighting as the challenger. An evolution ceremony reparents the
+            // walker into `ceremonyLayer` and owns its transform, which the
+            // battle's own per-frame positioning would then fight. Same
+            // "retries on the next 1Hz tick" contract as the guards beside it
+            // — the ceremony just waits for the fight to end.
+            if (
+              rt.evolvePending ||
+              rt.walker.isEvolving ||
+              battleManager.isMidAttack(session.id) ||
+              battleManager.isChallenger(session.id)
+            ) {
+              continue;
+            }
             const entry = speciesEntry(session.pokemon);
             if (!entry) continue;
             const crossedStage2 = entry.stage === 1 && workedMs >= cfg.stage2Ms;
