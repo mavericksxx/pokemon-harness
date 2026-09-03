@@ -1288,6 +1288,15 @@ export function GardenScene(): JSX.Element {
           // Napping is excluded because `Walker.goTo` returns false while
           // napping, so such a challenger would stand still through its own
           // approach until the wave's stuck watchdog force-concluded it.
+          // Evolution is excluded — both an in-flight ceremony and one merely
+          // DECIDED (`evolvePending`, set before `triggerEvolve` awaits a lazy
+          // sprite fetch, so `isEvolving` alone would miss it) — because a
+          // ceremony reparents the walker and owns it exclusively for ~9s,
+          // which would stall the approach walk (`Walker.goTo` self-guards)
+          // until the stuck watchdog fired. Together with the `isChallenger`
+          // clause added to the 1Hz evolution trigger below, this makes
+          // "challenger AND evolving" unreachable in both directions rather
+          // than something the battle code has to survive.
           // A missing parent runtime, or an already-tracked challenger, are
           // both handled inside `queueDelegateChallenge` — checked there, not
           // duplicated here.
@@ -1296,7 +1305,9 @@ export function GardenScene(): JSX.Element {
             session.status === 'done' &&
             !!session.delegateParentId &&
             (session.exitCode === undefined || session.exitCode === 0) &&
-            !walker.isNapping;
+            !walker.isNapping &&
+            !walker.isEvolving &&
+            !rt.evolvePending;
           rt.lastStatus = session.status;
           if (finishedDelegate) {
             const species = speciesEntry(session.pokemon);

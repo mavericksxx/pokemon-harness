@@ -163,18 +163,22 @@ export class WalkerChallenger implements Challenger {
    *  frame of an attack, and random-walk under the hit shake. This is the
    *  exact mirror of `applyPositions`'s own parent-container reset; `zIndex` is
    *  left alone because it only changes when the walker actually moves, which
-   *  `Walker.syncPosition` still owns. */
+   *  `Walker.syncPosition` still owns.
+   *
+   *  Deliberately UNCONDITIONAL, with no `isEvolving` guard of the kind most
+   *  walker-touching code in this subsystem carries. An evolution ceremony
+   *  reparents the walker's container into the shared `evolutionCeremonyLayer`
+   *  but never writes its `x`/`y`, and that layer is a sibling of `charLayer`
+   *  in the same map coordinate space (GardenScene's layer setup says so
+   *  explicitly) — so this writes the identical on-screen position either way
+   *  and fights nothing. Skipping it while evolving would be strictly worse:
+   *  `applyPositions` keeps applying its `+=` regardless (its own early-out is
+   *  on the PARENT's ceremony, not the challenger's), so a guard here would
+   *  restore the unbounded per-frame drift instead of preventing it.
+   *  Challenger-and-evolving is in any case unreachable by construction —
+   *  GardenScene won't start a ceremony on a live challenger, and won't enter
+   *  a walker with one in flight or pending as one. */
   update(_dt: number): void {
-    // BattleManager's own file-header invariant, applied to the challenger
-    // side: never touch a walker's container while an evolution ceremony owns
-    // it (the ceremony reparents it and drives its transform, and fighting
-    // over that corrupts both). GardenScene refuses to START a ceremony on a
-    // walker that's currently a challenger, so this only covers one already in
-    // flight when the delegate finished. `Walker.goTo` self-guards the same
-    // way, so such an approach simply stalls and the wave's stuck watchdog
-    // resolves it — the same honest degradation every other ceremony
-    // interaction in this subsystem takes.
-    if (this.walker.isEvolving) return;
     this.walker.container.x = Math.round(this.walker.worldX);
     this.walker.container.y = Math.round(this.walker.worldY);
   }
