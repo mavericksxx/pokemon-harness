@@ -4147,7 +4147,9 @@ textarea,
  * position, and styling are consistent and never doubled up with a native
  * tooltip (the two are mutually exclusive per element: pick one). z-index
  * above every other layer (toasts top out at 1000) — a tooltip that can be
- * occluded by a toast defeats the point of showing one. */
+ * occluded by a toast defeats the point of showing one.
+ * Show and hide transitions are split: hide is instant-ish (resting state),
+ * show keeps the 400ms debounce so quick mouse-passes don't flash a tooltip. */
 .tip {
   position: relative;
 }
@@ -4165,12 +4167,13 @@ textarea,
   background: var(--text);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 90ms ease-out 400ms;
+  transition: opacity 80ms ease-out;
   z-index: 1100;
 }
 .tip:hover::after,
 .tip:focus-visible::after {
   opacity: 1;
+  transition: opacity 90ms ease-out 400ms;
 }
 
 /* Keyframes — pixel-style: step-based, no easing. Signature micro-motion for
