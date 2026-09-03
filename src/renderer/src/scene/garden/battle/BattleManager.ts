@@ -1612,10 +1612,14 @@ export class BattleManager {
   }
 
   /** A far corner of the map, well apart from any sibling already roaming
-   *  there — the farthest corner from the parent's CURRENT position, with
-   *  local jitter/avoidance spreading multiple roamers out instead of
-   *  stacking on the same tile. `reachableFrom` (the parent's tile — no
-   *  battler exists yet at spawn time to BFS from) keeps the pick off a
+   *  there — a corner among the farthest from the parent's CURRENT position
+   *  (shuffled among the top few so concurrent picks don't all deterministically
+   *  land on the SAME single farthest corner and cluster there), with local
+   *  jitter/avoidance spreading multiple roamers out instead of stacking on
+   *  the same tile. The avoid set spans every tracked parent's roaming subs,
+   *  not just this one — two different sessions' battlers should never
+   *  converge on the same region either. `reachableFrom` (the parent's tile —
+   *  no battler exists yet at spawn time to BFS from) keeps the pick off a
    *  disconnected pocket (the far side of a wall/pond), which would leave
    *  this battler unable to ever walk back for its eventual completion
    *  battle. Falls back toward the parent only in the pathological case
@@ -1631,16 +1635,30 @@ export class BattleManager {
     ];
     const parentTile = pb.parentWalker.tile;
     corners.sort((a, b) => manhattan(b, parentTile) - manhattan(a, parentTile));
+    // Shuffle among the top few farthest corners (Fisher-Yates, same as
+    // findNearbyWalkable's own tie shuffle above) instead of always trying
+    // the single farthest one first — keeps the far-corner preference but
+    // spreads WHICH corner gets tried across different roam-home picks.
+    const varietyCount = Math.min(3, corners.length);
+    for (let i = varietyCount - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [corners[i], corners[j]] = [corners[j], corners[i]];
+    }
 
-    const claimed = new Set<string>();
-    for (const sub of pb.subs) {
-      if (sub.lifecycle === 'roaming') claimed.add(tileKey(sub.wanderHome));
+    // Every LIVE roaming battler garden-wide counts as claimed, not just this
+    // parent's own subs — `this.battles` already includes `pb` itself, so
+    // this naturally covers sibling-avoidance too.
+    const claimedGlobal = new Set<string>();
+    for (const battle of this.battles.values()) {
+      for (const sub of battle.subs) {
+        if (sub.lifecycle === 'roaming') claimedGlobal.add(tileKey(sub.wanderHome));
+      }
     }
 
     for (const corner of corners) {
       const home =
-        findNearbyWalkable(map, corner, 0, 6, claimed, reachableFrom) ??
-        findNearbyWalkable(map, corner, 0, 14, claimed, reachableFrom);
+        findNearbyWalkable(map, corner, 0, 6, claimedGlobal, reachableFrom) ??
+        findNearbyWalkable(map, corner, 0, 14, claimedGlobal, reachableFrom);
       if (home) return home;
     }
     return parentTile; // pathological: nothing reachable anywhere far — stand near the parent instead
