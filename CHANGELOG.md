@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
-## Unreleased
+## v1.12.0 — 2026-09-03
 
 - **the orchestrator's delegation workflow now works out of the box on a fresh install, not just this developer's own machine**: every claude spawn now also bundles a read-only `investigator` subagent (same shadow-guard pattern as `advisor`), exposes the app's own `poke-delegate` Codex-delegate CLI to the session's own env as `POKEHARNESS_DELEGATE_CMD` (previously referenced by HARNESS.md's prose but not actually invocable — `command not found` on any install, including this one), and HARNESS.md's own instructions now spell out the full lane-routing procedure (Codex-first, Claude-sonnet fallback, never Codex→haiku) and the exact invocation, with a real command-injection hole in an early draft of that invocation caught and fixed by the implementing agent's own mandated advisor consult before it shipped. Claude Sonnet subagent, reviewed/merged by the orchestrator
 - **hover tooltips no longer hang for ~490ms after the mouse leaves**: the shared `.tip` component's fade-out inherited the same 400ms debounce meant only for fade-in (so a tooltip doesn't flash on a quick mouse-pass), making it look stuck across every place it's used. Show and hide now have separate timing — hide is near-instant, show is unchanged. Claude Sonnet subagent, reviewed/merged by the orchestrator
