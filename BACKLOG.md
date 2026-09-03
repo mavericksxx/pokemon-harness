@@ -4,7 +4,7 @@ Working list of known issues and planned work — open items only; completed wor
 
 ## known bugs
 
-- (none open — the hooks.sock clobber shipped 2026-09-02, see CHANGELOG unreleased)
+- (none open — the hooks.sock clobber shipped in v1.9.0)
 
 ## awaiting user input
 

@@ -2,6 +2,15 @@
 
 Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
 
+## Unreleased
+
+- **hand-relaunched CLIs in a dropped-to-shell pane keep their pokéharness wiring**: when a claude/codex process exits and the pane falls back to your shell, `claude`/`codex` typed there used to start bare — no lifecycle hooks (the pokemon froze in place and never reported status), your global statusline came back despite "hide claude statusline", and HARNESS.md wasn't appended. The fallback shell now gets PATH shims that exec the real binary with the session's `--settings` file and `--append-system-prompt-file` (claude) or `developer_instructions` (codex) added, unless you passed those flags yourself.
+- **light mode: terminals now tell CLIs the background is light** — `COLORFGBG` is set at spawn from the effective theme (codex reads it; claude has its own `/theme`, pick "auto"). xterm already answers the OSC 11 colour query with the live theme. Running CLIs don't re-detect on a theme toggle.
+- **new terminal button**: is a plus now; picks the first folder that actually exists (garden folder → recent folders → home) instead of failing on a stale garden folder and dumping selection onto Arceus; a failed spawn restores the previous selection. Gardens whose folder vanished self-heal at boot from their sessions' cwd (dead recent-folder entries are pruned too), and the garden chip has a "change folder…" action.
+- **restored idle pokemon stand at a resting spot** (their patch seat or a wander slot) after a restart instead of the entrance; a context-loss rebuild puts walkers back on their last tile. Idle pokemon still stand still — only working ones roam.
+- **topbar degrades gracefully down to the 900px window minimum** (split-screen use): brand text hides first, then "+ new agent" collapses to a "+" button, then the garden switcher narrows; the right-hand action cluster is never clipped. Container queries, no JS measuring.
+- **terminal drawer tab strip no longer shows a stray vertical scrollbar.**
+
 ## v1.9.0 — 2026-09-03
 
 - **garden no longer loses its WebGL context (and "refreshes" or needs a rebuild) when many pokemon spawn at once**: sprite decoding allocated one 2D canvas per GIF frame and left them to garbage collection, and every disposed terminal WebGL context lingered because the xterm addon never calls `loseContext`; under a spawn burst Chrome evicted the oldest context, which is the garden's. Frames now composite straight into the sheet canvas (a 60-frame pokemon goes from 126 transient canvases to 6, two of which persist), at most two decodes run at a time, and disposed terminal contexts are released explicitly. The rebuild budget is 4 attempts per minute instead of 2, and the context-lost log row records the attempt and seconds since the previous loss. Claude Sonnet subagent, reviewed/merged by the orchestrator
