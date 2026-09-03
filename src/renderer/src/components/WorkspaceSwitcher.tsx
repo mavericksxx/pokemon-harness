@@ -33,6 +33,8 @@ export function WorkspaceSwitcher(): JSX.Element {
   const [newOpen, setNewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceRecord | null>(null);
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace);
+  const updateWorkspace = useWorkspaceStore((s) => s.updateWorkspace);
+  const pushToast = useStore((s) => s.pushToast);
 
   const startRename = (w: WorkspaceRecord): void => {
     setRenamingId(w.id);
@@ -43,6 +45,16 @@ export function WorkspaceSwitcher(): JSX.Element {
     const trimmed = renameValue.trim();
     setRenamingId(null);
     if (trimmed) void renameWorkspace(id, trimmed);
+  };
+
+  const changeFolder = async (workspace: WorkspaceRecord): Promise<void> => {
+    const folder = await window.api.chooseFolder();
+    if (!folder) return;
+    try {
+      await updateWorkspace(workspace.id, { primaryFolder: folder });
+    } catch (err) {
+      pushToast(`couldn't change folder: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   /** A workspace can only be deleted once none of its sessions are still
@@ -90,6 +102,15 @@ export function WorkspaceSwitcher(): JSX.Element {
         </button>
         {selected && (
           <>
+            <button
+              type="button"
+              className="icon garden-chip-action"
+              aria-label={`change folder for ${w.name}`}
+              title="change folder…"
+              onClick={() => void changeFolder(w)}
+            >
+              ↗
+            </button>
             <button
               type="button"
               className="icon garden-chip-action"

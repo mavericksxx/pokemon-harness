@@ -24,6 +24,8 @@ export interface WorkspaceRecord {
   accent?: number;
 }
 
+export type WorkspaceUpdate = Partial<Pick<WorkspaceRecord, 'name' | 'primaryFolder' | 'accent'>>;
+
 /** What `workspaces:list` returns, and the shape every mutation IPC
  *  (`workspaces:create/rename/setActive/delete`) returns too, so the
  *  renderer always hydrates from one authoritative snapshot rather than

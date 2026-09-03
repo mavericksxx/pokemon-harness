@@ -18,7 +18,7 @@ import type { AudioSettings } from '../shared/audioTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
-import type { WorkspaceMutationResult, WorkspaceSnapshot } from '../shared/workspaceTypes';
+import type { WorkspaceMutationResult, WorkspaceSnapshot, WorkspaceUpdate } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
 import type { DiagnosticsInfo, ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
@@ -108,6 +108,7 @@ const api = {
   getCodexHooksNotice: (): Promise<string | null> => ipcRenderer.invoke('app:getCodexHooksNotice'),
 
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
+  resolveTerminalCwd: (candidates: string[]): Promise<string> => ipcRenderer.invoke('paths:resolveTerminalCwd', candidates),
 
   /** Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called after the
    *  renderer's own walk/wave/toast/audio-fade sequence finishes. */
@@ -250,6 +251,8 @@ const api = {
     ipcRenderer.invoke('workspaces:create', name, primaryFolder),
   renameWorkspace: (id: string, name: string): Promise<WorkspaceMutationResult> =>
     ipcRenderer.invoke('workspaces:rename', id, name),
+  updateWorkspace: (id: string, fields: WorkspaceUpdate): Promise<WorkspaceMutationResult> =>
+    ipcRenderer.invoke('workspaces:update', id, fields),
   setActiveWorkspace: (id: string): Promise<WorkspaceMutationResult> =>
     ipcRenderer.invoke('workspaces:setActive', id),
   deleteWorkspace: (id: string): Promise<WorkspaceMutationResult> =>
