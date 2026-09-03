@@ -36,13 +36,58 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { onAdvisorSignal, type AdvisorSignal } from './advisorBus';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 
-/** Offset from the parent walker's own feet, in tiles — "beside", not
- *  overlapping the parent's own sprite. Multiple concurrent companions for
- *  the SAME parent (rare — see this file's header) fan out further via
- *  `fanIndex` below rather than stacking on the same spot. */
-const OFFSET_X_TILES = 0.9;
-const OFFSET_Y_TILES = -0.35;
+/** Horizontal offset from the parent walker's own feet, in tiles — clears
+ *  the PARENT'S OWN BODY sprite only (the vertical axis, below, is what now
+ *  clears the bubble — see `positionCompanion`'s own `worldY` computation
+ *  for why splitting the two jobs across the two axes is the right shape
+ *  for this fix).
+ *
+ *  A first pass at this fix tried clearing the bubble horizontally too, by
+ *  widening this same constant to ~6 tiles (bubble half-width 70px +
+ *  companion half-width 18px, both derived the same way `positionCompanion`
+ *  derives its own figures below). That's mathematically sufficient — two
+ *  boxes with disjoint X-spans can never overlap regardless of Y — but
+ *  visually wrong: GardenScene.tsx focuses the camera at 2.4x zoom on
+ *  whichever walker is selected (`camera.focusOn(..., 2.4)`), the exact
+ *  moment a companion is normally visible, so a 94 world-px offset reads as
+ *  ~225 SCREEN px — the companion floats far enough away that it no longer
+ *  reads as "beside" its parent at all. World-space separation alone can't
+ *  fix an overlap that's this large without that visual cost, since the
+ *  bubble box (up to 140px wide for a long tool-use path) is simply bigger
+ *  than a companion sprite "beside" a walker has any business being pushed.
+ *
+ *  So instead: only the companion's own sprite half-width plus a similarly-
+ *  sized "typical" parent half-width need clearing here (per-species width
+ *  isn't statically known — this uses the companion's own ~18px half-width,
+ *  the best-available proxy, as a stand-in for a same-class small/mid
+ *  walker's own half-width too): `18 (parent estimate) + 18 (companion) + 4
+ *  (margin) = 40px` = `40 / 16` (this map's `tileSize`) = 2.5 tiles. The
+ *  bubble itself is cleared on Y instead — see `positionCompanion` below. */
+const OFFSET_X_TILES = 2.5;
 const FAN_STEP_TILES = 0.55;
+
+/** `ToolBubble.ts`'s own `GAP` (not exported — cited here by value) — the
+ *  fixed px gap it holds between the bubble's tail tip and the parent's own
+ *  head-top. `Walker.ts:765` sets the bubble to `this.py -
+ *  this.sprite.drawnHeight` (head-top) before `ToolBubble.setPosition`
+ *  subtracts this GAP once more, and `ToolBubble.ts`'s own `inner.pivot`
+ *  (set to `(bgW/2, bgH+TAIL_HEIGHT)`, i.e. the tail tip) means that final
+ *  container y IS the bubble's bottommost on-screen pixel already — no
+ *  further `TAIL_HEIGHT` term needed on top of this. */
+const BUBBLE_GAP_PX = 6;
+
+/** Peak extra lift a levitating sprite's body can bob above its own
+ *  `drawnHeight` baseline — `WalkerSprite.ts`'s `BOB.levitate.amplitude`
+ *  (not exported — cited by value). `drawnHeight` already folds in the
+ *  levitate LIFT constant but NOT this live bob oscillation on top of it,
+ *  so a companion's true worst-case sprite top sits this much higher than
+ *  `drawnHeight` alone implies. All three Lake Guardians (`ADVISOR_DEX_IDS`)
+ *  levitate — see this file's header comment. */
+const COMPANION_BOB_PEAK_PX = 3;
+
+/** Small breathing-room margin between the companion's worst-case sprite
+ *  top and the bubble's bottommost pixel, once the two are Y-separated. */
+const Y_CLEARANCE_MARGIN_PX = 4;
 
 /** The aura's diameter is ~2.9x the companion's own drawn sprite size — the
  *  advisor-pokemon aura spec's exact multiplier (derived from the reference
@@ -90,7 +135,9 @@ interface Companion {
 export interface AdvisorDeps {
   map: TiledMapRenderer;
   charLayer: Container;
-  getRuntime: (parentId: string) => { walker: { worldX: number; worldY: number } } | undefined;
+  getRuntime: (
+    parentId: string
+  ) => { walker: { worldX: number; worldY: number; spriteHeight: number } } | undefined;
   /** Clicking a companion focuses the PARENT session's terminal — it has no
    *  session of its own (a Claude Code subagent runs inside its parent's
    *  process; see `SubBattler`'s own doc comment in BattleManager.ts for the
@@ -283,23 +330,41 @@ export class AdvisorManager {
     });
   }
 
-  private positionCompanion(companion: Companion, walker: { worldX: number; worldY: number }): void {
+  private positionCompanion(
+    companion: Companion,
+    walker: { worldX: number; worldY: number; spriteHeight: number }
+  ): void {
     const ts = this.deps.map.tileSize;
     const fanIndex = this.companions
       .filter((c) => c.parentId === companion.parentId && !c.despawning)
       .indexOf(companion);
     const worldX = walker.worldX + (OFFSET_X_TILES + fanIndex * FAN_STEP_TILES) * ts;
-    const worldY = walker.worldY + OFFSET_Y_TILES * ts;
+    // Y clears the parent's own tool-use bubble instead of a fixed tile
+    // offset (see OFFSET_X_TILES's own comment for why this fix is split
+    // across axes this way): `bubbleBottomY` is the bubble's own bottommost
+    // on-screen pixel (its tail tip — see BUBBLE_GAP_PX's comment), and the
+    // companion's own `container.y` is its "feet" anchor, with its sprite
+    // drawn UPWARD from there (same convention as every WalkerSprite in this
+    // codebase) — so placing that anchor `drawnHeight` (+ the live bob peak
+    // + a small margin) below `bubbleBottomY` keeps the companion's own
+    // sprite entirely below the bubble, on every frame, for whichever
+    // parent species (and therefore whichever `walker.spriteHeight`) this
+    // companion happens to be attached to.
+    const bubbleBottomY = walker.worldY - walker.spriteHeight - BUBBLE_GAP_PX;
+    const worldY =
+      bubbleBottomY + companion.sprite.drawnHeight + COMPANION_BOB_PEAK_PX + Y_CLEARANCE_MARGIN_PX;
     companion.container.x = Math.round(worldX);
     companion.container.y = Math.round(worldY);
     // Companions sit in the same overlay tier bubbles use
     // (TOOL_BUBBLE_Z_BASE — see ToolBubble.ts), so they're never hidden
     // behind a nearby tool-use bubble, but keyed off the PARENT's own raw
-    // worldY (not this companion's own offset `worldY` above, which floats
-    // slightly north of the parent) plus a tie-break of +1 — enough to
-    // reliably win against this companion's OWN parent's bubble (which
-    // computes its zIndex from that exact same parent worldY, see
-    // Walker.ts's syncPosition-adjacent bubble zIndex line), while still
+    // worldY (not this companion's own offset `worldY` above, which — per
+    // the bubble-clearance formula above — floats anywhere from somewhat
+    // above to somewhat below the parent's own feet depending on the
+    // parent's own sprite height, not a fixed direction) plus a tie-break
+    // of +1 — enough to reliably win against this companion's OWN parent's
+    // bubble (which computes its zIndex from that exact same parent worldY,
+    // see Walker.ts's syncPosition-adjacent bubble zIndex line), while still
     // Y-sorting normally — neither side unconditionally wins — against an
     // unrelated session's bubble the companion happens to float near.
     companion.container.zIndex = TOOL_BUBBLE_Z_BASE + Math.round(walker.worldY) + 1;
