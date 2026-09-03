@@ -1790,7 +1790,9 @@ export class BattleManager {
    *     mega would frequently resolve after the fight already ended, land
    *     in the discard branch below, and silently never show — a `prefetch`
    *     call never applies anything itself (see the early return), it only
-   *     warms `loadView`'s own cache (lazySprites.ts) for #2.
+   *     warms `loadView`'s own cache (lazySprites.ts) for #2. That head
+   *     start matters more than ever now that the apply window is
+   *     'faceoff'-only (below).
    *  2. `updateApproaching`, the ONE spot a wave transitions into 'faceoff'
    *     — the real, apply-attempting call. By now #1's fetch is very likely
    *     already resolved (or resolves within a tick or two, off the SAME
@@ -1798,6 +1800,16 @@ export class BattleManager {
    *     `applyBattleStance` (re-applied every tick for facing upkeep —
    *     cheap idempotent no-ops), this fires exactly once: `updateApproaching`
    *     only ever sets `wave = 'faceoff'` the one time it does.
+   *
+   *  'faceoff' is the ONLY phase that still accepts an application (the
+   *  guard below used to allow 'looping' as well). Applying is no longer a
+   *  half-second flash but a ~3.6s ceremony that holds the wave in place, so
+   *  a fetch resolving mid-'looping' would buy a long hold and then get
+   *  reverted by `beginEnding` almost immediately — skipping the mega
+   *  entirely for that wave is the better trade. Because the ceremony's hold
+   *  freezes the phase machine, a wave that reaches 'faceoff' stays there for
+   *  the ceremony's whole duration, so this narrower window costs the normal
+   *  (warm-cache) path nothing.
    *
    *  No-op for the ~980 species with no mega form (the common case) and
    *  while the parent is mid-evolution-ceremony (file header invariant:
@@ -1816,18 +1828,27 @@ export class BattleManager {
     }
     const token = pb.waveStartedAt;
     void promise.then((anim) => {
-      // Stale if: this exact wave already has a mega applied (belt-and-
+      // Stale if: this exact wave already has a mega in flight (belt-and-
       // braces — the split above means only #2 ever reaches here, but this
       // costs nothing to keep), a later wave has since started for this
-      // same parent (token mismatch), this exact wave has moved past the
-      // actual fighting phase (faceoff/looping) — including into 'ending',
-      // the victory beat, where a fetch resolving now would visibly
-      // mega-evolve the parent AFTER the fight already reads as over, only
-      // to revert moments later — or evolution started meanwhile. Discard
-      // rather than apply.
+      // same parent (token mismatch), this exact wave has moved past
+      // 'faceoff' at all, or evolution started meanwhile. Discard rather
+      // than apply.
+      //
+      // 'looping' USED TO BE accepted here too, back when applying meant a
+      // 500ms flash that could then sit on screen for the rest of the fight.
+      // It isn't anymore: applying now kicks off a ~3.6s ceremony that HOLDS
+      // the wave (see startMegaCeremony/megaHold), and a fetch resolving
+      // partway through 'looping' would spend that whole hold on a reveal
+      // `beginEnding` reverts about a second later — the wave's remaining
+      // attacks are all that's left. A cold-cache mega simply not happening
+      // for that one wave is the better outcome, and it's silent for exactly
+      // the same reason the 'ending' case already was: a mega that lands
+      // after the fight reads as over is worse than no mega at all. The
+      // `admitBattle` prefetch (#1 above) is what keeps this the rare path.
       if (pb.megaActive) return;
       if (pb.waveStartedAt !== token) return;
-      if (pb.wave !== 'faceoff' && pb.wave !== 'looping') return;
+      if (pb.wave !== 'faceoff') return;
       if (pb.parentWalker.isEvolving) return;
       if (!anim) {
         safeLogDiagnostic('battle', 'warn', 'mega evolve failed — sprite unavailable', { speciesId, megaId, shiny });
