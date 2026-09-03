@@ -62,7 +62,7 @@ const HOT = 0xfff0ff;
 const SILHOUETTE_TINT = 0x1c0a2e;
 
 const ORB_COUNT = 6;
-const RING_SPARKS = 10;
+const VORTEX_BLADES = 3;
 const BURST_SHARDS = 9;
 /** Discrete plume/glint sizes — a stepped flicker reads as pixel-art energy;
  *  a smoothly eased scale reads as a growing balloon (same reasoning as
@@ -81,6 +81,27 @@ function ramp(v: number, from: number, to: number): number {
   return Math.max(0, Math.min(1, (v - from) / (to - from)));
 }
 
+/** Traces (moveTo/lineTo, NOT stroked) a squashed-ellipse arc from angle `a0`
+ *  to `a1` into `g` — the shared path builder behind the ring's continuous
+ *  glow, so the caller only has to pick a width/color and call `.stroke()`. */
+function traceEllipseArc(
+  g: Graphics,
+  rx: number,
+  ry: number,
+  cy: number,
+  a0: number,
+  a1: number,
+  segments: number
+): void {
+  for (let i = 0; i <= segments; i++) {
+    const a = lerp(a0, a1, i / segments);
+    const x = Math.cos(a) * rx;
+    const y = cy + Math.sin(a) * ry;
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+}
+
 /** One hard-edged "flame brush" wedge fanning out along +x from the origin —
  *  the poster-style graphic shape the reference cutscene fires outward at its
  *  flash-out, reused (rotated up) for the feet plumes so the two beats share
@@ -97,6 +118,43 @@ function drawFlameShard(g: Graphics, len: number, width: number): void {
     g.poly([0, 0, l * 0.34, -w * 0.55, l * 0.58, -w * 0.16, l, 0, l * 0.52, w * 0.3, l * 0.26, w * 0.6]).fill({
       color
     });
+  }
+}
+
+/** One curved pinwheel "blade" swept `VORTEX_TURN` radians from a stub near the
+ *  origin out to a tapered tip — the vortex's spiral motif (`updateVortex`
+ *  rotates a small handful of these). Same nested wide/dim -> narrow/bright
+ *  layering as `drawFlameShard`, but the points sweep along a curl instead of
+ *  a straight fan, so a handful of them rotating together reads as a
+ *  spinning pinwheel/whirlpool rather than more flame wedges. */
+const VORTEX_TURN = 0.95;
+function drawSpiralBlade(g: Graphics, len: number, width: number): void {
+  const steps = 6;
+  const outline = (s: number): number[] => {
+    const pts: number[] = [];
+    // Outer edge: stub -> tip, curling forward.
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const r = lerp(width * 0.2, len, t) * s;
+      const a = t * VORTEX_TURN;
+      pts.push(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    // Inner edge: tip -> stub, curling tighter and flaring wider near the
+    // stub, giving the blade its taper.
+    for (let i = steps; i >= 0; i--) {
+      const t = i / steps;
+      const r = lerp(width * 0.2, len * 0.8, t) * s;
+      const a = t * VORTEX_TURN + 0.4 * (1 - t);
+      pts.push(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    return pts;
+  };
+  for (const [scale, color] of [
+    [1, VIOLET],
+    [0.72, MAGENTA],
+    [0.4, HOT]
+  ] as const) {
+    g.poly(outline(scale)).fill({ color });
   }
 }
 
@@ -151,12 +209,6 @@ interface Orb {
   drift: number;
 }
 
-interface RingSpark {
-  g: Graphics;
-  angle: number;
-  speed: number;
-}
-
 export class MegaCeremony {
   private v = 0;
   private finished = false;
@@ -165,6 +217,10 @@ export class MegaCeremony {
   private flickerIdx = 0;
   private glintT = 0;
   private glintIdx = 0;
+  /** Rotation phase for the ring's bright sweeping arc (`updateRing`). */
+  private ringSpin = 0;
+  /** Rotation phase for the vortex blades (`updateVortex`). */
+  private vortexSpin = 0;
 
   /** Behind the sprite (zIndex -1) so it darkens the ground and scenery the
    *  pokemon is standing against while the pokemon itself stays lit — the
@@ -177,8 +233,16 @@ export class MegaCeremony {
   private readonly core: Graphics;
   private readonly glint: Graphics;
   private readonly plumes: Graphics[] = [];
+  private readonly plumesInner: Graphics[] = [];
   private readonly orbs: Orb[] = [];
-  private readonly ring: RingSpark[] = [];
+  /** Continuous ring, redrawn every frame in `updateRing` — a wide/dim base
+   *  glow plus a brighter sweeping arc, replacing the old discrete sparks. */
+  private readonly ringGlow: Graphics;
+  private readonly ringPulse: Graphics;
+  /** The spiral/pinwheel blades that ignite at the torso during the pull-in
+   *  (`updateVortex`) — the vortex motif the reference cutscene has and the
+   *  shipped build didn't. */
+  private readonly vortexBlades: Graphics[] = [];
   /** Lives in the SHARED flashLayer, so teardown must remove it explicitly —
    *  it is the one graphic here that would otherwise outlive the walker. */
   private burst: Container | null = null;
@@ -220,12 +284,25 @@ export class MegaCeremony {
     this.silhouetteHolder.addChild(this.silhouette);
 
     for (let i = 0; i < 2; i++) {
-      const g = new Graphics();
-      drawFlameShard(g, h * 0.62, w * 0.3);
-      g.rotation = -Math.PI / 2; // fan upward from the feet
-      g.x = (i === 0 ? -1 : 1) * w * 0.42;
-      g.alpha = 0;
-      this.plumes.push(g);
+      const sign = i === 0 ? -1 : 1;
+      // Outer wing: big reach and spread, leaning outward — the bold flaring
+      // "wings" that dominate a real portion of the reference frame.
+      const outer = new Graphics();
+      drawFlameShard(outer, h * 0.95, w * 0.62);
+      outer.rotation = -Math.PI / 2 + sign * 0.28;
+      outer.x = sign * w * 0.46;
+      outer.alpha = 0;
+      this.plumes.push(outer);
+
+      // Inner tongue: smaller, more upright, flickers on an offset phase
+      // (`updatePlumes`) so the wing reads as having internal movement
+      // rather than being one rigid wedge.
+      const inner = new Graphics();
+      drawFlameShard(inner, h * 0.6, w * 0.32);
+      inner.rotation = -Math.PI / 2 + sign * 0.12;
+      inner.x = sign * w * 0.28;
+      inner.alpha = 0;
+      this.plumesInner.push(inner);
     }
 
     for (let i = 0; i < ORB_COUNT; i++) {
@@ -241,19 +318,30 @@ export class MegaCeremony {
       });
     }
 
-    for (let i = 0; i < RING_SPARKS; i++) {
+    // Redrawn from scratch every frame in updateRing (its geometry — radius,
+    // squash, sweep angle — changes continuously), so nothing to draw yet.
+    this.ringGlow = new Graphics();
+    this.ringPulse = new Graphics();
+
+    for (let i = 0; i < VORTEX_BLADES; i++) {
       const g = new Graphics();
-      const len = 3 + Math.random() * 3;
-      g.rect(-len, -0.9, len * 2, 1.8).fill({ color: MAGENTA });
-      g.rect(-len * 0.5, -0.4, len, 0.8).fill({ color: HOT });
+      drawSpiralBlade(g, h * 0.55, w * 0.24);
+      g.y = torso;
       g.alpha = 0;
-      this.ring.push({ g, angle: (i / RING_SPARKS) * Math.PI * 2, speed: 3.4 + Math.random() * 1.2 });
+      this.vortexBlades.push(g);
     }
 
     this.core = new Graphics();
-    this.core.circle(0, 0, 11).fill({ color: VIOLET, alpha: 0.3 });
-    this.core.circle(0, 0, 7).fill({ color: MAGENTA, alpha: 0.65 });
-    this.core.circle(0, 0, 3.4).fill({ color: 0xffffff, alpha: 1 });
+    // Six layers stepping down fast (vs. the old three), plus a hard bright
+    // rim stroke — reads as a dense, almost-solid glow with a crisp edge
+    // instead of a soft diffuse ball.
+    this.core.circle(0, 0, 13).fill({ color: VIOLET, alpha: 0.22 });
+    this.core.circle(0, 0, 10).fill({ color: VIOLET, alpha: 0.42 });
+    this.core.circle(0, 0, 8).fill({ color: MAGENTA, alpha: 0.6 });
+    this.core.circle(0, 0, 6.2).fill({ color: MAGENTA, alpha: 0.88 });
+    this.core.circle(0, 0, 4.4).fill({ color: HOT, alpha: 0.96 });
+    this.core.circle(0, 0, 2.6).fill({ color: 0xffffff, alpha: 1 });
+    this.core.circle(0, 0, 12.6).stroke({ width: 1.3, color: HOT, alpha: 0.85 });
     this.core.y = torso;
     this.core.scale.set(0);
 
@@ -263,9 +351,12 @@ export class MegaCeremony {
 
     this.fx.addChild(
       ...this.plumes,
+      ...this.plumesInner,
       this.silhouetteHolder,
+      ...this.vortexBlades,
       ...this.orbs.map((o) => o.g),
-      ...this.ring.map((r) => r.g),
+      this.ringGlow,
+      this.ringPulse,
       this.core,
       this.glint
     );
@@ -283,6 +374,7 @@ export class MegaCeremony {
     this.updateDim();
     this.updateOrbs(dt);
     this.updateRing(dt);
+    this.updateVortex(dt);
     this.updatePlumes(dt);
     this.updateSilhouette();
     this.updateCore();
@@ -320,9 +412,14 @@ export class MegaCeremony {
     }
   }
 
-  /** The swirling energy ring: sparks tracing a perspective-squashed ellipse
-   *  around the body, tangentially oriented, dimmed on the far half so the
-   *  ring reads as arcing BEHIND the pokemon and back around the front. */
+  /** The swirling energy ring: a continuous glowing arc traced fresh every
+   *  frame around a perspective-squashed ellipse — a wide/dim violet pass
+   *  plus a narrower/brighter magenta pass (the same nested-layer technique
+   *  `drawFlameShard` uses for the plumes), instead of gapped particles. A
+   *  brighter arc segment sweeps around it (`ringSpin`) to carry the
+   *  spin-up cue the old per-spark rotation gave. Both halves of the loop
+   *  dim on the far side so the ring still reads as arcing BEHIND the
+   *  pokemon and back around the front. */
   private updateRing(dt: number): void {
     const w = this.deps.spriteWidth();
     const torso = -this.deps.spriteHeight() * 0.55;
@@ -334,20 +431,90 @@ export class MegaCeremony {
     const rx = w * lerp(lerp(0.85, 0.16, tighten), 0.62, release) * grow;
     const ry = rx * 0.34;
     const fade = 1 - ramp(this.v, CORE_END + 100, SETTLE_END - 200);
-    for (const r of this.ring) {
-      // Spins up as the vortex tightens — the pull-in is a speed change as
-      // much as a radius one.
-      r.angle += dt * r.speed * (1 + tighten * 2.2);
-      const c = Math.cos(r.angle);
-      const s = Math.sin(r.angle);
-      r.g.x = c * rx;
-      r.g.y = torso + s * ry;
-      r.g.rotation = Math.atan2(ry * c, -rx * s);
-      r.g.alpha = grow * fade * (s > 0 ? 1 : 0.35);
+    const envelope = grow * fade;
+
+    // Spins up as the vortex tightens — the pull-in is a speed change as
+    // much as a radius one.
+    this.ringSpin += dt * (3.6 + tighten * 7);
+
+    this.ringGlow.clear();
+    if (envelope > 0.001) {
+      // Front half (near the flame plumes) traces bright; the back half —
+      // arcing behind the body — stays dimmed, same cue the old per-spark
+      // `s > 0 ? 1 : 0.35` gave.
+      for (const [a0, a1, depth] of [
+        [0, Math.PI, 1],
+        [Math.PI, Math.PI * 2, 0.35]
+      ] as const) {
+        traceEllipseArc(this.ringGlow, rx, ry, torso, a0, a1, 20);
+        this.ringGlow.stroke({
+          width: Math.max(1, w * 0.1),
+          color: VIOLET,
+          alpha: envelope * depth * 0.35,
+          cap: 'round',
+          join: 'round'
+        });
+        traceEllipseArc(this.ringGlow, rx, ry, torso, a0, a1, 20);
+        this.ringGlow.stroke({
+          width: Math.max(0.6, w * 0.045),
+          color: MAGENTA,
+          alpha: envelope * depth * 0.75,
+          cap: 'round',
+          join: 'round'
+        });
+      }
+    }
+
+    this.ringPulse.clear();
+    if (envelope > 0.001) {
+      const a0 = this.ringSpin - 1.15;
+      const a1 = this.ringSpin + 1.15;
+      const wrapped = ((this.ringSpin % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const depth = Math.sin(wrapped) > 0 ? 1 : 0.35;
+      traceEllipseArc(this.ringPulse, rx, ry, torso, a0, a1, 16);
+      this.ringPulse.stroke({
+        width: Math.max(0.8, w * 0.06),
+        color: MAGENTA,
+        alpha: envelope * depth * 0.7,
+        cap: 'round',
+        join: 'round'
+      });
+      traceEllipseArc(this.ringPulse, rx, ry, torso, a0, a1, 16);
+      this.ringPulse.stroke({
+        width: Math.max(0.4, w * 0.026),
+        color: HOT,
+        alpha: envelope * depth * 0.9,
+        cap: 'round',
+        join: 'round'
+      });
     }
   }
 
-  /** Twin flame plumes at the feet, flaring on a stepped flicker. */
+  /** The vortex pull-in's missing element: a small pinwheel of curved
+   *  "blade" shapes igniting at the torso and rotating, growing as the
+   *  silhouette collapses so it visually consumes it — the reference's
+   *  distinct spiral/whirlpool motif, absent from the previous build (which
+   *  only had a shrinking ring and a scaling-down silhouette). Tied to the
+   *  same `PULL_END - 700 -> CORE_END` window `updateSilhouette`'s collapse
+   *  and `updateCore`'s grow already use, so all three converge together. */
+  private updateVortex(dt: number): void {
+    const t = ramp(this.v, PULL_END - 700, CORE_END);
+    this.vortexSpin += dt * (4 + t * 10);
+    const scale = lerp(0.12, 1, t) * (this.deps.spriteWidth() / 34 + 0.5);
+    // Blown out by the core/flash the same way the ring and plumes are.
+    const alpha = t < 1 ? t : 1 - ramp(this.v, CORE_END, CORE_END + 140);
+    for (let i = 0; i < this.vortexBlades.length; i++) {
+      const g = this.vortexBlades[i];
+      g.rotation = this.vortexSpin + (i / this.vortexBlades.length) * Math.PI * 2;
+      g.scale.set(scale);
+      g.alpha = alpha;
+    }
+  }
+
+  /** Twin flame wings at the feet, flaring on a stepped flicker — an outer
+   *  wing (big reach and spread) plus a smaller inner tongue per side on an
+   *  offset flicker phase, so each wing reads as having internal flicker
+   *  rather than being one rigid wedge. */
   private updatePlumes(dt: number): void {
     this.flickerT += dt * 1000;
     if (this.flickerT >= FLICKER_MS) {
@@ -358,12 +525,18 @@ export class MegaCeremony {
       this.v < PULL_END
         ? ramp(this.v, SPARK_END * 0.7, CHARGE_END * 0.9)
         : 1 - ramp(this.v, PULL_END, CORE_END);
-    const step = PLUME_STEPS[this.flickerIdx];
+    // Consumed by the vortex along with everything else: the wings shrink
+    // toward the body as the pull-in starts.
+    const collapse = lerp(1, 0.3, ramp(this.v, PULL_END - 300, CORE_END));
+    const outerStep = PLUME_STEPS[this.flickerIdx];
+    const innerStep = PLUME_STEPS[(this.flickerIdx + 2) % PLUME_STEPS.length];
     for (const g of this.plumes) {
       g.alpha = alpha;
-      // Consumed by the vortex along with everything else: the plumes shrink
-      // toward the body as the pull-in starts.
-      g.scale.set(step * lerp(1, 0.3, ramp(this.v, PULL_END - 300, CORE_END)));
+      g.scale.set(outerStep * collapse);
+    }
+    for (const g of this.plumesInner) {
+      g.alpha = alpha;
+      g.scale.set(innerStep * collapse);
     }
   }
 
