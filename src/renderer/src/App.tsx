@@ -225,8 +225,17 @@ export function App(): JSX.Element {
         <WorkspaceSwitcher />
         {!hideTopbarChips && (
           <>
-            <button className="primary" onClick={() => setDialogOpen(true)}>
-              + new agent
+            <button
+              type="button"
+              className="primary new-agent-button tip"
+              data-tip="new agent"
+              aria-label="new agent"
+              onClick={() => setDialogOpen(true)}
+            >
+              <span className="new-agent-label">+ new agent</span>
+              <span className="new-agent-icon" aria-hidden="true">
+                +
+              </span>
             </button>
             <OverflowChipRow
               items={sessions}
