@@ -361,13 +361,17 @@ export class AdvisorManager {
     // worldY (not this companion's own offset `worldY` above, which — per
     // the bubble-clearance formula above — floats anywhere from somewhat
     // above to somewhat below the parent's own feet depending on the
-    // parent's own sprite height, not a fixed direction) plus a tie-break
-    // of +1 — enough to reliably win against this companion's OWN parent's
-    // bubble (which computes its zIndex from that exact same parent worldY,
-    // see Walker.ts's syncPosition-adjacent bubble zIndex line), while still
+    // parent's own sprite height, not a fixed direction) plus a
+    // tie-break of -1 — the body no longer needs to win against this
+    // companion's OWN parent's bubble because the clearance formula above
+    // keeps it spatially separated, but the aura is larger than the body and
+    // can still reach into the bubble, so the bubble should win against the
+    // WHOLE companion container (body + aura), not the other way around
+    // (the bubble computes its zIndex from that exact same parent worldY;
+    // see Walker.ts's syncPosition-adjacent bubble zIndex line). Keep
     // Y-sorting normally — neither side unconditionally wins — against an
     // unrelated session's bubble the companion happens to float near.
-    companion.container.zIndex = TOOL_BUBBLE_Z_BASE + Math.round(walker.worldY) + 1;
+    companion.container.zIndex = TOOL_BUBBLE_Z_BASE + Math.round(walker.worldY) - 1;
   }
 
   /** Called once a frame from GardenScene.tsx's ticker, after
