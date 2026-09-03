@@ -151,11 +151,20 @@ body {
 }
 
 /* ── top bar ─────────────────────────────────────────────────────────────── */
+/* This bar briefly used a named inline-size CSS container query for the three
+ * responsive breakpoints below, but `.topbar` always spans the
+ * full window width as a flex item of `.app`'s column flex, with no narrower
+ * ancestor anywhere in this layout. A container query therefore bought
+ * nothing a plain `@media` query doesn't already give here, while layout
+ * containment created a stacking context and a containing block for
+ * `position: fixed` descendants: it put `.usage-popover-panel` and the other
+ * topbar popovers/dropdowns behind the terminal, and collapsed the
+ * `.modal-backdrop` dialogs opened here (SummonArceusDialog,
+ * NewWorkspaceDialog, DeleteWorkspaceDialog) into the topbar's own box. */
 .topbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  container: topbar / inline-size;
   /* 96px, not 78-80px worth of actual traffic-light footprint: room for the
    * macOS traffic lights (titleBarStyle: 'hiddenInset', main/index.ts) plus
    * a safety margin. Taller bar (BACKLOG.md topbar overhaul — brand/chips
@@ -262,13 +271,13 @@ body {
  * (~980px) compacts the 83px new-agent button to 30px, and 812px (~932px)
  * reduces the 180px workspace control to 96px. Those fixed-item savings keep
  * the roughly 450px action cluster visible at the 900px window minimum. */
-@container topbar (max-width: 980px) {
+@media (max-width: 980px) {
   .brand {
     display: none;
   }
 }
 
-@container topbar (max-width: 860px) {
+@media (max-width: 860px) {
   .new-agent-button {
     width: 30px;
     padding: 3px 0;
@@ -283,7 +292,7 @@ body {
   }
 }
 
-@container topbar (max-width: 812px) {
+@media (max-width: 812px) {
   .topbar .garden-chips-wrap {
     width: 96px;
     min-width: 96px;
@@ -2047,19 +2056,13 @@ body.garden-lowres .garden canvas {
 }
 
 /* ── Audio popover (topbar sound icon — AudioPopover.tsx) ───────────────────
- * Anchored-dropdown shape (transparent full-screen catcher for outside-click,
+ * Anchored-dropdown shape (document-level pointerdown outside-click dismissal,
  * `--shadow-hard` for the panel), anchored to the RIGHT edge — the trigger
  * sits near the topbar's right end, so a left-anchored panel would run
  * off-screen. */
 .audio-popover {
   position: relative;
   -webkit-app-region: no-drag;
-}
-
-.audio-popover-catcher {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
 }
 
 .audio-popover-panel {
@@ -2081,19 +2084,14 @@ body.garden-lowres .garden canvas {
 
 /* ── Usage-limits chip + "trainer card" popover (BACKLOG "next up" item 1,
  * UsageChip.tsx) ─────────────────────────────────────────────────────────
- * Same anchored-popover shape as `.audio-popover` above (transparent
- * full-screen catcher, right-anchored panel, `--shadow-hard`) — this block
+ * Same anchored-popover shape as `.audio-popover` above (document-level
+ * pointerdown outside-click dismissal, right-anchored panel,
+ * `--shadow-hard`) — this block
  * only adds what's NEW: the chip's own icon+text layout and tone colors,
  * and the popover's provider sections / pixel HP-style bars. */
 .usage-popover {
   position: relative;
   -webkit-app-region: no-drag;
-}
-
-.usage-popover-catcher {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
 }
 
 .usage-popover-panel {
@@ -4360,7 +4358,7 @@ body.is-splitting .garden canvas {
  * purpose: a concurrent topbar restructure is moving the settings gear (and
  * other chrome) around, and this whole block moves as one unit whenever this
  * component's mount point does. Same anchored-dropdown shape as
- * `.audio-popover` (transparent full-screen catcher for outside-click,
+ * `.audio-popover` (document-level pointerdown outside-click dismissal,
  * `--shadow-hard` for the panel, same z-index band) — anchored to the right
  * edge, same reasoning as that block's own comment. The pixel checkbox/range
  * skin itself lives with the settings dialog's copy further up this file
@@ -4369,12 +4367,6 @@ body.is-splitting .garden canvas {
 .quick-settings {
   position: relative;
   -webkit-app-region: no-drag;
-}
-
-.quick-settings-catcher {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
 }
 
 .quick-settings-panel {

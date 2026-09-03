@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAudioStore } from '@/audio/audioStore';
 import { SpeakerHighIcon, SpeakerLowIcon, SpeakerMuteIcon } from '@/components/icons';
 import { MiniPlayer } from '@/components/MiniPlayer';
@@ -15,6 +15,7 @@ import { MiniPlayer } from '@/components/MiniPlayer';
  */
 export function AudioPopover(): JSX.Element {
   const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const settings = useAudioStore((s) => s.settings);
   const musicUnavailable = useAudioStore((s) => s.musicUnavailable);
   const setMasterMuted = useAudioStore((s) => s.setMasterMuted);
@@ -36,8 +37,20 @@ export function AudioPopover(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
+  // Outside-click dismissal follows the document-level pointerdown +
+  // wrapper-ref `.contains()` pattern already established by
+  // OverflowChipRow.tsx, instead of using a full-screen catcher div.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !wrapperRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
   return (
-    <div className="audio-popover">
+    <div className="audio-popover" ref={wrapperRef}>
       <button
         type="button"
         className="topbar-icon-btn tip"
@@ -51,38 +64,35 @@ export function AudioPopover(): JSX.Element {
       </button>
 
       {open && (
-        <>
-          <div className="audio-popover-catcher" onClick={() => setOpen(false)} />
-          <div className="audio-popover-panel" role="dialog" aria-label="music player">
-            <label className="audio-row audio-row-master">
-              <input
-                type="checkbox"
-                checked={settings.masterMuted}
-                onChange={(e) => setMasterMuted(e.target.checked)}
-              />
-              mute all
+        <div className="audio-popover-panel" role="dialog" aria-label="music player">
+          <label className="audio-row audio-row-master">
+            <input
+              type="checkbox"
+              checked={settings.masterMuted}
+              onChange={(e) => setMasterMuted(e.target.checked)}
+            />
+            mute all
+          </label>
+
+          <div className="audio-row">
+            <label className="audio-toggle">
+              <input type="checkbox" checked={settings.musicOn} onChange={(e) => setMusicOn(e.target.checked)} />
+              music
             </label>
-
-            <div className="audio-row">
-              <label className="audio-toggle">
-                <input type="checkbox" checked={settings.musicOn} onChange={(e) => setMusicOn(e.target.checked)} />
-                music
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={settings.musicVolume}
-                onChange={(e) => setMusicVolume(Number(e.target.value))}
-                disabled={!settings.musicOn}
-              />
-            </div>
-            {musicUnavailable && <div className="audio-status">unavailable offline</div>}
-
-            {settings.musicOn && <MiniPlayer />}
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={settings.musicVolume}
+              onChange={(e) => setMusicVolume(Number(e.target.value))}
+              disabled={!settings.musicOn}
+            />
           </div>
-        </>
+          {musicUnavailable && <div className="audio-status">unavailable offline</div>}
+
+          {settings.musicOn && <MiniPlayer />}
+        </div>
       )}
     </div>
   );
