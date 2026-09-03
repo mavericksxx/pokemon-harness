@@ -3,7 +3,7 @@ import { startPlainTerminal } from '@/sessions';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
-import { TerminalIcon } from '@/components/icons';
+import { PlusIcon } from '@/components/icons';
 
 interface Props {
   className: string;
@@ -20,9 +20,13 @@ export function NewTerminalButton({ className }: Props): JSX.Element {
 
   const onClick = async (): Promise<void> => {
     if (starting) return;
-    const cwd = activeWorkspaceFolder?.trim() || recentFolders[0]?.trim() || '~';
     setStarting(true);
     try {
+      // A stale garden folder makes main reject the pty, then removeSession's fallback
+      // selection makes the failed click appear to jump to an unrelated tab.
+      const cwd = await window.api.resolveTerminalCwd(
+        [activeWorkspaceFolder, ...recentFolders].filter((folder): folder is string => !!folder?.trim())
+      );
       await startPlainTerminal(cwd);
     } catch (err) {
       pushToast(`couldn't open terminal: ${err instanceof Error ? err.message : String(err)}`);
@@ -41,7 +45,7 @@ export function NewTerminalButton({ className }: Props): JSX.Element {
       onClick={() => void onClick()}
       disabled={starting}
     >
-      <TerminalIcon />
+      <PlusIcon />
     </button>
   );
 }
