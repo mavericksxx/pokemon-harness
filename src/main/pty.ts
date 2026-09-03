@@ -224,11 +224,7 @@ export class PtyManager {
     }
 
     const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      PATH: userShellPath(),
-      TERM: 'xterm-256color',
-      LANG: process.env.LANG || 'en_US.UTF-8',
-      ...(opts.env ?? {}),
+      ...this.buildBaseEnv(opts.env),
       ...hookEnv
     };
     if (opts.env?.COLORFGBG === undefined) {
@@ -342,12 +338,29 @@ export class PtyManager {
    *  PATH shims add retained settings/instructions wiring when the user
    *  hand-relaunches claude or codex in this shell. */
   spawnFallbackShellFromRespawn(id: string, cwd: string, provider?: string, claudeSettingsPath?: string): PtyResult {
+    // The boot resume exit may already have installed the one fallback shell.
+    if (this.sessions.has(id)) return { ok: true, cwd };
     const shellCommand = process.env.SHELL || '/bin/zsh';
     const { path: file, found } = resolveCommand(shellCommand);
     if (!found) return { ok: false, error: `shell not found on PATH: ${shellCommand}` };
     const settingsPath = claudeSettingsPath ?? join(hookTmpDir(), `hook-settings-${id}.json`);
-    const env = this.buildFallbackEnv(process.env as Record<string, string>, provider, existsSync(settingsPath) ? settingsPath : undefined, id);
-    return this.spawnFallbackShellProcess(id, cwd, file, env, { provider, claudeSettingsPath: existsSync(settingsPath) ? settingsPath : undefined });
+    const env = this.buildFallbackEnv(this.buildBaseEnv(), provider, existsSync(settingsPath) ? settingsPath : undefined, id);
+    return this.spawnFallbackShellProcess(id, cwd, file, env, {
+      provider,
+      claudeSettingsPath: existsSync(settingsPath) ? settingsPath : undefined,
+      rendererAttached: false
+    });
+  }
+
+  private buildBaseEnv(overrides?: Record<string, string>): Record<string, string> {
+    // Finder/Dock launches need the login-shell PATH and terminal defaults.
+    return {
+      ...(process.env as Record<string, string>),
+      PATH: userShellPath(),
+      TERM: 'xterm-256color',
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      ...(overrides ?? {})
+    };
   }
 
   private buildFallbackEnv(env: Record<string, string>, provider?: string, claudeSettingsPath?: string, agentId?: string): Record<string, string> {
@@ -390,7 +403,7 @@ export class PtyManager {
     this.spawnFallbackShellProcess(id, cwd, file, fallbackEnv, prior);
   }
 
-  private spawnFallbackShellProcess(id: string, cwd: string, file: string, fallbackEnv: Record<string, string>, source: Pick<PtySession, 'provider' | 'claudeSettingsPath'>): PtyResult {
+  private spawnFallbackShellProcess(id: string, cwd: string, file: string, fallbackEnv: Record<string, string>, source: Pick<PtySession, 'provider' | 'claudeSettingsPath' | 'rendererAttached'>): PtyResult {
 
     try {
       const proc = pty.spawn(file, [], {
@@ -421,7 +434,7 @@ export class PtyManager {
         provider: source.provider,
         claudeSettingsPath: source.claudeSettingsPath,
         isDelegate: false,
-        rendererAttached: false,
+        rendererAttached: source.rendererAttached,
         oscCarry: ''
       };
       this.sessions.set(id, session);
@@ -478,10 +491,21 @@ export class PtyManager {
       cursor = query.lastIndex;
     }
     output += input.slice(cursor);
-    const lastEsc = output.lastIndexOf('\x1b');
-    if (lastEsc >= 0 && /^\x1b\](?:1[01](?:;\?)?)?$/.test(output.slice(lastEsc))) {
-      session.oscCarry = output.slice(lastEsc);
-      output = output.slice(0, lastEsc);
+    const queries = [
+      '\x1b]10;?\x07',
+      '\x1b]11;?\x07',
+      '\x1b]10;?\x1b\\',
+      '\x1b]11;?\x1b\\'
+    ];
+    const maxQueryLength = Math.max(...queries.map((query) => query.length));
+    const maxCarry = Math.min(output.length, maxQueryLength - 1);
+    for (let length = maxCarry; length > 0; length -= 1) {
+      const suffix = output.slice(-length);
+      if (queries.some((query) => query.startsWith(suffix))) {
+        session.oscCarry = suffix;
+        output = output.slice(0, -length);
+        break;
+      }
     }
     return output;
   }

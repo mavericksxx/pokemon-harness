@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { resolveCommand } from './shellEnv';
@@ -10,6 +10,15 @@ export function ensureClaudeTheme(onChanged: (path: string) => void): void {
   const configDir = process.env.CLAUDE_CONFIG_DIR || homedir();
   const path = join(configDir, '.claude.json');
   if (!existsSync(path)) return;
+
+  // Dotfile managers and Claude's lock must not be bypassed by atomic replacement.
+  let mode: number;
+  try {
+    if (lstatSync(path).isSymbolicLink() || existsSync(`${path}.lock`)) return;
+    mode = statSync(path).mode & 0o777;
+  } catch {
+    return;
+  }
 
   let config: Record<string, unknown>;
   try {
@@ -23,7 +32,7 @@ export function ensureClaudeTheme(onChanged: (path: string) => void): void {
 
   const tempPath = `${path}.tmp-${process.pid}`;
   try {
-    writeFileSync(tempPath, `${JSON.stringify({ ...config, theme: 'auto' }, null, 2)}\n`, 'utf8');
+    writeFileSync(tempPath, `${JSON.stringify({ ...config, theme: 'auto' }, null, 2)}\n`, { encoding: 'utf8', mode });
     renameSync(tempPath, path);
   } catch {
     try {
