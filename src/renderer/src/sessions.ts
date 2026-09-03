@@ -41,8 +41,15 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     let shiny = false;
     if (!isPlainTerminal) {
       if (req.pokemon) {
+        // An alt-battle-form pick (e.g. Zacian-Crowned) isn't a chain stage
+        // at all — normalizing it to its base stage the way a mid-chain pick
+        // (e.g. Charmeleon -> Charmander) gets normalized would silently
+        // swap out the form the user actually chose. Exact-species for a
+        // form, same "not earned-stage-normalized" precedent as
+        // `swapSessionPokemon` below.
+        const picked = speciesEntry(req.pokemon);
         const base = baseStageOf(req.pokemon);
-        pokemon = base.id;
+        pokemon = picked?.baseSpecies ? req.pokemon : base.id;
         line = base.line;
       } else {
         const picked = pickFreeLine(useStore.getState().takenLines());

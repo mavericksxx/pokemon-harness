@@ -15,6 +15,7 @@
  */
 import dexIndexRaw from '@assets/dex/dexIndex.json';
 import linesRaw from '@assets/dex/lines.json';
+import formsRaw from '@assets/dex/forms.json';
 import type { Locomotion } from './showdownArt';
 import { BUNDLED_BY_NAME } from './showdownArt';
 import { ARCEUS_DEX_ID } from '@shared/arceus';
@@ -43,6 +44,10 @@ export interface DexEntry {
    *  species are picker-only (Phase 6 §4) — they never appear in a random
    *  pool, only reachable by manual search/pick or by evolving into one. */
   static?: boolean;
+  /** Set only on a synthetic alt-form row from `forms.json` (e.g.
+   *  "zacian-crowned" -> "zacian") — the base species' own dex id this form
+   *  belongs to. Absent on every real dex-1025 entry. */
+  baseSpecies?: string;
 }
 
 export interface DexLine {
@@ -51,13 +56,22 @@ export interface DexLine {
   displayName: string;
 }
 
-export const DEX: Readonly<Record<string, DexEntry>> = dexIndexRaw as Record<string, DexEntry>;
+export const DEX: Readonly<Record<string, DexEntry>> = {
+  ...(dexIndexRaw as Record<string, DexEntry>),
+  ...(formsRaw as Record<string, DexEntry>)
+};
 export const LINES: readonly DexLine[] = linesRaw as DexLine[];
 
 const LINES_BY_ID = new Map(LINES.map((l) => [l.line, l]));
 
-/** Dex-number order, for the picker's default (empty-query) listing. */
-export const DEX_LIST: readonly DexEntry[] = Object.values(DEX).sort((a, b) => a.num - b.num);
+// Forms are excluded here: they're reached only through the picker's form
+// sub-panel (PokemonPicker.tsx), never as independently browsable/searchable
+// rows — including them would dilute searchDex's results with (e.g.) 17
+// Silvally types clogging a "silv" search, and would let a form appear in the
+// default full-dex grid, which is meant to be one tile per species.
+export const DEX_LIST: readonly DexEntry[] = Object.values(DEX)
+  .filter((e) => !e.baseSpecies)
+  .sort((a, b) => a.num - b.num);
 
 export function speciesEntry(id: string): DexEntry | undefined {
   return DEX[id];
@@ -66,6 +80,16 @@ export function speciesEntry(id: string): DexEntry | undefined {
 export function lineOf(id: string): DexLine | undefined {
   const entry = DEX[id];
   return entry ? LINES_BY_ID.get(entry.line) : undefined;
+}
+
+/** Every alt-battle-form of `baseId` (e.g. "zacian" -> Zacian-Crowned),
+ *  sorted by id. Scans `forms.json` directly rather than the merged `DEX` —
+ *  forms are a small, separate set and this is the picker's only way to
+ *  reach them (they're excluded from `DEX_LIST`/`searchDex`). */
+export function formsOf(baseId: string): readonly DexEntry[] {
+  return Object.values(formsRaw as Record<string, DexEntry>)
+    .filter((e) => e.baseSpecies === baseId)
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** The line's stage-1 species — sessions always hatch here, whatever stage of

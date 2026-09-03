@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
-import { baseStageOf, DEX_LIST, searchDex, type DexEntry } from '@/scene/garden/dexData';
+import { baseStageOf, DEX_LIST, formsOf, searchDex, speciesEntry, type DexEntry } from '@/scene/garden/dexData';
 import { PokemonFace } from './PokemonFace';
 
 interface Props {
@@ -50,6 +50,19 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
   }, [query]);
 
   const results: readonly DexEntry[] = debouncedQuery.trim() ? searchDex(debouncedQuery, 30) : DEX_LIST;
+
+  // Alt-battle-form sub-panel (e.g. Zacian's Crowned Sword form) — the base
+  // species id currently showing its form options below the grid, or null.
+  // Re-derived from `value` on mount and every time it changes (not just
+  // once) so reopening the swap dialog on a session already wearing a form
+  // lands on the right sub-panel with no extra click — `value`'s relevant
+  // base is either its own baseSpecies (if it's itself a form) or itself (if
+  // it's a base species that happens to have forms).
+  const [formsPickerFor, setFormsPickerFor] = useState<string | null>(null);
+  useEffect(() => {
+    const relevantBase = speciesEntry(value)?.baseSpecies ?? value;
+    setFormsPickerFor(formsOf(relevantBase).length > 0 ? relevantBase : null);
+  }, [value]);
 
   const gridRef = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Set<string>>(new Set());
@@ -117,7 +130,16 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
               className={entry.id === value ? 'pokemon-option chosen' : 'pokemon-option'}
               disabled={disabled}
               title={optionTitle}
-              onClick={() => onChange(entry.id)}
+              onClick={() => {
+                // A species with alt forms doesn't commit yet — reveal the
+                // form sub-panel below instead, same as the effect above
+                // does when the dialog opens on one. `onChange` only ever
+                // fires once the user has picked a final (base-or-form) id,
+                // matching both callers' "onChange commits" assumption.
+                const forms = formsOf(entry.id);
+                if (forms.length > 0) setFormsPickerFor(entry.id);
+                else onChange(entry.id);
+              }}
             >
               <span className="pokemon-option-face">
                 {noSprite || !shown.has(entry.id) ? (
@@ -144,6 +166,37 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
         })}
         {debouncedQuery.trim() && results.length === 0 && <p className="hint">no match.</p>}
       </div>
+      {formsPickerFor &&
+        (() => {
+          const baseEntry = speciesEntry(formsPickerFor);
+          if (!baseEntry) return null;
+          // Base species first, then every alt form — clicking any of these
+          // is the only place this sub-panel ever calls `onChange`.
+          const options: DexEntry[] = [baseEntry, ...formsOf(formsPickerFor)];
+          const namePrefix = `${baseEntry.name}-`;
+          return (
+            <div className="pokemon-forms-panel">
+              <p className="pokemon-forms-heading">{baseEntry.name} — choose a form</p>
+              <div className="pokemon-forms-grid">
+                {options.map((opt) => {
+                  const label = opt.name.startsWith(namePrefix) ? opt.name.slice(namePrefix.length) : opt.name;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={opt.id === value ? 'pokemon-form-option chosen' : 'pokemon-form-option'}
+                      title={opt.name}
+                      onClick={() => onChange(opt.id)}
+                    >
+                      <PokemonFace name={opt.id} box={56} />
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
     </>
   );
 }

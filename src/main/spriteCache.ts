@@ -30,11 +30,20 @@ import type { CachedSprite, LazySpriteMeta, SpriteView } from '../shared/types';
 // is only configured for the renderer's Vite build (electron.vite.config.ts),
 // which Phase 6 does not touch.
 import dexIndex from '../../assets/dex/dexIndex.json';
+import forms from '../../assets/dex/forms.json';
 
 interface DexEntryLite {
   static?: boolean;
 }
-const DEX = dexIndex as unknown as Record<string, DexEntryLite>;
+// Merge in forms.json so an alt-form id (e.g. "zacian-crowned") resolves its
+// `static` flag correctly too — without this, DEX[id]?.static is always
+// undefined for a form (it's not in dexIndex.json at all), so `kind` below
+// always reads 'animated' for a form regardless of which tier its art is
+// actually on, a real 404 mid-render for every static-tier form.
+const DEX = {
+  ...(dexIndex as unknown as Record<string, DexEntryLite>),
+  ...(forms as unknown as Record<string, DexEntryLite>)
+};
 
 const SPRITE_BASE = {
   front: {
