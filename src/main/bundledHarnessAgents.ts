@@ -1,11 +1,15 @@
 /**
- * Bundled `advisor` subagent — injected into claude spawns via Claude Code's
- * `--agents <json>` CLI flag so the hovering-companion feature (the
+ * Bundled `advisor` and `investigator` subagents — injected into claude
+ * spawns via Claude Code's `--agents <json>` CLI flag so features that key
+ * off a specific `subagentType` work out of the box on a fresh install with
+ * zero personal config. `advisor` powers the hovering-companion feature (the
  * renderer's hookRouter.ts, which fires purely on a Task dispatch whose raw
- * `subagentType === 'advisor'`) works out of the box on a fresh install with
- * zero personal config. Without this, the feature only ever fires for a user
- * who has independently hand-written their own `~/.claude/agents/advisor.md`
- * — a fresh install has none, so the feature is silently dormant.
+ * `subagentType === 'advisor'`); `investigator` is the read-only research
+ * lane HARNESS.md's routing prose tells the orchestrator to dispatch instead
+ * of doing research work inline. Without this, both only ever fire for a
+ * user who has independently hand-written their own
+ * `~/.claude/agents/{advisor,investigator}.md` — a fresh install has
+ * neither, so both features are silently dormant.
  *
  * `claude --help`: `--agents <json>  JSON object defining custom agents
  * (e.g. '{"reviewer": {"description": "Reviews code", "prompt": "You are a
@@ -70,19 +74,47 @@ const BUNDLED_ADVISOR_AGENT = {
 };
 
 /**
- * Returns the `--agents` flag VALUE (a JSON string holding the bundled
- * `advisor` key) for a claude spawn in `cwd`, or `undefined` when injection
- * should be skipped.
+ * The agent definition injected under the `"investigator"` key. Content is a
+ * generalized version of the real, working investigator agent this feature
+ * was modeled on (this user's own `~/.claude/agents/investigator.md`) —
+ * same "read-only research" contract, but described as a subagent the
+ * orchestrating session itself dispatches for research/investigation work
+ * (rather than referencing any specific orchestration skill, which a fresh
+ * install has no guarantee of having) so it reads correctly on any install.
+ *
+ * Same rationale as `BUNDLED_ADVISOR_AGENT` above applies here verbatim:
+ * `tools` restricted to the reference agent's own read-only set (plus
+ * `WebSearch`/`WebFetch`, which the reference agent also grants — all four
+ * are core, universally-available Claude Code tools), and `model` left
+ * UNSET rather than pinning the reference agent's `model: sonnet`, for the
+ * same portability reasoning given above.
+ */
+const BUNDLED_INVESTIGATOR_AGENT = {
+  description:
+    'Read-only research subagent — explores a codebase or investigates a question and reports findings without making any changes. Dispatch it for research/investigation work instead of doing it yourself inline.',
+  prompt:
+    'You are a read-only research subagent working under an orchestrator. You receive a specific question or investigation target and must answer it from the code, filesystem, or web — without modifying anything. Never edit, write, or delete files; Bash is for read-only inspection only (searching, listing, running read-only commands like `git log`). Do not ask clarifying questions — make a reasonable interpretation and flag it in your report. Cite evidence: file paths with line numbers, command output, or URLs. Your final report must state: the answer or findings, the evidence behind them, and anything you could not determine and why.',
+  tools: ['Read', 'Grep', 'Glob', 'Bash', 'WebSearch', 'WebFetch']
+};
+
+/**
+ * Returns the `--agents` flag VALUE (a JSON string holding whichever of the
+ * bundled `advisor`/`investigator` keys aren't shadowed) for a claude spawn
+ * in `cwd`, or `undefined` when injection should be skipped entirely.
  *
  * `--agents` has the HIGHEST precedence of any way Claude Code resolves a
  * subagent definition, so injecting it unconditionally would silently
- * shadow a power user's own hand-written advisor — even though ours and
- * theirs share a name, theirs is the one they authored and tuned. So this
- * skips injection entirely whenever an `advisor.md` already exists at either
- * the user level (`~/.claude/agents/advisor.md`) or the project level
- * (`<cwd>/.claude/agents/advisor.md`), checked with `existsSync` right here
- * at spawn time rather than cached — same live-disk-read posture pty.ts
- * already uses for HARNESS.md.
+ * shadow a power user's own hand-written agent — even though ours and
+ * theirs share a name, theirs is the one they authored and tuned. So each
+ * agent's injection is skipped whenever an on-disk file of the same name
+ * already exists at either the user level (`~/.claude/agents/<name>.md`) or
+ * the project level (`<cwd>/.claude/agents/<name>.md`), checked with
+ * `existsSync` right here at spawn time rather than cached — same
+ * live-disk-read posture pty.ts already uses for HARNESS.md. The two agents
+ * are checked INDEPENDENTLY (a user might have their own `advisor.md` but
+ * not `investigator.md`, or vice versa), so one being shadowed never affects
+ * the other's injection. Only when BOTH are shadowed does this return
+ * `undefined` — never `--agents '{}'`.
  *
  * Best-effort: never throws. A read failure (e.g. an inaccessible home dir)
  * just means no `--agents` flag gets appended, same as pty.ts's HARNESS.md
@@ -90,10 +122,18 @@ const BUNDLED_ADVISOR_AGENT = {
  */
 export function buildAgentsFlagValue(cwd: string): string | undefined {
   try {
-    const userAdvisorPath = join(homedir(), '.claude', 'agents', 'advisor.md');
-    const projectAdvisorPath = join(cwd, '.claude', 'agents', 'advisor.md');
-    if (existsSync(userAdvisorPath) || existsSync(projectAdvisorPath)) return undefined;
-    return JSON.stringify({ advisor: BUNDLED_ADVISOR_AGENT });
+    const shadowed = (name: string): boolean => {
+      const userPath = join(homedir(), '.claude', 'agents', `${name}.md`);
+      const projectPath = join(cwd, '.claude', 'agents', `${name}.md`);
+      return existsSync(userPath) || existsSync(projectPath);
+    };
+
+    const agents: Record<string, unknown> = {};
+    if (!shadowed('advisor')) agents.advisor = BUNDLED_ADVISOR_AGENT;
+    if (!shadowed('investigator')) agents.investigator = BUNDLED_INVESTIGATOR_AGENT;
+
+    if (Object.keys(agents).length === 0) return undefined;
+    return JSON.stringify(agents);
   } catch {
     return undefined;
   }
