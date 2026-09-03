@@ -28,9 +28,7 @@ import {
   type ArceusSummonConfig
 } from '@shared/arceus';
 import { useStore, type Session } from '@/store/store';
-import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
-import { resolveEffectiveTheme, terminalSpawnEnv } from '@/design/theme';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 
 export interface SummonArceusRequest {
@@ -108,7 +106,6 @@ async function spawnArceus(
       cwd: req.cwd,
       command,
       args,
-      env: terminalSpawnEnv(resolveEffectiveTheme(useAppSettingsStore.getState().settings.theme)),
       cols: 100,
       rows: 30,
       provider
@@ -400,7 +397,6 @@ async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<bo
     cwd,
     command: AGENT_PROVIDERS.claude.defaultCommand,
     args: ['--resume', claudeSessionId],
-    env: terminalSpawnEnv(resolveEffectiveTheme(useAppSettingsStore.getState().settings.theme)),
     cols: 100,
     rows: 30,
     provider: 'claude'

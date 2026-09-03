@@ -21,15 +21,6 @@ export function resolveEffectiveTheme(mode: ThemeMode): EffectiveTheme {
   return window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light';
 }
 
-export function terminalSpawnEnv(effectiveTheme: EffectiveTheme, baseEnv?: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = {
-    ...(baseEnv ?? {}),
-    COLORFGBG: effectiveTheme === 'light' ? '0;15' : '15;0'
-  };
-  if (!env.TERM_PROGRAM) env.TERM_PROGRAM = 'pokeharness';
-  return env;
-}
-
 /** Re-applies the theme (chrome + every open terminal) on every live OS
  *  appearance change, but only while `getMode()` currently reports 'system'
  *  — an explicit light/dark pin must not be overridden by the OS switching

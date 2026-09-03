@@ -312,6 +312,10 @@ const hookBridge: HookBridge = new HookBridge(
   }
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
+let activeTheme: AppSettings['theme'] = 'system';
+nativeTheme.on('updated', () => {
+  if (activeTheme === 'system') ptyManager.setTerminalAppearance(resolveTerminalAppearance(activeTheme));
+});
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
 
 // ─── Harness home directory + workspaces (Phase 8.7) ───────────────────────
@@ -360,8 +364,10 @@ function syncKeepAwake(): void {
 const WINDOW_BG_DARK = '#17171b';
 const WINDOW_BG_LIGHT = '#fffdf5';
 function resolveWindowBg(theme: AppSettings['theme']): string {
-  const dark = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors);
-  return dark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT;
+  return resolveTerminalAppearance(theme) === 'dark' ? WINDOW_BG_DARK : WINDOW_BG_LIGHT;
+}
+function resolveTerminalAppearance(theme: AppSettings['theme']): 'light' | 'dark' {
+  return theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors) ? 'dark' : 'light';
 }
 
 // App icon (ship-cut item 2) — macOS reads its dock/Finder icon from the
@@ -910,6 +916,8 @@ app.whenReady().then(async () => {
   arceusRelay.start();
   taskNotificationWatcher.start();
   const appSettings = await loadAppSettings();
+  activeTheme = appSettings.theme;
+  ptyManager.setTerminalAppearance(resolveTerminalAppearance(appSettings.theme));
   keepAwakeEnabled = appSettings.keepAwake;
   // Restore the last usage snapshot before configuring/enabling the poller or
   // creating the window, so the first renderer replay has real data when the
@@ -1167,6 +1175,8 @@ handle('audio:cacheStatus', () => getCacheStatus());
 // keep-awake, recent folders) — same rationale as audio settings above.
 handle('appSettings:getSettings', () => loadAppSettings());
 handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
+  activeTheme = settings.theme;
+  ptyManager.setTerminalAppearance(resolveTerminalAppearance(settings.theme));
   keepAwakeEnabled = settings.keepAwake;
   syncKeepAwake();
 hookBridge.setHideStatusline(settings.hideClaudeStatusline);
