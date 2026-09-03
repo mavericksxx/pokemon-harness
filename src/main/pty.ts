@@ -14,6 +14,7 @@ import type { WebContents } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildAgentsFlagValue } from './bundledAdvisorAgent';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
@@ -220,6 +221,34 @@ export class PtyManager {
           // \n/\"/\\ escaping) for ordinary text.
           args = [...args, '-c', `developer_instructions=${JSON.stringify(instructions)}`];
         }
+      }
+    }
+
+    // Bundled `advisor` subagent — makes the hovering-companion feature
+    // (renderer hookRouter.ts's detection of a Task dispatch with
+    // `subagentType === 'advisor'`) work out of the box on a fresh install,
+    // with zero personal config. Piggybacks on the SAME on/off toggle and
+    // isDelegate exclusion as the HARNESS.md block above (this is
+    // conceptually part of the same "harness instructions" feature, and a
+    // delegate is a subagent given its own task, not an orchestrator session
+    // that would ever dispatch a Task itself) — deliberately does NOT also
+    // require `this.harnessInstructionsPath`, since the bundled agent has
+    // nothing to do with the HARNESS.md file's on-disk contents.
+    // `claude --help`: `--agents <json>  JSON object defining custom agents`.
+    // See bundledAdvisorAgent.ts for the value itself and why it's skipped
+    // whenever the user already has their own `advisor.md`: `--agents` takes
+    // precedence over an on-disk agent file, so injecting unconditionally
+    // here would silently shadow a power user's own hand-written advisor
+    // with this bundled one.
+    if (!opts.isDelegate && this.harnessInstructionsEnabled && opts.provider === 'claude') {
+      let agentsFlagValue: string | undefined;
+      try {
+        agentsFlagValue = buildAgentsFlagValue(cwd);
+      } catch {
+        /* best-effort — spawn without the bundled agent */
+      }
+      if (agentsFlagValue) {
+        args = [...args, '--agents', agentsFlagValue];
       }
     }
 
