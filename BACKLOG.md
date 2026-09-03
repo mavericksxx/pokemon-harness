@@ -1,45 +1,36 @@
 # backlog
 
-Working list of known issues and planned work — open items only; completed work moves to [CHANGELOG.md](CHANGELOG.md) (pruned 2026-09-01: every SHIPPED entry that used to live here is in the changelog under its release). Rule of engagement: ship the release in flight first, then resolve items **one at a time** unless a parallel fan-out is explicitly requested.
+**Open work now lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues).**
+This file is a pointer. Completed work stays in [CHANGELOG.md](CHANGELOG.md), grouped by release.
 
-## known bugs
+Everything that was open here on 2026-09-03 was migrated to issues #1–#27 — nothing was dropped.
 
-- (none open — the hooks.sock clobber shipped in v1.9.0)
+## rule of engagement
 
-## awaiting user input
+Ship the release in flight first, then resolve items **one at a time** unless a parallel fan-out is
+explicitly requested.
 
-- **per-garden backdrops (designs in second revision)**: v3 verdict (2026-08-29): "much better but still quite a bit worse than the default map in terms of quality". OPEN QUESTION before any v4: the default map is REAL tile art (kenney/grasswater/oga sheets) while the mockups are procedural canvas approximations, so some quality gap is inherent to the medium — options are (a) treat v3 as layout/theme approval only and enforce default-map quality at BUILD time with real/new tile art per archetype, or (b) another mockup polish round first. Then user picks 5+, then build. Each new map must ship its own themed border (`mapBorder.ts` per-map config is ready). NOTE: user said "each new session" — assumed each new GARDEN (sessions share one garden view); unconfirmed.
-- **garden day/night cycle**: v3 preview well received; animation pass (warm lights flicker/breathe + subtle sway, faint moon-pool breathe, reduced-motion respected) was dispatched. HARD GATE: no garden code until the user approves the preview. Likely implementation: a Pixi color-grade overlay interpolating by local time (cheap, phase-F-friendly), not new tile art.
-- **macOS menu bar item (requested 2026-08-29, later stage)**: a `Tray` extra in the app with a pixel-art icon in our pokemon design language (note: menu bar template images are tiny ~18-22pt and traditionally monochrome/template-style — a recognizable 1-bit pixel pokéball/sprite silhouette is the likely sweet spot; test both template and full-color). WHAT IT DOES is an open design decision — candidates to pick from when this comes up: at-a-glance agent statuses (working/idle/needs-you counts with a click-through menu per session), a mini usage-limits readout (codexbar territory — we already have the data service), quick summon/focus actions, or just show/hide the window. Decide scope before building.
-- **windows build**: gaps assessed and code-verified (2026-08-29): hookBridge already has win32 branches (`poke-node.cmd`); node-pty/xterm/pixi are windows-fine. Known gaps: (1) shellEnv.ts is darwin/linux-only — windows should inherit process env; (2) hooks.sock is a UDS filesystem path — windows needs the `\\.\pipe\` named-pipe form (small but load-bearing); (3) usage service's keychain read needs its file fallback verified against windows claude code's credential location; (4) Cmd-flavored accelerators need Ctrl equivalents; (5) packaging: nsis target + .ico (icon pipeline is mac-shaped: icns + Assets.car) + release.cjs assumes mac artifacts; (6) unsigned builds hit SmartScreen ("More info → Run anyway" — brief testers). Build via GitHub Actions windows runner (free); the REAL bottleneck is verification — no windows machine in the loop, so a windows-owning friend is the test loop for first boots (pty spawn, named pipe, `claude` on PATH are the likeliest breakage points).
-- decide whether the GitHub repo renames to match the app (redirects make it safe).
+## how the issues are organised
 
-## phase F — performance & battery (two slices SHIPPED 2026-09-01, see CHANGELOG unreleased)
+**Milestones** — [`v1.12.0`](https://github.com/mavericksxx/pokemon-harness/milestone/1) (fix what's
+broken, finish phase F) · [`v1.13.0`](https://github.com/mavericksxx/pokemon-harness/milestone/2)
+(the Arceus architecture) · [`Someday`](https://github.com/mavericksxx/pokemon-harness/milestone/3)
+(wanted, not scheduled).
 
-Shipped: render pause when hidden/minimized/terminal-only; 60fps cap on both Pixi tickers; dirty-flag rendering while visible (1s heartbeat); main pollers back off when idle; gardenCharm pulse gated; low-res garden experiment toggle (default off). Remaining:
+**Type** — `bug`, `enhancement`, `research` (a spike whose output is a decision, not code), `design`
+(needs a design/UX decision before building), `epic`, `chore`.
 
-1. **measure**: the whole phase is code-evidence so far. Success criteria: app leaves macOS's "Using Significant Energy" list during normal idle use; `renderedFrames` vs `rendererTicks` in a diagnostics export shows an idle ratio well under 1:4. Ties into the load-test item below (same measurement pass).
-2. **battler presence pins full-rate rendering**: `BattleManager.hasActiveBattles()` is `battles.size > 0`, so any live subagent pokemon (even a roaming idle one) marks every frame dirty. Refine to "any battler walking/animating/mid-fx" so an idle garden with roaming subagents also downshifts.
-3. **low-res garden A/B**: user flips the toggle, restarts, compares label softness vs. GPU energy; decide whether to make 1× the default.
-4. **taskNotificationWatcher gate can stick fast**: a parent that exits naturally (not `pty:kill`) with `pending > 0` keeps the 2s cadence until the app kills it — same class as the file's own header caveat. Unregister on natural exit too.
-5. Not fixable from our side: a window fully covered by another app (no minimize) — recent Chromium may already map macOS occlusion to `document.hidden`; unmeasured.
+**Area** — `area:garden`, `area:terminal`, `area:orchestration`, `area:ui`, `area:perf`,
+`area:platform`.
 
-## watch items (no action unless they recur)
+**Impact** — `P0` (broken right now), `P1` (hurts daily use). Absence means neither; scheduling is
+the milestone's job, not a label's.
 
-- **mega evolution (phase D, shipped 2026-09-01)**: first live completion battle with a mega-capable parent (charizard/lucario/garchomp/…) confirms the prefetch lands before faceoff — look for `mega evolve started` / `mega evolve failed — sprite unavailable` rows in harness.log (`battle` area). If megas routinely resolve late, widen the prefetch (e.g. at session spawn for mega-capable species). The ~23 megas missing from gen5ani could be added by teaching `spriteCache.ts` a second base URL (Showdown's `ani` set).
-- **idle-energy pass**: watch for a garden that stays frozen after un-minimizing/un-hiding (fail-open design should make this impossible: `windowVisible` defaults true, `document.hidden` is the browser's own signal). Also watch a context-loss rebuild that lands while paused.
-- **ResizeObserver**: one fragile-but-inert CSS detail — `index.css` `.overflow-chip-row-wrap.is-overflowing .session-chips, .garden-chips { overflow: hidden }` also matches the overflow row's hidden measurement `<nav>`; inert today because it's `width: max-content` with `scrollbar-width: none`. Would become a live loop if either property is removed independently.
-- **subagent hook attribution** (tier-2 live tools shipped): hookRouter's `PreToolUse`/`PostToolUse` have no re-routing for a subagent-scoped event that arrives with a CLI-internal id (accepted as lost; only `SubagentStop` is routed around). Watch a fan-out for a parent's tool indicator flickering with a subagent's tool names or extra 'attack' beats.
-- **codex delegate hooks**: first hop shipped; needs one-time manual trust in an interactive codex session (a toast says so); full spawn→hook→battler path unverified live.
-- **codex credit balance UNIT** unverified from a primary source (rendered as a bare number, no `$`).
-- **"tell chikorita to do X" routing**: bracketed-paste first-prompt delivery unverified against a live CLI; a relay landing in the just-spawned window could be lost; arceus quoting the grammar verbatim would cosmetically toast an unresolved name.
-- **resumed-agent respawn** assumes a resume writes a fresh `toolUseResult.isAsync` line with the same agentId; if wrong, completion still isn't swallowed, it just falls to the oldest-roaming fallback.
-- **battler ↔ task-id correlation** assumes the `tool_result` block's `tool_use_id` sits alongside `toolUseResult` on the same transcript entry; if wrong for some variant, correlation just never lands for that dispatch.
-- **webgl context-loss auto-rebuild**: look for `gpu` area "rebuilding renderer" rows to confirm real-world recoveries are clean.
-- **themed map border**: fit zoom is a few % further out; ring crosses the south gate opening — acceptable? (needs user visual QA)
+**State** — `needs-input` marks an issue blocked on a decision only the owner can make. Start there
+when picking up work, since those are the ones that stall.
 
-## bigger later
+## the passive stuff
 
-- **agent society phase** (carries backlog item 3)
-- **demo mode + auto-run showreel + portfolio landing page** with live web embed of the garden engine. **STEP 1 SHIPPED (2026-09-01): standalone single-file demo at `demo/index.html`** (built from `tools/demo/template.html` by `python3 tools/demo/build.py`; DOM+canvas re-implementation of the garden with the real map/tilesets embedded, gen5ani sprites hotlinked from Showdown, mock sessions + mock terminal, every trigger, and the hands-free showreel). **STEP 2 SHIPPED (2026-09-01): chrome is now pixel-faithful** — the demo embeds the app's real `index.css` + self-hosted fonts verbatim and reproduces the actual topbar/roster-strip/terminal-drawer/split-handle DOM and class names from `App.tsx` and its components; all demo triggers moved out of the old side column into a `⌘D` "demo" topbar popover styled exactly like `.quick-settings-panel`. **STEP 3 SHIPPED (2026-09-02): in-app demo mode** — a real mock-session layer (`src/renderer/src/demo.ts`) plus a `⌘D` topbar "demo" chip/popover (`DemoConsole.tsx`) now drive the ACTUAL garden/roster/terminal-drawer/Arceus-warp with fake, no-pty sessions, superseding the standalone HTML re-implementation for every trigger except session-vs-session battle (dropped — the real app has no such mechanic) and the portfolio landing page itself. Next: build the landing page around this (now in-app) embed, and reconsider whether `demo/`'s standalone HTML build stays as a separate embeddable artifact or is retired in favor of screen-capturing the in-app console. NOTE (2026-08-29): before building, research whether a proper product-style video can be made with an already-available AI tool or directly by claude (script + storyboard + scripted screen-capture of demo mode + ffmpeg assembly is the zero-cost baseline) — hard constraint: **free to use only, zero spend**; phase F (performance/battery) runs before this phase. IN PROGRESS in a separate session — other sessions must not touch `demo/` or `tools/demo/`.
-- load-test 15+ concurrent chatty sessions (FPS/CPU/IPC), batch output only if measurements warrant — same measurement pass as phase F.
+The old "watch items" section — observations with no action unless they recur — is
+[issue #27](https://github.com/mavericksxx/pokemon-harness/issues/27), one checklist rather than
+seven open issues that look like work.

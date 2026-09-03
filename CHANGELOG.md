@@ -1,6 +1,6 @@
 # changelog
 
-Completed work, grouped by release. Open work lives in [BACKLOG.md](BACKLOG.md).
+Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
 ## v1.11.0 — 2026-09-03
 
