@@ -894,6 +894,7 @@ let diskRestoreConsumed = false;
  *  simply gated off — leaves this false, same "consumed once" shape as
  *  `diskRestoreConsumed` above). */
 let codexHooksNoticePending = false;
+let claudeThemeNoticePending: string | null = null;
 
 // ─── Tier-1 update check (ship-cut item 4) ─────────────────────────────────
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -981,9 +982,8 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   Menu.setApplicationMenu(buildApplicationMenu());
   createWindow(resolveWindowBg(appSettings.theme));
   ensureClaudeTheme(() => {
-    mainWindow?.webContents.once('did-finish-load', () => {
-      hookBridge.sendToast("set claude's theme to auto so it follows pokéharness — change it any time with /theme");
-    });
+    // Pull the toast after renderer boot so its listener is guaranteed ready.
+    claudeThemeNoticePending = "set claude's theme to auto so it follows pokéharness — change it any time with /theme";
   });
   diskRestorePromise = restoreFromDisk(appSettings);
   app.on('activate', () => {
@@ -1171,6 +1171,12 @@ handle('app:getCodexHooksNotice', () => {
   if (!codexHooksNoticePending) return null;
   codexHooksNoticePending = false;
   return CODEX_HOOKS_NOTICE_TEXT;
+});
+
+handle('app:getClaudeThemeNotice', () => {
+  const notice = claudeThemeNoticePending;
+  claudeThemeNoticePending = null;
+  return notice;
 });
 
 // ─── Lazy sprite cache (Phase 3 §2) ────────────────────────────────────────
