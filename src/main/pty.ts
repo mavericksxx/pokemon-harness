@@ -14,7 +14,7 @@ import type { WebContents } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildAgentsFlagValue } from './bundledAdvisorAgent';
+import { buildAgentsFlagValue } from './bundledHarnessAgents';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
@@ -235,7 +235,7 @@ export class PtyManager {
     // require `this.harnessInstructionsPath`, since the bundled agent has
     // nothing to do with the HARNESS.md file's on-disk contents.
     // `claude --help`: `--agents <json>  JSON object defining custom agents`.
-    // See bundledAdvisorAgent.ts for the value itself and why it's skipped
+    // See bundledHarnessAgents.ts for the value itself and why it's skipped
     // whenever the user already has their own `advisor.md`: `--agents` takes
     // precedence over an on-disk agent file, so injecting unconditionally
     // here would silently shadow a power user's own hand-written advisor
@@ -250,6 +250,32 @@ export class PtyManager {
       if (agentsFlagValue) {
         args = [...args, '--agents', agentsFlagValue];
       }
+    }
+
+    // `POKEHARNESS_DELEGATE_CMD` — exposes `poke-delegate` (the Codex lane
+    // HARNESS.md instructs the orchestrator to spawn) to the orchestrating
+    // session's own env, so it's actually invocable on a fresh install
+    // instead of only existing as prose. Value is `hookBridge.ts`'s
+    // `delegateCliCommand()`: a PRE-QUOTED shell command fragment
+    // (`"<launcherPath>" "<delegateCliFile>"`) — quoted because
+    // `launcherPath` can contain spaces (e.g. under `~/Library/Application
+    // Support/...`). Those embedded `"` characters only get quote-removed by
+    // bash when they appear in literal source, NOT when they arrive via
+    // parameter expansion — so a caller must run it through `eval`. But
+    // `eval` must be scoped to ONLY this pre-quoted fragment, never wrapped
+    // around the whole command line: `eval "$POKEHARNESS_DELEGATE_CMD --cwd
+    // ... --label ... '<prompt>'"` puts the (attacker/task-controlled)
+    // prompt text inside the SAME outer double-quoted string, so bash
+    // resolves backticks/`$(...)`/`$VAR` in the prompt as command
+    // substitution/expansion before `eval` even runs — e.g. a prompt
+    // containing `` `rm -rf /` `` executes it. Correct form: `eval "set --
+    // $POKEHARNESS_DELEGATE_CMD"; "$@" --cwd ... --label ... '<prompt>'` —
+    // `eval` re-parses only the pre-quoted launcher/file pair into positional
+    // params, and the prompt (ordinary single-quoted text outside the eval'd
+    // string) is never double-parsed. Same gating as the `--agents` block
+    // above, plus `this.hookBridge` presence since the command comes from it.
+    if (!opts.isDelegate && this.harnessInstructionsEnabled && opts.provider === 'claude' && this.hookBridge) {
+      hookEnv.POKEHARNESS_DELEGATE_CMD = this.hookBridge.delegateCliCommand();
     }
 
     const env: Record<string, string> = {
