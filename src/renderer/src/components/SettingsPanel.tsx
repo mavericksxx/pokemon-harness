@@ -546,6 +546,9 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                     />
                     <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>
                   </div>
+                  <p className="settings-row-hint">
+                    claude picks its own colours: run /theme inside claude and choose auto so it follows pokeharness
+                  </p>
                   <label className="settings-row">
                     <input
                       type="checkbox"
