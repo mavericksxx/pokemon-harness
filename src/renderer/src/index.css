@@ -155,6 +155,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  container: topbar / inline-size;
   /* 96px, not 78-80px worth of actual traffic-light footprint: room for the
    * macOS traffic lights (titleBarStyle: 'hiddenInset', main/index.ts) plus
    * a safety margin. Taller bar (BACKLOG.md topbar overhaul — brand/chips
@@ -250,6 +251,43 @@ body {
   align-items: center;
   gap: 6px;
   flex: none;
+}
+
+/* The usable width is the window width minus the 96px traffic-light inset and
+ * 24px side padding: 980px (~1100px window) hides the brand text, 860px
+ * (~980px) compacts the 83px new-agent button to 30px, and 812px (~932px)
+ * reduces the 180px workspace control to 96px. Those fixed-item savings keep
+ * the roughly 450px action cluster visible at the 900px window minimum. */
+@container topbar (max-width: 980px) {
+  .brand {
+    display: none;
+  }
+}
+
+@container topbar (max-width: 860px) {
+  .new-agent-button {
+    width: 30px;
+    padding: 3px 0;
+  }
+
+  .new-agent-label {
+    display: none;
+  }
+
+  .new-agent-icon {
+    display: inline;
+  }
+}
+
+@container topbar (max-width: 812px) {
+  .topbar .garden-chips-wrap {
+    width: 96px;
+    min-width: 96px;
+  }
+}
+
+.new-agent-icon {
+  display: none;
 }
 
 .session-chips {
@@ -537,6 +575,7 @@ body {
 }
 
 .garden-chip-name {
+  flex: 1 1 auto;
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1084,6 +1123,8 @@ body.garden-lowres .garden canvas {
 .drawer-tabs {
   display: flex;
   overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
   flex: 1;
 }
 
