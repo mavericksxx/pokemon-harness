@@ -5,6 +5,7 @@ import type { DelegateSessionSpawned } from '@shared/delegateSpawn';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
+import { resolveEffectiveTheme, terminalSpawnEnv } from '@/design/theme';
 import { createTerminal, disposeTerminal, hasTerminal, writeReplayNow } from '@/pty/terminalRegistry';
 import { isDemoSession } from '@/demo';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
@@ -84,7 +85,10 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
       cwd: req.cwd,
       command,
       args: [...buildProviderArgs(req.provider, req.model), ...autoArgs],
-      env: preset.env,
+      env: terminalSpawnEnv(
+        resolveEffectiveTheme(useAppSettingsStore.getState().settings.theme),
+        preset.env
+      ),
       cols: 100,
       rows: 30,
       provider: req.provider
