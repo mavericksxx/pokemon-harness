@@ -28,6 +28,7 @@ import type { PokemonAnimation } from '../showdownArt';
 import type { TiledMapRenderer } from '../TiledMapRenderer';
 import { ADVISOR_DEX_IDS } from '../dexData';
 import { loadLazyAnimation, placeholderAnimation } from '../lazySprites';
+import { TOOL_BUBBLE_Z_BASE } from '../ToolBubble';
 import { spawnAdvisorAura, spawnPokeballRecall, purgeBattleFxFor } from './battleFx';
 import { accent, accentLight, hexToNumber } from '@/design/tokens';
 import { resolveEffectiveTheme } from '@/design/theme';
@@ -244,7 +245,17 @@ export class AdvisorManager {
     const worldY = walker.worldY + OFFSET_Y_TILES * ts;
     companion.container.x = Math.round(worldX);
     companion.container.y = Math.round(worldY);
-    companion.container.zIndex = Math.round(worldY);
+    // Companions sit in the same overlay tier bubbles use
+    // (TOOL_BUBBLE_Z_BASE — see ToolBubble.ts), so they're never hidden
+    // behind a nearby tool-use bubble, but keyed off the PARENT's own raw
+    // worldY (not this companion's own offset `worldY` above, which floats
+    // slightly north of the parent) plus a tie-break of +1 — enough to
+    // reliably win against this companion's OWN parent's bubble (which
+    // computes its zIndex from that exact same parent worldY, see
+    // Walker.ts's syncPosition-adjacent bubble zIndex line), while still
+    // Y-sorting normally — neither side unconditionally wins — against an
+    // unrelated session's bubble the companion happens to float near.
+    companion.container.zIndex = TOOL_BUBBLE_Z_BASE + Math.round(walker.worldY) + 1;
   }
 
   /** Called once a frame from GardenScene.tsx's ticker, after
