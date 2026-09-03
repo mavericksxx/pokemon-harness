@@ -27,6 +27,7 @@ const { join } = require('node:path');
 const OUT_DIR = join(__dirname, '..', 'assets', 'dex');
 const POKEDEX_URL = 'https://play.pokemonshowdown.com/data/pokedex.json';
 const SPRITE_CHECK_BASE = 'https://play.pokemonshowdown.com/sprites/gen5';
+const SPRITE_ANI_BASE = 'https://play.pokemonshowdown.com/sprites/gen5ani';
 
 /** #650 and up get the Smogon static sprites instead of animated gen5ani. */
 const STATIC_THRESHOLD = 649;
@@ -77,14 +78,18 @@ async function fetchWithTimeout(url, opts, timeoutMs) {
   }
 }
 
-/** Whether `sprites/gen5/<id>.png` exists. A definitive 404 (from HEAD, or a
+/** Whether `<baseUrl>/<id>.<ext>` exists. A definitive 404 (from HEAD, or a
  *  GET fallback if HEAD comes back anything other than 200/404) is the only
  *  way this returns a confirmed miss; anything else (timeout, 429, 5xx) is
  *  treated as "can't tell" and counted as a hit, so a flaky sweep never bakes
  *  a false negative into committed data. Returns whether the sprite was
- *  confirmed present, plus whether the result was indeterminate. */
-async function probeSprite(id) {
-  const url = `${SPRITE_CHECK_BASE}/${id}.png`;
+ *  confirmed present, plus whether the result was indeterminate.
+ *
+ *  Parameterized by base URL + extension so the same HEAD/GET/404 logic
+ *  covers both the static gen5 PNG tier (base dex, #650+) and the animated
+ *  gen5ani GIF / static gen5 PNG tiers used for alt-form probing below. */
+async function probeSprite(id, baseUrl = SPRITE_CHECK_BASE, ext = 'png') {
+  const url = `${baseUrl}/${id}.${ext}`;
   try {
     const head = await fetchWithTimeout(url, { method: 'HEAD' }, 10000);
     if (head.status === 404) return { present: false, indeterminate: false };
@@ -97,27 +102,65 @@ async function probeSprite(id) {
   }
 }
 
-/** Sweeps every static-tier id with bounded concurrency, gentle on Showdown's
- *  static host (no auth, no rate-limit documented, but ~370 ids doesn't need
- *  more than a handful in flight at once). */
-async function sweepSpriteCoverage(ids) {
-  const CONCURRENCY = 8;
-  const present = new Map();
-  let indeterminateCount = 0;
+/** Runs `handler(item)` over `items` with bounded concurrency, gentle on
+ *  Showdown's static host (no auth, no rate-limit documented, but a few
+ *  hundred ids doesn't need more than a handful of requests in flight at
+ *  once). Shared by the base-dex static-sprite sweep and the alt-form sweep
+ *  below — both are "HEAD/GET a sprite URL per id" workloads that just differ
+ *  in what URL(s) each id probes. */
+async function sweepConcurrent(items, handler, concurrency = 8) {
+  const results = new Map();
   let cursor = 0;
 
   async function worker() {
-    while (cursor < ids.length) {
-      const id = ids[cursor++];
-      const result = await probeSprite(id);
-      present.set(id, result.present);
-      if (result.indeterminate) indeterminateCount++;
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      results.set(item, await handler(item));
     }
   }
 
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return results;
+}
+
+/** Sweeps every static-tier id, checking `sprites/gen5/<id>.png`. */
+async function sweepSpriteCoverage(ids) {
   console.log(`Checking sprite coverage for ${ids.length} static (#>${STATIC_THRESHOLD}) species...`);
-  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  const results = await sweepConcurrent(ids, (id) => probeSprite(id));
+  const present = new Map();
+  let indeterminateCount = 0;
+  for (const [id, result] of results) {
+    present.set(id, result.present);
+    if (result.indeterminate) indeterminateCount++;
+  }
   return { present, indeterminateCount };
+}
+
+/** Sweeps alt-form candidate ids for sprite coverage, checking the animated
+ *  gen5ani GIF tier first (matching how #1-649 base species render) and
+ *  falling back to the static gen5 PNG tier (matching #650+). Returns a Map
+ *  of id -> { tier: 'animated' | 'static' | null, indeterminate }; `tier` is
+ *  null only when NEITHER tier confirmed present, meaning the candidate gets
+ *  dropped entirely rather than emitted with hasSprite: false — a form that
+ *  was never even a browsable row has no obligation to appear greyed out. */
+async function sweepFormSpriteCoverage(ids) {
+  console.log(`Checking sprite coverage for ${ids.length} alt-form candidates (gen5ani GIF, then gen5 PNG)...`);
+  return sweepConcurrent(ids, async (id) => {
+    const ani = await probeSprite(id, SPRITE_ANI_BASE, 'gif');
+    if (ani.present) return { tier: 'animated', indeterminate: ani.indeterminate };
+    const stat = await probeSprite(id, SPRITE_CHECK_BASE, 'png');
+    if (stat.present) return { tier: 'static', indeterminate: stat.indeterminate };
+    return { tier: null, indeterminate: ani.indeterminate || stat.indeterminate };
+  });
+}
+
+/** Showdown's own pokedex.json key for a forme (e.g. "zaciancrowned") doesn't
+ *  match its sprite filename (e.g. "zacian-crowned") — the sprite id is
+ *  `<baseId>-<slugified forme>`, where slugifying lowercases and strips
+ *  everything but a-z0-9 (so internal hyphens/apostrophes/% all collapse:
+ *  "Dusk-Mane" -> "duskmane", "Pa'u" -> "pau", "10%" -> "10"). */
+function slugifyForme(forme) {
+  return forme.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function buildCandidates(pokedex) {
@@ -262,6 +305,48 @@ function validate(dexIndex, lines) {
   }
 }
 
+/** Name-pattern excludes for alt-battle-form candidates: regional formes
+ *  (Alola/Galar/Hisui/Paldea — a separate, not-yet-scoped feature), Mega/Gmax
+ *  (battle-only, mega handled by its own bespoke system elsewhere), and Totem
+ *  (event-only size variants, not a pickable forme). */
+const FORME_EXCLUDE_RE = /Mega|Gmax|Alola|Galar|Hisui|Paldea|Totem/i;
+
+/** Finds every alt-battle-form worth offering in the picker: a real,
+ *  non-cosmetic forme of a species that's already a dex-1025 candidate.
+ *  Arceus is skipped outright — it has its own bespoke auto-cycling
+ *  type-forme mechanic (arceusFormes.ts) and mixing that with this system
+ *  would fight over one species. Returns { id, entry, baseId } tuples; sprite
+ *  probing and hasSprite-based dropping happens separately in main(). */
+function buildFormCandidates(pokedex, nameToId, candidates) {
+  const found = [];
+  let excludedByPattern = 0;
+  let excludedCosmetic = 0;
+  for (const [id, entry] of Object.entries(pokedex)) {
+    if (!entry.forme || !entry.baseSpecies) continue;
+    if (typeof entry.num !== 'number' || entry.num < 1 || entry.num > MAX_NUM) continue;
+    if (FORME_EXCLUDE_RE.test(entry.forme)) {
+      excludedByPattern++;
+      continue;
+    }
+    if (entry.baseSpecies === 'Arceus') continue;
+    const baseId = nameToId.get(entry.baseSpecies);
+    if (!baseId || !candidates.has(baseId)) continue;
+    const baseRaw = pokedex[baseId];
+    // cosmeticFormes lists full display names ("Burmy-Sandy"), not bare
+    // forme strings ("Sandy") — match against entry.name accordingly. In
+    // practice this rarely fires against live Showdown data (pure-cosmetic
+    // variants usually have no separate pokedex.json entry to begin with),
+    // but it's the documented "no real difference" marker so it stays as a
+    // guard against future data changes.
+    if (baseRaw.cosmeticFormes?.includes(entry.name)) {
+      excludedCosmetic++;
+      continue;
+    }
+    found.push({ id, entry, baseId });
+  }
+  return { found, excludedByPattern, excludedCosmetic };
+}
+
 async function main() {
   console.log(`Fetching ${POKEDEX_URL} ...`);
   const pokedex = await fetchJson(POKEDEX_URL);
@@ -336,6 +421,56 @@ async function main() {
   if (missing.length > 0) {
     console.log(`  Confirmed missing (hasSprite: false): ${missing.join(', ')}`);
   }
+
+  // Alt-battle-form pass — entirely separate from the dexIndex/lines above.
+  // Forms are never mixed into dexIndex/lines: validate()'s cycle/membership
+  // checks and chainLabel()'s evolution-chain rendering assume exactly one
+  // entry per dex number, and a form isn't a new dex number, it's an
+  // alternate presentation of an existing one.
+  console.log('');
+  const { found, excludedByPattern, excludedCosmetic } = buildFormCandidates(pokedex, nameToId, candidates);
+  console.log(`${found.length} alt-form candidates (excluded ${excludedByPattern} by regional/mega/gmax/totem pattern, ${excludedCosmetic} cosmetic).`);
+
+  const formIds = found.map(({ baseId, entry }) => `${baseId}-${slugifyForme(entry.forme)}`);
+  const spriteResults = await sweepFormSpriteCoverage(formIds);
+
+  const forms = {};
+  let animatedCount = 0;
+  let staticOnlyCount = 0;
+  let droppedNoArtCount = 0;
+  for (let i = 0; i < found.length; i++) {
+    const { entry, baseId } = found[i];
+    const candidateId = formIds[i];
+    const sprite = spriteResults.get(candidateId);
+    if (sprite.tier === 'animated') animatedCount++;
+    else if (sprite.tier === 'static') staticOnlyCount++;
+    else {
+      droppedNoArtCount++;
+      continue;
+    }
+    forms[candidateId] = {
+      id: candidateId,
+      name: entry.name,
+      num: entry.num,
+      line: lineOf.get(baseId),
+      stage: stageOf.get(baseId),
+      evolvesTo: [],
+      locomotion: deriveLocomotion(entry),
+      hasSprite: true,
+      ...(sprite.tier === 'static' ? { static: true } : {}),
+      baseSpecies: baseId
+    };
+  }
+  const orderedForms = Object.fromEntries(
+    Object.values(forms)
+      .sort((a, b) => a.num - b.num || a.id.localeCompare(b.id))
+      .map((e) => [e.id, e])
+  );
+
+  writeFileSync(join(OUT_DIR, 'forms.json'), JSON.stringify(orderedForms, null, 2) + '\n');
+
+  console.log(`Wrote ${Object.keys(orderedForms).length} forms to assets/dex/forms.json`);
+  console.log(`  ${animatedCount} confirmed animated (gen5ani), ${staticOnlyCount} confirmed static-only (gen5), ${droppedNoArtCount} dropped (no art on either tier)`);
 }
 
 main().catch((err) => {

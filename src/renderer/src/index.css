@@ -788,6 +788,46 @@ body {
   line-height: 1;
 }
 
+/* Alt-battle-form sub-panel: shown below the grid once a species with forms
+ * (e.g. Zacian) is clicked — picking any pill here (base or form) is what
+ * actually commits the pick, see PokemonPicker.tsx. Fixed content height,
+ * not part of the grid's own scroll area, matching `.pokemon-note` above it
+ * in the same flex-column modal. */
+.pokemon-forms-panel {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.pokemon-forms-heading {
+  margin: 0 0 6px;
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
+}
+
+.pokemon-forms-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pokemon-form-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg-terminal);
+}
+
+.pokemon-form-option.chosen {
+  border-color: var(--accent-text);
+  color: var(--text);
+  background: var(--panel-2);
+}
+
 button {
   font: inherit;
   color: var(--text);

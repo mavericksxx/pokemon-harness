@@ -43,7 +43,13 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const chosen = speciesEntry(pokemon);
   const base = baseStageOf(pokemon);
   const chain = chainLabel(base.line);
-  const isBaseStage = chosen ? chosen.stage === 1 : true;
+  // A form (e.g. Pikachu-Belle) can carry its line's mid-chain `stage` (2,
+  // inherited from its base species) despite `startSession` hatching it
+  // exact — never normalized to base, never evolving (`evolvesTo: []`).
+  // Without the `baseSpecies` check this would show the false "joins as
+  // Pichu — it'll evolve..." note for a session that actually hatches AS the
+  // form and stays there.
+  const isBaseStage = chosen ? chosen.stage === 1 || !!chosen.baseSpecies : true;
   const note = isBaseStage
     ? chain
     : `${chosen?.name ?? pokemon} joins as ${base.name} — it'll evolve as your agent works (${chain})`;
