@@ -66,10 +66,14 @@ function lerp(a: number, b: number, t: number): number {
  *  compositing — no filters/shaders needed (frame textures already carry
  *  their native-sheet sub-rectangle in `.frame`, and their raw image in
  *  `.source.resource`, so this never touches the GPU renderer). Cached per
- *  source frame texture so re-evolving the same species doesn't redo it. */
+ *  source frame texture so re-evolving the same species doesn't redo it.
+ *  Exported (rather than kept private to this file) because the battle-only
+ *  mega ceremony wants the same silhouette beat — see battle/MegaCeremony.ts,
+ *  which tints the near-white cutout down instead of duplicating the canvas
+ *  work in a second color. */
 const silhouetteCache = new WeakMap<Texture, Texture>();
 
-function silhouetteFrom(frameTexture: Texture): Texture {
+export function silhouetteFrom(frameTexture: Texture): Texture {
   const cached = silhouetteCache.get(frameTexture);
   if (cached) return cached;
   const { x, y, width, height } = frameTexture.frame;
