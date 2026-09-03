@@ -10,6 +10,7 @@
 import { buildProviderArgs } from '../shared/agentProvider';
 import type { PtyManager } from './pty';
 import type { SessionRecord } from '../shared/types';
+import { log } from './diagnostics';
 
 /** Grace period a `claude --resume` respawn gets before it's trusted to
  *  actually be alive — an invalid/expired session id makes the CLI print an
@@ -32,11 +33,10 @@ export interface RespawnOutcome {
  *  `claude --resume`); on any failure — command missing, or (resume only) an
  *  exit inside the grace window — falls back to a plain shell in the same
  *  cwd rather than dropping the session, per the "not a crash" requirement.
- *  The fallback spawn deliberately omits `provider`: it is a bare shell, not
- *  a claude/codex/cursor-agent process, so it must not pick up the
- *  claude-only `--settings`/hook-env wiring pty.ts's spawn() adds for that
- *  provider — a stray `--settings <path>` argv would just look like a
- *  malformed script argument to a real shell. */
+ *  The fallback is a shell process, but retains the original provider metadata
+ *  so the shell's PATH shims can make a hand-relaunched CLI behave like the
+ *  original session.
+ */
 export async function respawnSession(ptyManager: PtyManager, record: SessionRecord): Promise<RespawnOutcome> {
   const useResume = shouldResume(record);
   const primary = ptyManager.spawn({
@@ -57,12 +57,17 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
     // pty already removed itself from ptyManager on its own exit.
   }
 
-  const shell = process.env.SHELL || '/bin/bash';
-  const fallback = ptyManager.spawn({ id: record.id, cwd: record.cwd, command: shell, cols: 100, rows: 30 });
-  if (!fallback.ok) return { ok: false };
   const reason = primary.ok
     ? 'the claude session could not be resumed'
     : (primary.error ?? 'the original command could not be restarted');
+  const fallback = ptyManager.spawnFallbackShellFromRespawn(record.id, record.cwd, record.provider);
+  if (!fallback.ok) return { ok: false };
+  log('pty', 'warn', 'session respawn fell back to shell', {
+    id: record.id,
+    provider: record.provider,
+    reason,
+    ...(ptyManager.getLastExitCode(record.id) === undefined ? {} : { exitCode: ptyManager.getLastExitCode(record.id) })
+  });
   return { ok: true, fallbackReason: reason };
 }
 
