@@ -1431,6 +1431,15 @@ export class BattleManager {
       if (pb.waveRing.includes(sub)) this.forceConcludeWave(pb);
       pb.waveRing = pb.waveRing.filter((s) => s !== sub);
       pb.subs = pb.subs.filter((s) => s !== sub);
+      // Hand the walker back clean, exactly as `destroyBattle` does for the
+      // parent-killed case — see its own comment for both reasons. `update(0)`
+      // is the adapter's position resync (it ignores `dt`), undoing any lunge
+      // offset a wave interrupted mid-attack would otherwise leave baked in
+      // once this sub stops being ticked. `forceConcludeWave` above already
+      // hid the bubble via `retireSub` when there WAS a wave; this covers the
+      // still-'queued' case, where nothing has.
+      sub.battler.hideBubble();
+      sub.battler.update(0);
       return;
     }
   }
@@ -2585,7 +2594,26 @@ export class BattleManager {
       // to remove, and bumping `subagentsCleanedUp` without a matching
       // `subagentsMaterialized` would push that pair permanently out of step
       // and trip diagnosticsCounters.ts's own divergence check.
-      if (this.isDelegateSub(sub)) continue;
+      //
+      // But it must be HANDED BACK CLEAN, not merely let go — this is the one
+      // teardown path where the delegate's own session outlives the battle
+      // (a PARENT killed mid-fight, or a renderer rebuild), so nothing else
+      // ever tidies up after it:
+      //  - `hideBubble()` because the battle label/attack bubble would
+      //    otherwise sit over that walker until it's recalled. GardenScene's
+      //    bubble reconcile can't clear it: that only writes when its
+      //    `toolKey` changes, and every part of it is frozen at 'done'.
+      //  - `update(0)` is the adapter's position RESYNC (it ignores `dt`
+      //    entirely — see WalkerChallenger.update). Without it, a wave killed
+      //    mid-lunge leaves that frame's `applyPositions` `+=` offset baked
+      //    into the container forever: this sub is about to stop existing, so
+      //    its own per-tick resync never runs again, and a stationary `Walker`
+      //    never calls `syncPosition` on its own.
+      if (this.isDelegateSub(sub)) {
+        sub.battler.hideBubble();
+        sub.battler.update(0);
+        continue;
+      }
       sub.battler.destroy();
       bumpCounter('subagentsCleanedUp');
       this.deps.onBattlerRemoved(sub.key);

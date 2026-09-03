@@ -119,14 +119,19 @@ export class WalkerChallenger implements Challenger {
   }
 
   /** BUBBLES REUSE THE WALKER'S OWN, rather than this adapter owning a second
-   *  `ToolBubble`. Safe because the two uses can't overlap: a delegate is
-   *  `status: 'done'` for the whole battle, and GardenScene's ordinary
-   *  tool-bubble reconcile only writes when its `toolKey`
-   *  (status|tool|target|looping|napping) actually CHANGES — every component of
-   *  which is frozen once the delegate is done. Reusing also gets the right
-   *  look for free: `Walker`'s bubble is the full-size `'main'` variant, and a
-   *  delegate IS a live session, not the dashed-border `'subagent'` transient a
-   *  `Battler` renders as. */
+   *  `ToolBubble`. The two uses contend exactly ONCE, harmlessly: GardenScene's
+   *  ordinary tool-bubble reconcile only writes when its `toolKey`
+   *  (status|tool|target|looping|napping) actually CHANGES, and every component
+   *  of that is frozen for as long as the delegate sits `'done'` — but the very
+   *  pass that queues the battle is also the pass where `toolKey` changes
+   *  (working -> done), and the reconcile runs LATER in that same
+   *  `applyState` iteration than the queue call. So the `lingerBubble()` in its
+   *  `else` branch starts fading the label `queueForBattle` just pinned.
+   *  Cosmetic and self-correcting: `admitBattle` re-shows the label when the
+   *  wave starts, and no reconcile after that one can touch the bubble again.
+   *  Reusing also gets the right look for free: `Walker`'s bubble is the
+   *  full-size `'main'` variant, and a delegate IS a live session, not the
+   *  dashed-border `'subagent'` transient a `Battler` renders as. */
   showBubbleLabel(): void {
     if (this.bubbleLabel) this.walker.showText(this.bubbleLabel);
     else this.walker.hideBubble();
@@ -176,8 +181,21 @@ export class WalkerChallenger implements Challenger {
    *  on the PARENT's ceremony, not the challenger's), so a guard here would
    *  restore the unbounded per-frame drift instead of preventing it.
    *  Challenger-and-evolving is in any case unreachable by construction —
-   *  GardenScene won't start a ceremony on a live challenger, and won't enter
-   *  a walker with one in flight or pending as one. */
+   *  GardenScene won't start a ceremony on a live challenger (`isChallenger`
+   *  in its 1Hz evolution gate), and won't enter a walker with one in flight
+   *  OR merely pending as one (`isEvolving`/`evolvePending` on the same edge
+   *  that queues the battle); `triggerEvolve` is that gate's only caller.
+   *
+   *  `dt` is ignored, which is what lets teardown paths call `update(0)`
+   *  purely as a position resync (`dropChallenger`, `destroyBattle`) when a
+   *  wave is cut short mid-lunge.
+   *
+   *  LATENT, unreachable today: were a delegate session ever to hold a
+   *  `ParentBattle` of its OWN, this reset would wipe that wave's lunge
+   *  whenever `update`'s per-parent loop happened to reach the delegate's own
+   *  entry after the one it challenges in. Delegates are `provider: 'codex'`
+   *  and receive none of the Claude hook signals that create a `ParentBattle`,
+   *  so no such entry can exist — worth knowing if that ever changes. */
   update(_dt: number): void {
     this.walker.container.x = Math.round(this.walker.worldX);
     this.walker.container.y = Math.round(this.walker.worldY);
