@@ -192,7 +192,7 @@ export class Walker {
     this.nameTag.anchor.set(0.5, 0);
     this.nameTag.y = 4;
 
-    this.bubble = new ToolBubble();
+    this.bubble = new ToolBubble('main');
     this.floatLayer = new Container();
 
     this.zzz = new Text({
