@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## Unreleased
+
+- **night-mode trees no longer split into a bright canopy over a dull trunk**: v1.12.0's environment wash lives below the walker layer (so it can darken tiles without also crushing character color), but tree canopy and structure roofs are deliberately parented at or above that layer for correct Y-sort occlusion against walkers — leaving them out of reach of the wash and only ever getting the weak character-tier dimming, while their own trunks got the full treatment. Canopy and roof sprites now receive an equivalent per-sprite tint, sampled from the same gradient the wash itself uses, so every part of a tree lands at the same night darkness. Claude Sonnet subagent, reviewed/merged by the orchestrator
+
 ## v1.12.0 — 2026-09-03
 
 - **the orchestrator's delegation workflow now works out of the box on a fresh install, not just this developer's own machine**: every claude spawn now also bundles a read-only `investigator` subagent (same shadow-guard pattern as `advisor`), exposes the app's own `poke-delegate` Codex-delegate CLI to the session's own env as `POKEHARNESS_DELEGATE_CMD` (previously referenced by HARNESS.md's prose but not actually invocable — `command not found` on any install, including this one), and HARNESS.md's own instructions now spell out the full lane-routing procedure (Codex-first, Claude-sonnet fallback, never Codex→haiku) and the exact invocation, with a real command-injection hole in an early draft of that invocation caught and fixed by the implementing agent's own mandated advisor consult before it shipped. Claude Sonnet subagent, reviewed/merged by the orchestrator
