@@ -35,6 +35,21 @@ const USAGE_PROVIDERS: { id: UsageProviderId; label: string }[] = [
   { id: 'codex', label: 'codex cli' }
 ];
 
+/** Options for the "advisor model" picker (harness home section) — the
+ *  portable `--model` aliases `claude --help` documents (`fable`/`opus`/
+ *  `sonnet`, plus `haiku`, confirmed to work the same way) — see
+ *  bundledHarnessAgents.ts's `BUNDLED_ADVISOR_AGENT` comment for why these
+ *  auto-resolve to whichever model currently backs each tier. A value
+ *  outside this list (typed into the "other…" field below) is passed
+ *  through unvalidated — an unavailable choice only ever fails a live
+ *  advisor consult with a clean error, never session startup. */
+const ADVISOR_MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'fable', label: 'Fable 5.1 (most capable, if your plan includes it)' },
+  { value: 'opus', label: 'Opus — most capable, broadly available' },
+  { value: 'sonnet', label: 'Sonnet — balanced' },
+  { value: 'haiku', label: 'Haiku — fastest/cheapest' }
+];
+
 /**
  * Left-rail section list for the settings dialog. Order matches the brief
  * ("appearance, automation, harness home, arceus, sound, diagnostics") with
@@ -103,6 +118,8 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   const setDiagnosticsLoggingEnabled = useAppSettingsStore((s) => s.setDiagnosticsLoggingEnabled);
   const setLowResGarden = useAppSettingsStore((s) => s.setLowResGarden);
   const setHarnessInstructionsEnabled = useAppSettingsStore((s) => s.setHarnessInstructionsEnabled);
+  const setAdvisorModel = useAppSettingsStore((s) => s.setAdvisorModel);
+  const setCodexDelegateModel = useAppSettingsStore((s) => s.setCodexDelegateModel);
   const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
   const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   // Live count for the keep-awake row's "N sessions live" — a session whose
@@ -427,6 +444,61 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                         open file
                       </button>
                     </div>
+                  </div>
+
+                  <div className="settings-card">
+                    <div className="settings-card-row">
+                      <span className="settings-row-label">advisor model</span>
+                      <select
+                        value={
+                          ADVISOR_MODEL_OPTIONS.some((o) => o.value === appSettings.advisorModel)
+                            ? appSettings.advisorModel
+                            : 'other'
+                        }
+                        onChange={(e) => setAdvisorModel(e.target.value === 'other' ? '' : e.target.value)}
+                      >
+                        {ADVISOR_MODEL_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                        <option value="other">other…</option>
+                      </select>
+                    </div>
+                    {!ADVISOR_MODEL_OPTIONS.some((o) => o.value === appSettings.advisorModel) && (
+                      <div className="row harness-home-row">
+                        <input
+                          value={appSettings.advisorModel}
+                          onChange={(e) => setAdvisorModel(e.target.value)}
+                          placeholder="custom model alias or full name"
+                          spellCheck={false}
+                        />
+                      </div>
+                    )}
+                    <p className="hint">
+                      which model the advisor subagent consults on. if you have your own{' '}
+                      <code>~/.claude/agents/advisor.md</code> file (user- or project-level), its own{' '}
+                      <code>model:</code> setting takes precedence over this — the bundled advisor is skipped
+                      entirely whenever that file exists.
+                    </p>
+                  </div>
+
+                  <div className="settings-card">
+                    <div className="settings-card-row">
+                      <span className="settings-row-label">codex delegate model (optional)</span>
+                    </div>
+                    <div className="row harness-home-row">
+                      <input
+                        value={appSettings.codexDelegateModel}
+                        onChange={(e) => setCodexDelegateModel(e.target.value)}
+                        placeholder="leave blank to use codex's own configured default"
+                        spellCheck={false}
+                      />
+                    </div>
+                    <p className="hint">
+                      leave blank to use whatever codex is configured to use by default. set this to pin a specific
+                      model for <code>poke-delegate</code> dispatches.
+                    </p>
                   </div>
                 </>
               )}
