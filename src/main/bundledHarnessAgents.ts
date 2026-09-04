@@ -47,15 +47,29 @@ import { join } from 'node:path';
  * MCP tool), and restricting to them turns "advises only — never implements,
  * never edits" from a prompt-level request into an actual guardrail.
  *
- * `model` is deliberately left UNSET, even though it's honored the same way
- * `tools` is. The reference agent this is modeled on pins `model: fable` —
- * a model alias that only exists in this particular user's own Claude Code
- * config. A documented portable alias like `opus` exists, but isn't
- * guaranteed to resolve on every account/plan/backend (Bedrock, Vertex,
- * lower-tier plans) the way `Read`/`Grep`/`Glob` are guaranteed to exist as
- * tools — so, unlike `tools`, there's no value here safe enough to bundle
- * for every install. The agent runs on whatever model the calling session
- * would otherwise use.
+ * `model` is left OFF this base object and instead applied per-call by
+ * `buildAgentsFlagValue` below, from `AppSettings.advisorModel`
+ * (appSettingsTypes.ts) — a settings-panel field, default `'fable'`. This
+ * used to be permanently unset, on the theory that `fable` was a model alias
+ * private to one user's own Claude Code config and no other alias was safe
+ * to bundle for every install. That reasoning is now stale: `claude --help`
+ * documents `--model`'s alias behavior directly — "Provide an alias for the
+ * latest model (e.g. 'fable', 'opus', or 'sonnet') or a model's full name" —
+ * confirming `fable`/`opus`/`sonnet` (and, same behavior, `haiku`) are
+ * genuinely portable, auto-resolving tier names, not one account's private
+ * shorthand: `model: "fable"` always resolves to whichever specific model
+ * currently backs that tier, so the same setting value keeps tracking the
+ * frontier as new models ship, with zero app changes needed. That makes
+ * exposing a model picker in the settings UI safe: worst case a user picks
+ * an alias/model string unavailable on their plan or backend, which is a
+ * config mistake, not a portability hazard. And a live `claude -p --agents
+ * '...'` smoke test confirmed an invalid/unavailable `model` on an agent
+ * definition does NOT break session startup at all — the session starts
+ * fine regardless; it only fails at the moment the advisor is actually
+ * Task-dispatched, with a clean, catchable error (`model_not_found`, HTTP
+ * 404, "Agent terminated early due to an API error") — so no pre-validation
+ * of the settings value is needed here either, a bad choice just makes
+ * advisor consults fail clearly until the user picks a different one.
  *
  * Known limitations of the on-disk guard below (accepted, not worth solving
  * for this feature): (1) it checks the FILENAME `advisor.md`, not the
@@ -102,6 +116,15 @@ const BUNDLED_INVESTIGATOR_AGENT = {
  * bundled `advisor`/`investigator` keys aren't shadowed) for a claude spawn
  * in `cwd`, or `undefined` when injection should be skipped entirely.
  *
+ * `advisorModel`, trimmed, when non-empty, is spread into a FRESH copy of
+ * `BUNDLED_ADVISOR_AGENT` as its `model` key (never mutates the module-level
+ * constant — each call builds its own object) — see that constant's own
+ * comment above for why an arbitrary alias/model string is safe to accept
+ * here unvalidated. Absent/empty/whitespace-only leaves `advisor.model`
+ * unset, same as before this setting existed (inherits whatever model the
+ * calling session runs on). `investigator` never takes a model override —
+ * this parameter is advisor-only.
+ *
  * `--agents` has the HIGHEST precedence of any way Claude Code resolves a
  * subagent definition, so injecting it unconditionally would silently
  * shadow a power user's own hand-written agent — even though ours and
@@ -120,7 +143,7 @@ const BUNDLED_INVESTIGATOR_AGENT = {
  * just means no `--agents` flag gets appended, same as pty.ts's HARNESS.md
  * read failing quietly.
  */
-export function buildAgentsFlagValue(cwd: string): string | undefined {
+export function buildAgentsFlagValue(cwd: string, advisorModel?: string): string | undefined {
   try {
     const shadowed = (name: string): boolean => {
       const userPath = join(homedir(), '.claude', 'agents', `${name}.md`);
@@ -129,7 +152,10 @@ export function buildAgentsFlagValue(cwd: string): string | undefined {
     };
 
     const agents: Record<string, unknown> = {};
-    if (!shadowed('advisor')) agents.advisor = BUNDLED_ADVISOR_AGENT;
+    if (!shadowed('advisor')) {
+      const model = advisorModel?.trim();
+      agents.advisor = model ? { ...BUNDLED_ADVISOR_AGENT, model } : BUNDLED_ADVISOR_AGENT;
+    }
     if (!shadowed('investigator')) agents.investigator = BUNDLED_INVESTIGATOR_AGENT;
 
     if (Object.keys(agents).length === 0) return undefined;

@@ -271,12 +271,14 @@ const hookBridge: HookBridge = new HookBridge(
   (req: DelegateSpawnRequest): DelegateSpawnResponse => {
     const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const effort = req.reasoningEffort?.trim() || 'medium';
+    const delegateModel = codexDelegateModel.trim();
     const args = [
       'exec',
       '--sandbox',
       'workspace-write',
       '-C',
       req.cwd,
+      ...(delegateModel ? ['-m', delegateModel] : []),
       '-c',
       `model_reasoning_effort=${effort}`,
       '-c',
@@ -314,6 +316,15 @@ const hookBridge: HookBridge = new HookBridge(
 );
 const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
 let activeTheme: AppSettings['theme'] = 'system';
+/** `appSettings.codexDelegateModel` (BACKLOG advisor/delegate model
+ *  settings) — set at boot and on every settings save, same module-level
+ *  mirror pattern `activeTheme`/`keepAwakeEnabled` above use to reach a
+ *  current-settings value into a callback (the delegate-spawn handler wired
+ *  into `hookBridge` below) that's registered once at module load, long
+ *  before `appSettings` is loaded. Empty string (default) means "don't pass
+ *  `-m` at all" — see appSettingsTypes.ts's own field comment for why that's
+ *  already Codex's own equivalent of "use the best available model." */
+let codexDelegateModel = '';
 nativeTheme.on('updated', () => {
   if (activeTheme === 'system') ptyManager.setTerminalAppearance(resolveTerminalAppearance(activeTheme));
 });
@@ -961,6 +972,8 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   await ensureHarnessHome(harnessHomeDir);
   await ensureHarnessInstructions(harnessHomeDir);
   ptyManager.setHarnessInstructions(appSettings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
+  ptyManager.setAdvisorModel(appSettings.advisorModel);
+  codexDelegateModel = appSettings.codexDelegateModel;
   initDiagnostics(harnessHomeDir);
   setDiagnosticsLoggingEnabled(appSettings.diagnosticsLoggingEnabled);
   // The log file's existence must never depend on the diagnostics toggle
@@ -1257,6 +1270,8 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
   // very next spawn, same immediacy as shellFallbackEnabled above. Re-reads
   // the path off the (possibly just-updated) harnessHomeDir.
   ptyManager.setHarnessInstructions(settings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
+  ptyManager.setAdvisorModel(settings.advisorModel);
+  codexDelegateModel = settings.codexDelegateModel;
 
   await saveAppSettings(settings);
   return harnessHomeDir;

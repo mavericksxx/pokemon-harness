@@ -121,6 +121,33 @@ export interface AppSettings {
    *  Never applies to a poke-delegate subagent spawn, regardless of this
    *  setting. */
   harnessInstructionsEnabled: boolean;
+  /** Which model/alias the bundled `advisor` subagent runs on (main/
+   *  bundledHarnessAgents.ts's `buildAgentsFlagValue`) — spread into the
+   *  agent definition's `model` key at spawn time. Default `'fable'`: `claude
+   *  --help`'s `--model` flag documents `fable`/`opus`/`sonnet` (and, same
+   *  behavior, `haiku`) as portable ALIASES for "the latest model in that
+   *  tier" — they auto-resolve to whichever specific model currently backs
+   *  that tier, so this value keeps tracking the frontier with zero app
+   *  changes as new models ship, rather than pinning a name that goes stale.
+   *  A bad/unavailable choice never breaks session startup — confirmed live,
+   *  it only fails the moment the advisor is actually Task-dispatched, with a
+   *  clean, catchable error (see `buildAgentsFlagValue`'s doc comment) — so
+   *  no validation is needed here beyond accepting a string. Ignored entirely
+   *  when the user has their own `~/.claude/agents/advisor.md` (or a
+   *  project-level one) — that file's own `model:` setting shadows this one,
+   *  same shadow-guard `buildAgentsFlagValue` already applies to the whole
+   *  bundled agent. */
+  advisorModel: string;
+  /** Optional override for which model a `poke-delegate` (Codex) spawn uses
+   *  (main/index.ts's delegate-spawn handler) — passed as `-m <value>` to
+   *  `codex exec`. Empty string (default) means "don't pass `-m` at all":
+   *  unlike Claude Code, Codex's `-m` flag has no portable alias system, but
+   *  Codex's OWN default behavior when `-m` is omitted already tracks
+   *  whichever model is configured as current/flagship in the user's own
+   *  `~/.codex/config.toml` — so leaving this blank is already the
+   *  Codex-side equivalent of "always use the best available," with no
+   *  hardcoded fallback string needed here. */
+  codexDelegateModel: string;
   /** First-launch welcome dialog (BACKLOG item 2) — false until the user
    *  dismisses it (either button: "summon arceus" or "not now" both record
    *  a choice, so this only ever needs to ask once). Gates two things: the
@@ -152,5 +179,7 @@ hideClaudeStatusline: false,
   codexDelegateHooks: true,
   lowResGarden: false,
   harnessInstructionsEnabled: true,
+  advisorModel: 'fable',
+  codexDelegateModel: '',
   onboardingDone: false
 };

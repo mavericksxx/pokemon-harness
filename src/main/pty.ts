@@ -80,6 +80,14 @@ export class PtyManager {
    *  on the very next spawn, no settings save needed. */
   private harnessInstructionsEnabled = true;
   private harnessInstructionsPath: string | null = null;
+  /** Which model/alias the bundled `advisor` subagent runs on — set from
+   *  `appSettings.advisorModel` at boot and on every settings save (main/
+   *  index.ts), same pattern as `harnessInstructionsEnabled` above. Read
+   *  synchronously inside `spawn()` and passed through to
+   *  `buildAgentsFlagValue` (bundledHarnessAgents.ts), which spreads it into
+   *  the advisor agent definition's `model` key. Default `'fable'` mirrors
+   *  `AppSettings.advisorModel`'s own default. */
+  private advisorModel = 'fable';
   private terminalAppearance: 'light' | 'dark' = 'dark';
   private lastExitCodes = new Map<string, number>();
 
@@ -133,6 +141,13 @@ export class PtyManager {
   setHarnessInstructions(enabled: boolean, path: string | null): void {
     this.harnessInstructionsEnabled = enabled;
     this.harnessInstructionsPath = path;
+  }
+
+  /** Set from `appSettings.advisorModel` at boot and on every settings save
+   *  (main/index.ts) — read the next time any claude session spawns, so
+   *  changing it never touches an already-running session's pty. */
+  setAdvisorModel(model: string): void {
+    this.advisorModel = model;
   }
 
   /** Main owns this because boot respawns happen before the renderer exists;
@@ -243,7 +258,7 @@ export class PtyManager {
     if (!opts.isDelegate && this.harnessInstructionsEnabled && opts.provider === 'claude') {
       let agentsFlagValue: string | undefined;
       try {
-        agentsFlagValue = buildAgentsFlagValue(cwd);
+        agentsFlagValue = buildAgentsFlagValue(cwd, this.advisorModel);
       } catch {
         /* best-effort — spawn without the bundled agent */
       }

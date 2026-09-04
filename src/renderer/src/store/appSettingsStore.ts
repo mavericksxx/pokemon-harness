@@ -67,6 +67,16 @@ setHideClaudeStatusline(v: boolean): void;
    *  `appSettings:saveSettings` handler reaches pty.ts's
    *  `setHarnessInstructions` off this value. */
   setHarnessInstructionsEnabled(v: boolean): void;
+  /** Which model/alias the bundled advisor subagent runs on (settings →
+   *  harness home). Same persist-immediately pattern as every other setter
+   *  here; main's `appSettings:saveSettings` handler reaches pty.ts's
+   *  `setAdvisorModel` off this value. */
+  setAdvisorModel(v: string): void;
+  /** Optional model override for a `poke-delegate` (Codex) spawn (settings →
+   *  harness home). Empty string means "don't pass `-m`, inherit Codex's own
+   *  configured default." Same persist-immediately pattern as every other
+   *  setter here. */
+  setCodexDelegateModel(v: string): void;
   /** First-launch welcome dialog (BACKLOG item 2) — same persist-immediately
    *  pattern as every other setter here. Set once, by either of the
    *  welcome dialog's two buttons (WelcomeDialog.tsx) — never reset from
@@ -196,6 +206,18 @@ setHideClaudeStatusline: (v) => {
 
   setHarnessInstructionsEnabled: (v) => {
     const settings = { ...get().settings, harnessInstructionsEnabled: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setAdvisorModel: (v) => {
+    const settings = { ...get().settings, advisorModel: v };
+    set({ settings });
+    persist(settings);
+  },
+
+  setCodexDelegateModel: (v) => {
+    const settings = { ...get().settings, codexDelegateModel: v };
     set({ settings });
     persist(settings);
   },
