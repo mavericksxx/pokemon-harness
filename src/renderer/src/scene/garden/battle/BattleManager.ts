@@ -157,18 +157,34 @@
  * burst + chime is left exactly as it was — it's overlay FX, not a sprite
  * swap, so it isn't the thing the spec says to skip.
  *
- * FACING IS A FIXED ARRANGEMENT, NOT COMPUTED MIRRORING. The parent always
- * ends up on the bottom-left tile of a battle pair, the challenger always
- * ends up somewhere in the top/right arc from there — never the reverse,
- * never a same-row placement (see pickChallengerStandTileFor). Because
- * native gen5ani sprites are drawn front-facing down-left and back-facing
- * up-right, an UNMIRRORED front sheet already looks like it's facing the
- * bottom-left corner and an UNMIRRORED back sheet already looks like it's
- * facing the top-right one — so the parent (back, unmirrored) and the
- * challenger (front, unmirrored) simply aim at each other by construction
- * the moment they're placed correctly. `applyBattleStance` sets both to
- * that fixed, unmirrored stance and never computes a direction from
- * position.
+ * FACING IS A FIXED ARRANGEMENT, NOT COMPUTED MIRRORING. The parent stays
+ * roughly where it already was — the anchor tile of a battle pair — and the
+ * challenger(s) always end up somewhere in the SW arc from there — never the
+ * reverse, never a same-row placement (see pickChallengerStandTileFor).
+ * Because native gen5ani sprites are drawn front-facing down-left and
+ * back-facing up-right, an UNMIRRORED front sheet already looks like it's
+ * facing the bottom-left corner and an UNMIRRORED back sheet already looks
+ * like it's facing the top-right one — so the parent (front, unmirrored,
+ * facing the camera) and the challenger (back, unmirrored, where the species
+ * has a back sheet) simply aim at each other by construction the moment
+ * they're placed correctly. `applyBattleStance` sets both to that fixed
+ * stance and never computes a direction from position.
+ *
+ * FLIPPED 2026-09-04 (user complaint: mega evolution reveals happen on the
+ * PARENT, and a parent glued to its back view for the whole fight meant the
+ * player could never actually see its own pokemon's face, mega reveal
+ * included). The original arrangement had this the other way around —
+ * parent on the bottom-left showing BACK, challenger in the top/right arc
+ * showing FRONT — mirroring mainline Pokemon's "your own party shows its
+ * back" convention. Swapping which corner is which (`findMeetingAnchor`'s
+ * partner search direction, `pickChallengerStandTileFor`'s arc offsets) and
+ * which stance each side gets (`applyBattleStance`) was enough: the parent
+ * stays an unmirrored FRONT sheet (still zero mirroring math — it just now
+ * plays the role the challenger used to), and the challenger becomes an
+ * unmirrored BACK sheet where its species has one (`Battler.hasBackView`/
+ * `Walker.hasBackView`), falling back to a mirrored front sheet where it
+ * doesn't (no back art to show at all, so at least point it horizontally
+ * back toward the parent rather than leaving it facing away).
  *
  * Composes with the rest of the garden entirely from the outside: battlers
  * are their own lightweight class (`Battler`, reusing `WalkerSprite` +
@@ -446,6 +462,7 @@ export interface Challenger {
   update(dt: number): void;
   syncBubblePosition(): void;
   setBattleStance(): void;
+  clearBattleStance(): void;
   showBubbleLabel(): void;
   showAttack(tool: string, target?: string): void;
   showMoveText(text: string): void;
@@ -680,7 +697,7 @@ function findNearbyWalkable(
   avoid?: ReadonlySet<string>,
   reachableFrom?: { x: number; y: number },
   /** Extra positional constraint on the ABSOLUTE candidate tile — e.g. "stay
-   *  in the parent's NE quadrant" — evaluated alongside walkability/avoid. */
+   *  in the parent's SW quadrant" — evaluated alongside walkability/avoid. */
   filter?: (candidate: { x: number; y: number }) => boolean
 ): { x: number; y: number } | null {
   const candidates: { x: number; y: number; d: number }[] = [];
@@ -1432,14 +1449,20 @@ export class BattleManager {
       pb.waveRing = pb.waveRing.filter((s) => s !== sub);
       pb.subs = pb.subs.filter((s) => s !== sub);
       // Hand the walker back clean, exactly as `destroyBattle` does for the
-      // parent-killed case — see its own comment for both reasons. `update(0)`
-      // is the adapter's position resync (it ignores `dt`), undoing any lunge
-      // offset a wave interrupted mid-attack would otherwise leave baked in
-      // once this sub stops being ticked. `forceConcludeWave` above already
-      // hid the bubble via `retireSub` when there WAS a wave; this covers the
+      // parent-killed case — see its own comment for all three reasons.
+      // `update(0)` is the adapter's position resync (it ignores `dt`),
+      // undoing any lunge offset a wave interrupted mid-attack would
+      // otherwise leave baked in once this sub stops being ticked.
+      // `clearBattleStance()` releases the forced back view (if this species
+      // ever got one) — without it, this walker's own idle-facing bias logic
+      // stays skipped forever (see Walker.ts's own update guard), leaving a
+      // delegate that lost its battle stuck facing away from the camera for
+      // the rest of its life. `forceConcludeWave` above already hid the
+      // bubble via `retireSub` when there WAS a wave; this covers the
       // still-'queued' case, where nothing has.
       sub.battler.hideBubble();
       sub.battler.update(0);
+      sub.battler.clearBattleStance();
       return;
     }
   }
@@ -1758,6 +1781,17 @@ export class BattleManager {
     }
     if (pb.wave !== 'idle') {
       bumpCounter('battlesResolved');
+      // A delegate mid-wave was skipped by the loop above (never marked
+      // 'leaving', never retired) — it's the one waveRing member this coarse
+      // cleanup can otherwise strand in battle stance forever, since nothing
+      // else releases it until `dropChallenger`. Same "hand back clean" trio
+      // `destroyBattle`'s delegate branch uses.
+      for (const sub of pb.waveRing) {
+        if (!this.isDelegateSub(sub)) continue;
+        sub.battler.hideBubble();
+        sub.battler.update(0);
+        sub.battler.clearBattleStance();
+      }
       pb.wave = 'idle';
       pb.waveRing = [];
       pb.currentAttack = null;
@@ -1972,29 +2006,30 @@ export class BattleManager {
   }
 
   /**
-   * The parent's stand tile for THIS wave — the bottom-left half of a
-   * canonical bottom-left(parent)/top-right(challenger) battle pair. Tries
-   * the parent's own current tile first (it may not need to move at all); if
-   * that tile has no valid NE partner (or the partner isn't actually
-   * reachable from it), widens a shuffled search outward from `originalTile`
-   * for an alternate anchor that DOES have one — moving the whole meeting
-   * spot to open lawn rather than ever inverting the arrangement. `gap` is
-   * the eventual parent-challenger distance on each axis; the anchor only
-   * needs its immediate NE corner to be clear, since
-   * pickChallengerStandTileFor does its own reachability search from here
-   * for the actual stand tile.
+   * The parent's stand tile for THIS wave — the anchor half of a canonical
+   * anchor(parent)/SW(challenger) battle pair (2026-09-04 facing swap: the
+   * challenger now takes the SW corner so the parent, unmirrored, can face
+   * the camera — see BattleManager.ts's file header). Tries the parent's own
+   * current tile first (it may not need to move at all); if that tile has no
+   * valid SW partner (or the partner isn't actually reachable from it),
+   * widens a shuffled search outward from `originalTile` for an alternate
+   * anchor that DOES have one — moving the whole meeting spot to open lawn
+   * rather than ever inverting the arrangement. `gap` is the eventual
+   * parent-challenger distance on each axis; the anchor only needs its
+   * immediate SW corner to be clear, since pickChallengerStandTileFor does
+   * its own reachability search from here for the actual stand tile.
    */
   private findMeetingAnchor(originalTile: { x: number; y: number }, gap: number): { x: number; y: number } | null {
-    const hasNePartner = (a: { x: number; y: number }): boolean => {
+    const hasSwPartner = (a: { x: number; y: number }): boolean => {
       if (!this.deps.map.isWalkable(a.x, a.y)) return false;
-      const partner = { x: a.x + gap, y: a.y - gap };
+      const partner = { x: a.x - gap, y: a.y + gap };
       if (!this.deps.map.isWalkable(partner.x, partner.y)) return false;
       return findPath(this.deps.map, a, partner) !== null;
     };
     const reachableFromOriginal = (a: { x: number; y: number }): boolean =>
       (a.x === originalTile.x && a.y === originalTile.y) || findPath(this.deps.map, originalTile, a) !== null;
 
-    if (hasNePartner(originalTile)) return originalTile;
+    if (hasSwPartner(originalTile)) return originalTile;
 
     for (let radius = 1; radius <= 12; radius++) {
       const ring: { x: number; y: number }[] = [];
@@ -2008,19 +2043,21 @@ export class BattleManager {
         [ring[i], ring[j]] = [ring[j], ring[i]];
       }
       for (const c of ring) {
-        if (hasNePartner(c) && reachableFromOriginal(c)) return c;
+        if (hasSwPartner(c) && reachableFromOriginal(c)) return c;
       }
     }
     return null;
   }
 
   /**
-   * A stand tile for ring slot `slot`, ALWAYS somewhere in the top/right arc
-   * from `anchor` (the parent's stand tile for this wave) — never level with
-   * it, never on its bottom/left side. This is what lets `applyBattleStance`
-   * skip all direction math: an unmirrored front sheet drawn facing
-   * down-left already points at anything placed up-right of it. Up to
-   * MAX_RING slots fan across the arc (roughly NE, ENE, NNE) at the same
+   * A stand tile for ring slot `slot`, ALWAYS somewhere in the SW arc from
+   * `anchor` (the parent's stand tile for this wave) — never level with it,
+   * never on its top/right side (2026-09-04 facing swap: the challenger now
+   * takes the SW corner so the parent, unmirrored, can face the camera — see
+   * BattleManager.ts's file header). This is what lets `applyBattleStance`
+   * skip all direction math: a native/unmirrored back sheet drawn facing
+   * up-right already points at anything placed down-left of it. Up to
+   * MAX_RING slots fan across the arc (roughly SW, WSW, SSW) at the same
    * radius so they spread out rather than stacking. Every candidate is
    * BFS-reachable from `anchor` — not just "walkable" — so goTo() is
    * guaranteed to actually get there (no permanently-stuck battler).
@@ -2035,9 +2072,9 @@ export class BattleManager {
     for (const s of admitted) if (s.battler.standTile) claimed.add(tileKey(s.battler.standTile));
 
     const arcOffsets = [
-      { x: gap, y: -gap },
-      { x: Math.round(gap * 1.4), y: -Math.round(gap * 0.6) },
-      { x: Math.round(gap * 0.6), y: -Math.round(gap * 1.4) }
+      { x: -gap, y: gap },
+      { x: -Math.round(gap * 1.4), y: Math.round(gap * 0.6) },
+      { x: -Math.round(gap * 0.6), y: Math.round(gap * 1.4) }
     ];
     const primary = arcOffsets[slot % arcOffsets.length];
     const primaryTile = { x: anchor.x + primary.x, y: anchor.y + primary.y };
@@ -2049,8 +2086,8 @@ export class BattleManager {
       return primaryTile;
     }
 
-    // Widen the search but STAY in the NE quadrant relative to the PARENT's
-    // anchor (never the search center) — never fall back to its bottom/left
+    // Widen the search but STAY in the SW quadrant relative to the PARENT's
+    // anchor (never the search center) — never fall back to its top/right
     // side.
     return (
       findNearbyWalkable(
@@ -2060,30 +2097,35 @@ export class BattleManager {
         gap + 3,
         claimed,
         anchor,
-        (c) => c.x >= anchor.x && c.y <= anchor.y
+        (c) => c.x <= anchor.x && c.y >= anchor.y
       ) ?? primaryTile
     );
   }
 
   /**
-   * The fixed battle stance — NO mirroring math, ever. The parent (always at
-   * the bottom-left of the pair) shows its BACK sheet UNMIRRORED, which
-   * gen5ani draws already aimed up-right at whatever's in the top/right arc.
-   * Every ring member (always somewhere in that arc) shows its FRONT sheet
-   * UNMIRRORED, which gen5ani draws already aimed down-left at the parent.
+   * The fixed battle stance — NO mirroring math, ever (2026-09-04 facing
+   * swap: see BattleManager.ts's file header for why this flipped from the
+   * original arrangement). The parent (stays roughly where it was, the
+   * anchor of the pair) shows its FRONT sheet UNMIRRORED, facing the camera
+   * — so the player can actually see it (and its mega evolution reveal).
+   * Every ring member (always somewhere in the parent's SW arc) shows its
+   * BACK sheet UNMIRRORED where the species has one, which gen5ani draws
+   * already aimed up-right at the parent; a species with no back sheet falls
+   * back to a mirrored front sheet instead (see `Battler.setBattleStance`).
+   *
+   * Re-derived and re-applied EVERY TICK the wave is 'faceoff'/'looping'
+   * (see `update`'s own call to this, below the phase switch) — not just
+   * once at the transition into 'faceoff' — so a lunge or an evolution
+   * mid-battle can never leave the mirroring stale. `setForcedBackView`/
+   * `faceDirection` are cheap no-ops when already correct, which is what
+   * makes calling this every frame safe; `startMega` is NOT idempotent the
+   * same way (an async fetch, a floating-text spawn), so it is deliberately
+   * called once, at the ONE-TIME transition site (`updateApproaching`), not
+   * from here.
    */
-  /** The fixed battle stance, re-derived and re-applied EVERY TICK the wave
-   *  is 'faceoff'/'looping' (see `update`'s own call to this, below the
-   *  phase switch) — not just once at the transition into 'faceoff' — so a
-   *  lunge or an evolution mid-battle can never leave the mirroring stale.
-   *  `setForcedBackView`/`faceDirection` are cheap no-ops when already
-   *  correct, which is what makes calling this every frame safe; `startMega`
-   *  is NOT idempotent the same way (an async fetch, a floating-text spawn),
-   *  so it is deliberately called once, at the ONE-TIME transition site
-   *  (`updateApproaching`), not from here. */
   private applyBattleStance(pb: ParentBattle): void {
-    pb.parentWalker.setForcedBackView(true);
-    pb.parentWalker.faceDirection('left'); // native/unmirrored
+    pb.parentWalker.setForcedBackView(false);
+    pb.parentWalker.faceDirection('left'); // native/unmirrored, faces the camera
     for (const sub of pb.waveRing) sub.battler.setBattleStance();
   }
 
@@ -2448,14 +2490,23 @@ export class BattleManager {
     sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
-    // A delegate challenger stops here. Everything below is off-duty
-    // presentation for a battler this manager OWNS, and all three pieces
-    // would be wrong for a live session's walker: the tint would permanently
-    // grey a session that's still on the roster (nothing ever un-tints it —
-    // only `reviveRetired`, which a delegate can't reach), `wanderHome` is an
-    // inert placeholder for a sub that never roamed, and `onBattlerDone`
-    // patches a `LiveBattler` key the store doesn't have. The delegate simply
-    // stands where the fight left it until the player recalls it
+    // Battle stance is released for EVERY sub here, delegate included —
+    // unlike the tint/wander/onBattlerDone trio below, leaving a delegate's
+    // forced back view in place would freeze its own idle-facing bias logic
+    // forever (see Walker.ts's own resting-view guard), stranding a live
+    // session's pokemon facing away from the camera indefinitely — not just
+    // "until recalled" but for however long the player leaves it be, which
+    // defeats the entire point of this facing swap.
+    sub.battler.clearBattleStance();
+    // A delegate challenger stops here for everything else. The tint/wander/
+    // onBattlerDone trio below is off-duty presentation for a battler this
+    // manager OWNS, and all three pieces would be wrong for a live session's
+    // walker: the tint would permanently grey a session that's still on the
+    // roster (nothing ever un-tints it — only `reviveRetired`, which a
+    // delegate can't reach), `wanderHome` is an inert placeholder for a sub
+    // that never roamed, and `onBattlerDone` patches a `LiveBattler` key the
+    // store doesn't have. The delegate simply stands where the fight left it
+    // (now facing normally again) until the player recalls it
     // (`dropChallenger`), which is also the state its own card is already
     // showing.
     if (this.isDelegateSub(sub)) return;
@@ -2609,9 +2660,15 @@ export class BattleManager {
       //    into the container forever: this sub is about to stop existing, so
       //    its own per-tick resync never runs again, and a stationary `Walker`
       //    never calls `syncPosition` on its own.
+      //  - `clearBattleStance()` releases the forced back view (if this
+      //    species ever got one) — the walker's own idle-facing bias logic
+      //    stays skipped for as long as that's set (see Walker.ts's own
+      //    update guard), and this sub is about to outlive the battle for
+      //    good, so nothing else will ever release it.
       if (this.isDelegateSub(sub)) {
         sub.battler.hideBubble();
         sub.battler.update(0);
+        sub.battler.clearBattleStance();
         continue;
       }
       sub.battler.destroy();

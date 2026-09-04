@@ -268,6 +268,14 @@ export class Walker {
     return this.sprite.drawnHeight;
   }
 
+  /** Whether this species has back-view art at all — `WalkerChallenger`
+   *  (battle facing) checks this before forcing a back view, since a species
+   *  with no back sheet silently keeps showing front (see
+   *  `WalkerSprite.setBackView`'s documented fallback). */
+  get hasBackView(): boolean {
+    return this.sprite.hasBackView;
+  }
+
   /** Play the shared pokéball recall sequence over this session walker. The
    *  inner sprite container is passed separately so the ball holds its size
    *  while the Pokemon shrinks, exactly as it does for a subagent Battler. */
@@ -382,9 +390,12 @@ export class Walker {
   }
 
   /** Force the back sheet on/off regardless of the walk-direction hysteresis
-   *  — used by the battle system to put the parent in its "facing away from
-   *  camera, toward the opponent" battle stance (falls back to the front
-   *  sheet automatically when the species has no back view; see
+   *  — used by the battle system to put a fighter in its "facing away from
+   *  camera, toward the opponent" battle stance. Today that's a delegate
+   *  challenger's own walker, driven by `WalkerChallenger.setBattleStance`
+   *  (the parent shows FRONT during battle instead — see BattleManager.ts's
+   *  file header on the 2026-09-04 facing swap); falls back to the front
+   *  sheet automatically when the species has no back view (see
    *  WalkerSprite.setBackView). The sprite update is skipped while an
    *  evolution ceremony is running, which owns the sprite's view. */
   setForcedBackView(useBack: boolean): void {
