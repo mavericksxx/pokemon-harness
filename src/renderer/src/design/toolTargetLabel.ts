@@ -88,7 +88,12 @@ function firstBashWord(command: string): string {
   const rest = (withoutCd || command).trim();
   const firstToken = rest.split(/\s+/)[0] ?? rest;
   const word = firstToken.split('/').pop();
-  return word || 'a command';
+  // Defensive fallback for a leftover fragment that slipped past the regex
+  // scrape (issue #1) — a real command word is never a bare number, and
+  // legitimate short ones (ls, cd) are still 2+ chars, so this only catches
+  // garbage.
+  if (!word || word.length < 2 || /^\d+$/.test(word)) return 'a command';
+  return word;
 }
 
 /** Short game-flavored phrase for the garden speech bubble: verb + the one

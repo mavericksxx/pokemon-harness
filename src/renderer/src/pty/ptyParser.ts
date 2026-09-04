@@ -40,9 +40,24 @@ const TOOL_RE = /●\s+([A-Za-z][A-Za-z_]*)(?:\s+(.+))?/g;
 // status chrome with no newline in between (confirmed live — a raw capture
 // swallowed a following " • Working (Ns • esc to interrupt) · ..." footer
 // as part of the "target" text otherwise).
-const CODEX_RAN_RE = /•\s+Ran\s+([^\n•›└]+)/g;
+//
+// That prior tightening pass only covers footer text starting with one of
+// •›└. It does NOT cover a mid-redraw chunk that glues the footer's own
+// leftover second-counter directly onto "Ran "/"List "/"Read " with nothing
+// but a bare digit before the next stop char (issue #1: rendered as the
+// bubble text `$ running 3`). A real shell command's first word is never a
+// bare number, so a `(?!\s*\d+...)` guard right after the verb rejects
+// exactly that shape — and only that shape — without narrowing what a
+// legitimate capture can contain. The lookahead's own `\s*` (rather than
+// relying on the preceding `\s+` to have landed exactly on the digit) matters
+// because `\s+` is greedy-but-backtrackable: without it, an extra space
+// before the glued digit (translated cursor-forwards routinely stand for
+// several columns — see the space-collapse below) would let `\s+` give one
+// space back so the lookahead's `\d+` starts clean, sliding the leading
+// space into the capture instead of being rejected.
+const CODEX_RAN_RE = /•\s+Ran\s+(?!\s*\d+(?:[\s•›└]|$))([^\n•›└]+)/g;
 const CODEX_EDITED_RE = /•\s+Edited\s+([^\n•›└(]+)/g;
-const CODEX_SUBACTION_RE = /└\s+(List|Read)\s+([^\n•›└]+)/g;
+const CODEX_SUBACTION_RE = /└\s+(List|Read)\s+(?!\s*\d+(?:[\s•›└]|$))([^\n•›└]+)/g;
 const CODEX_VERB_TO_TOOL: Record<string, string> = { List: 'Bash', Read: 'Read' };
 
 // Subagent-battle regex fallback (Part B) — Claude's transcript prints a Task
