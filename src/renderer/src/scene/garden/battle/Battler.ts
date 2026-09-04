@@ -26,8 +26,9 @@ const POOF_IN_START_SCALE = 0.4;
  * bob/lift/mirror rendering) and `findPath` (the same BFS the garden's own
  * walkers use, so "no teleporting" holds here too), but skips everything a
  * battler doesn't need — station routing, evolution, the
- * name tag/badge/selection ring. It never turns to a back view; the spec
- * only asks that of the parent.
+ * name tag/badge/selection ring. It DOES turn to a back view now (2026-09-04
+ * facing swap — see BattleManager.ts's file header): the challenger is the
+ * one shown facing away from the camera today, toward the parent.
  */
 export class Battler {
   readonly container: Container;
@@ -186,14 +187,44 @@ export class Battler {
     this.bubble.hide();
   }
 
-  /** Fixed battle stance: native/UNMIRRORED front sheet. No direction math —
-   *  gen5ani front art is drawn already facing down-left, and every battler
-   *  is placed in the top/right arc from the parent (see BattleManager's
-   *  pickChallengerStandTile), so unmirrored already points at it. Called
-   *  once face-off begins and every tick through the attack loop
-   *  (idempotent), overriding whatever the approach walk's own
-   *  movement-direction mirroring left it at. */
+  /** Whether this species has back-view art at all — a species with none
+   *  stays on front by construction (`WalkerSprite.setBackView`'s documented
+   *  fallback), so `setBattleStance` falls back to a mirrored front sheet
+   *  instead of a back view that would never actually show. */
+  get hasBackView(): boolean {
+    return this.sprite.hasBackView;
+  }
+
+  /** Fixed battle stance: no direction math, ever. Every battler is placed
+   *  in the parent's SW arc (see BattleManager's pickChallengerStandTileFor),
+   *  so the native/UNMIRRORED back sheet — gen5ani draws it already facing
+   *  up-right — points straight at the parent for free when this species has
+   *  one. A species with no back sheet falls back to a MIRRORED front sheet
+   *  (gen5ani front art is drawn facing down-left, so mirroring it points
+   *  down-right instead) — not a perfect aim at the parent, but at least
+   *  horizontally toward it rather than away. Called once face-off begins
+   *  and every tick through the attack loop (idempotent), overriding
+   *  whatever the approach walk's own movement-direction mirroring left it
+   *  at. */
   setBattleStance(): void {
+    if (this.hasBackView) {
+      this.sprite.setBackView(true);
+      this.facing = 'left';
+      this.sprite.setFacing('left');
+    } else {
+      this.sprite.setBackView(false);
+      this.facing = 'right';
+      this.sprite.setFacing('right');
+    }
+  }
+
+  /** Undoes `setBattleStance` — back view off, facing back to this class's
+   *  own idle-facing default ('left', same as the constructor's initial
+   *  value). Called at every point a challenger battler leaves battle
+   *  stance (retire, teardown) — see BattleManager.ts's checklist in its
+   *  file header. */
+  clearBattleStance(): void {
+    this.sprite.setBackView(false);
     this.facing = 'left';
     this.sprite.setFacing('left');
   }
