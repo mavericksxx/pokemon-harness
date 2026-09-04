@@ -93,7 +93,23 @@ const LIGHT_THEME: ITheme = {
   // `groundLight[200]` (a light cream tint) reads as nearly invisible
   // against `groundLight.terminal` — `disabled` carries real contrast.
   selectionBackground: groundLight.disabled,
-  black: TERMINAL_COLORS.light.foreground,
+  // xterm's `black` ANSI slot is ansi[0] for BOTH SGR-30 foreground text and
+  // SGR-40/reverse-video background fills — one value, two roles. This used
+  // to be `TERMINAL_COLORS.light.foreground` (the ink color), which fixed
+  // plain-black-text legibility but meant any CLI that paints its own UI
+  // chrome with a color-0 background (a common subtle dark-tint trick on a
+  // normal dark terminal) rendered a solid near-black bar across the cream
+  // background instead. `groundLight.disabled` — the same cream-family tone
+  // already proven "visible but not jarring" against `groundLight.terminal`
+  // by `selectionBackground` above — fixes the bar; `minimumContrastRatio`
+  // below (4.5 on this theme) is what keeps SGR-30 black TEXT legible, since
+  // it corrects ANSI-palette foreground colors (this one included) up to
+  // WCAG contrast against whatever they're drawn on. That correction only
+  // ever touches the resolved TEXT color, never a cell's background fill —
+  // confirmed against @xterm/xterm's DomRenderer, which calls
+  // `_applyMinimumContrast` from the foreground-color switch case only; the
+  // background-color case assigns `ansi[0]` straight through.
+  black: groundLight.disabled,
   red: dangerLight,
   green: accentLight.mint,
   yellow: '#9C7A1E',
