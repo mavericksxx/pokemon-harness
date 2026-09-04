@@ -169,6 +169,19 @@ export class AdvisorManager {
    *  preferred, so two concurrent consults never LOOK the same while a
    *  distinct guardian is available. */
   private rrIndex = 0;
+  /** Cross-manager mis-recall fix — task-ids `handleCorrelate` has confirmed
+   *  belong to some OTHER dispatch (an ordinary battler, not an advisor
+   *  consult), populated the moment that correlate's own companion lookup
+   *  misses. `handleEnd` consults this FIRST, before its stamped-match check,
+   *  and no-ops immediately when a taskId is found here — closing the race
+   *  window where an unstamped-but-genuine companion still exists at the
+   *  exact moment a foreign 'end' for an unrelated taskId arrives (narrowing
+   *  the fallback pool to `taskId === null` alone isn't enough to close that
+   *  window, since a real companion sits in that same unstamped state
+   *  briefly too). Entries are deleted the instant they're consulted in
+   *  `handleEnd`, so this never grows past the single window between one
+   *  foreign correlate and this manager's own end-check for that id. */
+  private foreignTaskIds = new Set<string>();
 
   constructor(private deps: AdvisorDeps) {
     this.unsubscribe = onAdvisorSignal((sig) => this.onSignal(sig));
@@ -278,7 +291,15 @@ export class AdvisorManager {
     const companion = this.companions.find(
       (c) => c.parentId === parentId && c.toolUseId === toolUseId && !c.despawning
     );
-    if (!companion) return; // not ours (an ordinary battler's correlation) — silent no-op, see advisorBus.ts
+    if (!companion) {
+      // Not ours (an ordinary battler's correlation) — remember this taskId
+      // as foreign so this manager's own `handleEnd` can short-circuit on it
+      // instead of falling back to "oldest live companion" and mis-recalling
+      // an unrelated, still-live consult (see `foreignTaskIds`'s own doc
+      // comment above).
+      this.foreignTaskIds.add(taskId);
+      return;
+    }
     companion.taskId = taskId;
     safeLogDiagnostic('advisor', 'info', 'advisor companion correlated to task', {
       parentId,
@@ -288,6 +309,14 @@ export class AdvisorManager {
   }
 
   private handleEnd(parentId: string, taskId?: string): void {
+    if (taskId && this.foreignTaskIds.has(taskId)) {
+      // Confirmed foreign by a prior `handleCorrelate` miss (an ordinary
+      // battler's completion, not an advisor consult's) — no-op immediately,
+      // and forget it right away so this set never grows past the single
+      // window it exists to cover. See `foreignTaskIds`'s own doc comment.
+      this.foreignTaskIds.delete(taskId);
+      return;
+    }
     if (taskId) {
       const stamped = this.companions.find((c) => c.taskId === taskId && !c.despawning);
       if (stamped) {
@@ -301,12 +330,21 @@ export class AdvisorManager {
         return;
       }
     }
-    // Fallback: oldest live companion for this parent — mirrors
-    // BattleManager.handleEnd's own oldest-first fallback for a companion
-    // that never got stamped (correlation raced ahead) or when no taskId is
-    // available at all. A `taskId` that matches no companion here means
-    // this completion belongs to the battle bus instead — silent no-op.
-    const candidates = this.companions.filter((c) => c.parentId === parentId && !c.despawning);
+    // Fallback: oldest live, NEVER-YET-STAMPED companion for this parent —
+    // mirrors BattleManager.handleEnd's own oldest-first fallback. Restricted
+    // to `taskId === null` candidates (mis-recall fix): a companion already
+    // stamped with its own (different, real) taskId is never a legitimate
+    // fallback target — only a companion whose own correlation genuinely
+    // hasn't landed yet (correlation raced ahead of this notification) or
+    // whose consult started before the correlation wiring existed at all
+    // qualifies. Combined with the `foreignTaskIds` short-circuit above, an
+    // unrecognized `taskId` here now only reaches this fallback when it
+    // truly isn't traceable to any dispatch this manager knows about (e.g.
+    // no `taskId` was supplied at all) — not merely because it belongs to
+    // some OTHER, already-stamped companion or battler.
+    const candidates = this.companions.filter(
+      (c) => c.parentId === parentId && !c.despawning && c.taskId === null
+    );
     if (candidates.length === 0) return;
     const oldest = candidates[0];
     safeLogDiagnostic('advisor', 'info', 'advisor companion despawning — fell back to oldest-live-for-parent', {

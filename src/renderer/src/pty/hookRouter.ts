@@ -88,11 +88,20 @@ window.api.onSubagentTaskNotification((agentId, taskId) => {
   }
   // Belt-and-braces forward into the advisor bus too (advisor-pokemon
   // feature) — this notification doesn't know in advance whether `taskId`
-  // belongs to an ordinary battler or an advisor companion, and AdvisorManager
-  // silently no-ops for a taskId it doesn't recognize, same tolerance
-  // BattleManager already has for a stale/unrecognized signal. Isolated in
-  // its own try/catch so a throw on this side can never affect the battle
-  // emit above.
+  // belongs to an ordinary battler or an advisor companion, so it's forwarded
+  // to both. Cross-manager mis-recall fix (2026-09-04): each manager narrows
+  // its own "unrecognized taskId" fallback to candidates it never stamped
+  // with a taskId of their own (never grabbing an already-identified
+  // companion/battler that just happens not to match this one), and — to
+  // close the remaining race where a genuinely-unstamped-but-real
+  // companion/sub exists at the exact moment the OTHER manager's taskId
+  // arrives here — each manager's own `handleCorrelate` records a taskId as
+  // foreign the moment its correlate lookup confirms the id isn't its
+  // domain's, and `handleEnd` checks that record first and no-ops
+  // immediately. See AdvisorManager.ts's and BattleManager.ts's own
+  // `foreignTaskIds` doc comments for the full mechanism. Isolated in its
+  // own try/catch so a throw on this side can never affect the battle emit
+  // above.
   try {
     emitAdvisorSignal({ type: 'end', parentId: agentId, taskId });
   } catch (err) {
