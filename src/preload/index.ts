@@ -270,6 +270,9 @@ const api = {
   },
   /** "kill it & quit" — bypasses the sunset ritual, quits immediately. */
   forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit'),
+  /** "clear & quit" — bypasses the sunset ritual, wipes the session registry,
+   *  and quits: the next launch opens to an empty garden (nothing resumes). */
+  wipeGardenAndQuit: (): Promise<void> => ipcRenderer.invoke('app:wipeGardenAndQuit'),
 
   /** macOS fullscreen state — fires on enter/leave-full-screen plus once per
    *  page load (main/index.ts) so a reload starts with the right topbar
