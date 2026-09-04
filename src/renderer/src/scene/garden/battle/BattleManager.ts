@@ -745,6 +745,20 @@ export class BattleManager {
    *  bounded by how many subagents a session actually completes, not by
    *  anything unbounded. */
   private retiredTaskInfo = new Map<string, { species: string; label?: string }>();
+  /** Cross-manager mis-recall fix — task-ids `handleCorrelate` has confirmed
+   *  don't belong to this manager's domain at all (an advisor consult, or any
+   *  other non-battle dispatch reaching the battle bus), populated the moment
+   *  that correlate's own lookup falls through with nothing battle-related to
+   *  do. `handleEnd` consults this FIRST, before its stamped-match check, and
+   *  no-ops immediately when a taskId is found here — closing the race window
+   *  where an unstamped-but-genuine roaming sub still exists at the exact
+   *  moment a foreign 'end' for an unrelated taskId arrives (narrowing the
+   *  fallback pool to `taskId === null` alone isn't enough to close that
+   *  window, since a real sub sits in that same unstamped state briefly too).
+   *  Entries are deleted the instant they're consulted in `handleEnd`, so
+   *  this never grows past the single window between one foreign correlate
+   *  and this manager's own end-check for that id. */
+  private foreignTaskIds = new Set<string>();
 
   constructor(private deps: BattleDeps) {
     this.unsubscribe = onBattleSignal((sig) => this.onSignal(sig));
@@ -1600,16 +1614,32 @@ export class BattleManager {
    *  battler already stamped with it (`handleCorrelate`) — recording its
    *  species/label in `retiredTaskInfo` first, so a later RESUME can
    *  re-materialize the same pokemon. Falls back to queuing the OLDEST
-   *  currently-roaming subagent for the parent — the same "no real
-   *  correlation, do something reasonable" position the regex-fallback path
-   *  (`endAll`) is already in — only when no battler was ever stamped with
-   *  `taskId` (correlation raced ahead of this notification, or this battler
-   *  predates the fix), or when no `taskId` is available at all (shouldn't
-   *  happen for this signal's one real caller today, but kept honest for any
-   *  future caller). Bypasses `MIN_ROAM_MS` either way — this signal names
-   *  one specific subagent's real completion, not a coarse per-turn proxy,
-   *  so there's nothing to guard against. */
+   *  currently-roaming, NEVER-YET-STAMPED subagent for the parent — the same
+   *  "no real correlation, do something reasonable" position the
+   *  regex-fallback path (`endAll`) is already in — only when no battler was
+   *  ever stamped with `taskId` (correlation raced ahead of this
+   *  notification, or this battler predates the fix), or when no `taskId` is
+   *  available at all. Mis-recall fix (cross-manager): the fallback pool
+   *  excludes any sub already stamped with its OWN (different, real) taskId
+   *  — an unrecognized `taskId` here is never grounds to grab an already-
+   *  identified sub — and `foreignTaskIds` is checked FIRST, before even the
+   *  stamped-match lookup, so a `taskId` `handleCorrelate` has already
+   *  confirmed belongs to some other domain entirely (an advisor consult) is
+   *  a guaranteed no-op instead of ever reaching this fallback (see that
+   *  set's own doc comment for why the fallback-narrowing alone isn't
+   *  sufficient to close the race). Bypasses `MIN_ROAM_MS` either way — this
+   *  signal names one specific subagent's real completion, not a coarse
+   *  per-turn proxy, so there's nothing to guard against. */
   private handleEnd(parentId: string, taskId?: string): void {
+    if (taskId && this.foreignTaskIds.has(taskId)) {
+      // Confirmed foreign by a prior `handleCorrelate` miss (an advisor
+      // consult's completion, or any other non-battle dispatch) — no-op
+      // immediately, and forget it right away so this set never grows past
+      // the single window it exists to cover. See `foreignTaskIds`'s own doc
+      // comment above the field.
+      this.foreignTaskIds.delete(taskId);
+      return;
+    }
     const pb = this.battles.get(parentId);
     if (!pb) return;
     if (taskId) {
@@ -1623,6 +1653,7 @@ export class BattleManager {
     let oldest: SubBattler | null = null;
     for (const sub of pb.subs) {
       if (sub.lifecycle !== 'roaming') continue;
+      if (sub.taskId !== null) continue; // already stamped with its OWN taskId — never a fallback target
       if (!oldest || sub.roamingSince < oldest.roamingSince) oldest = sub;
     }
     if (oldest) {
@@ -1641,7 +1672,9 @@ export class BattleManager {
 
   /** Battler ↔ task-id correlation (2026-08-29 fix) — see battleBus.ts's
    *  'correlate' signal and taskNotificationWatcher.ts's `battle:
-   *  taskCorrelated` for where the pair comes from. Two outcomes:
+   *  taskCorrelated` for where the pair comes from. Two battle-domain
+   *  outcomes, plus a third "not ours" exit (mis-recall fix, see
+   *  `foreignTaskIds`'s own doc comment):
    *   1. ORDINARY: the dispatch that owns `toolUseId` already spawned a
    *      battler (`handleSpawn`) and is just waiting to be told its
    *      CLI-internal task-id — stamp it, so `handleEnd` can retire it
@@ -1668,6 +1701,18 @@ export class BattleManager {
    *      `notified` un-guard is independent of this), it just falls through
    *      `handleEnd` to the oldest-roaming fallback instead of a proper
    *      respawn — a real but strictly narrower version of the original bug.
+   *   3. NOT OURS: neither of the above, AND `retiredTaskInfo` has never
+   *      heard of `taskId` either — this `toolUseId`/`taskId` pair simply
+   *      isn't a battle-system concern at all (an advisor consult's own
+   *      correlate, or any other non-battle dispatch reaching this bus).
+   *      Recorded in `foreignTaskIds` before returning, so this manager's own
+   *      `handleEnd` short-circuits on it rather than treating it as "no real
+   *      correlation, fall back to oldest roaming" — see that field's doc
+   *      comment. NOT the same as the `!species`/`!rt` failures a few lines
+   *      below the `info` lookup: those only trigger once `info` WAS found,
+   *      meaning the taskId was already confirmed to belong to this
+   *      manager's own domain — a broken resume, not a foreign taskId, so
+   *      those paths correctly leave `foreignTaskIds` untouched.
    *  NOTE: `pb` may not exist here — a resume can arrive after the original
    *  battler's completion battle concluded and this parent's `ParentBattle`
    *  was reaped from `this.battles` entirely (`update`'s `finishedParents`
@@ -1706,7 +1751,22 @@ export class BattleManager {
     }
 
     const info = this.retiredTaskInfo.get(taskId);
-    if (!info) return; // never seen this task-id before — nothing to resume from
+    if (!info) {
+      // Never seen this task-id before — not a live stampable battler, not a
+      // valid resume candidate, and no memory of it ever belonging to this
+      // manager's domain at all. This is the genuine "not ours" case (an
+      // advisor consult's taskId, or any other non-battle dispatch, reaching
+      // the battle bus) — mis-recall fix: remember it as foreign so this
+      // manager's own `handleEnd` can short-circuit on it instead of ever
+      // falling back to "oldest roaming sub" for it (see `foreignTaskIds`'s
+      // own doc comment). NOT reached by the `!species`/`!rt` failures below
+      // — those only happen once `info` IS found, meaning this taskId was
+      // already confirmed to belong to this manager's own domain at some
+      // earlier point; a resume failing there is a broken resume, not a
+      // foreign taskId, so it must not be marked foreign.
+      this.foreignTaskIds.add(taskId);
+      return;
+    }
     const species = DEX_LIST.find((e) => e.id === info.species && e.hasSprite);
     if (!species) return;
     const rt = this.deps.getRuntime(parentId);
