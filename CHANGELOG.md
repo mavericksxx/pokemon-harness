@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+## v1.14.0 — 2026-09-04
+
 - **your own pokemon now faces you during a completion battle, mega evolution included** — it used to stand at the bottom-left of the pair showing its BACK sprite (mirroring mainline Pokémon games' "your own party shows its back" convention), which meant a mega evolution reveal — something that only ever happens to your own pokemon — played out facing away from the camera. Flipped which corner shows which sheet, with zero new mirroring math: the parent now shows its native, unmirrored FRONT sheet, and the challenger shows its BACK sheet where the species has one (falling back to a mirrored front sheet where it doesn't, so it still faces roughly the right way). Claude Sonnet subagent (architecture advisor-reviewed beforehand, and again by the implementer before reporting done — caught two real teardown-path gaps where a delegate's or a retired battler's walker could get stuck facing away from the camera forever), reviewed/merged by the orchestrator
 
 ## v1.13.0 — 2026-09-04
