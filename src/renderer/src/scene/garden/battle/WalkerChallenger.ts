@@ -88,6 +88,16 @@ export class WalkerChallenger implements Challenger {
     return false;
   }
 
+  /** Same reasoning as `isPoofedOut` above — this adapter's `startPoofOut`
+   *  is a no-op, so there is never a scale tween in flight to report. The
+   *  walker's own idle/movement animation is self-marking dirty already
+   *  (GardenScene's ticker calls `walker.update(dt)` unconditionally, every
+   *  frame, independent of this manager — see WalkerSprite.ts), so nothing
+   *  is lost by this always reading false for `hasActiveBattles`'s poll. */
+  get isPoofingOut(): boolean {
+    return false;
+  }
+
   /** Arrival by TILE COMPARISON rather than by peeking at `Walker`'s private
    *  path state — the same test `updateApproaching` already uses for the
    *  PARENT walker's own arrival (`parentArrived`), so both halves of a

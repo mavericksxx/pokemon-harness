@@ -1575,18 +1575,23 @@ export function GardenScene(): JSX.Element {
         const battleOrFxWasActive = battleManager.hasActiveBattles() || hasActiveFx();
         try {
           battleManager.update(dt);
-          // A battle's own choreography (approach/faceoff/attack loop,
-          // roaming subagents, poof in/out) has no single property worth
-          // instrumenting piecemeal the way WalkerSprite/Camera do —
-          // `this.battles` only ever holds a parent with a live wave or live
-          // subs (task's own item (d): "fine to mark dirty whenever any
-          // battle is non-idle"), so this one blanket flag covers Battler
-          // movement/lunges/poofs and battleFx's move-text too. battleFx.ts
-          // effects (sparkle bursts, shiny reveals, pokéball recalls, ...)
-          // aren't all tied to a live battle — a "change pokemon" swap or a
-          // done delegate's recall fires one with no ParentBattle involved
-          // at all — hence the separate `hasActiveFx()` check above, not
-          // folded into `hasActiveBattles()`.
+          // A live wave's own choreography (alert/approach/faceoff/attack
+          // loop — lunges, shakes, mega, tint-during-battle) has no single
+          // property worth instrumenting piecemeal the way WalkerSprite/
+          // Camera do, so `hasActiveBattles()` keeps ONE blanket flag for
+          // that whole phase, polled here every tick it's non-idle (see that
+          // method's own doc comment). Issue #7 (dirty-flag predicate):
+          // that flag no longer covers a battler that's merely roaming and
+          // settled — its own idle-loop frame stepping and wander-walk bob
+          // already self-mark dirty via WalkerSprite, the same mechanism a
+          // stationary Walker uses, so an idle garden with only roaming
+          // subagents in it now correctly downshifts to the heartbeat below
+          // instead of staying pinned to full rate forever. battleFx.ts
+          // effects (sparkle bursts, shiny reveals, pokéball recalls, move
+          // text, ...) aren't all tied to a live battle either — a "change
+          // pokemon" swap or a done delegate's recall fires one with no
+          // ParentBattle involved at all — hence the separate `hasActiveFx()`
+          // check above, not folded into `hasActiveBattles()`.
           if (battleOrFxWasActive) markDirty();
         } catch (e) {
           // BattleManager.update() now isolates each parent's own battle in

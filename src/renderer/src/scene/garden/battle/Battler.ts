@@ -135,6 +135,19 @@ export class Battler {
     return this.poofPhase === 'gone';
   }
 
+  /** True only WHILE the poof-out scale tween is actively running — between
+   *  `startPoofOut()` and `isPoofedOut` going true — as opposed to
+   *  `isPoofedOut`, which flips true only once that tween has FINISHED.
+   *  Dirty-flag rendering (renderDirty.ts): `BattleManager.hasActiveBattles`
+   *  polls this (alongside `isSpawning`) once a tick, since both poof
+   *  directions animate `this.container.scale` directly in `update()` below
+   *  — a change `WalkerSprite`'s own per-frame `markDirty()` calls (bob,
+   *  texture step) don't cover, since those only ever touch the sprite's own
+   *  body/shadow, not this outer container. */
+  get isPoofingOut(): boolean {
+    return this.poofPhase === 'out';
+  }
+
   /** True once the poof-in finished and any queued path has been walked. */
   get arrived(): boolean {
     return this.poofPhase === 'live' && this.path.length === 0 && !this.moving;
