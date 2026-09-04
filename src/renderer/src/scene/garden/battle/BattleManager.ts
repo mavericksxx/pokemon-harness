@@ -283,6 +283,7 @@ import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime }
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
+import { markDirty } from '../renderDirty';
 
 /** Opaque, hue-neutral off-duty cue for battlers that have retired. */
 const RETIRED_TINT = 0xc8c8c8;
@@ -457,6 +458,11 @@ export interface Challenger {
   readonly drawnHeight: number;
   readonly isSpawning: boolean;
   readonly isPoofedOut: boolean;
+  /** Issue #7 (dirty-flag predicate) — true only WHILE a poof-out scale
+   *  tween is actively running, as opposed to `isPoofedOut` (true only once
+   *  it's finished). See `Battler.isPoofingOut`'s own comment for why this
+   *  needs to exist alongside `isPoofedOut` at all. */
+  readonly isPoofingOut: boolean;
   readonly arrived: boolean;
   goTo(tile: { x: number; y: number }): boolean;
   update(dt: number): void;
@@ -785,17 +791,58 @@ export class BattleManager {
     return false;
   }
 
-  /** True while ANY parent has a live `ParentBattle` entry — a wave in
-   *  progress, or subagents merely roaming/queued/retired. Dirty-flag
-   *  rendering (renderDirty.ts, GardenScene.tsx's ticker): rather than
-   *  instrumenting every individual Battler movement/lunge/poof and battleFx
-   *  effect, this one blanket flag is deliberately coarse — `this.battles`
-   *  only ever holds a parent with something actually live (see
-   *  `updateOneBattle`'s own `finishedParents` cleanup), so "any entry
-   *  exists" already means "something in this subsystem could be moving
-   *  this frame." */
+  /** Dirty-flag rendering predicate (renderDirty.ts, GardenScene.tsx's
+   *  ticker) — true only while something in this subsystem is ACTUALLY
+   *  changing on screen this tick, not merely while a `ParentBattle` entry
+   *  exists.
+   *
+   *  ISSUE #7 FIX: the old body was just `this.battles.size > 0` — ANY live
+   *  subagent, including one sitting `'roaming'` and stationary between
+   *  wander destinations, pinned the garden to full-rate rendering forever,
+   *  defeating Phase F's idle-heartbeat downshift for the (common) case of a
+   *  garden with only roaming subagents in it. `this.battles` still holds an
+   *  entry for exactly that sub — this predicate now looks INSIDE each entry
+   *  rather than just checking the map is non-empty.
+   *
+   *  A parent counts as active when EITHER:
+   *   - `pb.wave !== 'idle'` — an actual completion skirmish is
+   *     choreographing (the alert bubble's pop, the approach walk, face-off,
+   *     every attack's lunge/shake/mega/tint-during-battle, the ending
+   *     beat). Kept as ONE coarse flag for this whole phase, deliberately —
+   *     same reasoning this method's prior comment gave, just narrowed to
+   *     the phase it actually describes: a wave has no single property worth
+   *     instrumenting piecemeal the way WalkerSprite/Camera do, and
+   *     `pb.wave` reads non-idle for the wave's ENTIRE duration, so polling
+   *     it once a tick is exactly as accurate as instrumenting every lunge/
+   *     mega/tint call site individually would be. This is the same "one
+   *     clear flag, polled every frame it's true" idiom `DayNightOverlay.
+   *     isAnimating` already uses one call site down in this same ticker.
+   *   - any of its subs is mid-poof (`isSpawning`/`isPoofingOut`) — a
+   *     container-scale tween that happens OUTSIDE any wave too (a fresh
+   *     spawn while merely roaming, or `handleEndAll`'s coarse poof-out
+   *     cleanup) and isn't covered by WalkerSprite's own per-frame marks
+   *     (those cover the sprite's own bob/texture, not the battler's outer
+   *     container `Battler.update` scales directly).
+   *
+   *  Deliberately EXCLUDES a sub that is merely `'roaming'`/`'retired'` and
+   *  settled (not poofing): its own idle-loop frame stepping and wander-walk
+   *  bob already self-mark dirty via `WalkerSprite` (`Battler` reuses it
+   *  exactly like `Walker` does — see that class's own `onFrameChange`/
+   *  `applyTransform` comments), so there is nothing left for this coarse
+   *  flag to cover for that sub — it downshifts to the idle heartbeat
+   *  correctly on its own. The one place a settled sub still has a genuine
+   *  one-shot visual change this predicate structurally can't see (a
+   *  container `.tint` flip, which touches neither the wave nor a poof)
+   *  calls `markDirty()` directly at its own point of mutation instead — see
+   *  `retireSub`/`reviveRetired`. */
   hasActiveBattles(): boolean {
-    return this.battles.size > 0;
+    for (const pb of this.battles.values()) {
+      if (pb.wave !== 'idle') return true;
+      for (const sub of pb.subs) {
+        if (sub.battler.isSpawning || sub.battler.isPoofingOut) return true;
+      }
+    }
+    return false;
   }
 
   /** World position of a live battler's sprite, by its store key (the same
@@ -874,6 +921,16 @@ export class BattleManager {
       sub.battler.container.visible = visible;
       sub.battler.bubbleContainer.visible = visible;
     }
+    // Issue #7 (dirty-flag predicate) — this is called from GardenScene's
+    // `applyState` reconcile (a zustand store subscription firing on a
+    // workspace switch), entirely OUTSIDE the render ticker's own per-tick
+    // call chain, so — same reasoning as `reviveRetired`'s tint flip above —
+    // there's no guarantee `hasActiveBattles()`'s next pre-tick poll would
+    // otherwise see this toggle for a parent whose subs are merely idle-
+    // roaming (wave idle, nothing mid-poof). A no-op when `pb.subs` is
+    // empty, which is harmless — cheap and idempotent, like every other
+    // `markDirty()` call site.
+    markDirty();
   }
 
   /** Call when a parent session's own walker is torn down (session ended)
@@ -2511,6 +2568,17 @@ export class BattleManager {
     // showing.
     if (this.isDelegateSub(sub)) return;
     sub.battler.container.tint = RETIRED_TINT;
+    // Issue #7 (dirty-flag predicate) — belt-and-braces, not strictly load-
+    // bearing here: `clearBattleStance()` a few lines up already calls
+    // `sprite.setFacing()` -> `applyTransform()` -> `markDirty()`
+    // unconditionally for every sub (delegate included), so this exact tint
+    // write already lands in an already-dirtied tick. Kept anyway (cheap,
+    // idempotent) as the same self-marking-at-the-point-of-mutation
+    // convention WalkerSprite/Camera use, so a raw `.tint` write here is
+    // never silently relying on an upstream call staying unconditional —
+    // see `reviveRetired`'s twin, where the equivalent call really is the
+    // only thing marking dirty.
+    markDirty();
     sub.wanderTimer = 0;
     sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
     sub.battler.goTo(sub.wanderHome);
@@ -2530,6 +2598,16 @@ export class BattleManager {
   private reviveRetired(sub: SubBattler): void {
     sub.lifecycle = 'roaming';
     sub.battler.container.tint = 0xffffff;
+    // Issue #7 (dirty-flag predicate) — this is reached from `onSignal`
+    // (a `correlate` battle signal), entirely OUTSIDE the render ticker's
+    // own per-tick call chain, at whatever real-world moment the CLI's
+    // task-notification correlation actually arrives — so unlike
+    // `retireSub`'s tint flip (always reached from inside the same tick a
+    // pre-tick `hasActiveBattles()` read already caught, since the wave was
+    // non-idle a moment earlier), there is no guarantee any other dirty
+    // source fires this same frame. Same self-marking-at-the-point-of-
+    // mutation convention as WalkerSprite/Camera.
+    markDirty();
     const bubbleTiming = roamingBubbleTiming(sub.key);
     sub.roamLabelElapsedMs = bubbleTiming.elapsedMs;
     sub.roamLabelCycleMs = bubbleTiming.cycleMs;
