@@ -1550,6 +1550,21 @@ handle('app:forceQuit', () => {
   app.quit();
 });
 
+// "clear & quit" — the quit dialog's most destructive action: quits AND
+// wipes the session registry so the next launch opens to a genuinely empty
+// garden (nothing resumes, nothing respawns). Kill ptys BEFORE flushEmpty —
+// same ordering concern as sessionPersistence.ts's flush() doc comment, but
+// reversed: an exit handler firing during killAll re-checkpoints a
+// non-empty registry, so that must happen before the empty write, not
+// after. `before-quit`'s own `sessionPersistence.flush()` then no-ops
+// safely since `pending` is already null.
+handle('app:wipeGardenAndQuit', () => {
+  quitConfirmed = true;
+  ptyManager.killAll();
+  sessionPersistence.flushEmpty();
+  app.quit();
+});
+
 // ─── Dialog ─────────────────────────────────────────────────────────────────
 handle('dialog:chooseFolder', async () => {
   const win = mainWindow;

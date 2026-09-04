@@ -1855,6 +1855,15 @@ body.garden-lowres .garden canvas {
   text-wrap: balance;
 }
 
+/* "clear & quit" — filled danger, distinct from the outlined `.danger` used
+ * by "kill it & quit", so the strictly-more-destructive action (unlike the
+ * other three, unrecoverable — no --resume) reads as such at a glance. */
+.quit-dialog-wipe {
+  background: var(--danger);
+  border-color: var(--danger-border);
+  color: var(--danger-border);
+}
+
 .error {
   color: var(--danger);
   margin: 0;

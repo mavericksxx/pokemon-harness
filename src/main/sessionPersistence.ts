@@ -74,6 +74,25 @@ export class SessionPersistence {
     if (!this.pending) return;
     const state = this.pending;
     this.pending = null;
+    this.writeNow(state);
+  }
+
+  /** Force-write an empty registry immediately, discarding any pending
+   *  debounced write. Used by the "clear & quit" flow: unlike `flush()`,
+   *  this must win even if something re-checkpointed a non-empty state
+   *  after the last `schedule()` call — the whole point is that the next
+   *  launch finds nothing to resume. Call AFTER killing all ptys, so no
+   *  exit-handler checkpoint can re-schedule a non-empty write afterward. */
+  flushEmpty(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this.pending = null;
+    this.writeNow(EMPTY);
+  }
+
+  private writeNow(state: PersistedSessions): void {
     try {
       mkdirSync(this.userDataDir, { recursive: true });
       const p = sessionsFilePath(this.userDataDir);
