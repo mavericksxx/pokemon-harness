@@ -2173,7 +2173,28 @@ body.garden-lowres .garden canvas {
  * pointerdown outside-click dismissal, right-anchored panel, `--shadow-hard`,
  * `no-drag` since the topbar itself is a drag region). The trigger's unread
  * dot follows `.status::before`'s own colored-dot convention rather than a
- * numeric badge (this codebase has no numeric-badge precedent). */
+ * numeric badge (this codebase has no numeric-badge precedent).
+ *
+ * The panel is `no-drag` in its own right, not just via its `.notification-
+ * bell` wrapper: the wrapper's no-drag carve-out only covers the small
+ * trigger button's own layout box (an absolutely-positioned child doesn't
+ * enlarge its static parent's box), so the dropdown — which opens just below
+ * that button, still inside `.topbar`'s draggable strip for its first few
+ * pixels — would otherwise have its top edge sitting in a live window-drag
+ * zone. That's exactly where the row-list's scrollbar thumb starts when the
+ * popover is freshly opened (scrollTop 0), which is what made the scrollbar
+ * read as "broken" — the first click-drag on the thumb dragged the window
+ * instead of scrolling.
+ *
+ * The scrollable region is `.notification-bell-list`, not the panel itself:
+ * the panel is a fixed-size (`max-height`) column flexbox holding a
+ * non-scrolling `.notification-bell-header` (the "clear all" button) above
+ * it, so only the row list scrolls while the header stays put. `overflow:
+ * hidden` on the panel plus `min-height: 0` on the list is the standard fix
+ * for the classic flex-column scroll trap: without `min-height: 0`, a flex
+ * item defaults to a minimum size based on its content (min-height: auto),
+ * which lets it grow past the panel's `max-height` instead of shrinking to
+ * make room for its own `overflow-y: auto` to engage. */
 .notification-bell {
   position: relative;
   -webkit-app-region: no-drag;
@@ -2197,7 +2218,7 @@ body.garden-lowres .garden canvas {
   width: 300px;
   max-width: 90vw;
   max-height: 70vh;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2206,12 +2227,38 @@ body.garden-lowres .garden canvas {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-hard);
+  -webkit-app-region: no-drag;
 }
 
 .notification-bell-empty {
   color: var(--muted);
   font-size: var(--font-body-sm-size);
   padding: 4px 2px;
+}
+
+.notification-bell-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: none;
+}
+
+.notification-bell-clear {
+  color: var(--accent-text);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.notification-bell-list {
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .notification-bell-row {

@@ -31,6 +31,7 @@ export function NotificationBell(): JSX.Element {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const notifications = useStore((s) => s.notifications);
   const markAllNotificationsRead = useStore((s) => s.markAllNotificationsRead);
+  const clearAllNotifications = useStore((s) => s.clearAllNotifications);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   useEffect(() => {
@@ -82,26 +83,35 @@ export function NotificationBell(): JSX.Element {
           {newestFirst.length === 0 ? (
             <div className="notification-bell-empty">no notifications yet</div>
           ) : (
-            newestFirst.map((n) => (
-              <div key={n.id} className="notification-bell-row">
-                <div className="notification-bell-row-text">{n.text}</div>
-                <div className="notification-bell-row-meta">
-                  <span className="notification-bell-row-time">{formatRelativeTime(n.createdAt, now)}</span>
-                  {n.action && (
-                    <button
-                      type="button"
-                      className="notification-bell-row-action"
-                      onClick={() => {
-                        n.action?.onClick();
-                        setOpen(false);
-                      }}
-                    >
-                      {n.action.label}
-                    </button>
-                  )}
-                </div>
+            <>
+              <div className="notification-bell-header">
+                <button type="button" className="notification-bell-clear" onClick={clearAllNotifications}>
+                  clear all
+                </button>
               </div>
-            ))
+              <div className="notification-bell-list">
+                {newestFirst.map((n) => (
+                  <div key={n.id} className="notification-bell-row">
+                    <div className="notification-bell-row-text">{n.text}</div>
+                    <div className="notification-bell-row-meta">
+                      <span className="notification-bell-row-time">{formatRelativeTime(n.createdAt, now)}</span>
+                      {n.action && (
+                        <button
+                          type="button"
+                          className="notification-bell-row-action"
+                          onClick={() => {
+                            n.action?.onClick();
+                            setOpen(false);
+                          }}
+                        >
+                          {n.action.label}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
