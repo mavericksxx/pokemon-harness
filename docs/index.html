@@ -1,0 +1,439 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pokéharness</title>
+<meta name="description" content="pokéharness turns every claude, codex, or cursor session running on your machine into a walker in a pixel-art garden — spawn one, watch it work, and see what it's doing without staring at a terminal.">
+<meta property="og:title" content="pokéharness">
+<meta property="og:description" content="pokéharness turns every claude, codex, or cursor session running on your machine into a walker in a pixel-art garden.">
+<meta property="og:image" content="https://pokeharness.parthkohale.com/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="favicon.png">
+
+<style>
+  @font-face {
+    font-family: 'Press Start 2P';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('fonts/press-start-2p-latin-400.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('fonts/inter-latin-var.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('fonts/jetbrains-mono-latin-var.woff2') format('woff2');
+  }
+
+  :root {
+    --ground-0: #17171B;
+    --ground-100: #1D1D22;
+    --ground-200: #26262C;
+    --border: #787684;
+    --ink-900: #DEDBD6;
+    --ink-700: #B3B0AC;
+    --ink-500: #96919F;
+    --gold: #E8B740;
+    --on-accent: #1A1320;
+    --coral: #E08C82;
+    --mint: #74C096;
+    --sky: #6FB3C4;
+    --lemon: #CFAA57;
+    --lilac: #A896E3;
+    --peach: #DFA57F;
+    --font-display: 'Press Start 2P', monospace;
+    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { color-scheme: dark; }
+
+  body {
+    margin: 0;
+    background: var(--ground-0);
+    color: var(--ink-900);
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--gold); }
+
+  img { display: block; max-width: 100%; }
+
+  :focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+
+  .wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ── top wordmark ─────────────────────────────────────────────────── */
+  .brand-row {
+    padding: 24px 0 0;
+  }
+  .brand {
+    font-family: var(--font-display);
+    font-size: 10px;
+    color: var(--gold);
+    letter-spacing: 0.02em;
+  }
+
+  /* ── hero ─────────────────────────────────────────────────────────── */
+  .hero {
+    padding: 32px 0 48px;
+  }
+  .hero-text {
+    max-width: 640px;
+  }
+  .hero h1 {
+    font-family: var(--font-ui);
+    font-weight: 700;
+    font-size: clamp(32px, 6vw, 56px);
+    line-height: 1.08;
+    margin: 0 0 20px;
+    color: var(--ink-900);
+  }
+  .hero p.subhead {
+    font-size: 17px;
+    color: var(--ink-700);
+    margin: 0 0 28px;
+    max-width: 560px;
+  }
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .btn {
+    display: inline-block;
+    font-family: var(--font-ui);
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 22px;
+    border-radius: 0;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--gold);
+    color: var(--on-accent);
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--ink-900);
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.4);
+  }
+  .hero-tag {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-500);
+  }
+
+  /* ── demo frame ───────────────────────────────────────────────────── */
+  .demo-shell {
+    padding: 8px 0 8px;
+  }
+  .window-chrome {
+    background: var(--ground-200);
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.2);
+    padding: 8px 10px;
+    display: flex;
+    gap: 7px;
+    align-items: center;
+  }
+  .dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+  }
+  .dot-red { background: #FF5F57; }
+  .dot-yellow { background: #FEBC2E; }
+  .dot-green { background: #28C840; }
+  .demo-frame-body {
+    background: var(--ground-100);
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.2);
+    border-top: none;
+  }
+  .demo-frame-body iframe {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border: 0;
+    display: block;
+  }
+  .demo-caption {
+    font-size: 13px;
+    color: var(--ink-500);
+    margin: 14px 0 0;
+    max-width: 640px;
+  }
+
+  /* ── works with ───────────────────────────────────────────────────── */
+  .works-with {
+    padding: 48px 0 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    color: var(--ink-700);
+    font-size: 15px;
+  }
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-900);
+    background: var(--ground-200);
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.25);
+    padding: 4px 8px;
+  }
+
+  /* ── how it works ─────────────────────────────────────────────────── */
+  .section {
+    padding: 56px 0;
+  }
+  .section h2 {
+    font-family: var(--font-ui);
+    font-weight: 700;
+    font-size: 22px;
+    margin: 0 0 32px;
+    color: var(--ink-900);
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+  }
+  .step-num {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    color: var(--gold);
+    margin-bottom: 10px;
+  }
+  .step h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--ink-900);
+  }
+  .step p {
+    font-size: 14px;
+    color: var(--ink-700);
+    margin: 0 0 14px;
+  }
+  .step img {
+    width: 100%;
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.2);
+  }
+
+  /* ── feature grid ─────────────────────────────────────────────────── */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .feature-card {
+    background: var(--ground-100);
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.2);
+    border-left-width: 3px;
+    border-left-style: solid;
+    overflow: hidden;
+  }
+  .feature-media {
+    aspect-ratio: 16 / 10;
+    background: var(--ground-200);
+    overflow: hidden;
+  }
+  .feature-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .feature-media.solid {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .feature-body {
+    padding: 16px 18px 20px;
+  }
+  .feature-body h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--ink-900);
+  }
+  .feature-body p {
+    font-size: 13.5px;
+    color: var(--ink-700);
+    margin: 0;
+  }
+
+  /* ── footer ───────────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid rgba(120, 118, 132, 0.2);
+    padding: 32px 0 48px;
+  }
+  .footer-links {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+  .disclaimer {
+    font-size: 12px;
+    color: var(--ink-500);
+    line-height: 1.6;
+    max-width: 720px;
+  }
+
+  /* ── responsive ───────────────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .steps { grid-template-columns: 1fr; gap: 40px; }
+    .features { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .features { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 30px; }
+  }
+</style>
+
+<div class="wrap brand-row">
+  <div class="brand">pokéharness</div>
+</div>
+
+<header class="hero wrap">
+  <div class="hero-text">
+    <h1>your coding agents, as pokémon in a garden</h1>
+    <p class="subhead">pokéharness turns every claude, codex, or cursor session running on your machine into a walker in a pixel-art garden — spawn one, watch it work, and see what it's doing without staring at a terminal.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/mavericksxx/pokemon-harness/releases/latest">download for mac</a>
+      <a class="btn btn-secondary" href="https://github.com/mavericksxx/pokemon-harness">browse the source</a>
+    </div>
+    <div class="hero-tag">v1.14.2 · free, local, no accounts, no cloud</div>
+  </div>
+</header>
+
+<div class="wrap demo-shell">
+  <div class="window-chrome">
+    <span class="dot dot-red"></span>
+    <span class="dot dot-yellow"></span>
+    <span class="dot dot-green"></span>
+  </div>
+  <div class="demo-frame-body">
+    <iframe src="./demo.html" title="pokéharness live demo" loading="lazy"></iframe>
+  </div>
+  <p class="demo-caption">click spawn, shiny, or battle inside it — every animation is the same engine running in the real app. nothing here is a recording.</p>
+</div>
+
+<div class="wrap works-with">
+  <span>works with the coding-agent cli you already have</span>
+  <span class="tag">claude</span>
+  <span class="tag">codex</span>
+  <span class="tag">cursor-agent</span>
+</div>
+
+<section class="section wrap">
+  <h2>how it works</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>download and open it</h3>
+      <p>one .zip, drag it to applications. gatekeeper will ask once — right-click, open, open. that's the whole install.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>spawn a session</h3>
+      <p>point it at a project folder and pick a pokémon, or let it pick a random starter. it launches claude, codex, or cursor-agent right there, the same as running it in a terminal.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>watch it work</h3>
+      <p>tool calls show as a speech bubble and a walk to the right spot in the garden. subagents spawn as battles. long sessions evolve. everything you'd see scrolling past in the terminal, you now see from across the room.</p>
+      <img src="screenshots/garden.png" alt="a few walkers roaming the garden, mid tool-call, with speech bubbles above them">
+    </div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <h2>what's in the garden</h2>
+  <div class="features">
+    <div class="feature-card" style="border-left-color: var(--coral)">
+      <div class="feature-media solid" style="background: rgba(224, 140, 130, 0.12)">
+        <img src="screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
+      </div>
+      <div class="feature-body">
+        <h3>shiny pokémon</h3>
+        <p>every session rolls shiny once, 1-in-64, kept for life. a sparkle burst and a star badge — no different from the games.</p>
+      </div>
+    </div>
+    <div class="feature-card" style="border-left-color: var(--mint)">
+      <div class="feature-media">
+        <img src="screenshots/evolution.png" alt="an evolution ceremony mid-flash, the walker's old form as a white silhouette">
+      </div>
+      <div class="feature-body">
+        <h3>evolution</h3>
+        <p>working time adds up. cross a threshold and the walker plays a real evolution ceremony — flash, silhouette, the old/new-form blur — then comes out the other side stronger, sometimes flies.</p>
+      </div>
+    </div>
+    <div class="feature-card" style="border-left-color: var(--sky)">
+      <div class="feature-media">
+        <img src="screenshots/battle.png" alt="two walkers squared up mid-battle, move text overhead">
+      </div>
+      <div class="feature-body">
+        <h3>subagent battles</h3>
+        <p>a task tool call spawns a wild pokémon and a real battle: lunges, hit flashes, move text, up to three at once.</p>
+      </div>
+    </div>
+    <div class="feature-card" style="border-left-color: var(--lemon)">
+      <div class="feature-media solid" style="background: rgba(207, 170, 87, 0.12)">
+        <img src="screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
+      </div>
+      <div class="feature-body">
+        <h3>mega evolution</h3>
+        <p>a handful of species mega-evolve mid-battle with a full ring, vortex, and plume ceremony, then revert when the fight ends.</p>
+      </div>
+    </div>
+    <div class="feature-card" style="border-left-color: var(--lilac)">
+      <div class="feature-media" style="background: #0d0d14; display: flex; align-items: center; justify-content: center;">
+        <img src="screenshots/arceus.png" alt="the arceus roster card, gold-framed with a starfield background" style="max-height: 100%; width: auto;">
+      </div>
+      <div class="feature-body">
+        <h3>arceus</h3>
+        <p>summon a real claude session as arceus — a permanent, gold-framed orchestrator that can hand work to any other session in the garden.</p>
+      </div>
+    </div>
+    <div class="feature-card" style="border-left-color: var(--peach)">
+      <div class="feature-media solid" style="background: rgba(223, 165, 127, 0.12)">
+        <img src="screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
+      </div>
+      <div class="feature-body">
+        <h3>day and night</h3>
+        <p>the garden tracks your actual local clock. lamps flicker on at dusk, the pond catches moonlight, and it fades back at sunrise.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="footer-links">
+    <a href="https://github.com/mavericksxx/pokemon-harness">github repo</a>
+    <a href="https://github.com/mavericksxx/pokemon-harness/releases/latest">download for mac</a>
+  </div>
+  <p class="disclaimer">Pokémon, Pokémon character names, and their designs are trademarks of Nintendo, Game Freak, and Creatures Inc. Sprites shown here are fan-made and used non-commercially; this project is not affiliated with or endorsed by any of them.</p>
+</footer>

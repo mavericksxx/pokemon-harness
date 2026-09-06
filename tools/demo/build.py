@@ -59,4 +59,6 @@ out = tpl.replace('/*__DEMO_DATA__*/', 'const DEMO_DATA = ' + json.dumps(data, s
 out = out.replace('/*__APP_CSS__*/', app_css())
 os.makedirs(f'{ROOT}/demo', exist_ok=True)
 open(f'{ROOT}/demo/index.html', 'w').write(out)
+os.makedirs(f'{ROOT}/docs', exist_ok=True)
+open(f'{ROOT}/docs/demo.html', 'w').write(out)
 print('wrote demo/index.html', len(out) // 1024, 'KB', 'species', len(species))
