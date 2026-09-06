@@ -204,10 +204,9 @@
  * lifecycle, `retired`, instead: `retireSub` walks the sub back to its own
  * `wanderHome` and hands it right back to `updateRoaming` (same idle-wander
  * code roaming already uses — see `updateOneBattle`'s sub loop), so it reads
- * as an ordinary off-duty pokemon rather than one about to vanish, tinted
- * with the opaque, hue-neutral `RETIRED_TINT` as the one cheap, pixel-scale-
- * legible "off duty" cue. It
- * never re-queues (`retired` is excluded from every MIN_ROAM_MS/MAX_ROAM_MS
+ * as an ordinary off-duty pokemon rather than one about to vanish (full
+ * color, matching every other battler — no dulling cue). It never re-queues
+ * (`retired` is excluded from every MIN_ROAM_MS/MAX_ROAM_MS
  * check) and is never reaped by `reapSubs` — it stays in `pb.subs`, and
  * therefore on the roster strip, until a player explicitly despawns it
  * (`despawnBattler`, SubagentRosterCard's own despawn button), which plays a
@@ -284,9 +283,6 @@ import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
 import { markDirty } from '../renderDirty';
-
-/** Opaque, hue-neutral off-duty cue for battlers that have retired. */
-const RETIRED_TINT = 0xc8c8c8;
 
 const LUNGE_MS = 300;
 const HOLD_MS = 280;
@@ -845,10 +841,10 @@ export class BattleManager {
    *  `applyTransform` comments), so there is nothing left for this coarse
    *  flag to cover for that sub — it downshifts to the idle heartbeat
    *  correctly on its own. The one place a settled sub still has a genuine
-   *  one-shot visual change this predicate structurally can't see (a
-   *  container `.tint` flip, which touches neither the wave nor a poof)
-   *  calls `markDirty()` directly at its own point of mutation instead — see
-   *  `retireSub`/`reviveRetired`. */
+   *  one-shot lifecycle change this predicate structurally can't see (the
+   *  roaming/retired transition itself, which touches neither the wave nor a
+   *  poof) calls `markDirty()` directly at its own point of mutation instead
+   *  — see `retireSub`/`reviveRetired`. */
   hasActiveBattles(): boolean {
     for (const pb of this.battles.values()) {
       if (pb.wave !== 'idle') return true;
@@ -938,9 +934,9 @@ export class BattleManager {
     // Issue #7 (dirty-flag predicate) — this is called from GardenScene's
     // `applyState` reconcile (a zustand store subscription firing on a
     // workspace switch), entirely OUTSIDE the render ticker's own per-tick
-    // call chain, so — same reasoning as `reviveRetired`'s tint flip above —
-    // there's no guarantee `hasActiveBattles()`'s next pre-tick poll would
-    // otherwise see this toggle for a parent whose subs are merely idle-
+    // call chain, so — same reasoning as `reviveRetired`'s lifecycle flip
+    // above — there's no guarantee `hasActiveBattles()`'s next pre-tick poll
+    // would otherwise see this toggle for a parent whose subs are merely idle-
     // roaming (wave idle, nothing mid-poof). A no-op when `pb.subs` is
     // empty, which is harmless — cheap and idempotent, like every other
     // `markDirty()` call site.
@@ -1022,7 +1018,6 @@ export class BattleManager {
       });
       this.deps.charLayer.addChild(battler.container);
       this.deps.charLayer.addChild(battler.bubbleContainer);
-      if (entry.done) battler.container.tint = RETIRED_TINT; // same off-duty cue retireSub applies live
       const bubbleTiming = roamingBubbleTiming(entry.key);
       const sub: SubBattler = {
         key: entry.key,
@@ -2591,9 +2586,7 @@ export class BattleManager {
   }
 
   /** Losing a completion battle no longer poofs a sub away for good (user-
-   *  approved change, 2026-08-29) — it goes `'retired'`: tinted with the
-   *  opaque, hue-neutral `RETIRED_TINT` (cheap, subtle, reads as "off duty"
-   *  at pixel scale without a second sprite/tint pass), sent walking back
+   *  approved change, 2026-08-29) — it goes `'retired'`: sent walking back
    *  toward its own
    *  `wanderHome` (best-effort — `goTo` silently no-ops if that's
    *  unreachable from wherever the battle left it, same latitude every
@@ -2608,37 +2601,23 @@ export class BattleManager {
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
     // Battle stance is released for EVERY sub here, delegate included —
-    // unlike the tint/wander/onBattlerDone trio below, leaving a delegate's
+    // unlike the wander/onBattlerDone duo below, leaving a delegate's
     // forced back view in place would freeze its own idle-facing bias logic
     // forever (see Walker.ts's own resting-view guard), stranding a live
     // session's pokemon facing away from the camera indefinitely — not just
     // "until recalled" but for however long the player leaves it be, which
     // defeats the entire point of this facing swap.
     sub.battler.clearBattleStance();
-    // A delegate challenger stops here for everything else. The tint/wander/
-    // onBattlerDone trio below is off-duty presentation for a battler this
-    // manager OWNS, and all three pieces would be wrong for a live session's
-    // walker: the tint would permanently grey a session that's still on the
-    // roster (nothing ever un-tints it — only `reviveRetired`, which a
-    // delegate can't reach), `wanderHome` is an inert placeholder for a sub
-    // that never roamed, and `onBattlerDone` patches a `LiveBattler` key the
-    // store doesn't have. The delegate simply stands where the fight left it
+    // A delegate challenger stops here for everything else. The wander/
+    // onBattlerDone duo below is off-duty presentation for a battler this
+    // manager OWNS, and both pieces would be wrong for a live session's
+    // walker: `wanderHome` is an inert placeholder for a sub that never
+    // roamed, and `onBattlerDone` patches a `LiveBattler` key the store
+    // doesn't have. The delegate simply stands where the fight left it
     // (now facing normally again) until the player recalls it
     // (`dropChallenger`), which is also the state its own card is already
     // showing.
     if (this.isDelegateSub(sub)) return;
-    sub.battler.container.tint = RETIRED_TINT;
-    // Issue #7 (dirty-flag predicate) — belt-and-braces, not strictly load-
-    // bearing here: `clearBattleStance()` a few lines up already calls
-    // `sprite.setFacing()` -> `applyTransform()` -> `markDirty()`
-    // unconditionally for every sub (delegate included), so this exact tint
-    // write already lands in an already-dirtied tick. Kept anyway (cheap,
-    // idempotent) as the same self-marking-at-the-point-of-mutation
-    // convention WalkerSprite/Camera use, so a raw `.tint` write here is
-    // never silently relying on an upstream call staying unconditional —
-    // see `reviveRetired`'s twin, where the equivalent call really is the
-    // only thing marking dirty.
-    markDirty();
     sub.wanderTimer = 0;
     sub.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
     sub.battler.goTo(sub.wanderHome);
@@ -2657,16 +2636,15 @@ export class BattleManager {
    *  `setBattlerDone(key, false)` clears `doneAt`. */
   private reviveRetired(sub: SubBattler): void {
     sub.lifecycle = 'roaming';
-    sub.battler.container.tint = 0xffffff;
     // Issue #7 (dirty-flag predicate) — this is reached from `onSignal`
     // (a `correlate` battle signal), entirely OUTSIDE the render ticker's
     // own per-tick call chain, at whatever real-world moment the CLI's
     // task-notification correlation actually arrives — so unlike
-    // `retireSub`'s tint flip (always reached from inside the same tick a
-    // pre-tick `hasActiveBattles()` read already caught, since the wave was
-    // non-idle a moment earlier), there is no guarantee any other dirty
-    // source fires this same frame. Same self-marking-at-the-point-of-
-    // mutation convention as WalkerSprite/Camera.
+    // `retireSub` (always reached from inside the same tick a pre-tick
+    // `hasActiveBattles()` read already caught, since the wave was non-idle
+    // a moment earlier), there is no guarantee any other dirty source fires
+    // this same frame. Same self-marking-at-the-point-of-mutation
+    // convention as WalkerSprite/Camera.
     markDirty();
     const bubbleTiming = roamingBubbleTiming(sub.key);
     sub.roamLabelElapsedMs = bubbleTiming.elapsedMs;
