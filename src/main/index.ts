@@ -566,6 +566,11 @@ let pendingCrashInfoTimer: ReturnType<typeof setTimeout> | null = null;
  *  only as long as this process — no disk persistence (that's Phase 8.5). */
 let sessionRegistry: SessionRecord[] = [];
 
+// Mirrored from the persisted audio settings once at boot and on every
+// renderer save, so native notifications can respect master mute without
+// reading the settings file on every checkpoint.
+let audioMasterMuted = false;
+
 /** Last checkpointed `selectedId`, mirrored the same way as sessionRegistry
  *  — so restore reselects whatever tab was actually open, not just the first
  *  session. */
@@ -610,7 +615,7 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
       if (workspace) body += ` (${workspace.name})`;
     }
     try {
-      new Notification({ title: 'pokéharness', body }).show();
+      new Notification({ title: 'pokéharness', body, silent: audioMasterMuted }).show();
     } catch {
       /* unsupported/denied on this platform — best-effort, never throw into the IPC handler */
     }
@@ -944,6 +949,7 @@ app.whenReady().then(async () => {
   arceusRelay.start();
   taskNotificationWatcher.start();
   const appSettings = await loadAppSettings();
+  audioMasterMuted = (await loadAudioSettings()).masterMuted;
   activeTheme = appSettings.theme;
   ptyManager.setTerminalAppearance(resolveTerminalAppearance(appSettings.theme));
   keepAwakeEnabled = appSettings.keepAwake;
@@ -1216,7 +1222,10 @@ handle(
 // settings JSON (see audioSettings.ts — no other persistence precedent
 // existed in this app to follow instead).
 handle('audio:getSettings', () => loadAudioSettings());
-handle('audio:saveSettings', (_e, settings: AudioSettings) => saveAudioSettings(settings));
+handle('audio:saveSettings', async (_e, settings: AudioSettings) => {
+  audioMasterMuted = settings.masterMuted;
+  await saveAudioSettings(settings);
+});
 // `id` is any mini-player catalog id (musicCatalog.ts), not just the 9
 // original curated MusicTrackIds — see musicCache.ts's header.
 handle('audio:ensureTrack', (_e, id: string) => ensureMusicTrack(id));
