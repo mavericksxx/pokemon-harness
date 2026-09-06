@@ -91,7 +91,11 @@ import pkg from '../../../package.json';
 
   /* ── top wordmark ─────────────────────────────────────────────────── */
   .brand-row {
-    padding: 24px 0 0;
+    /* padding-block (not the "padding" shorthand) so it layers on top of
+       .wrap's own padding-inline instead of zeroing it out — every section
+       below that only needs to override vertical spacing follows the same
+       pattern, to keep .wrap's 24px side gutters intact at every width. */
+    padding-block: 24px 0;
   }
   .brand {
     font-family: var(--font-display);
@@ -103,7 +107,7 @@ import pkg from '../../../package.json';
   /* ── hero ─────────────────────────────────────────────────────────── */
   .hero {
     position: relative;
-    padding: 56px 0 44px;
+    padding-block: 56px 44px;
     overflow: hidden;
   }
   .hero::before {
@@ -235,6 +239,14 @@ import pkg from '../../../package.json';
     border: 0;
     display: block;
   }
+  /* .demo-shell (frozen) sets padding-block only, on purpose — its own
+     frame chrome bleeds edge to edge. These are its non-frame children, so
+     they get the standard 24px side gutter back explicitly. */
+  .demo-shell > .eyebrow,
+  .demo-intro,
+  .demo-below {
+    padding-inline: 24px;
+  }
   .demo-intro {
     font-size: 14px;
     color: var(--ink-700);
@@ -268,57 +280,13 @@ import pkg from '../../../package.json';
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 10px;
   }
-  .demo-chip {
-    display: block;
-    width: 100%;
-    text-align: left;
-    font-family: var(--font-ui);
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ink-900);
-    background: var(--ground-200);
-    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.3);
-    border: none;
-    padding: 14px;
-    min-height: 48px;
-    cursor: pointer;
-    transition: box-shadow 120ms ease, background 120ms ease, transform 80ms ease;
-  }
-  .demo-chip:hover:not(:disabled) {
-    box-shadow: inset 0 0 0 1px var(--gold);
-  }
-  .demo-chip:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-  .demo-chip:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .demo-chip.is-playing {
-    background: var(--gold);
-    color: var(--on-accent);
-    box-shadow: none;
-  }
-  .demo-more-grid .demo-chip {
-    font-size: 13px;
-    min-height: 42px;
-    padding: 10px 12px;
-  }
-  .demo-loading {
-    grid-column: 1 / -1;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--ink-500);
-    margin: 0;
-    padding: 14px 0;
-  }
   .demo-caption {
     font-size: 14px;
     line-height: 1.5;
     color: var(--ink-700);
     margin: 16px 0 0;
     max-width: 720px;
-    min-height: calc(1.5em * 3);
+    min-height: calc(1.5em * 2);
   }
   .demo-more {
     margin-top: 18px;
@@ -351,13 +319,21 @@ import pkg from '../../../package.json';
   @media (max-width: 700px) {
     .demo-mobile-note { display: block; }
   }
+  /* .demo-caption's min-height tiers below are measured against the
+     longest scene caption (the arceus one) so the reserved space never
+     shifts when captions change but also never sits empty: it wraps to
+     2 lines above ~711px of caption width, 3 lines from ~601-711px, and
+     5 lines at 600px and below (24px side gutters already subtracted). */
+  @media (max-width: 719px) {
+    .demo-caption { min-height: calc(1.5em * 3); }
+  }
   @media (max-width: 600px) {
     .demo-caption { min-height: calc(1.5em * 5); }
   }
 
   /* ── works with ───────────────────────────────────────────────────── */
   .works-with {
-    padding: 40px 0;
+    padding-block: 40px;
     margin-top: 12px;
     border-top: 1px solid rgba(120, 118, 132, 0.2);
     display: flex;
@@ -378,7 +354,7 @@ import pkg from '../../../package.json';
 
   /* ── how it works ─────────────────────────────────────────────────── */
   .section {
-    padding: 64px 0;
+    padding-block: 64px;
   }
   .section h2 {
     font-family: var(--font-ui);
@@ -491,7 +467,7 @@ import pkg from '../../../package.json';
   /* ── footer ───────────────────────────────────────────────────────── */
   footer {
     border-top: 1px solid rgba(120, 118, 132, 0.2);
-    padding: 32px 0 48px;
+    padding-block: 32px 48px;
   }
   .footer-links {
     display: flex;
@@ -520,6 +496,66 @@ import pkg from '../../../package.json';
   @media (max-width: 420px) {
     .demo-tour-grid,
     .demo-more-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<!-- The tour/control buttons below are built at runtime from
+     window.pokeDemo.scenes (see the script further down), so they never
+     receive Astro's scoped data-astro-cid attribute and none of the rules
+     above would ever match them. This block is deliberately global, but
+     every selector is anchored under the static .demo-below class from the
+     template so it can't leak beyond this one section. -->
+<style is:global>
+  .demo-below .demo-chip {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-900);
+    background: var(--ground-200);
+    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.3);
+    border: none;
+    border-left: 3px solid transparent;
+    padding: 14px 16px;
+    min-height: 48px;
+    cursor: pointer;
+    transition: box-shadow 120ms ease, filter 120ms ease, transform 80ms ease, border-color 120ms ease;
+  }
+  .demo-below .demo-chip:hover:not(:disabled),
+  .demo-below .demo-chip:focus-visible {
+    border-left-color: var(--gold);
+    filter: brightness(1.18);
+  }
+  .demo-below .demo-chip:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .demo-below .demo-chip:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .demo-below .demo-chip.is-playing {
+    background: var(--gold);
+    color: var(--on-accent);
+    border-left-color: var(--on-accent);
+    filter: none;
+  }
+  .demo-below .demo-more-grid .demo-chip {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-700);
+    min-height: 40px;
+    padding: 9px 12px;
+    border-left-width: 2px;
+  }
+  .demo-below .demo-loading {
+    grid-column: 1 / -1;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink-500);
+    margin: 0;
+    padding: 14px 0;
   }
 </style>
 </head>
@@ -719,14 +755,14 @@ import pkg from '../../../package.json';
         </div>
       </div>
       <div class="how-text">
-        <div class="how-step-num">01</div>
+        <div class="how-step-num">1</div>
         <h3>download and open it</h3>
         <p>one .zip, drag it to applications. gatekeeper asks once — right-click, open, open. that's the whole install.</p>
       </div>
     </div>
     <div class="how-step">
       <div class="how-text">
-        <div class="how-step-num">02</div>
+        <div class="how-step-num">2</div>
         <h3>spawn a session</h3>
         <p>point it at a project folder and pick a pokémon, or let it pick a random starter. it launches claude, codex, or cursor-agent right there, the same as running it in a terminal.</p>
       </div>
@@ -739,7 +775,7 @@ import pkg from '../../../package.json';
         <img src="/screenshots/battle.png" alt="two walkers squared up mid-battle, move text overhead">
       </div>
       <div class="how-text">
-        <div class="how-step-num">03</div>
+        <div class="how-step-num">3</div>
         <h3>watch it work</h3>
         <p>tool calls show as a speech bubble and a walk to the right spot in the garden. subagents spawn as battles. long sessions evolve. everything you'd see scrolling past in the terminal, you now see from across the room.</p>
       </div>
@@ -768,9 +804,7 @@ import pkg from '../../../package.json';
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--sky)">
-      <div class="feature-media">
-        <img src="/screenshots/battle.png" alt="two walkers squared up mid-battle, move text overhead">
-      </div>
+      <div class="feature-media solid" style="background: rgba(111, 179, 196, 0.14); color: var(--sky)">⚔</div>
       <div class="feature-body">
         <h3>subagent battles</h3>
         <p>a task tool call spawns a wild pokémon and a real battle: lunges, hit flashes, move text, up to three at once.</p>
