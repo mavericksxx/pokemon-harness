@@ -429,7 +429,7 @@ import pkg from '../../../package.json';
     function enable() {
       buttons.spawn.disabled = false; buttons.spawn.textContent = 'spawn';
       buttons.shiny.disabled = false; buttons.shiny.textContent = 'spawn shiny';
-      buttons.battle.disabled = false; buttons.battle.textContent = 'battle';
+      buttons.battle.disabled = false; buttons.battle.textContent = 'subagent battle';
       buttons.showreel.disabled = false; buttons.showreel.textContent = 'run showreel';
     }
 
@@ -452,6 +452,10 @@ import pkg from '../../../package.json';
         buttons.showreel.addEventListener('click', function () { api.showreel(); });
       } else if (tries > 100) {
         clearInterval(poll);
+        buttons.spawn.disabled = true; buttons.spawn.textContent = 'demo unavailable';
+        buttons.shiny.disabled = true; buttons.shiny.textContent = 'demo unavailable';
+        buttons.battle.disabled = true; buttons.battle.textContent = 'demo unavailable';
+        buttons.showreel.disabled = true; buttons.showreel.textContent = 'demo unavailable';
       }
     }, 100);
   })();
