@@ -2962,6 +2962,26 @@ body.garden-lowres .garden canvas {
   height: 15px;
 }
 
+.focus-sidebar-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  width: 100%;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.focus-sidebar-toggle:hover,
+.focus-sidebar-toggle.active {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
 .focus-sidebar-list {
   display: flex;
   flex-direction: column;

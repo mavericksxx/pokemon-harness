@@ -22,10 +22,9 @@ interface Props {
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7), same filter as
  * RosterStrip — Arceus excluded (his one home is the topbar chip).
  *
- * Honors the same GLOBAL `subagentCardsHidden` toggle RosterStrip.tsx's own
- * button flips (store.ts) — no separate toggle control here (there's no
- * natural chrome slot for one), but the filtering has to match so switching
- * between 'garden' and 'terminal' view modes never looks inconsistent.
+ * Honors the same GLOBAL `subagentCardsHidden` toggle as RosterStrip.tsx
+ * (store.ts), with a local control so the terminal view remains self-contained
+ * when it is shown without the garden roster strip.
  */
 export function FocusSidebar({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -34,6 +33,7 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
   const select = useStore((s) => s.select);
   const battlers = useStore((s) => s.battlers);
   const subagentCardsHidden = useStore((s) => s.subagentCardsHidden);
+  const setSubagentCardsHidden = useStore((s) => s.setSubagentCardsHidden);
 
   return (
     <div className="focus-sidebar">
@@ -43,6 +43,16 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
         </button>
         <NewTerminalButton className="focus-sidebar-terminal" />
       </div>
+      <button
+        type="button"
+        className={subagentCardsHidden ? 'focus-sidebar-toggle tip active' : 'focus-sidebar-toggle tip'}
+        onClick={() => setSubagentCardsHidden(!subagentCardsHidden)}
+        aria-pressed={subagentCardsHidden}
+        aria-label={subagentCardsHidden ? 'show subagent cards' : 'hide subagent cards'}
+        data-tip={subagentCardsHidden ? 'show subagents' : 'hide subagents'}
+      >
+        {subagentCardsHidden ? '▸' : '▾'} subagents
+      </button>
       <div className="focus-sidebar-list">
         {sessions.map((s) => {
           const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
