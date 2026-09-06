@@ -177,10 +177,29 @@ import pkg from '../../../package.json';
     background: var(--ground-100);
     box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.2);
     border-top: none;
-  }
-  .demo-frame-body iframe {
-    width: 100%;
+    overflow: hidden;
+    position: relative;
     aspect-ratio: 16 / 10;
+  }
+  /* The demo has its own internal breakpoints tuned for a real desktop app
+     window and breaks down below ~800px of *iframe* width. Rather than let
+     the iframe shrink (which would trigger those internal breakpoints and
+     clip content), we render it at a fixed design width and scale the whole
+     box down visually with a transform — the iframe always sees ~1040px of
+     internal viewport, and the visitor sees it fit whatever space is
+     available. 1040/650 keeps the same 16:10 ratio as the frame itself, so
+     the scale factor is just container-width / 1040. */
+  .demo-frame-scaler {
+    width: 1040px;
+    height: 650px;
+    transform-origin: top left;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  .demo-frame-scaler iframe {
+    width: 1040px;
+    height: 650px;
     border: 0;
     display: block;
   }
@@ -189,6 +208,16 @@ import pkg from '../../../package.json';
     color: var(--ink-500);
     margin: 14px 0 0;
     max-width: 640px;
+  }
+  .demo-mobile-note {
+    display: none;
+    font-size: 13px;
+    color: var(--ink-500);
+    margin: 6px 0 0;
+    max-width: 640px;
+  }
+  @media (max-width: 700px) {
+    .demo-mobile-note { display: block; }
   }
 
   /* ── works with ───────────────────────────────────────────────────── */
@@ -344,11 +373,28 @@ import pkg from '../../../package.json';
     <span class="dot dot-yellow"></span>
     <span class="dot dot-green"></span>
   </div>
-  <div class="demo-frame-body">
-    <iframe src="/demo.html" title="pokéharness live demo" loading="lazy"></iframe>
+  <div class="demo-frame-body" id="demo-frame-body">
+    <div class="demo-frame-scaler" id="demo-frame-scaler">
+      <iframe src="/demo.html" title="pokéharness live demo" loading="lazy"></iframe>
+    </div>
   </div>
   <p class="demo-caption">click spawn, shiny, or battle inside it — every animation is the same engine running in the real app. nothing here is a recording.</p>
+  <p class="demo-mobile-note">best explored with a mouse — the demo above is scaled down to fit, so hover effects and small buttons are easiest on a bigger screen.</p>
 </div>
+<script>
+  (function () {
+    var DESIGN_WIDTH = 1040;
+    var body = document.getElementById('demo-frame-body');
+    var scaler = document.getElementById('demo-frame-scaler');
+    if (!body || !scaler) return;
+    function fit() {
+      var scale = body.clientWidth / DESIGN_WIDTH;
+      scaler.style.transform = 'scale(' + scale + ')';
+    }
+    fit();
+    window.addEventListener('resize', fit);
+  })();
+</script>
 
 <div class="wrap works-with">
   <span>works with the coding-agent cli you already have</span>
