@@ -22,7 +22,6 @@ import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
 import { resetLoopStreak } from './loopDetector';
 import { useStore } from '@/store/store';
-import { isDemoSession } from '@/demo';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
@@ -339,10 +338,6 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     // breaker's other reset trigger besides a different tool+target
     // (Phase 8.5 #3).
     resetLoopStreak(sessionId);
-    // In-app demo mode (demo.ts) — no real pty behind a demo session; typing
-    // into its terminal is a no-op rather than an IPC call to a pty that was
-    // never spawned.
-    if (isDemoSession(sessionId)) return;
     void window.api.writePty(sessionId, data);
   });
 
@@ -486,8 +481,7 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
     if (document.body.classList.contains('is-splitting')) return;
     try {
       e.fit.fit();
-      // In-app demo mode (demo.ts) — no real pty to SIGWINCH.
-      if (!isDemoSession(sessionId)) void window.api.resizePty(sessionId, e.term.cols, e.term.rows);
+      void window.api.resizePty(sessionId, e.term.cols, e.term.rows);
     } catch {
       /* element not laid out yet */
     }
@@ -623,8 +617,7 @@ export function applyTerminalSettings(settings: TerminalSettings): void {
     if (e.resizeObserver) {
       try {
         e.fit.fit();
-        // In-app demo mode (demo.ts) — no real pty to SIGWINCH.
-        if (!isDemoSession(e.id)) void window.api.resizePty(e.id, e.term.cols, e.term.rows);
+        void window.api.resizePty(e.id, e.term.cols, e.term.rows);
       } catch {
         /* element not laid out yet */
       }

@@ -12,8 +12,6 @@ import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { SummonArceusDialog } from '@/components/SummonArceusDialog';
 import { WelcomeDialog } from '@/components/WelcomeDialog';
-import { DemoConsole } from '@/components/DemoConsole';
-import { toggleDemoConsole } from '@/demo';
 import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon, TerminalIcon } from '@/components/icons';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
@@ -126,13 +124,6 @@ export function App(): JSX.Element {
         return;
       }
       if (!(e.metaKey || e.ctrlKey)) return;
-      // In-app demo mode's console popover (DemoConsole.tsx) — plain ⌘D, no
-      // Shift, so it's checked ahead of the Shift-combo branch below.
-      if (!e.shiftKey && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        toggleDemoConsole();
-        return;
-      }
       if (e.shiftKey) {
         if (e.key.toLowerCase() === 'q') {
           e.preventDefault();
@@ -222,7 +213,6 @@ export function App(): JSX.Element {
             scoped to any one garden, so his chip leads the workspace row
             rather than sitting inside it. */}
         <SummonArceusButton />
-        <DemoConsole />
         <WorkspaceSwitcher />
         {!hideTopbarChips && (
           <>

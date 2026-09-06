@@ -506,14 +506,6 @@ body {
   background: var(--status-done);
 }
 
-/* Demo chip (in-app demo mode, DemoConsole.tsx) — same `.summon-arceus`
- * pill, tinted sky instead of the gold accent so it reads as a distinct,
- * lower-stakes affordance next to Arceus's own chip. */
-.summon-arceus.demo-chip {
-  border-color: var(--accent-sky);
-  color: var(--accent-sky);
-}
-
 /* ── Garden picker (garden-picker merge) ─────────────────────────────────────
  * Replaces the old inline garden-chip row (every garden as its own chip,
  * hover-revealed rename/delete on the active one, "+N ▾" overflow trigger for
@@ -4630,59 +4622,5 @@ body.is-splitting .garden canvas {
 }
 
 .quick-settings-all {
-  width: 100%;
-}
-
-/* ── Demo console (in-app demo mode — DemoConsole.tsx) ────────────────────────
- * Same anchored-popover shape as `.quick-settings-panel` above; compact and
- * non-modal so the garden remains interactive while the trigger list is open.
- * Self-contained block, appended at the
- * end of the file same as quick-settings' own. */
-.demo-console {
-  position: relative;
-  -webkit-app-region: no-drag;
-}
-
-.demo-console-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 20;
-  width: 220px;
-  max-width: 90vw;
-  max-height: calc(100vh - 72px);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-hard);
-}
-
-.demo-console-title {
-  margin: 0;
-  font-size: 13px;
-}
-
-.demo-console-hint {
-  margin: -4px 0 0;
-  font-size: 11px;
-}
-
-.demo-console-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.demo-console-grid button {
-  font-size: 11px;
-  padding: 4px 6px;
-}
-
-.demo-console-exit {
   width: 100%;
 }
