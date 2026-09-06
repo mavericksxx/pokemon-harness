@@ -99,11 +99,6 @@ export class GardenCharm {
   private clockS = 0;
   private charmStates = new Map<string, CharmState>();
   private pulses: Pulse[] = [];
-  /** Snapshot of `tick()`'s own `walkers` param, refreshed every call — the
-   *  only thing `forceChatter`/`forceBerry` (in-app demo mode) need beyond
-   *  what `tick()` already tracks, since neither is invoked from within a
-   *  tick itself (demo.ts calls them directly, off a session id alone). */
-  private lastWalkers: ReadonlyMap<string, Walker> = new Map();
 
   constructor(opts: GardenCharmOptions) {
     this.map = opts.map;
@@ -282,11 +277,9 @@ export class GardenCharm {
     return COOLDOWN_MIN_S + Math.random() * (COOLDOWN_MAX_S - COOLDOWN_MIN_S);
   }
 
-  /** Send `walker` off on a berry errand right now — the same steps `tick`'s
-   *  own berry roll takes, factored out so `forceBerry` (in-app demo mode)
-   *  can trigger one on demand without duplicating the bush-pick/goTo/state
-   *  bookkeeping. Returns false (no-op) if every bush is picked bare or the
-   *  chosen bush is unreachable. */
+  /** Send `walker` off on a berry errand right now — `tick`'s own berry roll
+   *  path. Returns false (no-op) if every bush is picked bare or the chosen
+   *  bush is unreachable. */
   private startBerryErrand(sessionId: string, walker: Walker): boolean {
     const candidates = this.bushes.map((b, i) => ({ b, i })).filter(({ b }) => b.berries > 0);
     if (candidates.length === 0) return false;
@@ -335,7 +328,6 @@ export class GardenCharm {
   tick(sessions: readonly CharmSessionLike[], walkers: ReadonlyMap<string, Walker>): void {
     this.clockS += 1;
     this.maybeRegrowBushes();
-    this.lastWalkers = walkers;
 
     const liveIds = new Set(sessions.map((s) => s.id));
     for (const id of [...this.charmStates.keys()]) if (!liveIds.has(id)) this.charmStates.delete(id);
@@ -368,27 +360,6 @@ export class GardenCharm {
         walker.lingerBubble();
       }
     }
-  }
-
-  /** In-app demo mode (`demo.ts`'s `smallTalk` trigger, via `charmBus.ts`) —
-   *  show an idle speech bubble for `sessionId` right now, bypassing the
-   *  normal cooldown/status gating `tick()`'s own roll applies. No-op if the
-   *  session has no live walker (torn down, or genuinely unknown). */
-  forceChatter(sessionId: string): void {
-    const walker = this.lastWalkers.get(sessionId);
-    if (!walker) return;
-    walker.showText(pickIdleLine());
-    walker.lingerBubble();
-  }
-
-  /** In-app demo mode (`demo.ts`'s `berry` trigger, via `charmBus.ts`) — send
-   *  `sessionId`'s walker on a berry errand right now, same bypass as
-   *  `forceChatter` above. No-op if there's no live walker, every bush is
-   *  bare, or the nearest one isn't reachable. */
-  forceBerry(sessionId: string): void {
-    const walker = this.lastWalkers.get(sessionId);
-    if (!walker) return;
-    this.startBerryErrand(sessionId, walker);
   }
 
   destroy(): void {

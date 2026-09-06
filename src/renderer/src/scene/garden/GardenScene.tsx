@@ -23,7 +23,6 @@ import { AdvisorManager } from './battle/AdvisorManager';
 import { GardenCharm } from './gardenCharm';
 import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
-import { onCharmSignal } from './charmBus';
 import { clearBattleFx, hasActiveFx, spawnShinySparkle, spawnSparkleBurst } from './battle/battleFx';
 import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
@@ -1017,15 +1016,6 @@ export function GardenScene(): JSX.Element {
         // the overlay deliberately stays lit until the app actually quits.
       });
 
-      // In-app demo mode (demo.ts's `smallTalk`/`berry` triggers) — same
-      // seam as `offRitual` above, forwarding straight to the GardenCharm
-      // instance this effect already owns (demo.ts has no way to reach it
-      // directly).
-      const offCharm = onCharmSignal((signal) => {
-        if (signal.type === 'chatter') gardenCharm.forceChatter(signal.sessionId);
-        else gardenCharm.forceBerry(signal.sessionId);
-      });
-
       /** Bundled + not-shiny needs no fetch at all; everything else (any
        *  lazy species, OR a shiny pick even of a bundled species — Phase 5
        *  §2) resolves in place once loadLazyAnimation returns. A shiny
@@ -1897,7 +1887,6 @@ export function GardenScene(): JSX.Element {
         unsubscribe();
         unsubscribeWorkspace();
         offRitual();
-        offCharm();
         for (const id of [...runtimes.keys()]) removeWalker(id);
         battleManager.dispose();
         advisorManager.dispose();

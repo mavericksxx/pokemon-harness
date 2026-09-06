@@ -3,7 +3,6 @@ import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useAudioStore } from '@/audio/audioStore';
 import { showUpdateToast } from '@/updateNotifier';
-import { enterDemo, exitDemo, useDemoActive } from '@/demo';
 
 /**
  * Topbar "quick settings" popover — the handful of things worth reaching
@@ -34,7 +33,6 @@ export function QuickSettings(): JSX.Element {
   const setAutoMode = useAppSettingsStore((s) => s.setAutoMode);
   const setKeepAwake = useAppSettingsStore((s) => s.setKeepAwake);
   const setHarnessInstructionsEnabled = useAppSettingsStore((s) => s.setHarnessInstructionsEnabled);
-  const demoActive = useDemoActive();
   const claudeAutoMode = appSettings.autoModeByProvider.claude ?? false;
 
   const audioSettings = useAudioStore((s) => s.settings);
@@ -178,18 +176,6 @@ export function QuickSettings(): JSX.Element {
               <span className="settings-row-hint">
                 the harness&apos;s own instructions, added to each new agent session
               </span>
-            </span>
-          </label>
-
-          <label className="settings-row">
-            <input
-              type="checkbox"
-              checked={demoActive}
-              onChange={(e) => (e.target.checked ? enterDemo() : exitDemo())}
-            />
-            <span className="settings-row-text">
-              <span className="settings-row-label">demo mode</span>
-              <span className="settings-row-hint">mock sessions — nothing is spawned, nothing is saved</span>
             </span>
           </label>
 
