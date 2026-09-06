@@ -4731,13 +4731,18 @@ body.is-splitting .garden canvas {
  * marketing demo is a fixed one-off, not something a visitor configures,
  * saves state in, or adds sessions/gardens to. Brand, the garden-name chip,
  * the view-mode icon cluster, and the usage gauges stay: those visually
- * communicate real product features and are part of the pitch. */
+ * communicate real product features and are part of the pitch. The showreel
+ * banner/hint are hidden too — the outside marketing page narrates its own
+ * tour now (see `window.pokeDemo.scenes`), so the in-frame banner would just
+ * be a second, redundant narrator sitting on top of the garden. */
 .app.is-embed .garden-chip-new,
 .app.is-embed .topbar-new-terminal,
 .app.is-embed #demo-console,
 .app.is-embed #btn-drawer-toggle,
 .app.is-embed #split-collapse,
 .app.is-embed #edge-tab,
+.app.is-embed #reel-banner,
+.app.is-embed #reel-hint,
 .app.is-embed .quick-settings:has(> [aria-label='settings']) {
   display: none;
 }
@@ -5734,10 +5739,12 @@ class Walker {
     this.chromeHidden = h; this.tagEl.style.visibility = h ? 'hidden' : ''; this.badgeEl.style.visibility = h ? 'hidden' : ''; this.starEl.style.visibility = h ? 'hidden' : '';
     this.ringEl.style.display = (!h && this.selected) ? 'block' : 'none'; this.bubble.el.style.visibility = h ? 'hidden' : '';
   }
-  /** Evolution: swap art mid-flash. `forms` for the new species must be preloaded. */
-  evolve(nextSpecies, nextForms, onSwap, onDone) {
+  /** Evolution: swap art mid-flash. `forms` for the new species must be preloaded. `onFlash` (optional)
+   *  fires the instant the white-out starts — the moment scenes actually care about seeing, well before
+   *  the congratulations text and the walk-away that follow in `onDone`. */
+  evolve(nextSpecies, nextForms, onSwap, onDone, onFlash) {
     if (this.ceremony) return false;
-    this.ceremony = new Ceremony(this, nextSpecies, nextForms, () => { this.configure(nextSpecies, nextForms); onSwap && onSwap(); }, () => { this.ceremony = null; onDone && onDone(); });
+    this.ceremony = new Ceremony(this, nextSpecies, nextForms, () => { this.configure(nextSpecies, nextForms); onSwap && onSwap(); }, () => { this.ceremony = null; onDone && onDone(); }, onFlash);
     return true;
   }
   get isEvolving() { return !!this.ceremony; }
@@ -5793,8 +5800,8 @@ const HALT_END = 1000, CROSSFADE_END = 1800, RAY_START = 2500, RAY_END = 2830, S
 const DECAY_STEPS = [212, 175, 142, 109, 79, 49, 23, 0], FLASH_STEPS = [0, 23, 49, 109, 142, 212, 247], DECAY_END = FLASH_HOLD_END + 250 * DECAY_STEPS.length;
 const DURATION_SCALE = 0.6;
 class Ceremony {
-  constructor(w, nextSpecies, nextForms, applySwap, onDone) {
-    this.w = w; this.next = nextSpecies; this.nextForms = nextForms; this.applySwap = applySwap; this.onDone = onDone; this.v = 0; this.done = false;
+  constructor(w, nextSpecies, nextForms, applySwap, onDone, onFlash) {
+    this.w = w; this.next = nextSpecies; this.nextForms = nextForms; this.applySwap = applySwap; this.onDone = onDone; this.onFlash = onFlash; this.v = 0; this.done = false;
     w.path = []; w.walking = false; w.wandering = false; w.setBackView(false); w.setChromeHidden(true); w.hideBubble();
     el('dim').style.display = 'block'; el('flash').style.display = 'block'; el('flash').style.opacity = 0;
     const mk = (forms) => { const im = document.createElement('img'); im.className = 'sil'; const s = spriteScale(forms.front.h); im.src = forms.front.url; im.style.width = forms.front.w * s + 'px'; im.style.height = forms.front.h * s + 'px'; im.style.left = -forms.front.w * s / 2 + 'px'; im.style.top = -forms.front.h * s + 'px'; im.style.transform = w.facing === 'left' ? 'none' : 'scaleX(-1)'; im.style.opacity = 0; w.bodyEl.appendChild(im); return im; };
@@ -5812,7 +5819,7 @@ class Ceremony {
     else if (v < STATIC_END) { w.img.style.opacity = 0; this.oldSil.style.opacity = 1; if (!this.rays && v >= RAY_START) this.rays = Array.from({ length: 8 }, (_, i) => ({ a: -Math.PI / 2 + (i / 7 - .5) * Math.PI * .8, len: w.drawnW * (.35 + Math.random() * .25) })); }
     else if (v < OSC_END) this.oscillate(dt);
     else if (v < LOCK_END) { this.showForm('new'); this.setBlobScale(1); }
-    else if (v < FLASH_END) { if (!this.flashStarted) { this.flashStarted = true; el('dim').style.display = 'none'; } const t = (v - LOCK_END) / (FLASH_END - LOCK_END); el('flash').style.opacity = FLASH_STEPS[Math.min(6, Math.floor(t * 6 + 1e-6))] / 255; }
+    else if (v < FLASH_END) { if (!this.flashStarted) { this.flashStarted = true; el('dim').style.display = 'none'; this.onFlash && this.onFlash(); } const t = (v - LOCK_END) / (FLASH_END - LOCK_END); el('flash').style.opacity = FLASH_STEPS[Math.min(6, Math.floor(t * 6 + 1e-6))] / 255; }
     else if (v < FLASH_HOLD_END) { el('flash').style.opacity = 247 / 255; if (!this.raining) { this.raining = true; for (const b of this.bubbles) { b.rain = { x: (Math.random() - .5) * w.drawnW, y: -w.drawnH - Math.random() * 30, vy: 60 + Math.random() * 40 }; b.alpha = .9; } } }
     else if (v < DECAY_END) {
       const i = Math.min(7, Math.floor((v - FLASH_HOLD_END) / 250)); el('flash').style.opacity = DECAY_STEPS[i] / 255;
@@ -5852,13 +5859,15 @@ class Ceremony {
 // ───────────────────────────── battles (BattleManager.ts choreography) ─────────────────────────────
 const LUNGE_MS = 150, HOLD_MS = 150, RETURN_MS = 180, ATTACK_MS = LUNGE_MS + HOLD_MS + RETURN_MS, LUNGE_FRACTION = .28, SHAKE_MS = 180, FACEOFF_MS = 550, ENDING_MS = 550;
 const battles = [];
-/** One battle between `p` (parent/session, back view) and `c` (challenger, front view). Resolves when the wave is over. */
-function runBattle(p, c, { rounds = 4, tools = ['Read', 'Grep', 'Edit', 'Bash'], challengerTools = ['Task', 'Read', 'Bash'], onAttack, onEnd } = {}) {
+/** One battle between `p` (parent/session, back view) and `c` (challenger, front view). Resolves when
+ *  the wave is over; `onFaceoff` (optional) fires earlier, the instant both combatants square up —
+ *  the beat tour scenes actually want to resolve on, well before four rounds have played out. */
+function runBattle(p, c, { rounds = 4, tools = ['Read', 'Grep', 'Edit', 'Bash'], challengerTools = ['Task', 'Read', 'Bash'], onAttack, onEnd, onFaceoff } = {}) {
   return new Promise((resolve) => {
     p.stayPut(); c.stayPut(); p.locked = true; c.locked = true; p.wandering = false; c.wandering = false;
     const gap = Math.max(2, Math.ceil((p.drawnW / 2 + c.drawnW / 2) / TILE) + 1);
     const anchor = findMeetingAnchor(p, c, gap);
-    const b = { p, c, wave: 'alert', t: 0, attacks: 0, attack: null, anchor, gap, rounds, tools, challengerTools, onAttack, onEnd, resolve, offP: { x: 0, y: 0 }, offC: { x: 0, y: 0 }, lastAttackerParent: false, roundRobin: 0, stuck: 0 };
+    const b = { p, c, wave: 'alert', t: 0, attacks: 0, attack: null, anchor, gap, rounds, tools, challengerTools, onAttack, onEnd, onFaceoff, resolve, offP: { x: 0, y: 0 }, offC: { x: 0, y: 0 }, lastAttackerParent: false, roundRobin: 0, stuck: 0 };
     battles.push(b);
     fxExclaim(p, -p.drawnH - 8, () => { b.wave = 'approaching'; b.t = 0; p.goTo(b.anchor.p); c.goTo(b.anchor.c); });
     fxExclaim(c, -c.drawnH - 6);
@@ -5881,7 +5890,7 @@ function updateBattles(dt) {
       if (pa && !p.walking && manhattan(p.tile, b.anchor.p) > 0 && b.t > 1) p.goTo(b.anchor.p);
       if (ca && !c.walking && manhattan(c.tile, b.anchor.c) > 0 && b.t > 1) c.goTo(b.anchor.c);
       const parr = manhattan(p.tile, b.anchor.p) === 0 && pa, carr = manhattan(c.tile, b.anchor.c) === 0 && ca;
-      if ((parr && carr) || b.t > 25) { b.wave = 'faceoff'; b.t = 0; p.stayPut(); c.stayPut(); p.setForcedBackView(true); p.faceDirection(p.px < c.px ? 'right' : 'left'); c.setBackView(false); c.faceDirection(c.px < p.px ? 'right' : 'left'); p.hideBubble(); c.hideBubble(); }
+      if ((parr && carr) || b.t > 25) { b.wave = 'faceoff'; b.t = 0; p.stayPut(); c.stayPut(); p.setForcedBackView(true); p.faceDirection(p.px < c.px ? 'right' : 'left'); c.setBackView(false); c.faceDirection(c.px < p.px ? 'right' : 'left'); p.hideBubble(); c.hideBubble(); b.onFaceoff && b.onFaceoff(); }
     } else if (b.wave === 'faceoff') { b.t += dt * 1000; if (b.t >= FACEOFF_MS) { b.wave = 'looping'; startAttack(b); } }
     else if (b.wave === 'looping') {
       const a = b.attack; a.t += dt * 1000;
@@ -5980,8 +5989,11 @@ function despawn(s) {
   audio.poof();
 }
 
-/** Subagent battler lifecycle: poof-in at a far corner, roam with its task label, task completes → walks to the parent and fights, loses, poofs. */
-async function spawnSubagent(parent, { autoBattleMs = 6000 } = {}) {
+/** Subagent battler lifecycle: poof-in at a far corner, roam with its task label, task completes → walks to
+ *  the parent and fights, loses, poofs. `onFaceoff`/`onMegaFire` (optional) thread straight through to
+ *  `subagentCompletes`/`runBattle` — early-resolve hooks for scenes that only want the "worth seeing"
+ *  beat, not the full multi-round battle tail. */
+async function spawnSubagent(parent, { autoBattleMs = 6000, onFaceoff, onMegaFire } = {}) {
   const pool = [...SPECIES.values()].filter((e) => e.stage === 1 && !STARTER_LINES.includes(e.line) && !store.subs.some((s) => s.species.line === e.line));
   const sp = pick(pool); const shiny = Math.random() < 1 / 64; const forms = await loadForms(sp.id, shiny);
   if (!forms.front) return toast('sprite fetch failed');
@@ -5995,25 +6007,34 @@ async function spawnSubagent(parent, { autoBattleMs = 6000 } = {}) {
   w.beginWander(); w.showText(label); w.lingerBubble();
   sub.pending = true;
   (async () => { while (sub.pending && !w.destroyed) { await sleep(8000); if (sub.pending && !w.destroyed && !isBattling(w)) { w.showText(label); w.lingerBubble(); } } })(); await sleep(autoBattleMs); if (w.destroyed || parent.walker.destroyed) return;
-  await subagentCompletes(sub); return sub;
+  await subagentCompletes(sub, { onFaceoff, onMegaFire }); return sub;
 }
-async function subagentCompletes(sub) {
+async function subagentCompletes(sub, { onFaceoff, onMegaFire } = {}) {
   const parent = sub.parent, w = sub.walker; if (!sub.pending || w.destroyed) return; sub.pending = false;
   term(parent, 'result', `  ⎿  subagent finished: ${sub.label}`); term(parent, 'sys', `pokéharness: completion battle — ${parent.species.name} vs ${sub.species.name}`);
   const before = parent.status; parent.tool = null; setStatus(parent, 'working');
-  if (parent.pendingMega) { parent.pendingMega = false; await megaEvolve(parent); }
-  await runBattle(parent.walker, w, { rounds: 4, tools: ['Read', 'Grep', 'Edit', 'Bash'], challengerTools: ['Task', 'Read', 'Glob'], onAttack: (att, tool, text) => term(parent, att === parent.walker ? 'tool' : 'result', att === parent.walker ? `${tool}(…)  ·  ${text}` : `  ⎿  ${text}`) });
+  if (parent.pendingMega) { parent.pendingMega = false; await megaEvolve(parent); onMegaFire && onMegaFire(); }
+  await runBattle(parent.walker, w, { rounds: 4, tools: ['Read', 'Grep', 'Edit', 'Bash'], challengerTools: ['Task', 'Read', 'Glob'], onAttack: (att, tool, text) => term(parent, att === parent.walker ? 'tool' : 'result', att === parent.walker ? `${tool}(…)  ·  ${text}` : `  ⎿  ${text}`), onFaceoff });
   revertMega(parent);
   term(parent, 'ok', `${parent.species.name} wins — ${sub.species.name} returns`); audio.poof();
   const t0 = simTime; while (simTime - t0 < 220) { w.scaleMul = Math.max(.001, 1 - (simTime - t0) / 220); await sleep(16); }
   w.destroy(); store.subs.splice(store.subs.indexOf(sub), 1); if (store.selected === sub.id) select(parent.id); if (before !== 'working') setStatus(parent, before); renderRoster();
 }
-async function evolveSession(s) {
+/** `resolveOn: 'flash'` (used by the tour/control scenes) resolves the returned promise the instant
+ *  the evolution flash fires instead of waiting for the full congratulations-and-walk-away tail —
+ *  the ceremony keeps playing either way, only the caller's wait gets shorter. */
+async function evolveSession(s, { resolveOn = 'done' } = {}) {
   const w = s.walker; if (w.isEvolving) return toast('already evolving'); if (isBattling(w)) return toast('finish the battle first');
   const nextId = s.species.evolvesTo.length ? pick(s.species.evolvesTo) : null; if (!nextId) return toast(`<b>${s.species.name}</b> is fully evolved`);
   const next = SPECIES.get(nextId); const forms = await loadForms(next.id, s.shiny); if (!forms.front) return toast('sprite fetch failed');
   const from = s.species.name; term(s, 'sys', `pokéharness: what? ${from} is evolving!`);
-  return new Promise((res) => w.evolve(next, forms, () => { s.species = next; s.stage = next.stage; renderRoster(); renderTermHead(); }, () => { term(s, 'ok', `pokéharness: ${from} evolved into ${next.name}!`); if (s.status === 'working') w.beginWander(); syncBubble(s); res(); }));
+  return new Promise((res) => {
+    let resolved = false; const settle = () => { if (!resolved) { resolved = true; res(); } };
+    w.evolve(next, forms,
+      () => { s.species = next; s.stage = next.stage; renderRoster(); renderTermHead(); },
+      () => { term(s, 'ok', `pokéharness: ${from} evolved into ${next.name}!`); if (s.status === 'working') w.beginWander(); syncBubble(s); settle(); },
+      resolveOn === 'flash' ? settle : undefined);
+  });
 }
 /** Battle-only mega evolution: swaps the walker's drawn sprite for the duration of a completion battle; `s.species` (roster/label truth) never changes. */
 async function megaEvolve(s) {
@@ -6174,45 +6195,235 @@ function frame(now) {
 }
 let tick = 0;
 
-// ───────────────────────────── demo console wiring ─────────────────────────────
-const selectedSession = () => { const s = find(store.selected); if (!s) { toast('select a session first (click a pokémon or a card)'); return null; } if (s.kind === 'sub') { toast('that\'s a subagent — select its parent session'); return null; } return s; };
-/** Every trigger below auto-provisions whatever it needs — no prerequisite clicks on the marketing page. */
-async function ensureSession() {
-  const cur = find(store.selected);
-  if (cur && cur.kind === 'session') return cur;
-  return await spawnSession();
+// ───────────────────────────── cast: a small, fixed set of participants ─────────────────────────────
+/** Scenes below never spawn off `store.selected` the way the old per-button handlers did — nothing
+ *  is ever "selected" between calls from the external API (the marketing page isn't clicking cards
+ *  in here), so that would hatch a brand-new walker on every single call. Instead everything pulls
+ *  from this small fixed cast (same precedent as the old showreel's `reel.a`/`reel.b`), which only
+ *  respawns a slot once it's actually gone — never spawned yet, or recalled/despawned. */
+const cast = { a: null, b: null, mega: null };
+async function ensureCastSlot(slot, spawnOpts) {
+  const cur = cast[slot];
+  if (cur && !cur.walker.destroyed) return cur;
+  return (cast[slot] = await spawnSession(spawnOpts));
 }
-el('btn-spawn').onclick = () => spawnSession();
-el('btn-spawn-shiny').onclick = () => spawnSession({ shiny: true });
-el('btn-subagent').onclick = async () => { const s = await ensureSession(); if (s) spawnSubagent(s); };
-el('btn-mega').onclick = async () => {
-  let s = find(store.selected);
-  if (!s || s.kind !== 'session' || !DEMO_MEGA_FORMS[s.species.id] || s.walker.isEvolving || isBattling(s.walker)) {
-    s = await spawnSession({ species: pick(Object.keys(DEMO_MEGA_FORMS)) });
+/** `need` 1 ensures just `cast.a` (the primary actor); 2 also ensures `cast.b` (a shiny second
+ *  participant) for scenes that want two live sessions on screen at once. spawnSession() can
+ *  resolve null on a sprite-fetch failure — callers below all check before touching the result. */
+async function ensureCast(need = 1) {
+  const a = await ensureCastSlot('a', { species: 'pichu' });
+  const b = need > 1 ? await ensureCastSlot('b', { shiny: true, species: 'eevee' }) : cast.b;
+  return { a, b };
+}
+
+// ───────────────────────────── scenes: one source of truth for the tour + control panel ─────────────────────────────
+/** Every demo capability lives here exactly once. The in-frame console buttons below and the
+ *  external `window.pokeDemo` API (bottom of file) both dispatch into this table by id instead of
+ *  keeping separate copies of the handler logic — so the two surfaces can never drift apart.
+ *  `caption` is narration copy the marketing page displays outside the iframe: it describes what
+ *  the viewer is watching and why it matters, not which function ran. `group: 'tour'` scenes are
+ *  the guided walkthrough (also what the showreel autoplays, see `runShowreel` below); `'control'`
+ *  is everything else, meant for poking at directly rather than watching in sequence. */
+const SCENES = [
+  {
+    id: 'spawn', group: 'tour', order: 1, label: 'spawn',
+    caption: "a claude code session joins the garden as a walking, talking pokémon — every walker here is a live coding agent, not a mascot.",
+    run: async () => {
+      const { a } = await ensureCast(1); if (!a) return;
+      select(a.id); a.walker.bounce();
+      await sleep(1200);
+    }
+  },
+  {
+    id: 'tool-calls', group: 'tour', order: 2, label: 'tool calls',
+    caption: "reads, greps, edits — every tool call shows up as a speech bubble and a quick trip across the garden, instead of a line scrolling past in a terminal.",
+    run: async () => {
+      const { a: s } = await ensureCast(1); if (!s) return;
+      select(s.id);
+      for (const t of ['Read', 'Grep', 'Edit']) { toolCall(s, t); await sleep(1400); }
+    }
+  },
+  {
+    id: 'blocked', group: 'tour', order: 3, label: 'needs you',
+    caption: "sessions don't always run unattended — this one just hit something that needs your say-so, and it'll sit right there until you answer.",
+    run: async () => {
+      const { a: s } = await ensureCast(1); if (!s) return;
+      select(s.id); blocked(s);
+      await sleep(1400);
+      // the "you answer, it carries on" beat keeps playing in the background after we resolve —
+      // the point worth seeing is the blocked badge and prompt landing, not the reply itself.
+      (async () => { await sleep(1800); term(s, 'user', 'y'); thinking(s); toolCall(s, 'Bash'); })();
+    }
+  },
+  {
+    id: 'subagent-battle', group: 'tour', order: 4, label: 'subagent battle',
+    caption: "dispatch a subagent and it hatches as its own pokémon — when its task finishes, it walks back and battles the parent for the win.",
+    run: async () => {
+      const { a: s } = await ensureCast(1); if (!s) return;
+      select(s.id); toolCall(s, 'Read');
+      await sleep(500);
+      // resolve at faceoff (both combatants squared up), not after the full multi-round fight —
+      // spawnSubagent() keeps running the battle to its conclusion in the background either way.
+      await new Promise((resolve) => { spawnSubagent(s, { autoBattleMs: 2200, onFaceoff: resolve }); });
+    }
+  },
+  {
+    id: 'evolution', group: 'tour', order: 5, label: 'evolution',
+    caption: "enough accumulated working time and a session evolves mid-task — the same flash-and-silhouette ceremony the real app runs.",
+    run: async () => {
+      const { a: s } = await ensureCast(1); if (!s) return;
+      select(s.id); toolCall(s, 'Edit');
+      await sleep(400);
+      await evolveSession(s, { resolveOn: 'flash' });
+    }
+  },
+  {
+    id: 'mega-evolution', group: 'tour', order: 6, label: 'mega evolution',
+    caption: "a handful of species mega-evolve for the duration of a battle — a full ring-and-vortex ceremony, then they revert the second it's over.",
+    run: async () => {
+      let s = cast.mega && !cast.mega.walker.destroyed ? cast.mega : null;
+      if (!s || s.walker.isEvolving || isBattling(s.walker)) s = cast.mega = await spawnSession({ species: pick(Object.keys(DEMO_MEGA_FORMS)) });
+      if (!s) return;
+      select(s.id); s.pendingMega = true;
+      // resolve the instant the mega ceremony fires, well before the battle it triggers plays out.
+      await new Promise((resolve) => { spawnSubagent(s, { autoBattleMs: 2000, onMegaFire: resolve }); });
+    }
+  },
+  {
+    id: 'arceus', group: 'tour', order: 7, label: 'summon arceus',
+    caption: "summon a session as arceus and the garden folds into its own cosmos — a permanent, gold-framed orchestrator in the real app. we'll bring it back down in a few seconds so the tour can carry on.",
+    run: async () => {
+      select(ARCEUS_ID);
+      await sleep(6000);
+      // only snap back if the visitor didn't already pick something else themselves.
+      if (store.selected === ARCEUS_ID) { const { a } = await ensureCast(1); if (a) select(a.id); }
+    }
+  },
+  {
+    id: 'spawn-shiny', group: 'control', order: 1, label: 'spawn shiny',
+    caption: "every session rolls shiny once, 1-in-64 — force the roll here to see the sparkle burst and star badge without waiting on the odds.",
+    run: async () => { const { b } = await ensureCast(2); if (b) { select(b.id); b.walker.bounce(); } }
+  },
+  {
+    id: 'recall', group: 'control', order: 2, label: 'recall',
+    caption: "recall a session with its pokéball — a clean poof-out, the same as ending it for real.",
+    run: async () => { const { a } = await ensureCast(1); if (!a) return; select(a.id); despawn(a); cast.a = null; }
+  },
+  {
+    id: 'nap', group: 'control', order: 3, label: 'nap (compacting)',
+    caption: "long conversations get compacted every so often — the walker naps through it and wakes up resumed.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); nap(s); }
+  },
+  {
+    id: 'loop', group: 'control', order: 4, label: 'looping',
+    caption: "the same tool call three times in a row trips a looping warning — a cheap tell that something's stuck.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); loop(s); }
+  },
+  {
+    id: 'chatter', group: 'control', order: 5, label: 'small talk',
+    caption: "idle sessions aren't silent — little status lines drift up above them while they wait on the next task.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); if (s.status === 'working') idle(s); chatter(s); }
+  },
+  {
+    id: 'berry', group: 'control', order: 6, label: 'berry errand',
+    caption: "an idle walker wanders off for a berry now and then — it's not just standing there between tasks.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); if (s.status === 'working') idle(s); await berry(s); }
+  },
+  {
+    id: 'thinking', group: 'control', order: 7, label: 'thinking',
+    caption: "before a session touches a single file, it thinks out loud — a line of reasoning right above its head.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); thinking(s); }
+  },
+  {
+    id: 'idle', group: 'control', order: 8, label: 'idle',
+    caption: "back to idle — the session's done with its current step and waiting on what's next.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); idle(s); }
+  },
+  {
+    id: 'done', group: 'control', order: 9, label: 'done',
+    caption: "a session that's wrapped up — exit code and all — before you decide whether to recall it.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); done(s); }
+  },
+  {
+    id: 'tool-call', group: 'control', order: 10, label: 'tool call',
+    caption: "fire any specific tool call on demand — pick one from the dropdown and watch it play out as a bubble and a quick trip across the garden.",
+    run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); toolCall(s, el('sel-tool').value); }
+  },
+  {
+    id: 'evolve-species', group: 'control', order: 11, label: 'evolve (pick one)',
+    caption: "pick any live session from the dropdown and force its next evolution stage on demand.",
+    run: async () => {
+      let s = find(el('sel-evolve').value);
+      if (!s || s.kind === 'sub') s = (await ensureCast(1)).a;
+      if (!s) return;
+      select(s.id);
+      await evolveSession(s, { resolveOn: 'flash' });
+    }
+  },
+  {
+    id: 'battle-two', group: 'control', order: 12, label: 'two-session battle',
+    caption: "pit any two live sessions against each other directly — no subagent required.",
+    run: async () => {
+      let a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value);
+      if (!a || a.kind === 'sub') a = (await ensureCast(1)).a;
+      if (!b || b.kind === 'sub' || b === a) b = (await ensureCast(2)).b;
+      if (!a || !b) return;
+      select(a.id);
+      await battleSessions(a, b);
+    }
   }
-  if (!s) return;
-  s.pendingMega = true;
-  spawnSubagent(s);
-};
-el('btn-despawn').onclick = async () => { const s = await ensureSession(); if (s) despawn(s); };
-el('btn-arceus').onclick = () => select(ARCEUS_ID);
-el('btn-tool').onclick = async () => { const s = await ensureSession(); if (s) toolCall(s, el('sel-tool').value); };
-el('btn-thinking').onclick = async () => { const s = await ensureSession(); if (s) thinking(s); };
-el('btn-idle').onclick = async () => { const s = await ensureSession(); if (s) idle(s); };
-el('btn-blocked').onclick = async () => { const s = await ensureSession(); if (s) blocked(s); };
-el('btn-done').onclick = async () => { const s = await ensureSession(); if (s) done(s); };
-el('btn-nap').onclick = async () => { const s = await ensureSession(); if (s) nap(s); };
-el('btn-loop').onclick = async () => { const s = await ensureSession(); if (s) loop(s); };
-el('btn-chatter').onclick = async () => { const s = await ensureSession(); if (!s) return; if (s.status === 'working') idle(s); chatter(s); };
-el('btn-berry').onclick = async () => { const s = await ensureSession(); if (!s) return; if (s.status === 'working') idle(s); berry(s); };
-el('btn-evolve').onclick = async () => { let s = find(el('sel-evolve').value); if (!s || s.kind === 'sub') s = await ensureSession(); if (s) evolveSession(s); };
-el('btn-battle').onclick = async () => {
-  let a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value);
-  if (!a || a.kind === 'sub') a = await spawnSession();
-  if (!b || b.kind === 'sub' || b === a) b = await spawnSession();
-  if (!a || !b) return toast('need two pokémon alive');
-  battleSessions(a, b);
-};
+];
+const SCENES_BY_ID = new Map(SCENES.map((sc) => [sc.id, sc]));
+
+// ───────────────────────────── run(): busy lock + real-time ceiling ─────────────────────────────
+/** Busy changes are broadcast as a `pokedemo:busy` CustomEvent on `window` (detail: `{ busy }`)
+ *  rather than an `onBusy(cb)` subscription — this iframe and the marketing page share an origin,
+ *  so a plain event listener needs no unsubscribe bookkeeping across the iframe's lifetime. */
+let busy = false;
+function setBusy(next) {
+  if (busy === next) return; busy = next;
+  window.dispatchEvent(new CustomEvent('pokedemo:busy', { detail: { busy } }));
+}
+const SCENE_REAL_TIMEOUT_MS = 10000;
+/** The one entry point both the console buttons and `window.pokeDemo.run` call. Only one scene
+ *  plays at a time — calling this while busy just resolves immediately, it never queues or throws.
+ *  `sleep()` runs on the simulated clock (`frame()`'s dt), which the hidden-tab fallback throttles
+ *  to roughly 1/10 speed — without a real-time backstop here, a visitor who alt-tabs mid-scene would
+ *  come back to a permanently disabled tour strip. `showreel` is handled separately below: it's a
+ *  multi-scene autoplay with its own start/stop toggle, not a single bounded scene. */
+async function run(id) {
+  if (id === 'showreel') { if (busy && !reel) return; return runShowreel(); }
+  if (busy) return;
+  const scene = SCENES_BY_ID.get(id);
+  if (!scene) return;
+  setBusy(true);
+  try {
+    await Promise.race([
+      mapReady.then(() => scene.run()),
+      new Promise((res) => setTimeout(res, SCENE_REAL_TIMEOUT_MS))
+    ]);
+  } catch (e) { console.error('pokeDemo scene', id, e); }
+  finally { setBusy(false); }
+}
+
+// ───────────────────────────── demo console wiring — every button just dispatches into SCENES ─────────────────────────────
+el('btn-spawn').onclick = () => run('spawn');
+el('btn-spawn-shiny').onclick = () => run('spawn-shiny');
+el('btn-subagent').onclick = () => run('subagent-battle');
+el('btn-mega').onclick = () => run('mega-evolution');
+el('btn-despawn').onclick = () => run('recall');
+el('btn-arceus').onclick = () => run('arceus');
+el('btn-tool').onclick = () => run('tool-call');
+el('btn-thinking').onclick = () => run('thinking');
+el('btn-idle').onclick = () => run('idle');
+el('btn-blocked').onclick = () => run('blocked');
+el('btn-done').onclick = () => run('done');
+el('btn-nap').onclick = () => run('nap');
+el('btn-loop').onclick = () => run('loop');
+el('btn-chatter').onclick = () => run('chatter');
+el('btn-berry').onclick = () => run('berry');
+el('btn-evolve').onclick = () => run('evolve-species');
+el('btn-battle').onclick = () => run('battle-two');
 el('btn-audio').onclick = () => audio.toggle();
 
 // drawer split/collapse
@@ -6240,33 +6451,25 @@ el('btn-demo').onclick = () => setDemoOpen(!demoOpen);
 el('demo-catcher').onclick = () => setDemoOpen(false);
 window.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); setDemoOpen(!demoOpen); } });
 
-// ───────────────────────────── showreel ─────────────────────────────
+// ───────────────────────────── showreel: the tour, on autoplay ─────────────────────────────
 let reel = null;
-const REEL = [
-  ['a session hatches', async () => { reel.a = await spawnSession({ species: 'pichu' }); await sleep(2500); }],
-  ['thinking, then tool calls', async () => { const s = reel.a; thinking(s); await sleep(1800); for (const t of ['Read', 'Grep', 'Edit', 'Bash']) { toolCall(s, t); await sleep(1900); } }],
-  ['idle small talk', async () => { const s = reel.a; idle(s); await sleep(1200); chatter(s); await sleep(2600); }],
-  ['a shiny hatches', async () => { reel.b = await spawnSession({ shiny: true, species: 'eevee' }); await sleep(2600); select(reel.b.id); toolCall(reel.b, 'Read'); await sleep(1500); }],
-  ['needs you', async () => { const s = reel.a; select(s.id); blocked(s); await sleep(3200); term(s, 'user', 'y'); thinking(s); toolCall(s, 'Bash'); await sleep(2000); }],
-  ['a subagent is dispatched — and battles on completion', async () => { const s = reel.a; select(s.id); toolCall(s, 'Read'); await sleep(800); await spawnSubagent(s, { autoBattleMs: 5000 }); await sleep(800); }],
-  ['evolution', async () => { const s = reel.a; select(s.id); toolCall(s, 'Edit'); await sleep(600); await evolveSession(s); await sleep(1400); }],
-  ['compaction nap', async () => { const s = reel.b; select(s.id); nap(s); await sleep(3000); nap(s); toolCall(s, 'Grep'); await sleep(1500); }],
-  ['berry errand', async () => { const s = reel.b; idle(s); await sleep(600); await berry(s); await sleep(1600); }],
-  ['looping detector', async () => { const s = reel.a; select(s.id); loop(s); await sleep(2600); loop(s); await sleep(400); }],
-  ['session vs session', async () => { const a = reel.a, b = reel.b; select(a.id); await battleSessions(a, b); await sleep(1200); }],
-  ['done, and recalled', async () => { const s = reel.b; select(s.id); done(s); await sleep(1500); despawn(s); await sleep(2200); select(reel.a.id); idle(reel.a); await sleep(800); }]
-];
+const TOUR = SCENES.filter((sc) => sc.group === 'tour').sort((a, b) => a.order - b.order);
 async function runShowreel() {
   if (reel) { reel.stop = true; return; }
-  reel = { stop: false }; el('btn-reel').textContent = 'stop showreel'; el('reel-banner').classList.add('on');
+  reel = { stop: false }; setBusy(true);
+  el('btn-reel').textContent = 'stop showreel'; el('reel-banner').classList.add('on');
   try {
-    for (const [i, [name, step]] of REEL.entries()) {
-      if (reel.stop) break; el('reel-banner').textContent = `showreel ${i + 1}/${REEL.length} · ${name}`; el('reel-hint').textContent = `${i + 1}/${REEL.length} — ${name}`; el('reel-bar').style.width = Math.round((i / REEL.length) * 100) + '%';
-      await step(); await sleep(900);
+    for (const [i, scene] of TOUR.entries()) {
+      if (reel.stop) break;
+      el('reel-banner').textContent = `showreel ${i + 1}/${TOUR.length} · ${scene.label}`;
+      el('reel-hint').textContent = `${i + 1}/${TOUR.length} — ${scene.caption}`;
+      el('reel-bar').style.width = Math.round((i / TOUR.length) * 100) + '%';
+      await scene.run(); await sleep(1200);
     }
   } catch (e) { console.error('showreel', e); toast('showreel hit an error — see console'); }
   el('reel-bar').style.width = reel.stop ? '0%' : '100%'; el('reel-hint').textContent = reel.stop ? 'stopped.' : 'that\'s the whole harness. run it again, or poke at the triggers.';
-  reel = null; el('btn-reel').innerHTML = '<svg class="picon"><use href="#i-play"/></svg> run showreel'; el('reel-banner').classList.remove('on');
+  reel = null; setBusy(false);
+  el('btn-reel').innerHTML = '<svg class="picon"><use href="#i-play"/></svg> run showreel'; el('reel-banner').classList.remove('on');
 }
 el('btn-reel').onclick = runShowreel;
 
@@ -6274,25 +6477,34 @@ el('btn-reel').onclick = runShowreel;
 audio.init();
 el('cosmos-nebula').style.backgroundImage = `url(${nebulaDataUrl()})`;
 el('btn-summon-arceus').onclick = () => select(ARCEUS_ID);
-const mapReady = map.init().then(() => { cam.init(); renderRoster(); renderTerm(); schedule(); });
+const mapReady = map.init().then(() => {
+  cam.init(); renderRoster(); renderTerm(); schedule();
+  // warm the tour cast's sprites during boot so the first tour/showreel spawn isn't sitting on a
+  // cold CDN fetch — loadForms() caches by URL, and ensureCastSlot() above reuses these promises.
+  loadForms('pichu', false); loadForms('eevee', true);
+});
 document.addEventListener('visibilitychange', schedule);
 // BootWipe.tsx timings: 180ms beat, then a 650ms iris-open, then unmount.
 setTimeout(() => { const bw = el('boot-wipe'); if (bw) bw.classList.add('boot-wipe-open'); }, 180);
 setTimeout(() => { const bw = el('boot-wipe'); if (bw) bw.remove(); }, 830);
 
-/* Same-origin JS API for the marketing site's outside-the-frame demo buttons
- * (site/src/pages/index.astro) — this iframe is served from the same site,
- * so no postMessage plumbing is needed, just a small surface on `window`
- * naming the internal handlers that already back the hidden demo console
- * above. `battle` mirrors `btn-subagent`'s handler (a subagent battle) since
- * that's the feature the marketing copy/feature grid actually calls out,
- * rather than the console's separate two-session `btn-battle` picker. */
+/* Same-origin JS API for the marketing site's outside-the-frame demo (site/src/pages/index.astro)
+ * — this iframe is served from the same site, so no postMessage plumbing is needed, just a surface
+ * on `window`. `scenes` is the same manifest the console panel renders from, stripped down to data
+ * (no `run` functions) so the marketing page can build its tour strip and control panel straight
+ * off it and never hand-maintain a second button list. `spawn`/`spawnShiny`/`battle`/`showreel` are
+ * kept as thin aliases over `run()` — the currently deployed marketing page still calls these four
+ * directly, and a mid-way deploy must not break it. Busy state: see the `pokedemo:busy` window
+ * event documented above `run()`. */
 window.pokeDemo = {
   ready: mapReady,
-  spawn: () => spawnSession(),
-  spawnShiny: () => spawnSession({ shiny: true }),
-  battle: async () => { const s = await ensureSession(); if (s) return spawnSubagent(s); },
-  showreel: runShowreel,
+  scenes: SCENES.map(({ id, label, caption, group, order }) => ({ id, label, caption, group, order })),
+  run,
+  get busy() { return busy; },
+  spawn: () => run('spawn'),
+  spawnShiny: () => run('spawn-shiny'),
+  battle: () => run('subagent-battle'),
+  showreel: () => run('showreel'),
 };
 </script>
 </body>
