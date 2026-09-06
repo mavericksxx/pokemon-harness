@@ -281,6 +281,8 @@ interface HarnessState {
    *  popover opens. Unread count is derived (`!read` count), never a
    *  separately tracked field. */
   markAllNotificationsRead(): void;
+  /** Empties `notifications` — the bell popover's "clear all" button. */
+  clearAllNotifications(): void;
   /** BattleManager's onBattlerSpawned bridge (GardenScene.tsx) — a wild
    *  battler just materialized. `spawnedAt` is stamped here (Date.now()),
    *  not passed in — this call IS the moment of spawn as far as the store's
@@ -438,6 +440,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   },
   markAllNotificationsRead: () =>
     set((st) => ({ notifications: st.notifications.map((n) => (n.read ? n : { ...n, read: true })) })),
+  clearAllNotifications: () => set({ notifications: [] }),
 
   addBattler: (battler) =>
     set((st) => ({
