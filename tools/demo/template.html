@@ -73,6 +73,7 @@
 .app.is-embed #btn-drawer-toggle,
 .app.is-embed #split-collapse,
 .app.is-embed #edge-tab,
+.app.is-embed #drawer-kill,
 .app.is-embed #reel-banner,
 .app.is-embed #reel-hint,
 .app.is-embed .quick-settings:has(> [aria-label='settings']) {
@@ -1717,12 +1718,19 @@ function setBusy(next) {
   window.dispatchEvent(new CustomEvent('pokedemo:busy', { detail: { busy } }));
 }
 const SCENE_REAL_TIMEOUT_MS = 10000;
+/** Races `promise` against the real-time ceiling — see the comment on `run()` below for why one's
+ *  needed. Both `run()` and `runShowreel()` go through this one helper rather than each rolling
+ *  their own `Promise.race`, so a scene-runner added later can't forget the backstop. */
+function withCeiling(promise) {
+  return Promise.race([promise, new Promise((res) => setTimeout(res, SCENE_REAL_TIMEOUT_MS))]);
+}
 /** The one entry point both the console buttons and `window.pokeDemo.run` call. Only one scene
  *  plays at a time — calling this while busy just resolves immediately, it never queues or throws.
  *  `sleep()` runs on the simulated clock (`frame()`'s dt), which the hidden-tab fallback throttles
  *  to roughly 1/10 speed — without a real-time backstop here, a visitor who alt-tabs mid-scene would
- *  come back to a permanently disabled tour strip. `showreel` is handled separately below: it's a
- *  multi-scene autoplay with its own start/stop toggle, not a single bounded scene. */
+ *  come back to a permanently disabled tour strip. `runShowreel` below awaits each scene through this
+ *  same `withCeiling()` — a scene that never settles (a dropped sprite fetch, a walker killed
+ *  mid-ceremony) can't wedge the whole reel either; it just times out and the tour moves on. */
 async function run(id) {
   if (id === 'showreel') { if (busy && !reel) return; return runShowreel(); }
   if (busy) return;
@@ -1730,10 +1738,7 @@ async function run(id) {
   if (!scene) return;
   setBusy(true);
   try {
-    await Promise.race([
-      mapReady.then(() => scene.run()),
-      new Promise((res) => setTimeout(res, SCENE_REAL_TIMEOUT_MS))
-    ]);
+    await withCeiling(mapReady.then(() => scene.run()));
   } catch (e) { console.error('pokeDemo scene', id, e); }
   finally { setBusy(false); }
 }
@@ -1796,7 +1801,12 @@ async function runShowreel() {
       el('reel-banner').textContent = `showreel ${i + 1}/${TOUR.length} · ${scene.label}`;
       el('reel-hint').textContent = `${i + 1}/${TOUR.length} — ${scene.caption}`;
       el('reel-bar').style.width = Math.round((i / TOUR.length) * 100) + '%';
-      await scene.run(); await sleep(1200);
+      await withCeiling(scene.run());
+      // recheck here (not just at the top of the loop) so a stop lands the instant a scene
+      // resolves — including a scene that only resolved because it just hit its ceiling —
+      // instead of dragging in one more 1200ms beat before the loop notices.
+      if (reel.stop) break;
+      await sleep(1200);
     }
   } catch (e) { console.error('showreel', e); toast('showreel hit an error — see console'); }
   el('reel-bar').style.width = reel.stop ? '0%' : '100%'; el('reel-hint').textContent = reel.stop ? 'stopped.' : 'that\'s the whole harness. run it again, or poke at the triggers.';
