@@ -147,6 +147,23 @@ function loadGardenSplit(): number {
   return DEFAULT_GARDEN_SPLIT;
 }
 
+/** Global (not per-workspace) subagent-cards visibility toggle — hides every
+ *  `SubagentRosterCard` in both RosterStrip.tsx (garden view) and
+ *  FocusSidebar.tsx (terminal view) when true, so switching view modes never
+ *  shows an inconsistent collapsed/expanded state. Same persistence pattern
+ *  as `viewMode`/`gardenSplit` above. Default `false` (expanded) — current
+ *  behavior, unchanged. */
+const SUBAGENT_CARDS_HIDDEN_STORAGE_KEY = 'poke:subagentCardsHidden';
+
+function loadSubagentCardsHidden(): boolean {
+  try {
+    return window.localStorage.getItem(SUBAGENT_CARDS_HIDDEN_STORAGE_KEY) === 'true';
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 interface HarnessState {
   sessions: Session[];
   selectedId: string | null;
@@ -179,6 +196,9 @@ interface HarnessState {
    *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
    *  above. */
   gardenSplit: number;
+  /** Global expand/collapse toggle for subagent roster cards — see
+   *  `SUBAGENT_CARDS_HIDDEN_STORAGE_KEY`'s own comment above. */
+  subagentCardsHidden: boolean;
   /** Sessions-overview grid (Phase 8 §3) — a topbar button and (Phase 8 §7)
    *  the garden's signpost prop both open it. */
   sessionsOverviewOpen: boolean;
@@ -241,6 +261,9 @@ interface HarnessState {
    *  doesn't hit localStorage every frame — pointerup/double-click-reset
    *  pass `true` once, at the end. */
   setGardenSplit(ratio: number, persist?: boolean): void;
+  /** Flips the global subagent-cards toggle and persists it (survives
+   *  relaunch), same pattern as `setViewMode`. */
+  setSubagentCardsHidden(hidden: boolean): void;
   setSessionsOverviewOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
   setQuitDialogOpen(open: boolean, count?: number): void;
@@ -305,6 +328,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   recallDelegateIds: [],
   viewMode: loadViewMode(),
   gardenSplit: loadGardenSplit(),
+  subagentCardsHidden: loadSubagentCardsHidden(),
   sessionsOverviewOpen: false,
   settingsOpen: false,
   quitDialogOpen: false,
@@ -382,6 +406,14 @@ export const useStore = create<HarnessState>((set, get) => ({
       }
     }
     set({ gardenSplit: ratio });
+  },
+  setSubagentCardsHidden: (hidden) => {
+    try {
+      window.localStorage.setItem(SUBAGENT_CARDS_HIDDEN_STORAGE_KEY, String(hidden));
+    } catch {
+      /* ignore — toggle still applies for this session */
+    }
+    set({ subagentCardsHidden: hidden });
   },
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),

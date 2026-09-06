@@ -31,6 +31,14 @@ interface Props {
    *  line and a model-badge/context row, but deliberately NOT the live tool
    *  line or the "working…" status pill — user decision, see BACKLOG). */
   variant?: 'full' | 'compact' | 'medium';
+  /** Count of this session's own subagent battlers currently hidden by the
+   *  global `subagentCardsHidden` toggle (store.ts) — computed by the PARENT
+   *  (RosterStrip/FocusSidebar, which already subscribe to `battlers`) and
+   *  passed down as a plain number so this component doesn't need its own
+   *  `battlers` subscription (perf-sensitive: see TrainerCard.tsx's own
+   *  comment on why this card avoids extra re-render sources). `undefined`
+   *  or 0 renders no badge. */
+  hiddenSubagentCount?: number;
 }
 
 /** `undefined` when the session's current species has no further evolution
@@ -53,7 +61,13 @@ function SessionFace({ session, box }: { session: Session; box: number }): JSX.E
   return <PokemonFace name={session.pokemon} shiny={session.shiny} box={box} />;
 }
 
-export function AgentRosterCard({ session, selected, onSelect, variant = 'full' }: Props): JSX.Element {
+export function AgentRosterCard({
+  session,
+  selected,
+  onSelect,
+  variant = 'full',
+  hiddenSubagentCount
+}: Props): JSX.Element {
   // "Change pokemon" (roster card affordance) — not offered for Arceus, who
   // is fixed. Opens the same full-dex picker NewSessionDialog uses;
   // picking an option applies immediately (swapSessionPokemon) and closes.
@@ -74,6 +88,7 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
     session.delegateParentId ? s.sessions.find((p) => p.id === session.delegateParentId)?.title : undefined
   );
   const requestRecallDelegate = useStore((s) => s.requestRecallDelegate);
+  const setSubagentCardsHidden = useStore((s) => s.setSubagentCardsHidden);
   const speciesLower = session.isPlainTerminal
     ? 'terminal'
     : (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
@@ -306,6 +321,24 @@ export function AgentRosterCard({ session, selected, onSelect, variant = 'full' 
           below (a button can't nest another button); TrainerCard.tsx owns
           its own stopPropagation so opening it never also selects the card. */}
       {!session.isPlainTerminal && <TrainerCard session={session} />}
+
+      {/* Hidden-subagents count badge (subagent expand/collapse toggle) —
+          same mounting reasoning as `TrainerCard` above (a sibling of the
+          card `<button>`, not nested inside it), mirrored to the TOP-RIGHT
+          corner instead of that trigger's bottom-left. Clicking it expands
+          every subagent card back into view (`setSubagentCardsHidden(false)`)
+          rather than toggling just this one session — there's no per-session
+          collapse state, only the one global flag. */}
+      {!!hiddenSubagentCount && hiddenSubagentCount > 0 && (
+        <button
+          type="button"
+          className="roster-card-hidden-badge"
+          title={`${hiddenSubagentCount} hidden subagent${hiddenSubagentCount === 1 ? '' : 's'} — click to show`}
+          onClick={() => setSubagentCardsHidden(false)}
+        >
+          {hiddenSubagentCount}
+        </button>
+      )}
 
       {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
           find/hit (screenshot complaint) — now a labeled pill hover-revealed

@@ -21,6 +21,11 @@ interface Props {
  *
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7), same filter as
  * RosterStrip — Arceus excluded (his one home is the topbar chip).
+ *
+ * Honors the same GLOBAL `subagentCardsHidden` toggle RosterStrip.tsx's own
+ * button flips (store.ts) — no separate toggle control here (there's no
+ * natural chrome slot for one), but the filtering has to match so switching
+ * between 'garden' and 'terminal' view modes never looks inconsistent.
  */
 export function FocusSidebar({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -28,6 +33,7 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const battlers = useStore((s) => s.battlers);
+  const subagentCardsHidden = useStore((s) => s.subagentCardsHidden);
 
   return (
     <div className="focus-sidebar">
@@ -38,19 +44,26 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
         <NewTerminalButton className="focus-sidebar-terminal" />
       </div>
       <div className="focus-sidebar-list">
-        {sessions.map((s) => (
-          <Fragment key={s.id}>
-            <AgentRosterCard session={s} selected={s.id === selectedId} onSelect={select} />
-            {/* Subagent roster presence (Phase 4 Part B follow-up), same
-                pattern as RosterStrip — every live battler this session
-                spawned gets its own card right after its parent's. */}
-            {battlers
-              .filter((b) => b.parentId === s.id)
-              .map((b) => (
-                <SubagentRosterCard key={b.key} battler={b} parent={s} />
-              ))}
-          </Fragment>
-        ))}
+        {sessions.map((s) => {
+          const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
+          return (
+            <Fragment key={s.id}>
+              <AgentRosterCard
+                session={s}
+                selected={s.id === selectedId}
+                onSelect={select}
+                hiddenSubagentCount={subagentCardsHidden && sessionBattlers.length > 0 ? sessionBattlers.length : undefined}
+              />
+              {/* Subagent roster presence (Phase 4 Part B follow-up), same
+                  pattern as RosterStrip — every live battler this session
+                  spawned gets its own card right after its parent's. Skipped
+                  while `subagentCardsHidden` is set — the parent's own badge
+                  shows the count instead. */}
+              {!subagentCardsHidden &&
+                sessionBattlers.map((b) => <SubagentRosterCard key={b.key} battler={b} parent={s} />)}
+            </Fragment>
+          );
+        })}
       </div>
     </div>
   );

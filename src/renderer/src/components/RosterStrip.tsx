@@ -36,6 +36,13 @@ interface Props {
  * positioning context for the right-edge fade overlay (`.roster-strip-fade`)
  * that has to sit OUTSIDE the actual `overflow-x: auto` scroller below so it
  * stays pinned to the edge instead of scrolling away with the cards.
+ *
+ * Subagent expand/collapse toggle — `subagentCardsHidden` (store.ts) is a
+ * GLOBAL flag (not per-workspace), shared with FocusSidebar.tsx so switching
+ * view modes never shows a different collapsed/expanded state. The toggle
+ * button itself lives in `.roster-strip-wrap`, OUTSIDE the scrolling
+ * `.roster-strip` — unlike the "+ new agent" trailing button, it has to stay
+ * reachable once there are enough sessions for the strip to scroll.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -43,29 +50,44 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const battlers = useStore((s) => s.battlers);
+  const subagentCardsHidden = useStore((s) => s.subagentCardsHidden);
+  const setSubagentCardsHidden = useStore((s) => s.setSubagentCardsHidden);
 
   return (
     <div className="roster-strip-wrap">
+      <button
+        type="button"
+        className={subagentCardsHidden ? 'roster-strip-toggle tip active' : 'roster-strip-toggle tip'}
+        onClick={() => setSubagentCardsHidden(!subagentCardsHidden)}
+        aria-pressed={subagentCardsHidden}
+        aria-label={subagentCardsHidden ? 'show subagent cards' : 'hide subagent cards'}
+        data-tip={subagentCardsHidden ? 'show subagents' : 'hide subagents'}
+      >
+        {subagentCardsHidden ? '▸' : '▾'}
+      </button>
       <div className="roster-strip">
         <ArceusRosterCard variant={selectedId === ARCEUS_SESSION_ID ? 'medium' : 'compact'} />
-        {sessions.map((s) => (
-          <Fragment key={s.id}>
-            <AgentRosterCard
-              session={s}
-              selected={s.id === selectedId}
-              onSelect={select}
-              variant={s.id === selectedId ? 'medium' : 'compact'}
-            />
-            {/* Subagent roster presence (Phase 4 Part B follow-up) — every live
-                battler this session spawned gets its own card, immediately
-                after its parent's, so it reads as belonging to it. */}
-            {battlers
-              .filter((b) => b.parentId === s.id)
-              .map((b) => (
-                <SubagentRosterCard key={b.key} battler={b} parent={s} variant="compact" />
-              ))}
-          </Fragment>
-        ))}
+        {sessions.map((s) => {
+          const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
+          return (
+            <Fragment key={s.id}>
+              <AgentRosterCard
+                session={s}
+                selected={s.id === selectedId}
+                onSelect={select}
+                variant={s.id === selectedId ? 'medium' : 'compact'}
+                hiddenSubagentCount={subagentCardsHidden && sessionBattlers.length > 0 ? sessionBattlers.length : undefined}
+              />
+              {/* Subagent roster presence (Phase 4 Part B follow-up) — every live
+                  battler this session spawned gets its own card, immediately
+                  after its parent's, so it reads as belonging to it. Skipped
+                  while `subagentCardsHidden` is set — the parent's own badge
+                  above shows the count instead. */}
+              {!subagentCardsHidden &&
+                sessionBattlers.map((b) => <SubagentRosterCard key={b.key} battler={b} parent={s} variant="compact" />)}
+            </Fragment>
+          );
+        })}
         <button type="button" className="roster-strip-new" onClick={onNewSession}>
           + new agent
         </button>
