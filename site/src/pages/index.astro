@@ -1,3 +1,10 @@
+---
+import pkg from '../../../package.json';
+---
+
+<!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pokéharness</title>
@@ -7,7 +14,7 @@
 <meta property="og:image" content="https://pokeharness.parthkohale.com/og.png">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/png" href="/favicon.png">
 
 <style>
   @font-face {
@@ -15,21 +22,21 @@
     font-style: normal;
     font-weight: 400;
     font-display: swap;
-    src: url('fonts/press-start-2p-latin-400.woff2') format('woff2');
+    src: url('/fonts/press-start-2p-latin-400.woff2') format('woff2');
   }
   @font-face {
     font-family: 'Inter';
     font-style: normal;
     font-weight: 400 700;
     font-display: swap;
-    src: url('fonts/inter-latin-var.woff2') format('woff2');
+    src: url('/fonts/inter-latin-var.woff2') format('woff2');
   }
   @font-face {
     font-family: 'JetBrains Mono';
     font-style: normal;
     font-weight: 400 700;
     font-display: swap;
-    src: url('fonts/jetbrains-mono-latin-var.woff2') format('woff2');
+    src: url('/fonts/jetbrains-mono-latin-var.woff2') format('woff2');
   }
 
   :root {
@@ -312,6 +319,8 @@
     .hero h1 { font-size: 30px; }
   }
 </style>
+</head>
+<body>
 
 <div class="wrap brand-row">
   <div class="brand">pokéharness</div>
@@ -325,7 +334,7 @@
       <a class="btn btn-primary" href="https://github.com/mavericksxx/pokemon-harness/releases/latest">download for mac</a>
       <a class="btn btn-secondary" href="https://github.com/mavericksxx/pokemon-harness">browse the source</a>
     </div>
-    <div class="hero-tag">v1.14.2 · free, local, no accounts, no cloud</div>
+    <div class="hero-tag">v{pkg.version} · free, local, no accounts, no cloud</div>
   </div>
 </header>
 
@@ -336,7 +345,7 @@
     <span class="dot dot-green"></span>
   </div>
   <div class="demo-frame-body">
-    <iframe src="./demo.html" title="pokéharness live demo" loading="lazy"></iframe>
+    <iframe src="/demo.html" title="pokéharness live demo" loading="lazy"></iframe>
   </div>
   <p class="demo-caption">click spawn, shiny, or battle inside it — every animation is the same engine running in the real app. nothing here is a recording.</p>
 </div>
@@ -365,7 +374,7 @@
       <div class="step-num">3</div>
       <h3>watch it work</h3>
       <p>tool calls show as a speech bubble and a walk to the right spot in the garden. subagents spawn as battles. long sessions evolve. everything you'd see scrolling past in the terminal, you now see from across the room.</p>
-      <img src="screenshots/garden.png" alt="a few walkers roaming the garden, mid tool-call, with speech bubbles above them">
+      <img src="/screenshots/garden.png" alt="a few walkers roaming the garden, mid tool-call, with speech bubbles above them">
     </div>
   </div>
 </section>
@@ -375,7 +384,7 @@
   <div class="features">
     <div class="feature-card" style="border-left-color: var(--coral)">
       <div class="feature-media solid" style="background: rgba(224, 140, 130, 0.12)">
-        <img src="screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
+        <img src="/screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
       </div>
       <div class="feature-body">
         <h3>shiny pokémon</h3>
@@ -384,7 +393,7 @@
     </div>
     <div class="feature-card" style="border-left-color: var(--mint)">
       <div class="feature-media">
-        <img src="screenshots/evolution.png" alt="an evolution ceremony mid-flash, the walker's old form as a white silhouette">
+        <img src="/screenshots/evolution.png" alt="an evolution ceremony mid-flash, the walker's old form as a white silhouette">
       </div>
       <div class="feature-body">
         <h3>evolution</h3>
@@ -393,7 +402,7 @@
     </div>
     <div class="feature-card" style="border-left-color: var(--sky)">
       <div class="feature-media">
-        <img src="screenshots/battle.png" alt="two walkers squared up mid-battle, move text overhead">
+        <img src="/screenshots/battle.png" alt="two walkers squared up mid-battle, move text overhead">
       </div>
       <div class="feature-body">
         <h3>subagent battles</h3>
@@ -402,7 +411,7 @@
     </div>
     <div class="feature-card" style="border-left-color: var(--lemon)">
       <div class="feature-media">
-        <img src="screenshots/mega.png" alt="a mega-evolved charizard mid-battle, gold ring and sparkle burst around it, a floating 'mega evolved!' text overhead">
+        <img src="/screenshots/mega.png" alt="a mega-evolved charizard mid-battle, gold ring and sparkle burst around it, a floating 'mega evolved!' text overhead">
       </div>
       <div class="feature-body">
         <h3>mega evolution</h3>
@@ -411,7 +420,7 @@
     </div>
     <div class="feature-card" style="border-left-color: var(--lilac)">
       <div class="feature-media">
-        <img src="screenshots/arceus.png" alt="the garden replaced by a starfield cosmos, arceus floating and cycling through its type-plate formes">
+        <img src="/screenshots/arceus.png" alt="the garden replaced by a starfield cosmos, arceus floating and cycling through its type-plate formes">
       </div>
       <div class="feature-body">
         <h3>arceus</h3>
@@ -420,7 +429,7 @@
     </div>
     <div class="feature-card" style="border-left-color: var(--peach)">
       <div class="feature-media solid" style="background: rgba(223, 165, 127, 0.12)">
-        <img src="screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
+        <img src="/screenshots/garden.png" alt="the pixel-art garden" style="opacity: 0.85">
       </div>
       <div class="feature-body">
         <h3>day and night</h3>
@@ -437,3 +446,5 @@
   </div>
   <p class="disclaimer">Pokémon, Pokémon character names, and their designs are trademarks of Nintendo, Game Freak, and Creatures Inc. Sprites shown here are fan-made and used non-commercially; this project is not affiliated with or endorsed by any of them.</p>
 </footer>
+</body>
+</html>
