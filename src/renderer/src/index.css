@@ -193,7 +193,7 @@ body {
 /* Press-and-hold on a chip painted a white drag-ghost/text-selection bar
  * across the bar (video-confirmed, BACKLOG.md phase B) — the topbar has no
  * genuinely selectable text, so kill selection and native image/element
- * drag on everything in it. The one exception is the garden-chip rename
+ * drag on everything in it. The one exception is the garden-picker rename
  * field, a real text input, which opts back in below. */
 .topbar,
 .topbar * {
@@ -268,9 +268,9 @@ body {
 
 /* The usable width is the window width minus the 96px traffic-light inset and
  * 24px side padding: 980px (~1100px window) hides the brand text, 860px
- * (~980px) compacts the 83px new-agent button to 30px, and 812px (~932px)
- * reduces the 180px workspace control to 96px. Those fixed-item savings keep
- * the roughly 450px action cluster visible at the 900px window minimum. */
+ * (~980px) compacts the 83px new-agent button to 30px. Those fixed-item
+ * savings keep the roughly 450px action cluster visible at the 900px window
+ * minimum. */
 @media (max-width: 980px) {
   .brand {
     display: none;
@@ -292,22 +292,6 @@ body {
   }
 }
 
-@media (max-width: 812px) {
-  .topbar .garden-chips-wrap {
-    width: 96px;
-    min-width: 96px;
-  }
-
-  /* `.overflow-chip-selected-row`'s own 90px floor (below) is sized for the
-   * un-squeezed 180px+ `.garden-chips-wrap` — inside this 96px wrapper it
-   * would push the row past the `+N` trigger and off the topbar. Narrower
-   * than 812px, the garden row already relies on shrinking to nothing in
-   * favor of the trigger, same as before that floor existed. */
-  .topbar .garden-chips-wrap .overflow-chip-selected-row {
-    min-width: 0;
-  }
-}
-
 .session-chips {
   display: flex;
   align-items: center;
@@ -323,8 +307,7 @@ body {
   scrollbar-width: none;
 }
 
-.session-chips::-webkit-scrollbar,
-.garden-chips::-webkit-scrollbar {
+.session-chips::-webkit-scrollbar {
   display: none;
 }
 
@@ -339,8 +322,7 @@ body {
   min-width: 0;
 }
 
-.overflow-chip-controls > .session-chips,
-.overflow-chip-controls > .garden-chips {
+.overflow-chip-controls > .session-chips {
   width: auto;
   flex: 0 1 auto;
 }
@@ -351,16 +333,11 @@ body {
    * entirely at narrow window widths (it has no min-width of its own —
    * `.session-chips`'s `min-width: 0; flex-shrink: 1;` above lets it go all
    * the way to nothing). 90px is enough for the pokemon-face icon plus a
-   * few characters of an ellipsized title. Shared by both the session row
-   * and the garden row — `.garden-chips-wrap`'s own default `clamp(180px,
-   * 18vw, 280px)` comfortably fits this alongside its `+N` trigger, but its
-   * OWN `@media (max-width: 812px)` squeeze to 96px does not, so that query
-   * (below) resets this floor to 0 for the garden row specifically. */
+   * few characters of an ellipsized title. */
   min-width: 90px;
 }
 
-.overflow-chip-row-wrap.is-overflowing .session-chips,
-.overflow-chip-row-wrap.is-overflowing .garden-chips {
+.overflow-chip-row-wrap.is-overflowing .session-chips {
   overflow: hidden;
 }
 
@@ -416,23 +393,9 @@ body {
   text-align: left;
 }
 
-.overflow-chip-menu .garden-chip {
-  width: 100%;
-}
-
-.overflow-chip-menu .garden-chip-name {
-  flex: 1 1 auto;
-  text-align: left;
-}
-
 .overflow-chip-menu-footer {
   padding-top: 4px;
   border-top: 1px solid var(--muted-dim);
-}
-
-.overflow-chip-menu-footer .garden-chip-new {
-  width: 100%;
-  text-align: left;
 }
 
 /* The row absorbs available topbar width; overflow is promoted to the
@@ -444,8 +407,7 @@ body {
   max-width: 55vw;
 }
 
-.session-chips-fade,
-.garden-chips-fade {
+.session-chips-fade {
   position: absolute;
   top: 0;
   right: 0;
@@ -552,126 +514,116 @@ body {
   color: var(--accent-sky);
 }
 
-/* ── Garden chips (Phase 8.7, inlined into the topbar — parity sweep) ───────
- * Replaces the old dropdown workspace switcher: every garden is a chip in
- * the topbar's own flex row instead of a menu behind a click. Same
- * measured overflow pattern as `.session-chips` (min-width:0 + flex-shrink
- * so THIS row promotes a cramped topbar to its compact dropdown instead of
- * pushing the right-side controls off) — deliberately NOT `-webkit-app-region: no-drag` on the
- * container itself (unlike the old `.workspace-switcher`): `.topbar button`
- * already makes every chip/action button no-drag, and leaving the row's own
- * background draggable matters more now that it can span up to 55vw. */
-.garden-chips {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow-x: auto;
-  width: 100%;
-  max-width: none;
-  min-width: 0;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.garden-chips-wrap {
+/* ── Garden picker (garden-picker merge) ─────────────────────────────────────
+ * Replaces the old inline garden-chip row (every garden as its own chip,
+ * hover-revealed rename/delete on the active one, "+N ▾" overflow trigger for
+ * the rest — WorkspaceSwitcher.tsx's previous shape) with a single click
+ * target: a button showing just the active garden's name. Clicking it opens
+ * one anchored popover holding everything that row used to spread across
+ * several controls — same anchored-popover shape as `.audio-popover` above
+ * (document-level pointerdown outside-click dismissal, `--shadow-hard`,
+ * left-anchored here since the trigger sits near the topbar's LEFT end,
+ * unlike the right-anchored popovers further down). */
+.garden-picker {
   position: relative;
   flex: 0 0 auto;
-  width: clamp(180px, 18vw, 280px);
-  min-width: 180px;
+  -webkit-app-region: no-drag;
 }
 
-.garden-chips-fade {
-  background: linear-gradient(to right, transparent, var(--panel));
-}
-
-.garden-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-}
-
-/* Fold the active chip into ONE pill (BACKLOG.md phase C — rename/delete
- * used to be two bare floating icon buttons beside the chip): the outer
- * `.garden-chip` grows the border/fill that used to live only on the name
- * button, and the name button itself goes borderless/transparent so it
- * reads as text sitting inside the shared pill rather than a second nested
- * box. `padding-right` leaves room for the folded-in actions below. */
-.garden-chip.active {
-  border: 1px solid var(--text-secondary);
-  background: var(--panel-2);
-  border-radius: var(--radius-md);
-  padding-right: 2px;
-}
-
-.garden-chip-name {
-  flex: 1 1 auto;
-  max-width: 140px;
+.garden-picker-trigger {
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
 }
 
-.garden-chip.active .garden-chip-name {
-  border-color: transparent;
-  background: none;
-  box-shadow: none;
-  color: var(--text);
-}
-
-/* Undoes the generic `button:hover` accent border on the now-borderless name
- * button — that hover ring belongs to the pill (`.garden-chip.active`
- * above), not to a see-through inner box. */
-.garden-chip.active .garden-chip-name:hover {
-  border-color: transparent;
-}
-
-/* Rename/delete themselves stay hover/focus-revealed at the pill's right
- * edge rather than always-on, so the bar reads as just chip + chip + chip
- * with nothing floating at rest. Opacity/pointer-events, not display, so
- * revealing them never shifts the row's layout, and `:focus-within` keeps
- * them reachable by keyboard (Tab lands on the hidden button, which then
- * satisfies this selector itself). */
-.garden-chip-action {
-  flex: none;
-  /* Small, tight footprint on purpose: this space is RESERVED at rest (see
-   * the opacity/pointer-events approach above) so revealing on hover never
-   * shifts the row — a bigger box here would read as a dead gap at the
-   * active pill's tail instead of padding. */
-  font-size: 12px;
-  padding: 0 4px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 90ms ease-out;
-}
-
-.garden-chip.active:hover .garden-chip-action,
-.garden-chip.active:focus-within .garden-chip-action {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.garden-chip-rename {
+.garden-picker-rename {
   width: 120px;
   font-size: var(--font-body-sm-size);
   -webkit-app-region: no-drag;
 }
 
-.garden-chip-new {
-  /* The garden row's edge fade is an affordance for overflowing chips, but
-   * it must not wash out the always-visible create action that happens to be
-   * rendered at the row's trailing edge. */
-  position: relative;
-  z-index: 1;
-  flex: none;
+/* Own `no-drag`, not just inherited from the `.garden-picker` wrapper: an
+ * absolutely-positioned child doesn't enlarge its static parent's layout
+ * box, so without this the menu's top edge — right where a scrollbar thumb
+ * starts at scrollTop 0 — would sit inside the topbar's draggable strip and
+ * turn a scroll-thumb drag into a window drag (same bug class fixed for
+ * `.notification-bell-panel` above). */
+.garden-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  min-width: 180px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: min(60vh, 360px);
+  padding: 6px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+  -webkit-app-region: no-drag;
+}
+
+.garden-picker-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--muted-dim);
+}
+
+.garden-picker-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  padding: 4px 6px;
+  background: none;
+  border: none;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garden-picker-menu-item:hover:not(:disabled) {
+  background: var(--panel-2);
+}
+
+.garden-picker-menu-item.danger:not(:disabled) {
+  color: var(--danger);
+}
+
+.garden-picker-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--muted-dim);
+}
+
+.garden-picker-menu-footer {
+  padding-top: 4px;
+}
+
+.garden-picker-new {
+  width: 100%;
+  text-align: left;
   white-space: nowrap;
   color: var(--muted);
   background: none;
   border: 1px dashed var(--line);
+  padding: 4px 6px;
 }
 
-.garden-chip-new:hover {
+.garden-picker-new:hover {
   color: var(--text);
   border-color: var(--accent-text);
 }
@@ -4352,7 +4304,7 @@ body.garden-lowres .garden canvas {
  * bottom-pinned input row. Scrolling itself is untouched (wheel/trackpad/
  * keyboard all still work — only the visual scrollbar chrome is hidden). */
 .terminal-mount .xterm-viewport {
-  scrollbar-width: none; /* Firefox — harmless no-op in this Chromium-only app, kept for parity with the other scrollbar-hiding rules in this file (see .session-chips/.garden-chips near line 305) */
+  scrollbar-width: none; /* Firefox — harmless no-op in this Chromium-only app, kept for parity with the other scrollbar-hiding rules in this file (see .session-chips near line 305) */
 }
 .terminal-mount .xterm-viewport::-webkit-scrollbar {
   width: 0;
