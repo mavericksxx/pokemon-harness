@@ -2670,6 +2670,35 @@ body.garden-lowres .garden canvas {
   pointer-events: none;
 }
 
+/* Global subagent-cards expand/collapse toggle (RosterStrip.tsx) — pinned to
+ * `.roster-strip-wrap` itself rather than inside the scrolling `.roster-strip`
+ * (unlike `.roster-strip-new`), so it stays reachable once there are enough
+ * sessions for the strip to scroll. Shares the top-right corner with
+ * `.roster-strip-fade` above — safe since that fade is `pointer-events: none`
+ * and this sits on top of it in DOM order. */
+.roster-strip-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.roster-strip-toggle:hover,
+.roster-strip-toggle.active {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
 /* Compact width (item 2: "roughly half the current [220px] card") is the
  * DEFAULT here, not a modifier class — any card variant that forgets to opt
  * into a wider class (`.roster-card-wrap-medium`/`-arceus` below) safely
@@ -3774,6 +3803,40 @@ body.garden-lowres .garden canvas {
   top: auto;
   bottom: calc(100% + 6px);
   left: 0;
+}
+
+/* ── Hidden-subagents count badge (subagent expand/collapse toggle,
+ * AgentRosterCard.tsx) ── Same corner-badge idiom as
+ * `.roster-card-trainer-trigger` above (a sibling of the card `<button>`,
+ * protruding OUTSIDE the card's own border box via negative offsets), just
+ * mirrored to the TOP-RIGHT corner instead of that trigger's bottom-left —
+ * this one is never hover-gated either (a persistent count, not an
+ * accidental-click risk). */
+.roster-card-hidden-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  z-index: 2;
+  box-shadow: 1px 1px 0 var(--muted-dim);
+  transition:
+    color 90ms steps(2, end),
+    border-color 90ms steps(2, end);
+}
+
+.roster-card-hidden-badge:hover,
+.roster-card-hidden-badge:focus-visible {
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 
 /* Deliberately NOT `position: relative` — the trigger button below is
