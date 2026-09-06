@@ -72,6 +72,34 @@ export interface Toast {
   action?: { label: string; onClick: () => void };
 }
 
+/** Cap on `notifications`' length — oldest entries evicted once a new one
+ *  would exceed it. */
+const NOTIFICATION_HISTORY_LIMIT = 50;
+
+/** A running, in-app-lifetime history entry for the notification bell
+ *  (NotificationBell.tsx). Every `pushToast` also appends one of these (same
+ *  `id`/`text`/`action`, stamped `createdAt`/`read` here) so the bell's
+ *  history covers every toast automatically; `pushNotification` appends one
+ *  WITHOUT a toast, for events worth logging but not worth interrupting with
+ *  a popup. Deliberately NOT persisted to localStorage — in-memory only for
+ *  this app session's lifetime (an `action.onClick` closure can't survive a
+ *  restart anyway, and a stale "unread from last session" badge on launch
+ *  would be noise, not signal). */
+export interface NotificationEntry {
+  id: string;
+  text: string;
+  createdAt: number;
+  read: boolean;
+  action?: { label: string; onClick: () => void };
+}
+
+/** Appends `entry` to a notification list, evicting the oldest entries once
+ *  the cap is exceeded. Shared by `pushToast` and `pushNotification`. */
+function appendNotification(notifications: NotificationEntry[], entry: NotificationEntry): NotificationEntry[] {
+  const next = [...notifications, entry];
+  return next.length > NOTIFICATION_HISTORY_LIMIT ? next.slice(next.length - NOTIFICATION_HISTORY_LIMIT) : next;
+}
+
 /** One of three layouts (was four — 'terminalFull' was dropped: it and
  *  'terminal' both hid the garden and gave the terminal the whole body, and
  *  users reported the two view-switcher buttons as duplicates. 'terminal'
@@ -124,6 +152,10 @@ interface HarnessState {
   selectedId: string | null;
   drawerOpen: boolean;
   toasts: Toast[];
+  /** Running in-app-lifetime notification history for the topbar bell
+   *  (NotificationBell.tsx) — see `NotificationEntry`'s own comment. Newest
+   *  last; capped at `NOTIFICATION_HISTORY_LIMIT`. Not persisted. */
+  notifications: NotificationEntry[];
   /** Live subagent battlers, across every parent session (see `LiveBattler`).
    *  Not workspace-scoped itself — RosterStrip filters by matching
    *  `parentId` against its own already-scoped session list. */
@@ -218,6 +250,14 @@ interface HarnessState {
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
   dismissToast(id: string): void;
+  /** History-only notification (no toast, no transient popup) — for events
+   *  worth showing in the bell's history but not worth interrupting with a
+   *  toast. */
+  pushNotification(text: string): void;
+  /** Marks every entry in `notifications` read — called when the bell's
+   *  popover opens. Unread count is derived (`!read` count), never a
+   *  separately tracked field. */
+  markAllNotificationsRead(): void;
   /** BattleManager's onBattlerSpawned bridge (GardenScene.tsx) — a wild
    *  battler just materialized. `spawnedAt` is stamped here (Date.now()),
    *  not passed in — this call IS the moment of spawn as far as the store's
@@ -258,6 +298,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   selectedId: null,
   drawerOpen: true,
   toasts: [],
+  notifications: [],
   battlers: [],
   focusBattlerKey: null,
   despawnBattlerKeys: [],
@@ -350,10 +391,21 @@ export const useStore = create<HarnessState>((set, get) => ({
 
   pushToast: (text, action) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    set((st) => ({ toasts: [...st.toasts, { id, text, action }] }));
+    set((st) => ({
+      toasts: [...st.toasts, { id, text, action }],
+      notifications: appendNotification(st.notifications, { id, text, action, createdAt: Date.now(), read: false })
+    }));
     window.setTimeout(() => get().dismissToast(id), TOAST_DURATION_MS);
   },
   dismissToast: (id) => set((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) })),
+  pushNotification: (text) => {
+    const id = `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    set((st) => ({
+      notifications: appendNotification(st.notifications, { id, text, createdAt: Date.now(), read: false })
+    }));
+  },
+  markAllNotificationsRead: () =>
+    set((st) => ({ notifications: st.notifications.map((n) => (n.read ? n : { ...n, read: true })) })),
 
   addBattler: (battler) =>
     set((st) => ({

@@ -328,6 +328,25 @@ export function PokeballIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Topbar notification bell trigger (NotificationBell.tsx) — a classic bell
+ *  silhouette (domed body widening toward the base, a clapper knob beneath)
+ *  on this file's own 16px pixel-grid. */
+export function BellIcon(props: IconProps): JSX.Element {
+  return (
+    <PixelIcon {...props}>
+      <rect x="7" y="1" width="2" height="1" />
+      <rect x="6" y="2" width="4" height="1" />
+      <rect x="5" y="3" width="1" height="2" />
+      <rect x="10" y="3" width="1" height="2" />
+      <rect x="4" y="5" width="1" height="5" />
+      <rect x="11" y="5" width="1" height="5" />
+      <rect x="3" y="10" width="10" height="1" />
+      <rect x="2" y="11" width="12" height="1" />
+      <rect x="6" y="13" width="4" height="1" />
+    </PixelIcon>
+  );
+}
+
 /** Topbar theme toggle's "switch to light mode" state — a crescent, drawn as
  *  one filled blob with a second, offset blob's cells left out (rather than
  *  painted over) to cut the sliver. */

@@ -312,6 +312,11 @@ export async function stopSession(id: string): Promise<void> {
  * OS notification for the same event (main/index.ts's `notifyStatusTransitions`,
  * gated on window focus + selection), this one is already inside the app, so
  * there's no "was the user looking at it" gate to apply. Call once, at boot.
+ *
+ * Also logs a `'blocked'` transition to the notification bell's history
+ * (`pushNotification`, not `pushToast`) — no new visible toast, the existing
+ * `blocked` UI (native OS notification included) is untouched, this just
+ * makes the transition visible in the bell too.
  */
 export function startCompletionToasts(): void {
   // A single persistent Map, mutated in place (not rebuilt per call): pushToast
@@ -326,10 +331,14 @@ export function startCompletionToasts(): void {
       const was = prevStatus.get(session.id);
       prevStatus.set(session.id, session.status);
       // `was === undefined` covers both a brand-new session AND one first
-      // seen already-'done' (e.g. crash-recovery restore) — neither is a
-      // fresh completion.
-      if (session.status !== 'done' || was === undefined || was === 'done') continue;
-      useStore.getState().pushToast(`${session.title} finished.`);
+      // seen already in that status (e.g. crash-recovery restore) — neither
+      // is a fresh transition.
+      if (was === undefined) continue;
+      if (session.status === 'done' && was !== 'done') {
+        useStore.getState().pushToast(`${session.title} finished.`);
+      } else if (session.status === 'blocked' && was !== 'blocked') {
+        useStore.getState().pushNotification(`${session.title} needs your input.`);
+      }
     }
     for (const id of [...prevStatus.keys()]) {
       if (!state.sessions.some((s) => s.id === id)) prevStatus.delete(id);
