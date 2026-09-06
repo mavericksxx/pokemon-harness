@@ -203,10 +203,24 @@ import pkg from '../../../package.json';
     border: 0;
     display: block;
   }
+  .demo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 14px 0 0;
+  }
+  .demo-actions .btn {
+    font-size: 14px;
+    padding: 10px 18px;
+  }
+  .demo-actions .btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
   .demo-caption {
     font-size: 13px;
     color: var(--ink-500);
-    margin: 14px 0 0;
+    margin: 10px 0 0;
     max-width: 640px;
   }
   .demo-mobile-note {
@@ -375,11 +389,17 @@ import pkg from '../../../package.json';
   </div>
   <div class="demo-frame-body" id="demo-frame-body">
     <div class="demo-frame-scaler" id="demo-frame-scaler">
-      <iframe src="/demo.html" title="pokéharness live demo" loading="lazy"></iframe>
+      <iframe id="demo-iframe" src="/demo.html?embed=1" title="pokéharness live demo"></iframe>
     </div>
   </div>
-  <p class="demo-caption">click spawn, shiny, or battle inside it — every animation is the same engine running in the real app. nothing here is a recording.</p>
-  <p class="demo-mobile-note">best explored with a mouse — the demo above is scaled down to fit, so hover effects and small buttons are easiest on a bigger screen.</p>
+  <div class="demo-actions" id="demo-actions">
+    <button type="button" class="btn btn-primary" id="demo-btn-spawn" disabled>loading…</button>
+    <button type="button" class="btn btn-secondary" id="demo-btn-shiny" disabled>loading…</button>
+    <button type="button" class="btn btn-secondary" id="demo-btn-battle" disabled>loading…</button>
+    <button type="button" class="btn btn-secondary" id="demo-btn-showreel" disabled>loading…</button>
+  </div>
+  <p class="demo-caption">spawn, force a shiny, trigger a subagent battle, or run the showreel with the buttons above — every animation is the same engine running in the real app. nothing here is a recording.</p>
+  <p class="demo-mobile-note">the garden view above is scaled down to fit small screens — it's easiest to see the pixel detail and hover effects on a bigger one.</p>
 </div>
 <script>
   (function () {
@@ -393,6 +413,51 @@ import pkg from '../../../package.json';
     }
     fit();
     window.addEventListener('resize', fit);
+  })();
+</script>
+<script>
+  (function () {
+    var iframe = document.getElementById('demo-iframe');
+    var buttons = {
+      spawn: document.getElementById('demo-btn-spawn'),
+      shiny: document.getElementById('demo-btn-shiny'),
+      battle: document.getElementById('demo-btn-battle'),
+      showreel: document.getElementById('demo-btn-showreel'),
+    };
+    if (!iframe) return;
+
+    function enable() {
+      buttons.spawn.disabled = false; buttons.spawn.textContent = 'spawn';
+      buttons.shiny.disabled = false; buttons.shiny.textContent = 'spawn shiny';
+      buttons.battle.disabled = false; buttons.battle.textContent = 'subagent battle';
+      buttons.showreel.disabled = false; buttons.showreel.textContent = 'run showreel';
+    }
+
+    // Same-origin iframe (served from this site), so this is direct property
+    // access on contentWindow, not postMessage. demo.html's own inline
+    // script defines window.pokeDemo synchronously while it boots, but the
+    // outer iframe's 'load' event can fire before that — poll briefly
+    // instead of relying on 'load'. Fire-and-forget beyond this: clicks just
+    // call the corresponding pokeDemo method, no state sync back out.
+    var tries = 0;
+    var poll = setInterval(function () {
+      tries++;
+      var api = iframe.contentWindow && iframe.contentWindow.pokeDemo;
+      if (api) {
+        clearInterval(poll);
+        api.ready.then(enable);
+        buttons.spawn.addEventListener('click', function () { api.spawn(); });
+        buttons.shiny.addEventListener('click', function () { api.spawnShiny(); });
+        buttons.battle.addEventListener('click', function () { api.battle(); });
+        buttons.showreel.addEventListener('click', function () { api.showreel(); });
+      } else if (tries > 100) {
+        clearInterval(poll);
+        buttons.spawn.disabled = true; buttons.spawn.textContent = 'demo unavailable';
+        buttons.shiny.disabled = true; buttons.shiny.textContent = 'demo unavailable';
+        buttons.battle.disabled = true; buttons.battle.textContent = 'demo unavailable';
+        buttons.showreel.disabled = true; buttons.showreel.textContent = 'demo unavailable';
+      }
+    }, 100);
   })();
 </script>
 
