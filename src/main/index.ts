@@ -219,10 +219,10 @@ const taskNotificationWatcher = new TaskNotificationWatcher(() => mainWindow?.we
 const hookBridge: HookBridge = new HookBridge(
   app.getPath('userData'),
   () => mainWindow?.webContents ?? null,
-  (agentId, transcriptPath) => {
-    costWatcher.onHookPayload(agentId, transcriptPath);
+  (agentId, transcriptPath, hookEventName, subagentAgentId) => {
+    costWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
     arceusRelay.onHookPayload(agentId, transcriptPath);
-    taskNotificationWatcher.onHookPayload(agentId, transcriptPath);
+    taskNotificationWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
   },
   // External-codex-delegate feature — same forward-reference trick as
   // `arceusRelay` above: `ptyManager` isn't constructed until the next line,

@@ -364,8 +364,23 @@ export class HookBridge {
      *  renderer, so the cost/context HUD's transcript-path registration
      *  (idempotent — see costWatcher.ts) isn't tied to any one hook event.
      *  Optional so this class stays usable standalone (tests, other
-     *  callers) without a cost watcher in the loop. */
-    private onRawPayload?: (agentId: string, transcriptPath: string | undefined) => void,
+     *  callers) without a cost watcher in the loop.
+     *
+     *  Also carries `hook_event_name` and `agent_id` straight off the same
+     *  payload (2026-09-06 stale-registration fix): a registration call for
+     *  an agentId that's already tracked against a DIFFERENT transcript path
+     *  (a `/clear`, or Arceus's `tryResumeArceus` respawning under the same
+     *  fixed agentId — see costWatcher.ts's `registerSession`) needs to tell
+     *  a genuine top-level SessionStart apart from a subagent-scoped payload
+     *  (which carries its own `agent_id`/`agent_type` and must never reset
+     *  the parent's tracked state) before it's safe to drop the stale state
+     *  and re-track the new path. */
+    private onRawPayload?: (
+      agentId: string,
+      transcriptPath: string | undefined,
+      hookEventName: string | undefined,
+      subagentAgentId: string | undefined
+    ) => void,
     /** External-codex-delegate feature — validates a delegate's
      *  `POKEHARNESS_DELEGATE_PARENT` actually names a live harness session
      *  before `handleDelegate` forwards anything to the renderer, so a
@@ -862,7 +877,7 @@ export class HookBridge {
       this.handleDelegate(p, eventName);
       return {};
     }
-    this.onRawPayload?.(agentId, p.transcript_path);
+    this.onRawPayload?.(agentId, p.transcript_path, p.hook_event_name, p.agent_id);
     if (!isKnownHookEvent(eventName)) return {};
 
     const tool = normalizeToolName(p.tool_name);

@@ -293,19 +293,49 @@ export class TaskNotificationWatcher {
     this.timer = null;
   }
 
-  /** Registers (or no-ops if already registered) a session's transcript
-   *  path — idempotent, same as costWatcher.ts's `registerSession`, safe to
-   *  call on every hook payload. UNLIKE costWatcher (which replays a
-   *  transcript whole because cost aggregation is idempotent to re-derive),
-   *  this starts tailing from the file's CURRENT size, same reasoning as
+  /** Registers (or no-ops if already registered against the SAME path) a
+   *  session's transcript path — idempotent for a repeated call against the
+   *  same path, same as costWatcher.ts's `registerSession`, safe to call on
+   *  every hook payload. UNLIKE costWatcher (which replays a transcript whole
+   *  because cost aggregation is idempotent to re-derive), this starts
+   *  tailing from the file's CURRENT size, same reasoning as
    *  arceusRelay.ts's own `onHookPayload`: a `--resume` respawn points this
    *  at an EXISTING transcript that may carry async launches/notifications
    *  from a previous life, and replaying those would gate/queue off stale
    *  history. A fresh session's transcript is empty at registration time
    *  anyway (SessionStart fires before its first turn), so this only ever
-   *  matters for the resume case. */
-  registerSession(agentId: string, transcriptPath: string | undefined | null): void {
-    if (!transcriptPath || this.tracked.has(agentId)) return;
+   *  matters for the resume case.
+   *
+   *  2026-09-06 stale-registration fix (mirrors costWatcher.ts's own
+   *  `registerSession`): a registration for an agentId already tracked
+   *  against a DIFFERENT transcript path means the CLI session under that
+   *  agentId was replaced without an explicit `unregisterSession` ever
+   *  firing (`/clear`, or Arceus's `tryResumeArceus`) — the ORIGINAL guard
+   *  here (`this.tracked.has(agentId)`) made that later call a silent
+   *  permanent no-op, leaving this watcher tailing the dead transcript
+   *  forever so async Task completions from the new conversation never
+   *  correlate and battlers roam until their timeout. Only reset when
+   *  `hookEventName` is a genuine top-level `SessionStart` AND
+   *  `subagentAgentId` is unset, same reasoning as costWatcher.ts: a
+   *  subagent-scoped payload must never thrash the parent's tracked
+   *  pending/notified state. Dropping the old entry and falling through to
+   *  the same current-size initialization below is deliberate, not a
+   *  special case — the new transcript is, by the same resume reasoning
+   *  above, either freshly empty or itself a `--resume` target that may
+   *  carry its own prior history not to be replayed. */
+  registerSession(
+    agentId: string,
+    transcriptPath: string | undefined | null,
+    hookEventName?: string,
+    subagentAgentId?: string
+  ): void {
+    if (!transcriptPath) return;
+    const existing = this.tracked.get(agentId);
+    if (existing) {
+      if (existing.path === transcriptPath) return; // harmless no-op — path unchanged
+      if (subagentAgentId || hookEventName !== 'SessionStart') return;
+      this.tracked.delete(agentId);
+    }
     let size = 0;
     try {
       size = statSync(transcriptPath).size;
@@ -328,9 +358,17 @@ export class TaskNotificationWatcher {
   }
 
   /** Hook payload observer — see hookBridge.ts's `onRawPayload` constructor
-   *  param (same chaining point costWatcher.ts/arceusRelay.ts use). */
-  onHookPayload(agentId: string, transcriptPath: string | undefined): void {
-    this.registerSession(agentId, transcriptPath);
+   *  param (same chaining point costWatcher.ts/arceusRelay.ts use).
+   *  `hookEventName`/`subagentAgentId` are forwarded only so `registerSession`
+   *  can tell a genuine top-level SessionStart from a subagent-scoped payload
+   *  (see its own comment). */
+  onHookPayload(
+    agentId: string,
+    transcriptPath: string | undefined,
+    hookEventName?: string,
+    subagentAgentId?: string
+  ): void {
+    this.registerSession(agentId, transcriptPath, hookEventName, subagentAgentId);
   }
 
   /** Timer-tick wrapper: poll, then re-check whether outstanding work
