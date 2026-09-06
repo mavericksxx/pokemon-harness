@@ -44,9 +44,19 @@ export function PokemonFace({ name, box = DEFAULT_BOX, shiny = false }: Props): 
     if (bundled) return;
     setLazyUrl(null);
     let cancelled = false;
-    loadLazyThumbnail(name, shiny).then((url) => {
-      if (!cancelled) setLazyUrl(url);
-    });
+    loadLazyThumbnail(name, shiny)
+      .then((url) => {
+        if (!cancelled) setLazyUrl(url);
+      })
+      // Defense in depth: lazySprites.ts's own caches now convert every
+      // failure to a resolved `null` internally, so this shouldn't fire, but
+      // an uncaught rejection here would otherwise be a silent unhandled
+      // promise rejection that leaves this face stuck on the pokeball with
+      // no trace of why.
+      .catch((err) => {
+        console.error(`[PokemonFace] ${name}: failed to load thumbnail —`, err);
+        if (!cancelled) setLazyUrl(null);
+      });
     return () => {
       cancelled = true;
     };

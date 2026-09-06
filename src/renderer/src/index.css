@@ -681,6 +681,12 @@ body {
   gap: 8px;
   max-height: 60vh;
   overflow-y: auto;
+  /* Bug fix: when the forms sub-panel below is showing, it shares this same
+   * flex column and would otherwise squeeze this grid to near-nothing (see
+   * `.pokemon-forms-panel`) — this floor keeps at least ~2 rows of
+   * `.pokemon-option` cards (128px tall + 8px gap) visible/usable no matter
+   * how much the forms panel claims. */
+  min-height: 264px;
 }
 
 .pokemon-option {
@@ -763,11 +769,20 @@ body {
 
 /* Alt-battle-form sub-panel: shown below the grid once a species with forms
  * (e.g. Zacian) is clicked — picking any pill here (base or form) is what
- * actually commits the pick, see PokemonPicker.tsx. Fixed content height,
- * not part of the grid's own scroll area, matching `.pokemon-note` above it
- * in the same flex-column modal. */
+ * actually commits the pick, see PokemonPicker.tsx. Bounded to its own
+ * scrollable area (was `flex: none`, claiming its full content height
+ * unconditionally) so a species with many forms can't eat unlimited space
+ * from the main grid above, which shares this same flex column — see
+ * `.pokemon-picker`'s min-height for the other half of that fix. */
 .pokemon-forms-panel {
-  flex: none;
+  flex: 0 1 auto;
+  /* A floor of its own (heading + one row of 56px form cards), so the grid's
+   * own floor above can't squeeze this to an invisible/unusable sliver
+   * either — see the scrolling label wrapper below for what happens if both
+   * floors together don't fit the modal's available height. */
+  min-height: 110px;
+  max-height: 220px;
+  overflow-y: auto;
   border-top: 1px solid var(--line);
   padding-top: 8px;
 }
@@ -1711,13 +1726,26 @@ body.garden-lowres .garden canvas {
 .modal:has(.pokemon-picker) > .pokemon-picker,
 .modal:has(.pokemon-picker) > label:has(.pokemon-picker) .pokemon-picker {
   flex: 1 1 auto;
-  min-height: 0;
+  /* Bug fix: this overrode the base `.pokemon-picker` rule's own min-height
+   * (higher specificity, same property) back down to 0 — restore the floor
+   * here instead, so the grid still can't be squeezed to near-nothing by the
+   * forms panel sharing this flex column (see `.pokemon-forms-panel`). */
+  min-height: 264px;
   max-height: none;
 }
 
 .modal:has(.pokemon-picker) > label:has(.pokemon-picker) {
   flex: 1 1 auto;
   min-height: 0;
+  /* Safety net for the grid's and the forms panel's own floors above: on a
+   * short window, this label's own share of the 90vh modal can end up
+   * smaller than those two floors combined (every other field in this form
+   * — agent/cwd/command/etc — sits above it and claims space first). Rather
+   * than let either floor lose that fight and get squeezed back down anyway
+   * (the exact bug this is fixing), this scrolls as a whole so both stay at
+   * their full usable size — just not always both on screen at once without
+   * scrolling. */
+  overflow-y: auto;
 }
 
 .modal:has(.pokemon-picker) .modal-actions {
