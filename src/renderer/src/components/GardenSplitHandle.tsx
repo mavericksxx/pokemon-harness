@@ -7,7 +7,6 @@ import {
   HANDLE_PX,
   TERMINAL_MIN_PX
 } from '@/gardenSplit';
-import { DoubleChevronRightIcon } from '@/components/icons';
 
 const DRAG_THRESHOLD_PX = 4;
 
@@ -39,28 +38,15 @@ const DRAG_THRESHOLD_PX = 4;
  *  selectedId]`, not the split, so a drag never re-attaches the terminal or
  *  touches its WebGL context. Live ticks pass `persist: false` to the
  *  store — only pointerup/double-click bank the ratio to localStorage, so a
- *  drag doesn't hit disk every frame.
- *
- *  Parity sweep item 4 — also carries the "hide terminal" half of the
- *  garden-split toggle: a `»` tab riding the divider itself (user report:
- *  the topbar's own show/hide icon was too easy to lose track of — losing
- *  the terminal pane read as losing the whole split view). The `«` "show
- *  it again" half lives docked to the row's own right edge instead
- *  (GardenDrawerEdgeTab.tsx, rendered by App.tsx only while the drawer is
- *  closed — this component isn't mounted at all then, since App.tsx only
- *  renders it alongside an open drawer). The pill's pointerdown bubbles to
- *  this handle; a small movement threshold distinguishes its click from a
- *  real divider drag. */
+ *  drag doesn't hit disk every frame. */
 export function GardenSplitHandle(): JSX.Element {
   const setGardenSplit = useStore((s) => s.setGardenSplit);
-  const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const draggingRef = useRef(false);
   const rowRectRef = useRef<DOMRect | null>(null);
   const grabOffsetRef = useRef(0);
   const downXRef = useRef(0);
   const latestXRef = useRef(0);
   const rafRef = useRef<number | null>(null);
-  const pillDownRef = useRef(false);
   // A bare click (pointerdown → pointerup, no move) must not overwrite the
   // stored ratio with the drawer's current *laid-out* width — normally a
   // no-op, but below ~806px of row width the two clamp() floors overlap
@@ -114,7 +100,6 @@ export function GardenSplitHandle(): JSX.Element {
     latestXRef.current = e.clientX;
     draggingRef.current = true;
     movedRef.current = false;
-    pillDownRef.current = e.target instanceof Element && e.target.closest('.garden-split-collapse-tab') != null;
     e.currentTarget.setPointerCapture(e.pointerId);
     document.body.classList.add('is-splitting');
   };
@@ -122,9 +107,10 @@ export function GardenSplitHandle(): JSX.Element {
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!draggingRef.current) return;
     latestXRef.current = e.clientX;
-    // Let a small amount of pointer drift remain a pill click. Once the
-    // divider has moved past the threshold, keep treating the whole pointer
-    // session as a drag even if it later settles back near its start point.
+    // Let a small amount of pointer drift still count as a bare click. Once
+    // the divider has moved past the threshold, keep treating the whole
+    // pointer session as a drag even if it later settles back near its
+    // start point.
     if (!movedRef.current) {
       if (Math.abs(e.clientX - downXRef.current) < DRAG_THRESHOLD_PX) return;
       movedRef.current = true;
@@ -137,9 +123,7 @@ export function GardenSplitHandle(): JSX.Element {
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
-    const pillClick = pillDownRef.current && !movedRef.current;
     stopDragging(true);
-    if (pillClick) setDrawerOpen(false);
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -157,28 +141,9 @@ export function GardenSplitHandle(): JSX.Element {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onDoubleClick={(e) => {
-        const pillTarget = e.target instanceof Element && e.target.closest('.garden-split-collapse-tab') != null;
-        if (pillTarget || pillDownRef.current) return;
-        setGardenSplit(DEFAULT_GARDEN_SPLIT, true);
-      }}
+      onDoubleClick={() => setGardenSplit(DEFAULT_GARDEN_SPLIT, true)}
     >
       <span className="garden-split-line" aria-hidden="true" />
-      <button
-        type="button"
-        className="garden-split-collapse-tab tip"
-        data-tip="hide terminal"
-        aria-label="hide terminal panel"
-        // Keep the double-click local: a double-click on the pill must not
-        // reset the ratio through the divider's own onDoubleClick handler.
-        onDoubleClick={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          if (e.detail !== 0) return;
-          setDrawerOpen(false);
-        }}
-      >
-        <DoubleChevronRightIcon />
-      </button>
     </div>
   );
 }
