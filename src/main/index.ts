@@ -448,9 +448,20 @@ function buildApplicationMenu(): Menu {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
+        // `undo`/`redo` deliberately dropped (mute-bypass fix): this app has
+        // no undo/redo feature anywhere, and on macOS those two roles map
+        // straight to NSResponder's `undo:`/`redo:` — which, with no
+        // NSUndoManager to satisfy the request, falls through to a native
+        // `NSBeep()` by AppKit design. The terminal's xterm.js view is the
+        // worst-hit target: its hidden input is cleared after every keystroke
+        // (each one goes straight to the pty instead of accumulating as
+        // editable text), so it NEVER has anything to undo — Cmd+Z/Cmd+Shift+Z
+        // beeped there on every press, entirely outside this app's own
+        // Howler-based audio engine (audioEngine.ts), so no app mute setting
+        // could ever silence it. `cut`/`copy`/`paste`/`selectAll` stay: those
+        // map to edit commands Chromium actually implements (a no-op selection
+        // doesn't fall through to the same native-beep default), and ordinary
+        // text inputs elsewhere in the app still need them.
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
