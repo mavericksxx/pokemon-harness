@@ -182,7 +182,7 @@ if (!rootEl) throw new Error('#root missing');
 // free to scroll, but clamp every other element that Chromium shifts.
 const documentScrollGuardTargets = [document.documentElement, document.body, rootEl];
 const documentScrollGuardExemptSelector =
-  '.session-chips, .garden-chips, .pokemon-picker, .drawer-tabs, .modal, ' +
+  '.session-chips, .garden-picker-menu, .pokemon-picker, .drawer-tabs, .modal, ' +
   '.usage-popover-panel, .mini-player-list, .roster-strip, .focus-sidebar, ' +
   '.sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
   '.overflow-chip-menu, textarea, input, select';

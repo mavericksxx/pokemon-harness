@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { NewWorkspaceDialog } from '@/components/NewWorkspaceDialog';
@@ -6,48 +6,50 @@ import { DeleteWorkspaceDialog } from '@/components/DeleteWorkspaceDialog';
 import { isGlobalSession } from '@shared/arceus';
 import type { WorkspaceRecord } from '@shared/workspaceTypes';
 import { TrashIcon } from '@/components/icons';
-import { OverflowChipRow, type OverflowChipRenderContext, type OverflowChipSurface } from '@/components/OverflowChipRow';
 
-/** Gardens (workspaces), inline in the topbar (parity sweep — replaces the
- *  old dropdown-menu switcher: with Arceus's chip now leading the row and
- *  his roster card gone, there was finally room to put the gardens
- *  themselves in the chrome instead of behind a click). Every garden is a
- *  chip — click to switch. Rename/delete only need to be reachable for
- *  WHICHEVER garden is active (you rename/delete the one you're looking at,
- *  same as before, just no longer behind a menu to open first) — the active
- *  chip alone grows a rename (✎) and delete affordance, folded into the
- *  chip itself and hover/focus-revealed at its right edge (index.css's
- *  `.garden-chip-action` — topbar overhaul, was two bare floating icons
- *  beside the chip); every other chip is just a plain switch button.
- *  Cmd/Ctrl+Shift+1..9 (App.tsx) switches
- *  directly without touching this component at all — the per-chip shortcut
- *  hint moved from a visible label into each chip's tooltip to keep the row
- *  compact. */
+/** Gardens (workspaces), in the topbar (garden-picker merge — replaces both
+ *  the old always-visible rename/delete/change-folder icon row AND the
+ *  separate "+N ▾" overflow chip that used to sit beside it with ONE click
+ *  target: the active garden's name. Clicking it opens a single popover
+ *  (`.garden-picker-menu`, same anchored-popover idiom as AudioPopover.tsx —
+ *  wrapper ref + document-level outside-pointerdown + Escape) holding
+ *  everything that used to be spread across the row: the list of other
+ *  gardens to switch to (was the "+N ▾" dropdown), and rename/delete/change-
+ *  folder for the CURRENT garden (was the hover-revealed icon trio). All the
+ *  underlying handlers are unchanged from that version — only how they're
+ *  triggered moved. Cmd/Ctrl+Shift+1..9 (App.tsx) still switches gardens
+ *  directly without touching this component at all. */
 export function WorkspaceSwitcher(): JSX.Element {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
   const sessions = useStore((s) => s.sessions);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceRecord | null>(null);
   const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace);
   const updateWorkspace = useWorkspaceStore((s) => s.updateWorkspace);
   const pushToast = useStore((s) => s.pushToast);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
 
   const startRename = (w: WorkspaceRecord): void => {
-    setRenamingId(w.id);
+    setMenuOpen(false);
+    setRenaming(true);
     setRenameValue(w.name);
   };
 
   const commitRename = (id: string): void => {
     const trimmed = renameValue.trim();
-    setRenamingId(null);
+    setRenaming(false);
     if (trimmed) void renameWorkspace(id, trimmed);
   };
 
   const changeFolder = async (workspace: WorkspaceRecord): Promise<void> => {
+    setMenuOpen(false);
     const folder = await window.api.chooseFolder();
     if (!folder) return;
     try {
@@ -70,60 +72,102 @@ export function WorkspaceSwitcher(): JSX.Element {
   const deadCount = (workspaceId: string): number =>
     sessions.filter((s) => !isGlobalSession(s) && sessionWorkspaceId(s) === workspaceId && s.status === 'done').length;
 
-  const renderGardenChip = (w: WorkspaceRecord, { selected, surface, onSelect }: OverflowChipRenderContext): JSX.Element => {
-    if (renamingId === w.id) {
-      return (
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
+  // Outside-click dismissal follows the document-level pointerdown +
+  // wrapper-ref `.contains()` pattern established by AudioPopover.tsx /
+  // OverflowChipRow.tsx.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !wrapperRef.current?.contains(event.target)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [menuOpen]);
+
+  if (!activeWorkspace) return <></>;
+
+  const otherWorkspaces = workspaces.filter((w) => w.id !== activeWorkspace.id);
+  const canDelete = workspaces.length > 1 && liveCount(activeWorkspace.id) === 0;
+  const i = workspaces.findIndex((w) => w.id === activeWorkspace.id);
+
+  return (
+    <div className="garden-picker" ref={wrapperRef}>
+      {renaming ? (
         <input
-          className="garden-chip-rename"
+          className="garden-picker-rename"
           value={renameValue}
-          autoFocus={surface !== 'measurement'}
+          autoFocus
           onChange={(e) => setRenameValue(e.target.value)}
-          onBlur={() => commitRename(w.id)}
+          onBlur={() => commitRename(activeWorkspace.id)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commitRename(w.id);
-            if (e.key === 'Escape') setRenamingId(null);
+            if (e.key === 'Enter') commitRename(activeWorkspace.id);
+            if (e.key === 'Escape') setRenaming(false);
           }}
         />
-      );
-    }
-
-    const i = workspaces.findIndex((workspace) => workspace.id === w.id);
-    const canDelete = workspaces.length > 1 && liveCount(w.id) === 0;
-    return (
-      <span className={selected ? 'garden-chip active' : 'garden-chip'}>
+      ) : (
         <button
           type="button"
-          className="garden-chip-name"
-          aria-pressed={selected}
-          onClick={onSelect}
-          title={i < 9 ? `${w.primaryFolder} (⌘⇧${i + 1})` : w.primaryFolder}
+          className="garden-picker-trigger"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          title={i >= 0 && i < 9 ? `${activeWorkspace.primaryFolder} (⌘⇧${i + 1})` : activeWorkspace.primaryFolder}
+          onClick={() => setMenuOpen((v) => !v)}
         >
-          {w.name}
+          {activeWorkspace.name}
         </button>
-        {selected && (
-          <>
+      )}
+
+      {menuOpen && (
+        <div className="garden-picker-menu" role="menu" aria-label="gardens">
+          {otherWorkspaces.length > 0 && (
+            <div className="garden-picker-menu-list">
+              {otherWorkspaces.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  role="menuitem"
+                  className="garden-picker-menu-item"
+                  title={w.primaryFolder}
+                  onClick={() => {
+                    void setActiveWorkspace(w.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {w.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="garden-picker-menu-actions">
             <button
               type="button"
-              className="icon garden-chip-action"
-              aria-label={`change folder for ${w.name}`}
+              className="garden-picker-menu-item"
               title="change folder…"
-              onClick={() => void changeFolder(w)}
+              onClick={() => void changeFolder(activeWorkspace)}
             >
-              ↗
+              ↗ change folder…
             </button>
             <button
               type="button"
-              className="icon garden-chip-action"
-              aria-label={`rename ${w.name}`}
+              className="garden-picker-menu-item"
               title="rename"
-              onClick={() => startRename(w)}
+              onClick={() => startRename(activeWorkspace)}
             >
-              ✎
+              ✎ rename
             </button>
             <button
               type="button"
-              className="icon garden-chip-action"
-              aria-label={`delete ${w.name}`}
+              className="garden-picker-menu-item danger"
               title={
                 canDelete
                   ? 'delete this garden'
@@ -132,42 +176,29 @@ export function WorkspaceSwitcher(): JSX.Element {
                     : 'still has running agents — stop them first'
               }
               disabled={!canDelete}
-              onClick={() => setDeleteTarget(w)}
+              onClick={() => {
+                setMenuOpen(false);
+                setDeleteTarget(activeWorkspace);
+              }}
             >
-              <TrashIcon />
+              <TrashIcon /> delete
             </button>
-          </>
-        )}
-      </span>
-    );
-  };
+          </div>
 
-  const renderNewGarden = (surface: OverflowChipSurface): JSX.Element => (
-    <button
-      type="button"
-      className="garden-chip-new"
-      onClick={surface === 'measurement' ? undefined : () => setNewOpen(true)}
-    >
-      + new garden
-    </button>
-  );
-
-  return (
-    <>
-      <OverflowChipRow
-        items={workspaces}
-        selectedId={activeWorkspaceId}
-        getItemId={(w) => w.id}
-        onRowSelect={(w) => void setActiveWorkspace(w.id)}
-        onMenuSelect={(w) => void setActiveWorkspace(w.id)}
-        renderItem={renderGardenChip}
-        renderTrailing={renderNewGarden}
-        wrapperClassName="garden-chips-wrap"
-        rowClassName="garden-chips"
-        fadeClassName="garden-chips-fade"
-        menuAriaLabel="gardens"
-        overflowCount={workspaces.length}
-      />
+          <div className="garden-picker-menu-footer">
+            <button
+              type="button"
+              className="garden-picker-new"
+              onClick={() => {
+                setMenuOpen(false);
+                setNewOpen(true);
+              }}
+            >
+              + new garden
+            </button>
+          </div>
+        </div>
+      )}
 
       {newOpen && <NewWorkspaceDialog onClose={() => setNewOpen(false)} />}
       {deleteTarget && (
@@ -177,6 +208,6 @@ export function WorkspaceSwitcher(): JSX.Element {
           onClose={() => setDeleteTarget(null)}
         />
       )}
-    </>
+    </div>
   );
 }
