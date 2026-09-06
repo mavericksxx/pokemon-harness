@@ -2182,6 +2182,90 @@ body.garden-lowres .garden canvas {
   box-shadow: var(--shadow-hard);
 }
 
+/* ── Notification bell (topbar — NotificationBell.tsx) ──────────────────────
+ * Same anchored-popover shape as `.audio-popover` above (document-level
+ * pointerdown outside-click dismissal, right-anchored panel, `--shadow-hard`,
+ * `no-drag` since the topbar itself is a drag region). The trigger's unread
+ * dot follows `.status::before`'s own colored-dot convention rather than a
+ * numeric badge (this codebase has no numeric-badge precedent). */
+.notification-bell {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.notification-bell-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-blocked);
+}
+
+.notification-bell-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+}
+
+.notification-bell-empty {
+  color: var(--muted);
+  font-size: var(--font-body-sm-size);
+  padding: 4px 2px;
+}
+
+.notification-bell-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-bell-row:last-child {
+  border-bottom: none;
+}
+
+.notification-bell-row-text {
+  font-size: var(--font-body-sm-size);
+  color: var(--text);
+}
+
+.notification-bell-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-bell-row-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.notification-bell-row-action {
+  color: var(--accent-text);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 /* ── Usage-limits chip + "trainer card" popover (BACKLOG "next up" item 1,
  * UsageChip.tsx) ─────────────────────────────────────────────────────────
  * Same anchored-popover shape as `.audio-popover` above (document-level
@@ -2717,6 +2801,35 @@ body.garden-lowres .garden canvas {
   width: 28px;
   background: linear-gradient(to right, transparent, var(--panel));
   pointer-events: none;
+}
+
+/* Global subagent-cards expand/collapse toggle (RosterStrip.tsx) — pinned to
+ * `.roster-strip-wrap` itself rather than inside the scrolling `.roster-strip`
+ * (unlike `.roster-strip-new`), so it stays reachable once there are enough
+ * sessions for the strip to scroll. Shares the top-right corner with
+ * `.roster-strip-fade` above — safe since that fade is `pointer-events: none`
+ * and this sits on top of it in DOM order. */
+.roster-strip-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.roster-strip-toggle:hover,
+.roster-strip-toggle.active {
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 
 /* Compact width (item 2: "roughly half the current [220px] card") is the
@@ -3825,6 +3938,40 @@ body.garden-lowres .garden canvas {
   left: 0;
 }
 
+/* ── Hidden-subagents count badge (subagent expand/collapse toggle,
+ * AgentRosterCard.tsx) ── Same corner-badge idiom as
+ * `.roster-card-trainer-trigger` above (a sibling of the card `<button>`,
+ * protruding OUTSIDE the card's own border box via negative offsets), just
+ * mirrored to the TOP-RIGHT corner instead of that trigger's bottom-left —
+ * this one is never hover-gated either (a persistent count, not an
+ * accidental-click risk). */
+.roster-card-hidden-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  z-index: 2;
+  box-shadow: 1px 1px 0 var(--muted-dim);
+  transition:
+    color 90ms steps(2, end),
+    border-color 90ms steps(2, end);
+}
+
+.roster-card-hidden-badge:hover,
+.roster-card-hidden-badge:focus-visible {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
 /* Deliberately NOT `position: relative` — the trigger button below is
  * positioned absolute against `.roster-card-wrap` (the nearest ANCESTOR
  * that already has `position: relative`, same one `.roster-card-swap`
@@ -4711,7 +4858,7 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
       <span class="brand">pokéharness</span>
     </span>
 
-    <button type="button" class="summon-arceus" title="summon arceus"><span class="summon-arceus-glyph" aria-hidden="true">✦</span>arceus</button>
+    <button type="button" class="summon-arceus" id="btn-summon-arceus" title="summon arceus"><span class="summon-arceus-glyph" aria-hidden="true">✦</span>arceus</button>
 
     <span class="garden-chips-wrap">
       <div class="garden-chips">
@@ -4742,6 +4889,7 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
           <button id="btn-spawn-shiny">spawn a shiny</button>
           <button id="btn-subagent">spawn a subagent for selected</button>
           <button id="btn-despawn" class="danger">recall selected (pokéball)</button>
+          <button id="btn-arceus">summon arceus</button>
         </div>
 
         <div class="settings-card">
@@ -4820,6 +4968,15 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
               <div class="garden-empty" id="garden-empty">no sessions yet<br><br>spawn a pokémon to begin</div>
               <div class="garden-frame-shadow"></div>
             </div>
+            <div class="garden-cosmos" id="cosmos" aria-hidden="true">
+              <div class="garden-cosmos-nebula" id="cosmos-nebula"></div>
+              <div class="garden-cosmos-figure">
+                <div class="garden-cosmos-forme" id="cosmos-forme-0"></div>
+                <div class="garden-cosmos-forme" id="cosmos-forme-1"></div>
+              </div>
+            </div>
+            <div class="garden-warp-streaks" id="warp-streaks" aria-hidden="true"></div>
+            <div class="garden-warp-flash" id="warp-flash" aria-hidden="true"></div>
           </div>
         </div>
         <div class="roster-strip-wrap">
@@ -4889,6 +5046,7 @@ let simTime = 0; const simTimers = [];
 const sleep = (ms) => new Promise((r) => simTimers.push({ at: simTime + ms, r }));
 const el = (id) => document.getElementById(id);
 const CDN = 'https://play.pokemonshowdown.com';
+const ARCEUS_ID = '__arceus__';
 
 // ───────────────────────────── audio (cries from showdown, synthesized sfx) ─────────────────────────────
 const audio = {
@@ -4911,6 +5069,380 @@ const audio = {
   poof() { this.tone(900, 200, 0.18, 'sawtooth', 0.04); },
   select() { this.tone(660, 990, 0.06, 'square', 0.04); },
   berry() { this.tone(880, 1320, 0.08, 'square', 0.04); }
+};
+
+// ───────────────────────────── arceus cosmos warp (ported from src/renderer/src/scene/garden/{nebula,warpStreaks,arceusFormes}.ts + components/ArceusWarp.tsx) ─────────────────────────────
+/** Small deterministic PRNG (mulberry32) — shared by the nebula and streak/cover rasterizers below (the source files each keep their own copy; merged here to avoid a duplicate declaration). */
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp01 = (t) => clamp(t, 0, 1);
+function lerpRgb(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
+
+// nebula.ts — procedural cosmos backdrop, generated once and cached as a data URL.
+const NEB_BAYER4 = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5]
+].map((row) => row.map((v) => v / 16));
+const NEB_RES_SCALE = 4;
+const NEB_WIDTH = Math.round(160 * NEB_RES_SCALE);
+const NEB_HEIGHT = Math.round(90 * NEB_RES_SCALE);
+const C_INDIGO = [10, 9, 28];
+const C_VIOLET = [58, 34, 92];
+const C_HAZE = [110, 70, 130];
+const C_CORE = [214, 120, 90];
+const C_CORE_BRIGHT = [244, 176, 128];
+const C_DUST = [14, 9, 16];
+const C_CLEAR = [44, 32, 70];
+const NEB_BAND_A = { x: -0.08, y: 0.85 };
+const NEB_BAND_B = { x: 1.08, y: 0.78 };
+const NEB_PEAK_T = 0.28;
+const NEB_BAND_WIDTH = 0.055 * (2 / 3);
+const NEB_HAZE_WIDTH_MULT = 4.5;
+const NEB_CLEAR_RADIUS = 0.11;
+const ARCEUS_NEBULA_SEED_SALT = 7;
+const NEB_STAR_COLORS = ['#ffffff', '#bfe8ff', '#ffd9a8', '#ffb8f0'];
+
+function generateNebulaDataUrl() {
+  const canvas = document.createElement('canvas');
+  canvas.width = NEB_WIDTH;
+  canvas.height = NEB_HEIGHT;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.imageSmoothingEnabled = false;
+
+  const rng = makeRng(0x41c3e5 ^ (ARCEUS_NEBULA_SEED_SALT * 2654435761));
+
+  const diag = Math.hypot(NEB_WIDTH, NEB_HEIGHT);
+  const ax = NEB_BAND_A.x * NEB_WIDTH;
+  const ay = NEB_BAND_A.y * NEB_HEIGHT;
+  const bx = NEB_BAND_B.x * NEB_WIDTH;
+  const by = NEB_BAND_B.y * NEB_HEIGHT;
+  const abx = bx - ax;
+  const aby = by - ay;
+  const abLen2 = abx * abx + aby * aby;
+
+  const LATTICE = 16;
+  const lattice = Array.from({ length: LATTICE + 1 }, () => Array.from({ length: LATTICE + 1 }, () => rng()));
+  function noise(u, v) {
+    const gx = u * LATTICE;
+    const gy = v * LATTICE;
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const fx = gx - x0;
+    const fy = gy - y0;
+    const s00 = lattice[Math.min(LATTICE, y0)][Math.min(LATTICE, x0)];
+    const s10 = lattice[Math.min(LATTICE, y0)][Math.min(LATTICE, x0 + 1)];
+    const s01 = lattice[Math.min(LATTICE, y0 + 1)][Math.min(LATTICE, x0)];
+    const s11 = lattice[Math.min(LATTICE, y0 + 1)][Math.min(LATTICE, x0 + 1)];
+    return lerp(lerp(s00, s10, fx), lerp(s01, s11, fx), fy);
+  }
+
+  const img = ctx.createImageData(NEB_WIDTH, NEB_HEIGHT);
+  for (let y = 0; y < NEB_HEIGHT; y++) {
+    for (let x = 0; x < NEB_WIDTH; x++) {
+      const apx = x - ax;
+      const apy = y - ay;
+      const t = abLen2 === 0 ? 0 : clamp01((apx * abx + apy * aby) / abLen2);
+      const projX = ax + abx * t;
+      const projY = ay + aby * t;
+      const perp = Math.hypot(x - projX, y - projY) / diag;
+
+      const alongFalloff = 1 - Math.min(1, Math.abs(t - NEB_PEAK_T) * 1.15);
+      const perpFalloff = Math.exp(-((perp / NEB_BAND_WIDTH) ** 2));
+      let heat = clamp01(perpFalloff * lerp(0.35, 1, alongFalloff));
+
+      const dust = noise(x / NEB_WIDTH, y / NEB_HEIGHT);
+      if (perp < NEB_BAND_WIDTH * 1.3 && dust > 0.56) {
+        heat *= clamp01(1 - (dust - 0.56) * 2.6);
+      }
+
+      const groundT = clamp01(1 - perp / (NEB_BAND_WIDTH * NEB_HAZE_WIDTH_MULT));
+      let rgbv = lerpRgb(C_INDIGO, C_VIOLET, groundT * 0.7);
+      rgbv = lerpRgb(rgbv, C_HAZE, groundT * groundT * 0.6);
+
+      rgbv = lerpRgb(rgbv, C_CORE, heat);
+      if (heat > 0.72) rgbv = lerpRgb(rgbv, C_CORE_BRIGHT, (heat - 0.72) / 0.28);
+
+      if (perp < NEB_BAND_WIDTH * 1.3 && dust > 0.56) {
+        const dustAmt = clamp01((dust - 0.56) * 2.6);
+        rgbv = lerpRgb(rgbv, C_DUST, dustAmt * 0.85);
+      }
+
+      const distToCenter = Math.hypot(x - NEB_WIDTH / 2, y - NEB_HEIGHT / 2) / diag;
+      if (distToCenter < NEB_CLEAR_RADIUS) {
+        rgbv = lerpRgb(rgbv, C_CLEAR, (1 - distToCenter / NEB_CLEAR_RADIUS) * 0.65);
+      }
+
+      const blockX = Math.floor(x / (2 * NEB_RES_SCALE));
+      const blockY = Math.floor(y / (2 * NEB_RES_SCALE));
+      const blockHash = Math.sin(blockX * 12.9898 + blockY * 78.233 + 4.1) * 43758.5453;
+      const blockRand = blockHash - Math.floor(blockHash);
+      const bayer = NEB_BAYER4[y % 4][x % 4];
+      const ditherAmt = (blockRand - 0.5) * 20 + (bayer - 0.5) * 8;
+      rgbv = [
+        clamp01((rgbv[0] + ditherAmt) / 255) * 255,
+        clamp01((rgbv[1] + ditherAmt) / 255) * 255,
+        clamp01((rgbv[2] + ditherAmt) / 255) * 255
+      ];
+
+      const i = (y * NEB_WIDTH + x) * 4;
+      img.data[i] = rgbv[0];
+      img.data[i + 1] = rgbv[1];
+      img.data[i + 2] = rgbv[2];
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  drawStars(ctx, rng);
+
+  return canvas.toDataURL('image/png');
+}
+
+function drawStars(ctx, rng) {
+  const count = 1300;
+  for (let i = 0; i < count; i++) {
+    const x = Math.floor(rng() * NEB_WIDTH);
+    const y = Math.floor(rng() * NEB_HEIGHT);
+    const color = NEB_STAR_COLORS[Math.floor(rng() * NEB_STAR_COLORS.length)];
+    ctx.globalAlpha = 0.45 + rng() * 0.5;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, 1, 1);
+    if (rng() < 0.12) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(x - 1, y, 1, 1);
+      ctx.fillRect(x + 1, y, 1, 1);
+      ctx.fillRect(x, y - 1, 1, 1);
+      ctx.fillRect(x, y + 1, 1, 1);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  const featureStars = [
+    { x: 0.11 * NEB_WIDTH, y: 0.13 * NEB_HEIGHT, color: '#bfe8ff' },
+    { x: 0.87 * NEB_WIDTH, y: 0.17 * NEB_HEIGHT, color: '#ffe3c2' }
+  ];
+  for (const s of featureStars) {
+    for (let r = 3; r >= 0; r--) {
+      ctx.globalAlpha = [0.12, 0.22, 0.4, 0.9][3 - r];
+      ctx.fillStyle = s.color;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r * NEB_RES_SCALE, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+let nebulaCached = null;
+function nebulaDataUrl() {
+  if (nebulaCached === null) nebulaCached = generateNebulaDataUrl();
+  return nebulaCached;
+}
+
+// warpStreaks.ts — radial streak burst + Bayer cover-dissolve sprite sheets, one per direction.
+const WARP_GRID = 32;
+const WARP_CENTER = WARP_GRID / 2;
+const WARP_PALETTES = {
+  up: { core: [232, 214, 255], mid: [120, 74, 168], dark: [14, 10, 34], seed: 0xa5ce11 },
+  down: { core: [255, 240, 200], mid: [232, 183, 64], dark: [30, 46, 26], seed: 0x0d15ee }
+};
+function warpRgb(c) { return `rgb(${c[0]}, ${c[1]}, ${c[2]})`; }
+
+const STREAK_FRAMES = 6;
+const RAY_COUNT = 16;
+function buildRays(seed, mid, dark) {
+  const rng = makeRng(seed);
+  return Array.from({ length: RAY_COUNT }, (_, i) => {
+    const angle = (i / RAY_COUNT) * Math.PI * 2;
+    const long = i % 2 === 0;
+    return {
+      angle,
+      lengthFrac: long ? 0.92 : 0.6,
+      width: rng() < 0.3 ? 2 : 1,
+      color: rng() < 0.5 ? mid : dark
+    };
+  });
+}
+const RAY_LAYOUTS = {
+  up: buildRays(WARP_PALETTES.up.seed, WARP_PALETTES.up.mid, WARP_PALETTES.up.dark),
+  down: buildRays(WARP_PALETTES.down.seed, WARP_PALETTES.down.mid, WARP_PALETTES.down.dark)
+};
+const RAY_INNER_R = 2;
+
+function rasterizeStreakFrame(direction, frameIndex) {
+  const canvas = document.createElement('canvas');
+  canvas.width = WARP_GRID;
+  canvas.height = WARP_GRID;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.imageSmoothingEnabled = false;
+
+  const reachT = frameIndex / (STREAK_FRAMES - 1);
+  for (const ray of RAY_LAYOUTS[direction]) {
+    const outerR = RAY_INNER_R + reachT * (ray.lengthFrac * WARP_CENTER - RAY_INNER_R);
+    const steps = Math.max(1, Math.ceil((outerR - RAY_INNER_R) * 2));
+    const dx = Math.cos(ray.angle);
+    const dy = Math.sin(ray.angle);
+    ctx.fillStyle = warpRgb(ray.color);
+    for (let s = 0; s <= steps; s++) {
+      const r = RAY_INNER_R + (outerR - RAY_INNER_R) * (s / steps);
+      const gx = Math.round(WARP_CENTER + dx * r);
+      const gy = Math.round(WARP_CENTER + dy * r);
+      ctx.fillRect(gx, gy, 1, 1);
+      if (ray.width === 2) {
+        ctx.fillRect(Math.round(gx - dy), Math.round(gy + dx), 1, 1);
+      }
+    }
+  }
+
+  const { core } = WARP_PALETTES[direction];
+  ctx.fillStyle = warpRgb(core);
+  ctx.fillRect(WARP_CENTER - 1, WARP_CENTER - 1, 2, 2);
+  if (reachT < 0.4) {
+    ctx.fillRect(WARP_CENTER - 2, WARP_CENTER, 4, 1);
+    ctx.fillRect(WARP_CENTER, WARP_CENTER - 2, 1, 4);
+  }
+
+  return canvas.toDataURL('image/png');
+}
+
+const streakCache = new Map();
+function warpStreakFrameUrls(direction) {
+  const cached = streakCache.get(direction);
+  if (cached) return cached;
+  const frames = Array.from({ length: STREAK_FRAMES }, (_, i) => rasterizeStreakFrame(direction, i));
+  streakCache.set(direction, frames);
+  return frames;
+}
+
+const BAYER4_ORDER = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5]
+];
+const COVER_COLS = 10;
+const COVER_ROWS = 6;
+const COVER_LEVELS = 17;
+const COVER_COLOR = {
+  up: warpRgb(WARP_PALETTES.up.mid),
+  down: warpRgb(WARP_PALETTES.down.mid)
+};
+
+function rasterizeCoverFrame(direction, level) {
+  const canvas = document.createElement('canvas');
+  canvas.width = COVER_COLS;
+  canvas.height = COVER_ROWS;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = COVER_COLOR[direction];
+  for (let y = 0; y < COVER_ROWS; y++) {
+    for (let x = 0; x < COVER_COLS; x++) {
+      if (BAYER4_ORDER[y % 4][x % 4] < level) ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  return canvas.toDataURL('image/png');
+}
+
+const coverCache = new Map();
+function coverFrameUrls(direction) {
+  const cached = coverCache.get(direction);
+  if (cached) return cached;
+  const frames = Array.from({ length: COVER_LEVELS }, (_, level) => rasterizeCoverFrame(direction, level));
+  coverCache.set(direction, frames);
+  return frames;
+}
+
+// arceusFormes.ts
+const ARCEUS_FORMES = [
+  'arceus-fire', 'arceus-water', 'arceus-electric', 'arceus-grass', 'arceus-ice', 'arceus-fighting',
+  'arceus-poison', 'arceus-ground', 'arceus-flying', 'arceus-psychic', 'arceus-bug', 'arceus-rock',
+  'arceus-ghost', 'arceus-dragon', 'arceus-dark', 'arceus-steel', 'arceus-fairy'
+];
+const ARCEUS_FORME_HOLD_MS = 3500;
+
+/** ArceusWarp.tsx's state machine, ported: `progress` steps toward `target` inside the existing
+ *  `frame(dt)` loop (see `warp.update` call below) instead of its own rAF chain, and forme cycling
+ *  uses the demo's sim-clock `sleep` instead of `setInterval` — both per this task's brief, so the
+ *  whole effect stays correct even in a hidden/backgrounded tab. */
+const WARP_MS = 720;
+const FLASH_FULL = 0.06;
+const FLASH_EDGE = 0.13;
+const warp = {
+  progress: 0, target: 0, cosmosVisible: false, cyclingToken: null,
+  streakFrames: warpStreakFrameUrls('down'), coverFrames: coverFrameUrls('down'),
+  setAscended(ascended) {
+    const target = ascended ? 1 : 0;
+    if (target === this.target) return;
+    this.target = target;
+    const direction = ascended ? 'up' : 'down';
+    this.streakFrames = warpStreakFrameUrls(direction);
+    this.coverFrames = coverFrameUrls(direction);
+  },
+  setForme(slot, id) { el(`cosmos-forme-${slot}`).style.backgroundImage = `url(${CDN}/sprites/gen5ani/${id}.gif)`; },
+  startCycling() {
+    if (this.cyclingToken) return;
+    const token = { stopped: false };
+    this.cyclingToken = token;
+    (async () => {
+      let idx = 0, active = 0;
+      this.setForme(0, ARCEUS_FORMES[0]);
+      el('cosmos-forme-0').style.opacity = '1'; el('cosmos-forme-1').style.opacity = '0';
+      while (!token.stopped) {
+        await sleep(ARCEUS_FORME_HOLD_MS);
+        if (token.stopped) break;
+        idx = (idx + 1) % ARCEUS_FORMES.length;
+        active = active === 0 ? 1 : 0;
+        this.setForme(active, ARCEUS_FORMES[idx]);
+        el(`cosmos-forme-${active}`).style.opacity = '1';
+        el(`cosmos-forme-${active === 0 ? 1 : 0}`).style.opacity = '0';
+      }
+    })();
+  },
+  stopCycling() {
+    if (this.cyclingToken) { this.cyclingToken.stopped = true; this.cyclingToken = null; }
+  },
+  applyStyles(p, forceFullCover) {
+    const showCosmos = p >= 0.5;
+    el('pane').style.opacity = showCosmos ? '0' : '1';
+    el('pane').style.pointerEvents = showCosmos ? 'none' : 'auto';
+    el('cosmos').style.opacity = showCosmos ? '1' : '0';
+    if (showCosmos !== this.cosmosVisible) { this.cosmosVisible = showCosmos; showCosmos ? this.startCycling() : this.stopCycling(); }
+
+    const lastStreakIndex = this.streakFrames.length - 1;
+    const lastCoverLevel = this.coverFrames.length - 1;
+    const distFromCenter = clamp01(Math.abs(p - 0.5) / 0.5);
+    const streakIndex = Math.min(lastStreakIndex, Math.floor(distFromCenter * this.streakFrames.length));
+    el('warp-streaks').style.backgroundImage = `url(${this.streakFrames[streakIndex]})`;
+    el('warp-streaks').style.opacity = streakIndex >= lastStreakIndex ? '0' : streakIndex === lastStreakIndex - 1 ? '0.5' : '1';
+
+    const flashDist = Math.abs(p - 0.5);
+    let coverLevel;
+    if (forceFullCover || flashDist <= FLASH_FULL) coverLevel = lastCoverLevel;
+    else if (flashDist >= FLASH_EDGE) coverLevel = 0;
+    else { const t = (FLASH_EDGE - flashDist) / (FLASH_EDGE - FLASH_FULL); coverLevel = Math.min(lastCoverLevel, Math.round(t * lastCoverLevel)); }
+    el('warp-flash').style.backgroundImage = `url(${this.coverFrames[coverLevel]})`;
+  },
+  update(dt) {
+    if (this.progress === this.target) return;
+    const dir = this.target >= this.progress ? 1 : -1;
+    const prevP = this.progress;
+    this.progress = clamp01(this.progress + (dir * dt * 1000) / WARP_MS);
+    const crossedMidpoint = (prevP - 0.5) * (this.progress - 0.5) <= 0;
+    this.applyStyles(this.progress, crossedMidpoint);
+  }
 };
 
 // ───────────────────────────── sprite loading ─────────────────────────────
@@ -5483,6 +6015,7 @@ function select(id) {
   store.selected = id; const s = find(id);
   if (s) { s.walker.setSelected(true); s.walker.bounce(); if (performance.now() - lastSelectAt > 600) { audio.cry(s.species.id); audio.select(); lastSelectAt = performance.now(); } }
   renderRoster(); renderTerm();
+  warp.setAscended(id === ARCEUS_ID);
 }
 /** Face element for a roster card — real app's PokemonFace.tsx renders an <i class="pokemon-face"> with a
  * background-image; we point that background straight at the same gen5ani GIF the walker itself uses. */
@@ -5493,10 +6026,11 @@ function faceHtml(url, box, shiny) {
 function renderRoster() {
   const r = el('roster'); r.innerHTML = '';
   const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap roster-card-wrap-arceus';
-  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-compact" title="summon arceus">
+  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-compact" id="btn-roster-arceus" title="summon arceus">
     <span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>
     <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, 18, false)}</span><span class="roster-card-title-compact"><span class="roster-card-arceus-star" aria-hidden="true">★</span> arceus</span></div>
     <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:0%"></div></div>`;
+  arceus.querySelector('button').onclick = () => select(ARCEUS_ID);
   r.appendChild(arceus);
   for (const s of store.sessions) {
     r.appendChild(card(s));
@@ -5602,6 +6136,7 @@ function frame(now) {
   const dt = clamp((now - last) / 1000, 0, .1); last = now; simTime += dt * 1000;
   for (let i = simTimers.length - 1; i >= 0; i--) if (simTimers[i].at <= simTime) { const t = simTimers[i]; simTimers.splice(i, 1); t.r(); }
   for (const w of activeWalkers()) w.update(dt);
+  warp.update(dt);
   updateBattles(dt); fx.update(dt);
   map.update(dt * 1000, activeWalkers().map((w) => w.tile));
   for (const s of store.sessions) if (s.status === 'working' && !s.napping) s.workingMs += dt * 1000;
@@ -5616,6 +6151,7 @@ el('btn-spawn').onclick = () => spawnSession();
 el('btn-spawn-shiny').onclick = () => spawnSession({ shiny: true });
 el('btn-subagent').onclick = () => { const s = selectedSession(); if (s) spawnSubagent(s); };
 el('btn-despawn').onclick = () => { const s = selectedSession(); if (s) despawn(s); };
+el('btn-arceus').onclick = () => select(ARCEUS_ID);
 el('btn-tool').onclick = () => { const s = selectedSession(); if (s) toolCall(s, el('sel-tool').value); };
 el('btn-thinking').onclick = () => { const s = selectedSession(); if (s) thinking(s); };
 el('btn-idle').onclick = () => { const s = selectedSession(); if (s) idle(s); };
@@ -5687,6 +6223,8 @@ el('btn-reel').onclick = runShowreel;
 
 // ───────────────────────────── boot ─────────────────────────────
 audio.init();
+el('cosmos-nebula').style.backgroundImage = `url(${nebulaDataUrl()})`;
+el('btn-summon-arceus').onclick = () => select(ARCEUS_ID);
 map.init().then(() => { cam.init(); renderRoster(); renderTerm(); schedule(); });
 document.addEventListener('visibilitychange', schedule);
 // BootWipe.tsx timings: 180ms beat, then a 650ms iris-open, then unmount.
