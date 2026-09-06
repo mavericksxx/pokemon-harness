@@ -247,27 +247,37 @@ async function loadView(
   if (existing) return existing;
 
   const promise = (async (): Promise<FrameSet | null> => {
-    const cached: CachedSprite | null = await window.api.getCachedSprite(id, view, shiny);
-    if (cached) {
-      const texture = await loadPixelTexture(URL.createObjectURL(new Blob([cached.png], { type: 'image/png' })));
-      return frameSetFromSheet(cached.meta, texture);
+    try {
+      const cached: CachedSprite | null = await window.api.getCachedSprite(id, view, shiny);
+      if (cached) {
+        const texture = await loadPixelTexture(URL.createObjectURL(new Blob([cached.png], { type: 'image/png' })));
+        return frameSetFromSheet(cached.meta, texture);
+      }
+
+      const decoded = await decodeGate(async () => {
+        const useStatic = forceKind ? forceKind === 'static' : speciesEntry(id)?.static;
+        return useStatic
+          ? fetchAndDecodeStatic(id, view, shiny, forceKind)
+          : fetchAndDecode(id, view, shiny, forceKind);
+      });
+      if (!decoded) return null;
+
+      const frameSet = frameSetFromSheet(decoded.meta, decoded.sheet);
+      // Cache write is fire-and-forget: the walker doesn't need to wait on disk
+      // I/O, and a failed write (e.g. disk full) shouldn't break the pick.
+      void canvasToPng(decoded.sheet)
+        .then((png) => window.api.saveCachedSprite(id, view, shiny, png, decoded.meta))
+        .catch((err) => console.error(`[lazySprites] ${id}: failed to cache ${view} sheet —`, err));
+      return frameSet;
+    } catch (err) {
+      // A rejection anywhere above (fetch, GIF parse/decompress, canvas ops)
+      // must not leave a dead promise sitting in `viewCache` forever (see
+      // this file's header on `evictOnNull`) — converting it to the same
+      // null "unavailable" outcome the rest of this pipeline already handles
+      // is what lets the eviction logic below (and the next pick) retry.
+      console.error(`[lazySprites] ${id}: failed to load ${view} sprite —`, err);
+      return null;
     }
-
-    const decoded = await decodeGate(async () => {
-      const useStatic = forceKind ? forceKind === 'static' : speciesEntry(id)?.static;
-      return useStatic
-        ? fetchAndDecodeStatic(id, view, shiny, forceKind)
-        : fetchAndDecode(id, view, shiny, forceKind);
-    });
-    if (!decoded) return null;
-
-    const frameSet = frameSetFromSheet(decoded.meta, decoded.sheet);
-    // Cache write is fire-and-forget: the walker doesn't need to wait on disk
-    // I/O, and a failed write (e.g. disk full) shouldn't break the pick.
-    void canvasToPng(decoded.sheet)
-      .then((png) => window.api.saveCachedSprite(id, view, shiny, png, decoded.meta))
-      .catch((err) => console.error(`[lazySprites] ${id}: failed to cache ${view} sheet —`, err));
-    return frameSet;
   })();
 
   viewCache.set(key, promise);
@@ -330,28 +340,35 @@ export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAni
   if (existing) return existing;
 
   const promise = (async (): Promise<PokemonAnimation | null> => {
-    const entry = speciesEntry(id);
-    if (!entry) return null;
-    const front = await loadFrontWithShinyFallback(id, shiny);
-    if (!front) return null;
-    const back = await loadView(id, 'back', shiny, false).catch(() => null);
-    return {
-      info: {
-        name: entry.id,
-        dex: entry.num,
-        label: entry.name,
-        locomotion: entry.locomotion,
-        frameWidth: front.frameWidth,
-        frameHeight: front.frameHeight,
-        sheetUrl: '',
-        line: entry.line,
-        stage: entry.stage,
-        evolvesTo: entry.evolvesTo,
-        hasBack: !!back
-      },
-      front,
-      back: back ?? undefined
-    };
+    try {
+      const entry = speciesEntry(id);
+      if (!entry) return null;
+      const front = await loadFrontWithShinyFallback(id, shiny);
+      if (!front) return null;
+      const back = await loadView(id, 'back', shiny, false).catch(() => null);
+      return {
+        info: {
+          name: entry.id,
+          dex: entry.num,
+          label: entry.name,
+          locomotion: entry.locomotion,
+          frameWidth: front.frameWidth,
+          frameHeight: front.frameHeight,
+          sheetUrl: '',
+          line: entry.line,
+          stage: entry.stage,
+          evolvesTo: entry.evolvesTo,
+          hasBack: !!back
+        },
+        front,
+        back: back ?? undefined
+      };
+    } catch (err) {
+      // Same rejection-must-not-poison-the-cache rule as `loadView` above —
+      // see that catch block's comment.
+      console.error(`[lazySprites] ${id}: failed to load animation —`, err);
+      return null;
+    }
   })();
 
   animationCache.set(key, promise);
@@ -519,21 +536,28 @@ export function loadLazyThumbnail(id: string, shiny = false): Promise<string | n
   if (existing) return existing;
 
   const promise = thumbnailGate(async (): Promise<string | null> => {
-    const alreadyDecoded = viewCache.get(`${id}:front:${shiny ? 'shiny' : 'normal'}`);
-    if (alreadyDecoded) {
-      const front = await alreadyDecoded;
-      if (front) return cropFrame0(front);
+    try {
+      const alreadyDecoded = viewCache.get(`${id}:front:${shiny ? 'shiny' : 'normal'}`);
+      if (alreadyDecoded) {
+        const front = await alreadyDecoded;
+        if (front) return cropFrame0(front);
+      }
+      const canvas = await decodeThumbnailFrameWithShinyFallback(id, shiny);
+      if (!canvas) return null;
+      const dataUrl = canvas.toDataURL('image/png');
+      // `canvas` here is either `decodeGifFirstFrame`'s composited first frame
+      // or (for a static species) a one-off `fetchAndDecodeStatic` sheet built
+      // just for this thumbnail — either way it's never wrapped in a Pixi
+      // Texture on this path, so nothing else retains it once the data URL
+      // above has been read out. Release it now rather than waiting on GC.
+      canvas.width = canvas.height = 0;
+      return dataUrl;
+    } catch (err) {
+      // Same rejection-must-not-poison-the-cache rule as `loadView` above —
+      // see that catch block's comment.
+      console.error(`[lazySprites] ${id}: failed to load thumbnail —`, err);
+      return null;
     }
-    const canvas = await decodeThumbnailFrameWithShinyFallback(id, shiny);
-    if (!canvas) return null;
-    const dataUrl = canvas.toDataURL('image/png');
-    // `canvas` here is either `decodeGifFirstFrame`'s composited first frame
-    // or (for a static species) a one-off `fetchAndDecodeStatic` sheet built
-    // just for this thumbnail — either way it's never wrapped in a Pixi
-    // Texture on this path, so nothing else retains it once the data URL
-    // above has been read out. Release it now rather than waiting on GC.
-    canvas.width = canvas.height = 0;
-    return dataUrl;
   });
 
   thumbnailCache.set(key, promise);
