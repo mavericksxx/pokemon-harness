@@ -297,6 +297,15 @@ body {
     width: 96px;
     min-width: 96px;
   }
+
+  /* `.overflow-chip-selected-row`'s own 90px floor (below) is sized for the
+   * un-squeezed 180px+ `.garden-chips-wrap` — inside this 96px wrapper it
+   * would push the row past the `+N` trigger and off the topbar. Narrower
+   * than 812px, the garden row already relies on shrinking to nothing in
+   * favor of the trigger, same as before that floor existed. */
+  .topbar .garden-chips-wrap .overflow-chip-selected-row {
+    min-width: 0;
+  }
 }
 
 .session-chips {
@@ -338,6 +347,16 @@ body {
 
 .overflow-chip-selected-row {
   overflow: hidden;
+  /* Floor against the selected chip shrinking to zero width and vanishing
+   * entirely at narrow window widths (it has no min-width of its own —
+   * `.session-chips`'s `min-width: 0; flex-shrink: 1;` above lets it go all
+   * the way to nothing). 90px is enough for the pokemon-face icon plus a
+   * few characters of an ellipsized title. Shared by both the session row
+   * and the garden row — `.garden-chips-wrap`'s own default `clamp(180px,
+   * 18vw, 280px)` comfortably fits this alongside its `+N` trigger, but its
+   * OWN `@media (max-width: 812px)` squeeze to 96px does not, so that query
+   * (below) resets this floor to 0 for the garden row specifically. */
+  min-width: 90px;
 }
 
 .overflow-chip-row-wrap.is-overflowing .session-chips,
@@ -948,6 +967,22 @@ button.icon:active {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* 'gardenFull' has no terminal/roster split, so `.garden-column` above
+ * stretches to the whole window width via `flex: 1` — on a wide monitor
+ * that leaves the map's own fixed aspect ratio producing very large empty
+ * bars INSIDE the Pixi canvas (GardenScene.tsx's letterbox, see Fix 1).
+ * Capping the pane's width here to roughly the map's own aspect ratio
+ * (garden.tmj is 48x32 tiles + a 2-tile border ring at 16px/tile = 832x576
+ * px, ~1.444:1 — see GardenScene.tsx's `mapWidthPx`/`mapHeightPx`) means
+ * any leftover width shows as ordinary chrome ground (`body`'s `--bg`)
+ * around a smaller pane instead of exposing the canvas's own internal
+ * bars. Pure layout — no Pixi/Camera scaling math involved. */
+.garden-column[data-view-mode='gardenFull'] {
+  flex: 0 1 100%;
+  max-width: min(100%, calc(100vh * 1.444));
+  margin: 0 auto;
 }
 
 /* Diorama mat: the garden is the game screen, this is its console shell —

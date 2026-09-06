@@ -291,7 +291,11 @@ export function App(): JSX.Element {
 
       <main className="body">
         <div className="body-row">
-          <div className="garden-column" style={{ display: gardenVisible ? 'flex' : 'none' }}>
+          <div
+            className="garden-column"
+            data-view-mode={viewMode}
+            style={{ display: gardenVisible ? 'flex' : 'none' }}
+          >
             <GardenScene />
             {showRosterStrip && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
           </div>
