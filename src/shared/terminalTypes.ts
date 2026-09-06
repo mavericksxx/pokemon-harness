@@ -11,8 +11,16 @@ export interface TerminalSettings {
 }
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
-  fontSize: 14, // matches design/tokens.ts's monoMd.size, the prior hardcoded value
-  scrollback: 5000 // matches terminalRegistry.ts's prior hardcoded value
+  fontSize: 12, // first-run default only — loadTerminalSettings (main/terminalSettings.ts)
+  // merges this UNDER whatever's already persisted, so an existing user's explicit choice
+  // (even the prior 14px default, once saved) is never overwritten.
+  scrollback: 30000 // raised from 5000. xterm stores each scrollback line as a fixed-size
+  // typed array sized to the terminal's column count (not its text length), so cost is
+  // ~cols * 12 bytes/line — at a typical ~120 cols that's ~1.4KB/line, ~42MB for 30k lines.
+  // terminalRegistry.ts keeps one Terminal (and its full buffer) alive per session even
+  // when not the attached/visible one, so this multiplies by however many sessions are
+  // open at once — 30k (the low end of the requested 30-50k range, not 50k) keeps that
+  // multi-session cost modest while still 6x the old default.
 };
 
 export const TERMINAL_FONT_SIZE_MIN = 10;

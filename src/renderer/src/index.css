@@ -1425,11 +1425,14 @@ body.garden-lowres .garden canvas {
   border: 1px solid var(--line);
 }
 
-/* The panel's own mini header — live indicator + font-size stepper. Always
- * rendered (FocusTerminalHead.tsx); hidden via CSS outside 'terminal' view
- * mode rather than a JSX conditional, same reasoning as the panel itself. */
+/* The panel's own mini header — live indicator + font-size stepper
+ * (FocusTerminalHead.tsx). Always rendered, and always shown: `.terminal-
+ * panel` (and this head inside it) only ever exists in the DOM in 'terminal'
+ * view mode or in 'garden' mode with the drawer open (TerminalDrawer.tsx
+ * renders null otherwise, e.g. 'gardenFull'), so there's no third case to
+ * hide this from — the font-size stepper is wanted in both. */
 .terminal-panel-head {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -1437,10 +1440,6 @@ body.garden-lowres .garden canvas {
   background: var(--panel-2);
   border-bottom: 1px solid var(--line);
   font-size: var(--font-body-sm-size);
-}
-
-.terminal-panel-focus .terminal-panel-head {
-  display: flex;
 }
 
 .terminal-panel-live {
@@ -1523,10 +1522,10 @@ body.garden-lowres .garden canvas {
  * (FocusTerminalHead.tsx) inside FocusView.tsx, which is the SAME render
  * path for both the focus/'terminal' view mode's terminal panel and the
  * garden/gardenFull drawer's terminal panel — see FocusView.tsx's own header
- * comment for why one mount point covers both surfaces. Deliberately NOT
- * gated by `.terminal-panel-focus` the way `.terminal-panel-head` is (that
- * rule hides the mini header outside 'terminal' view mode to save space) —
- * this strip must stay visible in the garden drawer too. */
+ * comment for why one mount point covers both surfaces. Same visibility as
+ * `.terminal-panel-head` now (both always shown wherever `.terminal-panel`
+ * itself renders at all) — this strip must stay visible in the garden
+ * drawer too. */
 .status-strip {
   display: flex;
   align-items: center;
