@@ -1304,17 +1304,10 @@ body.garden-lowres .garden canvas {
   text-overflow: ellipsis;
 }
 
-/* Cost/context fill (CostGauge.tsx) reuses `.roster-card-gauge-fill` — only
- * the outer container differs: the roster card's version is absolutely
- * positioned along the card's own bottom edge, this one is a plain fixed-
- * width bar inline in the header row. */
-.focus-header-gauge {
-  position: relative;
+/* Kill-session button — same slot the header's old (redundant) CostGauge
+ * sliver used to occupy; see FocusHeader.tsx's doc comment. */
+.focus-header-kill {
   flex: none;
-  width: 64px;
-  height: 4px;
-  background: var(--bg);
-  overflow: hidden;
 }
 
 /* Status badge: 8px colored dot + 4px gap + lowercase body-sm text, on a
@@ -3680,24 +3673,14 @@ body.garden-lowres .garden canvas {
   background: var(--accent);
 }
 
-/* Cost & context HUD (Phase 8.5 Wave B item 1) — `.roster-card-gauge-fill`
- * is CostGauge.tsx's inner fill div, hardcoded regardless of which outer
- * container class its caller passes. FocusHeader.tsx's own CostGauge usage
- * (`className="focus-header-gauge"`, above) still renders it inline in its
- * header row; AgentRosterCard.tsx no longer calls CostGauge at all (see the
- * roster-card-badges/-ctx-row block below), so the DEFAULT outer container
- * this fill used to sit in (`.roster-card-gauge`, an absolute sliver flush
- * along the card's bottom edge) has no caller left and was removed. */
-.roster-card-gauge-fill {
-  height: 100%;
-  background: var(--muted);
-  transition: width 400ms steps(2, end);
-}
-
 /* ── Roster card model badge + context row (session-status feature) —
  * replaces AgentRosterCard.tsx's old CostGauge sliver above with an in-flow
  * row matching the approved mockup's roster-card crop: a model badge (+
- * changed tick) row, then "context [hp-bar] N%". ── */
+ * changed tick) row, then "context [hp-bar] N%". FocusHeader.tsx's own
+ * CostGauge usage (a second, unlabeled copy of the same context numbers
+ * SessionStatusStrip's "context" bar already shows) has since been removed
+ * too, so CostGauge.tsx's component/fill markup — and this rule — have no
+ * caller left. ── */
 .roster-card-badges {
   display: flex;
   align-items: center;
