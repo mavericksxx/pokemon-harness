@@ -723,6 +723,12 @@ body {
   gap: 8px;
   max-height: 60vh;
   overflow-y: auto;
+  /* Bug fix: when the forms sub-panel below is showing, it shares this same
+   * flex column and would otherwise squeeze this grid to near-nothing (see
+   * `.pokemon-forms-panel`) — this floor keeps at least ~2 rows of
+   * `.pokemon-option` cards (128px tall + 8px gap) visible/usable no matter
+   * how much the forms panel claims. */
+  min-height: 264px;
 }
 
 .pokemon-option {
@@ -805,11 +811,20 @@ body {
 
 /* Alt-battle-form sub-panel: shown below the grid once a species with forms
  * (e.g. Zacian) is clicked — picking any pill here (base or form) is what
- * actually commits the pick, see PokemonPicker.tsx. Fixed content height,
- * not part of the grid's own scroll area, matching `.pokemon-note` above it
- * in the same flex-column modal. */
+ * actually commits the pick, see PokemonPicker.tsx. Bounded to its own
+ * scrollable area (was `flex: none`, claiming its full content height
+ * unconditionally) so a species with many forms can't eat unlimited space
+ * from the main grid above, which shares this same flex column — see
+ * `.pokemon-picker`'s min-height for the other half of that fix. */
 .pokemon-forms-panel {
-  flex: none;
+  flex: 0 1 auto;
+  /* A floor of its own (heading + one row of 56px form cards), so the grid's
+   * own floor above can't squeeze this to an invisible/unusable sliver
+   * either — see the scrolling label wrapper below for what happens if both
+   * floors together don't fit the modal's available height. */
+  min-height: 110px;
+  max-height: 220px;
+  overflow-y: auto;
   border-top: 1px solid var(--line);
   padding-top: 8px;
 }
@@ -1753,13 +1768,26 @@ body.garden-lowres .garden canvas {
 .modal:has(.pokemon-picker) > .pokemon-picker,
 .modal:has(.pokemon-picker) > label:has(.pokemon-picker) .pokemon-picker {
   flex: 1 1 auto;
-  min-height: 0;
+  /* Bug fix: this overrode the base `.pokemon-picker` rule's own min-height
+   * (higher specificity, same property) back down to 0 — restore the floor
+   * here instead, so the grid still can't be squeezed to near-nothing by the
+   * forms panel sharing this flex column (see `.pokemon-forms-panel`). */
+  min-height: 264px;
   max-height: none;
 }
 
 .modal:has(.pokemon-picker) > label:has(.pokemon-picker) {
   flex: 1 1 auto;
   min-height: 0;
+  /* Safety net for the grid's and the forms panel's own floors above: on a
+   * short window, this label's own share of the 90vh modal can end up
+   * smaller than those two floors combined (every other field in this form
+   * — agent/cwd/command/etc — sits above it and claims space first). Rather
+   * than let either floor lose that fight and get squeezed back down anyway
+   * (the exact bug this is fixing), this scrolls as a whole so both stay at
+   * their full usable size — just not always both on screen at once without
+   * scrolling. */
+  overflow-y: auto;
 }
 
 .modal:has(.pokemon-picker) .modal-actions {
@@ -4741,6 +4769,7 @@ body.is-splitting .garden canvas {
 .app.is-embed #btn-drawer-toggle,
 .app.is-embed #split-collapse,
 .app.is-embed #edge-tab,
+.app.is-embed #drawer-kill,
 .app.is-embed #reel-banner,
 .app.is-embed #reel-hint,
 .app.is-embed .quick-settings:has(> [aria-label='settings']) {
@@ -6385,12 +6414,19 @@ function setBusy(next) {
   window.dispatchEvent(new CustomEvent('pokedemo:busy', { detail: { busy } }));
 }
 const SCENE_REAL_TIMEOUT_MS = 10000;
+/** Races `promise` against the real-time ceiling — see the comment on `run()` below for why one's
+ *  needed. Both `run()` and `runShowreel()` go through this one helper rather than each rolling
+ *  their own `Promise.race`, so a scene-runner added later can't forget the backstop. */
+function withCeiling(promise) {
+  return Promise.race([promise, new Promise((res) => setTimeout(res, SCENE_REAL_TIMEOUT_MS))]);
+}
 /** The one entry point both the console buttons and `window.pokeDemo.run` call. Only one scene
  *  plays at a time — calling this while busy just resolves immediately, it never queues or throws.
  *  `sleep()` runs on the simulated clock (`frame()`'s dt), which the hidden-tab fallback throttles
  *  to roughly 1/10 speed — without a real-time backstop here, a visitor who alt-tabs mid-scene would
- *  come back to a permanently disabled tour strip. `showreel` is handled separately below: it's a
- *  multi-scene autoplay with its own start/stop toggle, not a single bounded scene. */
+ *  come back to a permanently disabled tour strip. `runShowreel` below awaits each scene through this
+ *  same `withCeiling()` — a scene that never settles (a dropped sprite fetch, a walker killed
+ *  mid-ceremony) can't wedge the whole reel either; it just times out and the tour moves on. */
 async function run(id) {
   if (id === 'showreel') { if (busy && !reel) return; return runShowreel(); }
   if (busy) return;
@@ -6398,10 +6434,7 @@ async function run(id) {
   if (!scene) return;
   setBusy(true);
   try {
-    await Promise.race([
-      mapReady.then(() => scene.run()),
-      new Promise((res) => setTimeout(res, SCENE_REAL_TIMEOUT_MS))
-    ]);
+    await withCeiling(mapReady.then(() => scene.run()));
   } catch (e) { console.error('pokeDemo scene', id, e); }
   finally { setBusy(false); }
 }
@@ -6464,7 +6497,12 @@ async function runShowreel() {
       el('reel-banner').textContent = `showreel ${i + 1}/${TOUR.length} · ${scene.label}`;
       el('reel-hint').textContent = `${i + 1}/${TOUR.length} — ${scene.caption}`;
       el('reel-bar').style.width = Math.round((i / TOUR.length) * 100) + '%';
-      await scene.run(); await sleep(1200);
+      await withCeiling(scene.run());
+      // recheck here (not just at the top of the loop) so a stop lands the instant a scene
+      // resolves — including a scene that only resolved because it just hit its ceiling —
+      // instead of dragging in one more 1200ms beat before the loop notices.
+      if (reel.stop) break;
+      await sleep(1200);
     }
   } catch (e) { console.error('showreel', e); toast('showreel hit an error — see console'); }
   el('reel-bar').style.width = reel.stop ? '0%' : '100%'; el('reel-hint').textContent = reel.stop ? 'stopped.' : 'that\'s the whole harness. run it again, or poke at the triggers.';
