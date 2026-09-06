@@ -24,6 +24,7 @@ import { speciesEntry } from '@/scene/garden/dexData';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { stationForTool } from '@/scene/garden/stations';
 import { emitBattleSignal } from '@/scene/garden/battle/battleBus';
+import { emitAdvisorSignal } from '@/scene/garden/battle/advisorBus';
 import { emitClosingRitualSignal } from '@/scene/garden/closingRitualBus';
 import { emitCharmSignal } from '@/scene/garden/charmBus';
 import { arceusIsLive } from '@/arceus';
@@ -332,6 +333,45 @@ export function subagentDone(): void {
   emitBattleSignal({ type: 'end', parentId: lastSubagentParentId, taskId: lastSubagentToolUseId });
 }
 
+// ─── advisor companion ──────────────────────────────────────────────────────
+
+let lastAdvisorParentId: string | null = null;
+let lastAdvisorTaskId: string | null = null;
+
+/** Mirrors `spawnSubagentFor`/`subagent()` above, but through advisorBus.ts
+ *  instead of battleBus.ts — spawns a hovering companion beside the parent
+ *  rather than an ordinary roaming battler (AdvisorManager.ts, wired in
+ *  GardenScene.tsx the same way BattleManager is). Self-correlates the same
+ *  way `spawnSubagentFor` does — `toolUseId` doubling as its own `taskId` —
+ *  since a demo consult has no real completion event to correlate against
+ *  later; same convention the codex-delegate path uses (hookRouter.ts:169-
+ *  175). Requires a selected demo session that's a live walker, same
+ *  precondition (and guard) as `subagent()`. */
+export function advisorConsult(): void {
+  if (!activeAtom.get()) return;
+  const id = selectedDemoId();
+  if (!id) return;
+  const parent = useStore.getState().sessions.find((s) => s.id === id);
+  if (!parent || parent.isArceus || parent.isPlainTerminal) {
+    useStore.getState().pushToast('pick a non-arceus, non-terminal demo session first');
+    return;
+  }
+  const toolUseId = `demo-advisor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  emitAdvisorSignal({ type: 'spawn', parentId: id, toolUseId });
+  emitAdvisorSignal({ type: 'correlate', parentId: id, toolUseId, taskId: toolUseId });
+  lastAdvisorParentId = id;
+  lastAdvisorTaskId = toolUseId;
+}
+
+export function advisorConsultDone(): void {
+  if (!activeAtom.get()) return;
+  if (!lastAdvisorParentId || !lastAdvisorTaskId) {
+    useStore.getState().pushToast('no demo advisor consult to complete');
+    return;
+  }
+  emitAdvisorSignal({ type: 'end', parentId: lastAdvisorParentId, taskId: lastAdvisorTaskId });
+}
+
 /** Spawns a demo session whose species is a MEGA_FORMS key, then runs a
  *  subagent battle for it — BattleManager fires the mega beat itself once
  *  the fight reaches faceoff (megaForms.ts's own header). `charizard` is
@@ -347,7 +387,7 @@ export function mega(): void {
     if (!demoIds.has(id)) return;
     useStore.getState().select(id);
     spawnSubagentFor(id);
-    await sleep(2500); // one battle wave (BattleManager.ts's own ~2s beat)
+    await sleep(2500); // cuts the mega ceremony short — BattleManager.ts's own exchange actually runs ~8.3s
     if (!demoIds.has(id) || lastSubagentParentId !== id) return;
     subagentDone();
   })();
@@ -490,8 +530,9 @@ export function cancelShowreel(): void {
  *  demo's session-vs-session battle (this app has no such mechanic — see the
  *  brief). Durations: evolution's ceremony runs ~8.7s real time
  *  (`DECAY_END * durationScale`, evolution.ts's default 0.6 scale); a battle
- *  wave is ~2s plus BattleManager's own 4-6s inter-wave cooldown; the closing
- *  ritual caps at 15s (ClosingRitual.ts). */
+ *  exchange runs ~8.3s (BattleManager.ts's own FACEOFF_MS + WAVE_ATTACKS *
+ *  ATTACK_TOTAL_MS + ENDING_MS comment) plus its 4-6s inter-wave cooldown;
+ *  the closing ritual caps at 15s (ClosingRitual.ts). */
 export async function showreel(): Promise<void> {
   if (showreelAtom.get()) {
     cancelShowreel();
@@ -542,8 +583,9 @@ export async function showreel(): Promise<void> {
         toolCall();
         await sleepAbortable(800);
         subagent();
-        await sleepAbortable(2500); // one battle wave
+        await sleepAbortable(2500); // roam
         subagentDone();
+        await sleepAbortable(9500); // let the ~8.3s exchange (plus walk-in headroom) actually finish
         await sleepAbortable(5000); // BattleManager's own inter-wave cooldown
       },
       async () => {

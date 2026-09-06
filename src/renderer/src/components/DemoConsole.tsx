@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import {
+  advisorConsult,
+  advisorConsultDone,
   arceus,
   berry,
   cancelShowreel,
@@ -92,6 +94,12 @@ export function DemoConsole(): JSX.Element {
               </button>
               <button type="button" onClick={() => fire(subagentDone)}>
                 subagent done
+              </button>
+              <button type="button" onClick={() => fire(advisorConsult)}>
+                advisor
+              </button>
+              <button type="button" onClick={() => fire(advisorConsultDone)}>
+                advisor done
               </button>
               <button type="button" onClick={() => fire(mega)}>
                 mega battle
