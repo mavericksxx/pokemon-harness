@@ -296,6 +296,51 @@ export async function stopSession(id: string): Promise<void> {
 }
 
 /**
+ * Recovery action for the red "could not be resumed" banner FocusView.tsx
+ * shows on a session whose `error` field main's `restoreFromDisk`
+ * (sessionRespawn.ts) set at app launch — the original `claude --resume`
+ * failed (an expired/invalid session id, or the CLI's own transcript left in
+ * a state it can't resume after an abrupt quit) and the app already fell
+ * back to a plain shell under the same card so nothing is lost. That shell
+ * works, but the banner never clears on its own and there's no way to get a
+ * real agent running again short of typing the CLI by hand.
+ *
+ * This re-spawns a BRAND NEW (never `--resume`) process under the session's
+ * original command/provider/model, on the exact same id — `PtyManager.spawn`
+ * (main/pty.ts) already kills whatever is currently living under a reused id
+ * first, so the fallback shell is torn down as a side effect. `claudeSessionId`
+ * needs no explicit clearing: the fresh process's own SessionStart hook
+ * (hookRouter.ts) overwrites it with the new conversation's id the moment it
+ * fires.
+ */
+export async function restartSessionFresh(id: string): Promise<void> {
+  const session = useStore.getState().sessions.find((s) => s.id === id);
+  if (!session) return;
+  const res = await window.api.spawnPty({
+    id,
+    cwd: session.cwd,
+    command: session.command,
+    args: buildProviderArgs(session.provider, session.model),
+    provider: session.provider,
+    cols: 100,
+    rows: 30
+  });
+  if (!res.ok) {
+    useStore.getState().updateSession(id, { error: res.error ?? 'could not start a fresh session.' });
+    return;
+  }
+  useStore.getState().updateSession(id, {
+    error: undefined,
+    status: 'idle',
+    tool: undefined,
+    toolTarget: undefined,
+    station: 'wander',
+    looping: false,
+    cwd: res.cwd ?? session.cwd
+  });
+}
+
+/**
  * Mirror the session list AND current selection into main on every change,
  * so a renderer crash's reload (or a plain dev Cmd+R) has something to
  * rebuild from — see main.tsx's boot sequence and main/index.ts's

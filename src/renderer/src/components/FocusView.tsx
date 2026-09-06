@@ -5,7 +5,7 @@ import { FocusHeader } from '@/components/FocusHeader';
 import { FocusTerminalHead } from '@/components/FocusTerminalHead';
 import { SessionStatusStrip } from '@/components/SessionStatusStrip';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
-import { stopSession } from '@/sessions';
+import { restartSessionFresh, stopSession } from '@/sessions';
 import { sessionStatusLabel } from '@/design/sessionLabel';
 
 interface Props {
@@ -85,7 +85,18 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
         </div>
       )}
 
-      {session.error && <p className="error drawer-error">{session.error}</p>}
+      {session.error && (
+        <p className="error drawer-error">
+          {session.error}
+          {/* Recovery for a failed `claude --resume` at launch (sessionRespawn.ts) —
+              the app already fell back to a plain shell under this same card, so
+              this just replaces it with a genuinely fresh (non-resume) session
+              instead of leaving the banner stuck here forever. */}
+          <button className="toast-action" onClick={() => void restartSessionFresh(session.id)}>
+            start fresh here
+          </button>
+        </p>
+      )}
 
       {/* Garden/gardenFull mode keeps Arceus's dispatch box ABOVE the
           terminal (Phase 8.8 §6, unchanged); focus mode moves it below, into
