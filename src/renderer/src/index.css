@@ -4504,41 +4504,11 @@ body.is-splitting .garden-split-line {
   background: var(--gold);
 }
 
-/* Parity sweep item 4 — the "hide terminal" tab riding the divider itself.
- * Wider than the 6px hit area it sits on (20px, centered on it via the
- * negative left offset) so it's a comfortable click target and actually
- * legible, not just the bare 6px line. Vertically centered in the row via
+/* Docked to the row's own right edge (GardenDrawerEdgeTab.tsx), rendered
+ * only while the drawer is closed. Vertically centered in the row via
  * `top: 50%` + `translateY` rather than `align-items` on the handle (the
  * handle's own height already comes from `.body-row`'s stretch; this just
  * rides wherever that ends up). */
-.garden-split-collapse-tab {
-  position: absolute;
-  top: 50%;
-  left: -7px;
-  width: 20px;
-  height: 40px;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  cursor: pointer;
-  z-index: 1;
-}
-
-.garden-split-collapse-tab:hover {
-  color: var(--gold);
-  border-color: var(--gold);
-}
-
-/* Parity sweep item 4 — the other half of the toggle: docked to the row's
- * own right edge (GardenDrawerEdgeTab.tsx), rendered only while the drawer
- * is closed (GardenSplitHandle.tsx isn't even mounted then — App.tsx only
- * renders it alongside an open drawer, so there's no divider to ride).
- * Same shape/sizing as the collapse tab above, mirrored to point the other
- * way, so the two read as one control living on whichever edge is current. */
 .garden-drawer-edge-tab {
   position: absolute;
   top: 50%;
