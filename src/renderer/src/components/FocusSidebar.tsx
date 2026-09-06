@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
@@ -25,6 +25,14 @@ interface Props {
  * Honors the same GLOBAL `subagentCardsHidden` toggle as RosterStrip.tsx
  * (store.ts), with a local control so the terminal view remains self-contained
  * when it is shown without the garden roster strip.
+ *
+ * "+ add agent" used to sit next to a second, separate "new terminal" icon
+ * button — two adjacent "+" controls that read as redundant. They now merge
+ * into one entry point: the dashed card opens a small menu offering "Claude
+ * Code agent" (same `onNewSession` → NewSessionDialog as before) or
+ * "Terminal" (same `NewTerminalButton` quick-start as before, now rendered as
+ * a labeled menu item). Popover interaction follows AudioPopover.tsx's own
+ * wrapper-ref + document-level outside-click/Escape dismissal pattern.
  */
 export function FocusSidebar({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -35,13 +43,60 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
   const subagentCardsHidden = useStore((s) => s.subagentCardsHidden);
   const setSubagentCardsHidden = useStore((s) => s.setSubagentCardsHidden);
 
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setAddMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addMenuOpen]);
+
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !addMenuRef.current?.contains(event.target)) setAddMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [addMenuOpen]);
+
   return (
     <div className="focus-sidebar">
-      <div className="focus-sidebar-actions">
-        <button type="button" className="focus-sidebar-new" onClick={onNewSession}>
+      <div className="focus-sidebar-add" ref={addMenuRef}>
+        <button
+          type="button"
+          className="focus-sidebar-new"
+          aria-haspopup="menu"
+          aria-expanded={addMenuOpen}
+          onClick={() => setAddMenuOpen((v) => !v)}
+        >
           + add agent
         </button>
-        <NewTerminalButton className="focus-sidebar-terminal" />
+        {addMenuOpen && (
+          <div className="focus-sidebar-add-menu" role="menu" aria-label="add agent">
+            <button
+              type="button"
+              className="focus-sidebar-add-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setAddMenuOpen(false);
+                onNewSession();
+              }}
+            >
+              Claude Code agent
+            </button>
+            <NewTerminalButton
+              className="focus-sidebar-add-menu-item"
+              label="Terminal"
+              role="menuitem"
+              onSelect={() => setAddMenuOpen(false)}
+            />
+          </div>
+        )}
       </div>
       <button
         type="button"

@@ -7,10 +7,22 @@ import { PlusIcon } from '@/components/icons';
 
 interface Props {
   className: string;
+  /** Visible text alongside the icon — omitted by the drawer tab strip
+   *  (icon-only, tooltip carries the label there), set by the focus
+   *  sidebar's add-agent menu where it appears as a labeled menu item. */
+  label?: string;
+  /** Fired synchronously at the start of the click, before the async
+   *  terminal-cwd resolution — lets a host menu (focus sidebar) close
+   *  itself immediately rather than waiting on that round-trip. */
+  onSelect?(): void;
+  /** ARIA role override — the focus sidebar's add-agent menu sets
+   *  "menuitem" to match its sibling button; the drawer tab strip omits it
+   *  (plain icon button, not part of a `role="menu"` list). */
+  role?: string;
 }
 
-/** Shared quick action for creating a shell-only session — lives at the end of the drawer tab strip and in the focus sidebar's action row. */
-export function NewTerminalButton({ className }: Props): JSX.Element {
+/** Shared quick action for creating a shell-only session — lives at the end of the drawer tab strip and as a menu item in the focus sidebar's add-agent menu. */
+export function NewTerminalButton({ className, label, onSelect, role }: Props): JSX.Element {
   const pushToast = useStore((s) => s.pushToast);
   const recentFolders = useAppSettingsStore((s) => s.settings.recentFolders);
   const activeWorkspaceFolder = useWorkspaceStore(
@@ -20,6 +32,7 @@ export function NewTerminalButton({ className }: Props): JSX.Element {
 
   const onClick = async (): Promise<void> => {
     if (starting) return;
+    onSelect?.();
     setStarting(true);
     try {
       // A stale garden folder makes main reject the pty, then removeSession's fallback
@@ -42,10 +55,12 @@ export function NewTerminalButton({ className }: Props): JSX.Element {
       data-tip="new terminal"
       aria-label="new terminal"
       title="new terminal"
+      role={role}
       onClick={() => void onClick()}
       disabled={starting}
     >
       <PlusIcon />
+      {label}
     </button>
   );
 }

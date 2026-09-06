@@ -2916,7 +2916,7 @@ body.garden-lowres .garden canvas {
 }
 
 .focus-sidebar-new {
-  flex: none;
+  width: 100%;
   padding: 10px;
   color: var(--muted);
   background: var(--panel-2);
@@ -2929,37 +2929,55 @@ body.garden-lowres .garden canvas {
   border-color: var(--accent-text);
 }
 
-.focus-sidebar-actions {
+/* Wrapper for the merged "+ add agent" trigger + its dropdown menu — was
+ * `.focus-sidebar-actions`, a flex row holding two separate adjacent
+ * buttons (the dashed "+ add agent" card and a small square "new terminal"
+ * button). Those two actions are now one control: click the dashed card to
+ * open a menu offering both. Anchored-popover shape follows
+ * `.audio-popover`'s own (document-level pointerdown outside-click
+ * dismissal, `--shadow-hard`), left-anchored since this sits in a fixed
+ * left sidebar rather than the topbar's right end. */
+.focus-sidebar-add {
+  position: relative;
+  flex: none;
+}
+
+.focus-sidebar-add-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
   display: flex;
-  gap: 8px;
-  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
 }
 
-.focus-sidebar-actions .focus-sidebar-new {
-  flex: 1;
-}
-
-.focus-sidebar-terminal {
-  flex: none;
-  display: inline-flex;
+.focus-sidebar-add-menu-item {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  align-self: stretch;
-  color: var(--muted);
-  background: var(--panel-2);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-md);
-}
-
-.focus-sidebar-terminal:hover {
+  gap: 8px;
+  padding: 8px 10px;
   color: var(--text);
-  border-color: var(--accent-text);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
 }
 
-.focus-sidebar-terminal svg {
+.focus-sidebar-add-menu-item:hover {
+  background: var(--panel-2);
+}
+
+.focus-sidebar-add-menu-item svg {
   width: 15px;
   height: 15px;
+  flex: none;
 }
 
 .focus-sidebar-toggle {
