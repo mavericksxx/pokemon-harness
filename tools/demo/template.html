@@ -174,13 +174,9 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
 
     <button type="button" class="summon-arceus" id="btn-summon-arceus" title="summon arceus"><span class="summon-arceus-glyph" aria-hidden="true">✦</span>arceus</button>
 
-    <span class="garden-chips-wrap">
-      <div class="garden-chips">
-        <span class="garden-chip active"><button type="button" class="garden-chip-name">default garden</button></span>
-        <button type="button" class="garden-chip-new">+ new garden</button>
-      </div>
-      <span class="garden-chips-fade" aria-hidden="true"></span>
-    </span>
+    <div class="garden-picker">
+      <button type="button" class="garden-picker-trigger" aria-haspopup="menu" aria-expanded="false" title="default garden">default garden</button>
+    </div>
 
     <button type="button" class="topbar-new-terminal tip" data-tip="new terminal" aria-label="new terminal"><svg class="picon"><use href="#i-terminal"/></svg></button>
 
@@ -302,7 +298,6 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
 
       <div class="garden-split-handle" id="split-handle" role="separator" aria-orientation="vertical" aria-label="resize garden and terminal panes">
         <span class="garden-split-line" aria-hidden="true"></span>
-        <button type="button" class="garden-split-collapse-tab tip" id="split-collapse" data-tip="hide terminal" aria-label="hide terminal panel"><svg class="picon"><use href="#i-chevron-r"/></svg></button>
       </div>
       <button type="button" class="garden-drawer-edge-tab tip" id="edge-tab" data-tip="show terminal" aria-label="show terminal panel" hidden><svg class="picon"><use href="#i-chevron-l"/></svg></button>
 
@@ -1553,16 +1548,15 @@ el('btn-battle').onclick = async () => {
 el('btn-audio').onclick = () => audio.toggle();
 
 // drawer split/collapse
-el('split-collapse').onclick = (e) => { e.stopPropagation(); closeDrawer(); };
 el('edge-tab').onclick = () => openDrawer();
 el('drawer-close').onclick = () => closeDrawer();
 el('btn-drawer-toggle').onclick = () => (drawerOpen ? closeDrawer() : openDrawer());
 el('drawer-kill').onclick = () => { const s = find(store.selected); if (s && s.kind === 'session') despawn(s); };
-el('split-handle').addEventListener('dblclick', (e) => { if (e.target.closest('.garden-split-collapse-tab')) return; splitRatio = DEFAULT_GARDEN_SPLIT; applyDrawerState(); });
+el('split-handle').addEventListener('dblclick', () => { splitRatio = DEFAULT_GARDEN_SPLIT; applyDrawerState(); });
 (() => {
   let dragging = false;
   const handle = el('split-handle');
-  handle.addEventListener('pointerdown', (e) => { if (e.target.closest('.garden-split-collapse-tab')) return; dragging = true; handle.setPointerCapture(e.pointerId); });
+  handle.addEventListener('pointerdown', (e) => { dragging = true; handle.setPointerCapture(e.pointerId); });
   handle.addEventListener('pointermove', (e) => {
     if (!dragging) return;
     const rect = el('body-row').getBoundingClientRect(); const px = e.clientX - rect.left;
