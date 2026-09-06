@@ -37,7 +37,8 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
 import type { StationKind } from '@shared/types';
-import { ground, hexToNumber } from '@/design/tokens';
+import { ground, groundLight, hexToNumber } from '@/design/tokens';
+import { resolveEffectiveTheme } from '@/design/theme';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter, markRendererTick } from '@/diagnosticsCounters';
@@ -248,12 +249,24 @@ export function GardenScene(): JSX.Element {
         cleanup?.();
       };
 
+      // Resolves to the ground tone of whatever theme is ACTIVE right now
+      // (light/dark/system, per design/theme.ts) — read fresh on every call
+      // rather than cached, since `app.init()` only runs once per mount but
+      // the active theme can change any time afterward (see the
+      // subscription below).
+      const currentGroundColor = (): number => {
+        const effective = resolveEffectiveTheme(useAppSettingsStore.getState().settings.theme);
+        return hexToNumber(effective === 'dark' ? ground[0] : groundLight[0]);
+      };
+
       const init = async (): Promise<void> => {
       await app.init({
-        // Chrome ground (design/tokens.ts `ground[0]`), not a separate green —
-        // any letterbox bars inside the canvas (map aspect != pane aspect)
-        // should read as the same neutral ground the mat around it sits on.
-        background: hexToNumber(ground[0]),
+        // Chrome ground (design/tokens.ts `ground[0]`/`groundLight[0]`), not a
+        // separate green — any letterbox bars inside the canvas (map aspect
+        // != pane aspect) should read as the same neutral ground the mat
+        // around it sits on. Theme-reactive: kept in sync after mount too,
+        // see the subscription below — `app.init()` itself only runs once.
+        background: currentGroundColor(),
         // Pixel-art rendering settings, matching the upstream app's floor.
         antialias: false,
         roundPixels: true,
@@ -453,6 +466,26 @@ export function GardenScene(): JSX.Element {
         app.destroy(true, { children: true });
         return;
       }
+
+      // Keep the live renderer's letterbox background in sync with the
+      // active theme — an explicit theme-setting change (light/dark/system)
+      // and, while the setting is 'system', a live OS appearance flip.
+      // Mirrors design/theme.ts's own `watchSystemTheme` pattern (it can't
+      // be reused directly: it's hardcoded to `applyTheme`/`applyTerminalTheme`).
+      // Registered here — after every earlier `destroyed` early-return above
+      // — rather than right after `app.init()`, so `cleanup` (assigned
+      // below) is guaranteed to exist and unregister these before `app` (and
+      // its now-null `app.renderer`) can be destroyed out from under them.
+      const onThemeSettingChange = (): void => {
+        app.renderer.background.color = currentGroundColor();
+        markDirty();
+      };
+      const unsubscribeThemeSetting = useAppSettingsStore.subscribe(onThemeSettingChange);
+      const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const onSystemThemeChange = (): void => {
+        if (useAppSettingsStore.getState().settings.theme === 'system') onThemeSettingChange();
+      };
+      systemThemeQuery.addEventListener('change', onSystemThemeChange);
 
       const world = new Container();
       app.stage.addChild(world);
@@ -1836,6 +1869,8 @@ export function GardenScene(): JSX.Element {
 
       cleanup = (): void => {
         ro.disconnect();
+        unsubscribeThemeSetting();
+        systemThemeQuery.removeEventListener('change', onSystemThemeChange);
         window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
         document.removeEventListener('visibilitychange', syncRenderState);
         // `Ticker.shared` is a Pixi-GLOBAL singleton, not owned by this
