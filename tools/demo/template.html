@@ -182,6 +182,7 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
           <button id="btn-spawn">spawn a pokémon</button>
           <button id="btn-spawn-shiny">spawn a shiny</button>
           <button id="btn-subagent">spawn a subagent for selected</button>
+          <button id="btn-mega">mega evolution</button>
           <button id="btn-despawn" class="danger">recall selected (pokéball)</button>
           <button id="btn-arceus">summon arceus</button>
         </div>
@@ -331,6 +332,8 @@ const D = DEMO_DATA;
 const TILE = D.tile, MW = D.W, MH = D.H, OX = 32, OY = 32;
 const SPECIES = new Map(D.species.map(([id, name, num, line, stage, evolvesTo, locomotion]) => [id, { id, name, num, line, stage, evolvesTo, locomotion }]));
 const STARTER_LINES = ['pichu','eevee','bulbasaur','charmander','squirtle','chikorita','cyndaquil','totodile','psyduck','igglybuff','gastly','munchlax','larvitar'];
+/** Battle-only mega evolution, ported from src/renderer/src/scene/garden/megaForms.ts (curl-verified gen5ani sprite ids). */
+const DEMO_MEGA_FORMS = { charizard: 'charizard-megax', mewtwo: 'mewtwo-megay', gardevoir: 'gardevoir-mega', lucario: 'lucario-mega', garchomp: 'garchomp-mega', blaziken: 'blaziken-mega', tyranitar: 'tyranitar-mega', absol: 'absol-mega' };
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -877,6 +880,27 @@ function fxShinySparkle(w, aboveY) {
     for (const q of parts) { q.timer += dt * 1000; if (q.timer >= 120) { q.timer -= 120; q.si = Math.floor(Math.random() * 3); q.ci = Math.random() < .5 ? 0 : 1; } plus(ctx, w.px + Math.cos(q.a) * r, w.py + aboveY + Math.sin(q.a) * r * .5, sizes[q.si], colors[q.ci]); }
     return p >= 1; }, w);
 }
+/** Mega evolution burst: gold/white ring + vortex + upward plume — gold-toned so it reads apart from the white sparkle burst and the pink/gold shiny sparkle. */
+function fxMegaBurst(w) {
+  const DUR = 0.7, cy = w.py - w.drawnH * .55, rMax = Math.max(20, w.drawnW * .8);
+  const vortex = Array.from({ length: 12 }, (_, i) => ({ a: (i / 12) * Math.PI * 2, sp: 5 + Math.random() * 3, s: 1.5 + Math.random() * 1.5 }));
+  const plume = Array.from({ length: 5 }, () => ({ x: (Math.random() - .5) * w.drawnW * .6, delay: Math.random() * .3, s: 1.5 + Math.random() * 1.5 }));
+  let t = 0;
+  fx.add((dt, ctx) => {
+    t += dt; const p = t / DUR;
+    // (a) expanding ring outline
+    const ringP = Math.min(1, p / .65); ctx.globalAlpha = Math.max(0, 1 - ringP) * .9; ctx.strokeStyle = '#ffe58a'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(w.px, cy, lerp(4, rMax, ringP), 0, Math.PI * 2); ctx.stroke();
+    // (b) particles swirling inward then back outward (vortex)
+    for (const v of vortex) {
+      v.a += dt * v.sp; const r = p < .5 ? lerp(rMax * .85, 4, p / .5) : lerp(4, rMax * .55, (p - .5) / .5);
+      ctx.globalAlpha = Math.max(0, 1 - p); plus(ctx, w.px + Math.cos(v.a) * r, cy + Math.sin(v.a) * r * .6, v.s, p < .5 ? '#fff6c8' : '#ffd94a');
+    }
+    // (c) a few particles drifting upward and fading (plume)
+    for (const q of plume) { const lp = clamp((p - q.delay) / (1 - q.delay), 0, 1); ctx.globalAlpha = Math.max(0, 1 - lp) * .8; plus(ctx, w.px + q.x, cy - lp * 26, q.s, '#fffbe0'); }
+    return p >= 1;
+  }, w);
+}
 function fxExclaim(w, aboveY, onDone) {
   let t = 0; const POP = .15, HOLD = .65, OUT = .15;
   fx.add((dt, ctx) => { t += dt; let s = 0, a = 1;
@@ -1281,7 +1305,9 @@ async function subagentCompletes(sub) {
   const parent = sub.parent, w = sub.walker; if (!sub.pending || w.destroyed) return; sub.pending = false;
   term(parent, 'result', `  ⎿  subagent finished: ${sub.label}`); term(parent, 'sys', `pokéharness: completion battle — ${parent.species.name} vs ${sub.species.name}`);
   const before = parent.status; parent.tool = null; setStatus(parent, 'working');
+  if (parent.pendingMega) { parent.pendingMega = false; await megaEvolve(parent); }
   await runBattle(parent.walker, w, { rounds: 4, tools: ['Read', 'Grep', 'Edit', 'Bash'], challengerTools: ['Task', 'Read', 'Glob'], onAttack: (att, tool, text) => term(parent, att === parent.walker ? 'tool' : 'result', att === parent.walker ? `${tool}(…)  ·  ${text}` : `  ⎿  ${text}`) });
+  revertMega(parent);
   term(parent, 'ok', `${parent.species.name} wins — ${sub.species.name} returns`); audio.poof();
   const t0 = simTime; while (simTime - t0 < 220) { w.scaleMul = Math.max(.001, 1 - (simTime - t0) / 220); await sleep(16); }
   w.destroy(); store.subs.splice(store.subs.indexOf(sub), 1); if (store.selected === sub.id) select(parent.id); if (before !== 'working') setStatus(parent, before); renderRoster();
@@ -1292,6 +1318,19 @@ async function evolveSession(s) {
   const next = SPECIES.get(nextId); const forms = await loadForms(next.id, s.shiny); if (!forms.front) return toast('sprite fetch failed');
   const from = s.species.name; term(s, 'sys', `pokéharness: what? ${from} is evolving!`);
   return new Promise((res) => w.evolve(next, forms, () => { s.species = next; s.stage = next.stage; renderRoster(); renderTermHead(); }, () => { term(s, 'ok', `pokéharness: ${from} evolved into ${next.name}!`); if (s.status === 'working') w.beginWander(); syncBubble(s); res(); }));
+}
+/** Battle-only mega evolution: swaps the walker's drawn sprite for the duration of a completion battle; `s.species` (roster/label truth) never changes. */
+async function megaEvolve(s) {
+  const megaId = DEMO_MEGA_FORMS[s.species.id]; if (!megaId || s.walker.megaOriginal) return;
+  const forms = await loadForms(megaId, s.shiny); if (!forms.front) return;
+  s.walker.megaOriginal = { species: s.walker.species, forms: s.walker.forms };
+  const baseName = s.species.name; fxMegaBurst(s.walker);
+  s.walker.configure({ ...s.species, name: `Mega ${baseName}`, id: megaId, evolvesTo: [] }, forms);
+  s.walker.showFloatingText('Mega Evolved!'); term(s, 'sys', `pokéharness: ${baseName} Mega Evolved!`);
+}
+function revertMega(s) {
+  if (!s.walker.megaOriginal) return;
+  const { species, forms } = s.walker.megaOriginal; s.walker.megaOriginal = null; s.walker.configure(species, forms);
 }
 async function battleSessions(a, b) {
   if (a === b) return toast('pick two different pokémon'); if (isBattling(a.walker) || isBattling(b.walker)) return toast('one of them is already battling');
@@ -1441,22 +1480,43 @@ let tick = 0;
 
 // ───────────────────────────── demo console wiring ─────────────────────────────
 const selectedSession = () => { const s = find(store.selected); if (!s) { toast('select a session first (click a pokémon or a card)'); return null; } if (s.kind === 'sub') { toast('that\'s a subagent — select its parent session'); return null; } return s; };
+/** Every trigger below auto-provisions whatever it needs — no prerequisite clicks on the marketing page. */
+async function ensureSession() {
+  const cur = find(store.selected);
+  if (cur && cur.kind === 'session') return cur;
+  return await spawnSession();
+}
 el('btn-spawn').onclick = () => spawnSession();
 el('btn-spawn-shiny').onclick = () => spawnSession({ shiny: true });
-el('btn-subagent').onclick = () => { const s = selectedSession(); if (s) spawnSubagent(s); };
-el('btn-despawn').onclick = () => { const s = selectedSession(); if (s) despawn(s); };
+el('btn-subagent').onclick = async () => { const s = await ensureSession(); if (s) spawnSubagent(s); };
+el('btn-mega').onclick = async () => {
+  let s = find(store.selected);
+  if (!s || s.kind !== 'session' || !DEMO_MEGA_FORMS[s.species.id] || s.walker.isEvolving || isBattling(s.walker)) {
+    s = await spawnSession({ species: pick(Object.keys(DEMO_MEGA_FORMS)) });
+  }
+  if (!s) return;
+  s.pendingMega = true;
+  spawnSubagent(s);
+};
+el('btn-despawn').onclick = async () => { const s = await ensureSession(); if (s) despawn(s); };
 el('btn-arceus').onclick = () => select(ARCEUS_ID);
-el('btn-tool').onclick = () => { const s = selectedSession(); if (s) toolCall(s, el('sel-tool').value); };
-el('btn-thinking').onclick = () => { const s = selectedSession(); if (s) thinking(s); };
-el('btn-idle').onclick = () => { const s = selectedSession(); if (s) idle(s); };
-el('btn-blocked').onclick = () => { const s = selectedSession(); if (s) blocked(s); };
-el('btn-done').onclick = () => { const s = selectedSession(); if (s) done(s); };
-el('btn-nap').onclick = () => { const s = selectedSession(); if (s) nap(s); };
-el('btn-loop').onclick = () => { const s = selectedSession(); if (s) loop(s); };
-el('btn-chatter').onclick = () => { const s = selectedSession(); if (s) chatter(s); };
-el('btn-berry').onclick = () => { const s = selectedSession(); if (s) berry(s); };
-el('btn-evolve').onclick = () => { const s = find(el('sel-evolve').value); if (!s) return toast('nothing alive to evolve'); if (s.kind === 'sub') return toast('subagents don\'t evolve — they return to their ball'); evolveSession(s); };
-el('btn-battle').onclick = () => { const a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value); if (!a || !b) return toast('need two pokémon alive'); battleSessions(a, b); };
+el('btn-tool').onclick = async () => { const s = await ensureSession(); if (s) toolCall(s, el('sel-tool').value); };
+el('btn-thinking').onclick = async () => { const s = await ensureSession(); if (s) thinking(s); };
+el('btn-idle').onclick = async () => { const s = await ensureSession(); if (s) idle(s); };
+el('btn-blocked').onclick = async () => { const s = await ensureSession(); if (s) blocked(s); };
+el('btn-done').onclick = async () => { const s = await ensureSession(); if (s) done(s); };
+el('btn-nap').onclick = async () => { const s = await ensureSession(); if (s) nap(s); };
+el('btn-loop').onclick = async () => { const s = await ensureSession(); if (s) loop(s); };
+el('btn-chatter').onclick = async () => { const s = await ensureSession(); if (!s) return; if (s.status === 'working') idle(s); chatter(s); };
+el('btn-berry').onclick = async () => { const s = await ensureSession(); if (!s) return; if (s.status === 'working') idle(s); berry(s); };
+el('btn-evolve').onclick = async () => { let s = find(el('sel-evolve').value); if (!s || s.kind === 'sub') s = await ensureSession(); if (s) evolveSession(s); };
+el('btn-battle').onclick = async () => {
+  let a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value);
+  if (!a || a.kind === 'sub') a = await spawnSession();
+  if (!b || b.kind === 'sub' || b === a) b = await spawnSession();
+  if (!a || !b) return toast('need two pokémon alive');
+  battleSessions(a, b);
+};
 el('btn-audio').onclick = () => audio.toggle();
 
 // drawer split/collapse
