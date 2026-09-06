@@ -20,6 +20,7 @@ import { Toasts } from '@/components/Toasts';
 import { UsageChip } from '@/components/UsageChip';
 import { HarnessInstructionsChip } from '@/components/HarnessInstructionsChip';
 import { AudioPopover } from '@/components/AudioPopover';
+import { NotificationBell } from '@/components/NotificationBell';
 import { QuickSettings } from '@/components/QuickSettings';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SettingsPanel } from '@/components/SettingsPanel';
@@ -270,6 +271,7 @@ export function App(): JSX.Element {
           <HarnessInstructionsChip />
           <UsageChip />
           <AudioPopover />
+          <NotificationBell />
           <ThemeToggle />
           <QuickSettings />
           {viewMode === 'garden' && (

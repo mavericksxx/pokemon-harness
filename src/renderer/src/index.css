@@ -2133,6 +2133,90 @@ body.garden-lowres .garden canvas {
   box-shadow: var(--shadow-hard);
 }
 
+/* ── Notification bell (topbar — NotificationBell.tsx) ──────────────────────
+ * Same anchored-popover shape as `.audio-popover` above (document-level
+ * pointerdown outside-click dismissal, right-anchored panel, `--shadow-hard`,
+ * `no-drag` since the topbar itself is a drag region). The trigger's unread
+ * dot follows `.status::before`'s own colored-dot convention rather than a
+ * numeric badge (this codebase has no numeric-badge precedent). */
+.notification-bell {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.notification-bell-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-blocked);
+}
+
+.notification-bell-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard);
+}
+
+.notification-bell-empty {
+  color: var(--muted);
+  font-size: var(--font-body-sm-size);
+  padding: 4px 2px;
+}
+
+.notification-bell-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-bell-row:last-child {
+  border-bottom: none;
+}
+
+.notification-bell-row-text {
+  font-size: var(--font-body-sm-size);
+  color: var(--text);
+}
+
+.notification-bell-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-bell-row-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.notification-bell-row-action {
+  color: var(--accent-text);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 /* ── Usage-limits chip + "trainer card" popover (BACKLOG "next up" item 1,
  * UsageChip.tsx) ─────────────────────────────────────────────────────────
  * Same anchored-popover shape as `.audio-popover` above (document-level
