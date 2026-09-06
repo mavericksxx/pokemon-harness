@@ -2049,19 +2049,20 @@ export class BattleManager {
     this.startMega(pb, true);
   }
 
-  /** A far corner of the map, well apart from any sibling already roaming
-   *  there — a corner among the farthest from the parent's CURRENT position
-   *  (shuffled among the top few so concurrent picks don't all deterministically
-   *  land on the SAME single farthest corner and cluster there), with local
-   *  jitter/avoidance spreading multiple roamers out instead of stacking on
-   *  the same tile. The avoid set spans every tracked parent's roaming subs,
-   *  not just this one — two different sessions' battlers should never
-   *  converge on the same region either. `reachableFrom` (the parent's tile —
-   *  no battler exists yet at spawn time to BFS from) keeps the pick off a
-   *  disconnected pocket (the far side of a wall/pond), which would leave
-   *  this battler unable to ever walk back for its eventual completion
-   *  battle. Falls back toward the parent only in the pathological case
-   *  where nowhere far is reachable at all. */
+  /** A far corner of the map, well apart from any sibling already roaming OR
+   *  parked there — a corner picked by weighted random draw across all four
+   *  (favoring the farthest from the parent's CURRENT position, but not
+   *  guaranteed — see the occupancy weighting below), with local jitter/
+   *  avoidance spreading multiple roamers out instead of stacking on the
+   *  same tile. The claimed set spans every tracked parent's roaming AND
+   *  retired subs garden-wide, not just this one — two different sessions'
+   *  battlers, live or long since parked, should never converge on the same
+   *  region either. `reachableFrom` (the parent's tile — no battler exists
+   *  yet at spawn time to BFS from) keeps the pick off a disconnected pocket
+   *  (the far side of a wall/pond), which would leave this battler unable to
+   *  ever walk back for its eventual completion battle. Falls back toward
+   *  the parent only in the pathological case where nowhere far is reachable
+   *  at all. */
   private pickRoamHome(pb: ParentBattle, reachableFrom: { x: number; y: number }): { x: number; y: number } {
     const map = this.deps.map;
     const margin = CORNER_MARGIN;
@@ -2072,28 +2073,62 @@ export class BattleManager {
       { x: map.width - 1 - margin, y: map.height - 1 - margin }
     ];
     const parentTile = pb.parentWalker.tile;
-    corners.sort((a, b) => manhattan(b, parentTile) - manhattan(a, parentTile));
-    // Shuffle among the top few farthest corners (Fisher-Yates, same as
-    // findNearbyWalkable's own tie shuffle above) instead of always trying
-    // the single farthest one first — keeps the far-corner preference but
-    // spreads WHICH corner gets tried across different roam-home picks.
-    const varietyCount = Math.min(3, corners.length);
-    for (let i = varietyCount - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [corners[i], corners[j]] = [corners[j], corners[i]];
-    }
 
     // Every LIVE roaming battler garden-wide counts as claimed, not just this
     // parent's own subs — `this.battles` already includes `pb` itself, so
-    // this naturally covers sibling-avoidance too.
+    // this naturally covers sibling-avoidance too. Retired (non-delegate)
+    // subs are included too (2026-09 fix): a retired sub never leaves its
+    // `wanderHome` neighborhood again (see `retireSub` and the 'retired'
+    // branch of updateOneBattle's sub loop — it only jitters locally), so
+    // without this a corner that fills up with parked retirees keeps reading
+    // as empty to every later spawn and the pile grows without bound over a
+    // long session. Delegates are excluded — a delegate's `wanderHome` is an
+    // inert placeholder (see `isDelegateSub`), not an actual claimed tile.
     const claimedGlobal = new Set<string>();
     for (const battle of this.battles.values()) {
       for (const sub of battle.subs) {
-        if (sub.lifecycle === 'roaming') claimedGlobal.add(tileKey(sub.wanderHome));
+        if (sub.lifecycle === 'roaming' || (sub.lifecycle === 'retired' && !this.isDelegateSub(sub))) {
+          claimedGlobal.add(tileKey(sub.wanderHome));
+        }
       }
     }
 
-    for (const corner of corners) {
+    // Weighted-random corner order rather than a hard "farthest 3 of 4" cut:
+    // for any parent walker that tends to sit in a similar map region across
+    // sessions, the farthest-3 set is nearly always the same, so one corner
+    // structurally wins over the long run. Each corner's weight favors
+    // distance from the parent, then divides that down by how many already-
+    // claimed wander-homes (from the set above) sit near it — a corner that
+    // starts filling up loses share to the other three even while it's still
+    // the single farthest one, keeping the long-session spread even across
+    // all four instead of just among the top three.
+    const occupancyRadius = margin * 6;
+    const claimedTiles = Array.from(claimedGlobal, (key) => {
+      const [x, y] = key.split(',').map(Number);
+      return { x, y };
+    });
+    const pool = corners.map((corner) => {
+      const dist = manhattan(corner, parentTile);
+      const occupancy = claimedTiles.filter((t) => manhattan(t, corner) <= occupancyRadius).length;
+      return { corner, weight: Math.max(1, dist) / (1 + occupancy) };
+    });
+    const order: { x: number; y: number }[] = [];
+    while (pool.length > 0) {
+      const total = pool.reduce((sum, c) => sum + c.weight, 0);
+      let r = Math.random() * total;
+      let pickIdx = pool.length - 1;
+      for (let i = 0; i < pool.length; i++) {
+        r -= pool[i].weight;
+        if (r <= 0) {
+          pickIdx = i;
+          break;
+        }
+      }
+      order.push(pool[pickIdx].corner);
+      pool.splice(pickIdx, 1);
+    }
+
+    for (const corner of order) {
       const home =
         findNearbyWalkable(map, corner, 0, 6, claimedGlobal, reachableFrom) ??
         findNearbyWalkable(map, corner, 0, 14, claimedGlobal, reachableFrom);
