@@ -485,6 +485,12 @@ import pkg from '../../../package.json';
   /* ── responsive ───────────────────────────────────────────────────── */
   @media (max-width: 900px) {
     .how-step { flex-direction: column; }
+    /* Step 2's media sits after its text in source order (for the
+       media-right look at desktop widths), unlike steps 1 and 3 — pin
+       media first for every step once stacked, so the rhythm reads the
+       same way down the column regardless of each step's desktop side. */
+    .how-media { order: 1; }
+    .how-text { order: 2; }
     .features { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 600px) {
@@ -507,6 +513,12 @@ import pkg from '../../../package.json';
      template so it can't leak beyond this one section. -->
 <style is:global>
   .demo-below .demo-chip {
+    /* The page's global `* { box-sizing: border-box }` is a scoped rule
+       too, so it never reaches these runtime-created buttons — only a
+       <button>'s UA stylesheet happens to make it border-box by default.
+       Set it explicitly: width:100% plus padding plus border-left would
+       otherwise overflow the grid track. */
+    box-sizing: border-box;
     display: block;
     width: 100%;
     text-align: left;
@@ -527,6 +539,12 @@ import pkg from '../../../package.json';
   .demo-below .demo-chip:focus-visible {
     border-left-color: var(--gold);
     filter: brightness(1.18);
+  }
+  /* The page's scoped `:focus-visible { outline: ... }` rule doesn't reach
+     these chips either, for the same reason — give them their own. */
+  .demo-below .demo-chip:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
   }
   .demo-below .demo-chip:active:not(:disabled) {
     transform: translateY(1px);
@@ -637,27 +655,32 @@ import pkg from '../../../package.json';
     // the marketing page can't drift from what the demo actually exposes.
     var api = null;
     var chips = [];
-    var showreelActive = false;
+    var chipsById = {};
+    var tourScenes = [];
+    var tourRunning = false;
+    var tourCancelRequested = false;
 
     function setCaption(text) {
       caption.textContent = text;
     }
 
+    function sleep(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    // While the sequenced tour (below) is running, it owns chip.disabled
+    // and playAllBtn entirely — the per-chapter pokedemo:busy events it
+    // triggers (one per api.run() call) are ignored here so they can't
+    // fight the tour's own start/stop state or flip playAllBtn back to
+    // "play the full tour" mid-tour.
     function setBusyUI(isBusy) {
+      if (tourRunning) return;
       chips.forEach(function (chip) {
         chip.disabled = isBusy;
         if (!isBusy) chip.classList.remove('is-playing');
       });
-      if (!isBusy) {
-        showreelActive = false;
-        playAllBtn.disabled = false;
-        playAllBtn.textContent = 'play the full tour';
-      } else if (showreelActive) {
-        playAllBtn.disabled = false;
-        playAllBtn.textContent = 'stop';
-      } else {
-        playAllBtn.disabled = true;
-      }
+      playAllBtn.disabled = isBusy;
+      if (!isBusy) playAllBtn.textContent = 'play the full tour';
     }
 
     function makeChip(scene) {
@@ -667,19 +690,21 @@ import pkg from '../../../package.json';
       btn.textContent = scene.label;
       btn.disabled = true;
       btn.addEventListener('click', function () {
-        if (!api || api.busy) return;
+        if (!api || api.busy || tourRunning) return;
         setCaption(scene.caption);
         chips.forEach(function (c) { c.classList.remove('is-playing'); });
         btn.classList.add('is-playing');
         api.run(scene.id);
       });
       chips.push(btn);
+      chipsById[scene.id] = btn;
       return btn;
     }
 
     function render(scenes) {
       var tour = scenes.filter(function (s) { return s.group === 'tour'; }).sort(function (a, b) { return a.order - b.order; });
       var controls = scenes.filter(function (s) { return s.group === 'control'; }).sort(function (a, b) { return a.order - b.order; });
+      tourScenes = tour;
 
       tourGrid.innerHTML = '';
       tour.forEach(function (scene) { tourGrid.appendChild(makeChip(scene)); });
@@ -697,13 +722,46 @@ import pkg from '../../../package.json';
       playAllBtn.textContent = 'play the full tour';
     }
 
+    // Sequences the tour from here instead of calling the iframe's own
+    // showreel: each chapter goes through api.run()'s existing real-time
+    // ceiling individually, so one hung scene can no longer wedge the
+    // whole page the way an unbounded runShowreel() could. It also lets
+    // this page — not the (hidden-in-embed) in-frame banner — highlight
+    // the running chip and narrate every chapter, not just single clicks.
+    async function runTour() {
+      if (!api || !tourScenes.length) return;
+      tourRunning = true;
+      tourCancelRequested = false;
+      chips.forEach(function (c) { c.disabled = true; });
+      playAllBtn.disabled = false;
+      playAllBtn.textContent = 'stop';
+      for (var i = 0; i < tourScenes.length; i++) {
+        if (tourCancelRequested) break;
+        var scene = tourScenes[i];
+        chips.forEach(function (c) { c.classList.remove('is-playing'); });
+        var chip = chipsById[scene.id];
+        if (chip) chip.classList.add('is-playing');
+        setCaption(scene.caption);
+        await api.run(scene.id);
+        if (tourCancelRequested) break;
+        await sleep(1200);
+      }
+      var wasCancelled = tourCancelRequested;
+      tourRunning = false;
+      chips.forEach(function (c) { c.classList.remove('is-playing'); c.disabled = false; });
+      playAllBtn.disabled = false;
+      playAllBtn.textContent = 'play the full tour';
+      setCaption(wasCancelled ? 'stopped — click any scene to keep exploring.' : 'that\'s the whole harness. run it again, or poke at the triggers.');
+    }
+
     playAllBtn.addEventListener('click', function () {
       if (!api) return;
-      if (!showreelActive) {
-        showreelActive = true;
-        setCaption('running the full tour, one scene at a time.');
+      if (tourRunning) {
+        tourCancelRequested = true;
+        setCaption('stopping the tour…');
+        return;
       }
-      api.run('showreel');
+      runTour();
     });
 
     // Same-origin iframe (served from this site), so this is direct property
