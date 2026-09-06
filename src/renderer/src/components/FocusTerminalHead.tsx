@@ -10,9 +10,10 @@ interface Props {
  * (FocusView.tsx's `.terminal-panel`). ALWAYS rendered, same as the panel
  * wrapper around it: FocusView.tsx's mount-point comment requires the
  * terminal's DOM host to never conditionally (re)mount across a viewMode
- * toggle, so this sits as a permanent sibling above `.terminal-mount-wrap`
- * and index.css's `.terminal-panel-head` rule (display:none outside
- * 'terminal' view mode) hides it everywhere else via CSS, not JSX.
+ * toggle, so this sits as a permanent sibling above `.terminal-mount-wrap`.
+ * Visible (not CSS-hidden) in every context this component ever mounts in —
+ * 'terminal' view mode's focused panel AND 'garden' view mode's split
+ * drawer — so the font-size stepper is reachable from both.
  *
  * Left: a live dot + "live · <session>". Right: a font-size stepper wired to
  * `terminalSettingsStore` — the SAME store SettingsPanel.tsx's slider
