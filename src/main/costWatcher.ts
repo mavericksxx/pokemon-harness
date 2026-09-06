@@ -7,8 +7,13 @@
  * Code hook payload's own `transcript_path` field (confirmed present in the
  * installed CLI — see hookBridge.ts's `onRawPayload` wiring in
  * main/index.ts) — no need to reconstruct the munged-cwd directory name
- * ourselves. `registerSession` is idempotent, so it's safe to call on every
- * hook payload rather than gating on SessionStart specifically.
+ * ourselves. `registerSession` is idempotent for a repeated call against the
+ * SAME path, so it's safe to call on every hook payload rather than gating on
+ * SessionStart specifically — but see its own comment for the 2026-09-06 fix
+ * letting a genuine top-level SessionStart RESET an existing registration
+ * whose transcript path has changed underneath it (`/clear`, Arceus's
+ * `tryResumeArceus`), rather than the older behavior of silently ignoring
+ * that call forever.
  *
  * Reading: polled (not `fs.watch` — an append-only file under a renderer
  * that's writing it is exactly the rename/coalescing case `fs.watch` is
@@ -181,13 +186,46 @@ export class CostWatcher {
     }
   }
 
-  /** Register (or no-op if already registered) a session's transcript path.
-   *  Safe to call repeatedly/redundantly — see this file's header. Does an
-   *  immediate full-file parse so the HUD has numbers before the first
-   *  POLL_MS tick, then only tails on subsequent polls. */
-  registerSession(agentId: string, transcriptPath: string | undefined | null): void {
-    if (!transcriptPath || this.sessions.has(agentId)) return;
-    this.sessions.set(agentId, {
+  /** Register (or no-op if already registered against the SAME path) a
+   *  session's transcript path. Safe to call repeatedly/redundantly — see
+   *  this file's header. Does an immediate full-file parse so the HUD has
+   *  numbers before the first POLL_MS tick, then only tails on subsequent
+   *  polls.
+   *
+   *  2026-09-06 stale-registration fix: a registration for an agentId that's
+   *  already tracked against a DIFFERENT transcript path means the CLI
+   *  session under that agentId was replaced without an explicit
+   *  `unregisterSession` ever firing — a `/clear` (new session_id/
+   *  transcript_path, same pty/agentId) or Arceus's `tryResumeArceus`
+   *  (`claude --resume` under a fixed agentId). Before this fix, the
+   *  original `this.sessions.has(agentId)` guard made that later call a
+   *  silent permanent no-op, leaving the HUD tailing/reporting off the dead
+   *  transcript forever. Only reset when `hookEventName` is a genuine
+   *  top-level `SessionStart` AND `subagentAgentId` is unset — a subagent-
+   *  scoped payload (Task tool calls, SubagentStop) carries its own
+   *  `agent_id`/`agent_type` and may reference an unrelated transcript
+   *  entirely; thrashing the parent's tracked state on every subagent tool
+   *  call would be wrong. `hookEventName`/`subagentAgentId` come straight
+   *  off the raw hook payload (hookBridge.ts's `onRawPayload`) — omitted
+   *  entirely by the one non-hook caller (index.ts's `cost:registerTestPath`
+   *  test escape hatch), which therefore never resets an existing
+   *  registration, only ever creates a fresh one. */
+  registerSession(
+    agentId: string,
+    transcriptPath: string | undefined | null,
+    hookEventName?: string,
+    subagentAgentId?: string
+  ): void {
+    if (!transcriptPath) return;
+    const existing = this.sessions.get(agentId);
+    let wasReset = false;
+    if (existing) {
+      if (existing.path === transcriptPath) return; // harmless no-op — path unchanged
+      if (subagentAgentId || hookEventName !== 'SessionStart') return;
+      this.sessions.delete(agentId);
+      wasReset = true;
+    }
+    const s: TrackedSession = {
       path: transcriptPath,
       offset: 0,
       carry: '',
@@ -196,8 +234,16 @@ export class CostWatcher {
       cumulativeCostUsd: 0,
       lastContextTokens: 0,
       lastModel: null
-    });
+    };
+    this.sessions.set(agentId, s);
     this.pollOne(agentId);
+    // A reset session's new transcript is typically still empty at this
+    // instant (SessionStart fires before the first turn) — `pollOne`'s own
+    // `size === offset` early return would then no-op and leave the HUD
+    // showing the just-deleted session's stale (huge) numbers forever, since
+    // nothing else re-triggers a poll until real content exists. A truthful
+    // zeroed emit here is strictly better than that stale carryover.
+    if (wasReset) this.emit(agentId, s);
     this.reconcileTimer(); // covers the rare case this session is already 'working'
   }
 
@@ -208,9 +254,17 @@ export class CostWatcher {
 
   /** Hook payload observer — see hookBridge.ts's `onRawPayload` constructor
    *  param. Registers off whatever payload carries a transcript path;
-   *  everything else about the payload is irrelevant here. */
-  onHookPayload(agentId: string, transcriptPath: string | undefined): void {
-    this.registerSession(agentId, transcriptPath);
+   *  `hookEventName`/`subagentAgentId` are forwarded only so `registerSession`
+   *  can tell a genuine top-level SessionStart from a subagent-scoped payload
+   *  (see its own comment) — everything else about the payload is irrelevant
+   *  here. */
+  onHookPayload(
+    agentId: string,
+    transcriptPath: string | undefined,
+    hookEventName?: string,
+    subagentAgentId?: string
+  ): void {
+    this.registerSession(agentId, transcriptPath, hookEventName, subagentAgentId);
   }
 
   private pollAll(): void {
