@@ -3059,6 +3059,76 @@ body.garden-lowres .garden canvas {
   height: auto;
 }
 
+/* Narrow-window overlay reveal tab (issue #2 pt.2, FocusSidebar.tsx) —
+ * hidden outside the narrow breakpoint; the `@media` block below is the only
+ * place either of these classes does anything. Same "edge tab reveals a
+ * hidden panel" interaction as GardenDrawerEdgeTab.tsx/
+ * `.garden-drawer-edge-tab`, docked to `.body-row`'s own left edge instead of
+ * its right (App.tsx's `.body-row` is already `position: relative`). */
+.focus-sidebar-edge-tab {
+  display: none;
+}
+
+/* Below this, the fixed 300px sidebar would leave xterm too little width to
+ * be usable (~324px, ~36 columns) at the window's 640px floor (main/index.ts).
+ * It collapses to hidden-by-default here and reappears as a floating overlay
+ * ON TOP of the terminal panel instead of a flex sibling that resizes it —
+ * `position: absolute` takes it out of `.body-row`'s flex flow entirely, so
+ * toggling it never changes the terminal mount's own width/height and no
+ * fit()/resizePty call fires just from opening/closing this (see
+ * FocusView.tsx's header comment for why that mount div must stay
+ * undisturbed by mode-adjacent state). Same breakpoint as gardenSplit.ts's
+ * NARROW_LAYOUT_MAX_PX (a plain `@media` query, not that store value — see
+ * the other 820px block above for the same reasoning). Every other
+ * `.focus-sidebar` property (width, padding, background, border-right, …)
+ * is inherited unchanged from the base rule above — this only swaps its
+ * flex participation for absolute positioning and adds the hidden-by-default
+ * toggle. */
+@media (max-width: 820px) {
+  .focus-sidebar {
+    display: none;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    box-shadow: var(--shadow-hard);
+  }
+
+  .focus-sidebar.focus-sidebar-overlay-open {
+    display: flex;
+  }
+
+  /* `.body-row >` (rather than the bare class) is load-bearing, not
+   * stylistic: this button also carries the shared `.tip` class for its
+   * tooltip, and `.tip { position: relative; }` (below, same 0,1,0
+   * specificity) sits LATER in this file, so it would otherwise win the
+   * cascade by source order and silently put this element back in
+   * `.body-row`'s flex flow instead of floating it — the exact push/resize
+   * behavior this whole feature exists to avoid. The extra `.body-row`
+   * ancestor raises specificity to 0,2,0 so this wins unconditionally. */
+  .body-row > .focus-sidebar-edge-tab {
+    display: flex;
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 20px;
+    height: 40px;
+    transform: translateY(-50%);
+    align-items: center;
+    justify-content: center;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-left: none;
+    color: var(--muted);
+    cursor: pointer;
+    z-index: 21;
+  }
+
+  .focus-sidebar-edge-tab:hover {
+    color: var(--gold);
+    border-color: var(--gold);
+  }
+}
+
 .roster-card {
   position: relative;
   display: flex;
