@@ -310,15 +310,17 @@
     .demo-mobile-note { display: block; }
   }
   /* .demo-caption's min-height tiers below are measured against the
-     longest scene caption (the arceus one) so the reserved space never
-     shifts when captions change but also never sits empty: it wraps to
-     2 lines above ~711px of caption width, 3 lines from ~601-711px, and
-     5 lines at 600px and below (24px side gutters already subtracted). */
+     longest scene caption (currently the mega-evolution one, ~132
+     characters) so the reserved space never shifts when captions change
+     but also never sits empty: it wraps to 2 lines from 719px down to
+     ~490px, and 3 lines from ~480px down through phone widths (24px side
+     gutters already subtracted). Re-measure headless if a caption grows
+     past ~132 characters. */
   @media (max-width: 719px) {
-    .demo-caption { min-height: calc(1.5em * 3); }
+    .demo-caption { min-height: calc(1.5em * 2); }
   }
   @media (max-width: 600px) {
-    .demo-caption { min-height: calc(1.5em * 5); }
+    .demo-caption { min-height: calc(1.5em * 3); }
   }
 
   /* ── works with ───────────────────────────────────────────────────── */
@@ -326,12 +328,21 @@
     padding-block: 40px;
     margin-top: 12px;
     border-top: 1px solid rgba(120, 118, 132, 0.2);
+  }
+  .works-with-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     color: var(--ink-700);
     font-size: 15px;
+  }
+  .works-with-note {
+    margin: 12px 0 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--ink-500);
   }
   .tag {
     font-family: var(--font-mono);
@@ -435,7 +446,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: var(--font-display);
+    /* These glyphs (★ ⚔ ☀ ☾) have emoji presentations that some platforms
+       default to; the text stack here plus U+FE0E on each character (see
+       markup below) keeps them flat monochrome shapes instead of color
+       emoji. */
+    font-family: var(--font-display), 'Segoe UI Symbol', 'Noto Sans Symbols 2', sans-serif;
     font-size: 26px;
     letter-spacing: 0.1em;
   }
@@ -502,7 +517,7 @@
      every selector is anchored under the static .demo-below class from the
      template so it can't leak beyond this one section. -->
 <style is:global>
-  .demo-below .demo-chip {
+  .demo-below .tour-chip {
     /* The page's global `* { box-sizing: border-box }` is a scoped rule
        too, so it never reaches these runtime-created buttons — only a
        <button>'s UA stylesheet happens to make it border-box by default.
@@ -525,31 +540,31 @@
     cursor: pointer;
     transition: box-shadow 120ms ease, filter 120ms ease, transform 80ms ease, border-color 120ms ease;
   }
-  .demo-below .demo-chip:hover:not(:disabled),
-  .demo-below .demo-chip:focus-visible {
+  .demo-below .tour-chip:hover:not(:disabled),
+  .demo-below .tour-chip:focus-visible {
     border-left-color: var(--gold);
     filter: brightness(1.18);
   }
   /* The page's scoped `:focus-visible { outline: ... }` rule doesn't reach
      these chips either, for the same reason — give them their own. */
-  .demo-below .demo-chip:focus-visible {
+  .demo-below .tour-chip:focus-visible {
     outline: 2px solid var(--gold);
     outline-offset: 2px;
   }
-  .demo-below .demo-chip:active:not(:disabled) {
+  .demo-below .tour-chip:active:not(:disabled) {
     transform: translateY(1px);
   }
-  .demo-below .demo-chip:disabled {
+  .demo-below .tour-chip:disabled {
     opacity: 0.5;
     cursor: default;
   }
-  .demo-below .demo-chip.is-playing {
+  .demo-below .tour-chip.is-playing {
     background: var(--gold);
     color: var(--on-accent);
     border-left-color: var(--on-accent);
     filter: none;
   }
-  .demo-below .demo-more-grid .demo-chip {
+  .demo-below .demo-more-grid .tour-chip {
     font-size: 13px;
     font-weight: 500;
     color: var(--ink-700);
@@ -648,6 +663,7 @@
     var tourScenes = [];
     var tourRunning = false;
     var tourCancelRequested = false;
+    var pollFailed = false;
 
     function setCaption(text) {
       caption.textContent = text;
@@ -675,7 +691,7 @@
     function makeChip(scene) {
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'demo-chip';
+      btn.className = 'tour-chip';
       btn.textContent = scene.label;
       btn.disabled = true;
       btn.addEventListener('click', function () {
@@ -744,6 +760,10 @@
     }
 
     playAllBtn.addEventListener('click', function () {
+      if (pollFailed) {
+        retryPoll();
+        return;
+      }
       if (!api) return;
       if (tourRunning) {
         tourCancelRequested = true;
@@ -758,34 +778,63 @@
     // script defines window.pokeDemo synchronously while it boots, but the
     // outer iframe's 'load' event can fire before that — poll briefly
     // instead of relying on 'load'.
-    var tries = 0;
-    var poll = setInterval(function () {
-      tries++;
-      var found = iframe.contentWindow && iframe.contentWindow.pokeDemo;
-      if (found) {
-        clearInterval(poll);
-        api = found;
-        render(api.scenes);
-        api.ready.then(enable);
-        iframe.contentWindow.addEventListener('pokedemo:busy', function (e) {
-          setBusyUI(e.detail.busy);
-        });
-      } else if (tries > 100) {
-        clearInterval(poll);
-        tourGrid.innerHTML = '<p class="demo-loading">demo unavailable</p>';
-        moreGrid.innerHTML = '<p class="demo-loading">demo unavailable</p>';
-        playAllBtn.disabled = true;
-        playAllBtn.textContent = 'demo unavailable';
-      }
-    }, 100);
+    //
+    // A slow connection can still be loading the demo well past a short
+    // ceiling, so this doesn't give up after ~10s: it softens the message
+    // at 5s but keeps polling, and only declares the demo unavailable after
+    // 30s of nothing — at which point playAllBtn turns into a retry button
+    // that reloads the iframe and starts the poll again, so a real failure
+    // (404, thrown script) is still recoverable without a page reload.
+    function startPoll() {
+      var tries = 0;
+      var poll = setInterval(function () {
+        tries++;
+        var found = iframe.contentWindow && iframe.contentWindow.pokeDemo;
+        if (found) {
+          clearInterval(poll);
+          api = found;
+          render(api.scenes);
+          api.ready.then(enable);
+          iframe.contentWindow.addEventListener('pokedemo:busy', function (e) {
+            setBusyUI(e.detail.busy);
+          });
+        } else if (tries === 50) {
+          setCaption('still loading the demo. this can take a moment on a slow connection.');
+        } else if (tries > 300) {
+          clearInterval(poll);
+          pollFailed = true;
+          tourGrid.innerHTML = '<p class="demo-loading">demo unavailable</p>';
+          moreGrid.innerHTML = '<p class="demo-loading">demo unavailable</p>';
+          playAllBtn.disabled = false;
+          playAllBtn.textContent = 'retry';
+          setCaption('the demo failed to load. click retry to try again.');
+        }
+      }, 100);
+    }
+
+    function retryPoll() {
+      pollFailed = false;
+      playAllBtn.disabled = true;
+      playAllBtn.textContent = 'loading…';
+      tourGrid.innerHTML = '<p class="demo-loading">loading tour…</p>';
+      moreGrid.innerHTML = '<p class="demo-loading">loading…</p>';
+      setCaption('loading the live demo. give it a second.');
+      try { iframe.contentWindow.location.reload(); } catch (e) {}
+      startPoll();
+    }
+
+    startPoll();
   })();
 </script>
 
 <div class="wrap works-with">
-  <span>works with the coding-agent cli you already run</span>
-  <span class="tag">claude</span>
-  <span class="tag">codex</span>
-  <span class="tag">cursor-agent</span>
+  <div class="works-with-row">
+    <span>works with the coding-agent cli you already run</span>
+    <span class="tag">claude</span>
+    <span class="tag">codex</span>
+    <span class="tag">cursor-agent</span>
+  </div>
+  <p class="works-with-note">free and open source. runs on your machine, no accounts, no cloud.</p>
 </div>
 
 <section class="section wrap">
@@ -835,7 +884,7 @@
   <h2>what's in the garden</h2>
   <div class="features">
     <div class="feature-card" style="border-left-color: var(--coral)">
-      <div class="feature-media solid" style="background: rgba(224, 140, 130, 0.14); color: var(--coral)">★</div>
+      <div class="feature-media solid" style="background: rgba(224, 140, 130, 0.14); color: var(--coral)">★︎</div>
       <div class="feature-body">
         <h3>shiny pokémon</h3>
         <p>every session rolls for shiny once, at 1-in-64 odds, and keeps it for life. a shiny session gets a sparkle burst and a star badge.</p>
@@ -851,7 +900,7 @@
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--sky)">
-      <div class="feature-media solid" style="background: rgba(111, 179, 196, 0.14); color: var(--sky)">⚔</div>
+      <div class="feature-media solid" style="background: rgba(111, 179, 196, 0.14); color: var(--sky)">⚔︎</div>
       <div class="feature-body">
         <h3>subagent battles</h3>
         <p>a task tool call spawns a wild pokémon. when it's done, it walks up and fights the parent: lunges, hit flashes, move text overhead. battles play out one at a time, so finishes queue up if a few land close together.</p>
@@ -863,7 +912,7 @@
       </div>
       <div class="feature-body">
         <h3>mega evolution</h3>
-        <p>a handful of species mega-evolve for the length of a battle, with a full ring, vortex, and plume ceremony. they revert once the fight ends.</p>
+        <p>dozens of species mega-evolve for the length of a battle, with a full ring, vortex, and plume ceremony. they revert once the fight ends.</p>
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--lilac)">
@@ -876,7 +925,7 @@
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--peach)">
-      <div class="feature-media solid" style="background: linear-gradient(135deg, rgba(111, 179, 196, 0.2), rgba(26, 19, 32, 0.5)); color: var(--peach)">☀ ☾</div>
+      <div class="feature-media solid" style="background: linear-gradient(135deg, rgba(111, 179, 196, 0.2), rgba(26, 19, 32, 0.5)); color: var(--peach)">☀︎ ☾︎</div>
       <div class="feature-body">
         <h3>day and night</h3>
         <p>the garden tracks your local clock. lamps come on at dusk, and the pond catches moonlight overnight. it fades back to day at sunrise.</p>
