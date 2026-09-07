@@ -1569,7 +1569,7 @@ const SCENES = [
   },
   {
     id: 'tool-calls', group: 'tour', order: 2, label: 'tool calls',
-    caption: "reads, greps, edits — every tool call shows up as a speech bubble and a quick trip across the garden, instead of a line scrolling past in a terminal.",
+    caption: "reads, greps, edits — every tool call shows up as a speech bubble overhead, instead of a line scrolling past in a terminal.",
     run: async () => {
       const { a: s } = await ensureCast(1); if (!s) return;
       select(s.id);
@@ -1679,7 +1679,7 @@ const SCENES = [
   },
   {
     id: 'tool-call', group: 'control', order: 10, label: 'tool call',
-    caption: "fire any specific tool call on demand — pick one from the dropdown and watch it play out as a bubble and a quick trip across the garden.",
+    caption: "fire any specific tool call on demand — pick one from the dropdown and watch it play out as a bubble overhead.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); toolCall(s, el('sel-tool').value); }
   },
   {
