@@ -108,6 +108,11 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
 .g-walker .g-body { position: absolute; left: 0; top: 0; }
 .g-walker .g-body img { position: absolute; display: block; }
 .g-walker .g-body img.sil { filter: url(#sil-white); }
+.g-walker .g-body img.sil.mega-sil { filter: url(#sil-mega); }
+/* Mega ceremony's dim: sized off the SPRITE's own footprint and painted behind it (first child of
+   .g-walker, which has no z-index of its own, so DOM order is paint order). Deliberately NOT the
+   map-wide `.g-dim` the evolution ceremony uses — see MegaCeremony's port note. */
+.g-walker .g-mega-dim { position: absolute; pointer-events: none; background: radial-gradient(ellipse closest-side at center, rgba(20,3,32,.42) 0%, rgba(20,3,32,.28) 55%, rgba(20,3,32,.10) 80%, rgba(20,3,32,0) 100%); }
 .g-walker .g-ring { position: absolute; left: 0; top: -2px; transform: translate(-50%, -50%); border: 1.5px solid; border-radius: 50%; display: none; pointer-events: none; }
 .g-walker .g-tag { position: absolute; left: 0; top: 4px; transform: translateX(-50%) scale(.35); transform-origin: 50% 0; font: 16px/18px var(--font-mono); font-weight: 600; color: #f4ffe8; -webkit-text-stroke: 3px #1b1b1b; paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
 .g-walker .g-badge { position: absolute; left: 0; display: none; pointer-events: none; }
@@ -147,6 +152,9 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <filter id="sil-white" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 .969  0 0 0 0 .969  0 0 0 0 .969  0 0 0 1 0"/></filter>
   <filter id="sil-red" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 .33  0 0 0 0 .33  0 0 0 1 0"/></filter>
+  <!-- MegaCeremony.ts's SILHOUETTE_TINT (0x1c0a2e): a near-black violet cutout, so the mega's
+       silhouette beat can never be mistaken for evolution's white one. -->
+  <filter id="sil-mega" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 .110  0 0 0 0 .039  0 0 0 0 .180  0 0 0 1 0"/></filter>
   <symbol id="i-star" viewBox="0 0 8 8"><path fill="currentColor" d="M3 0h2v2h1v1h2v2H6v1H5v2H3V6H2V5H0V3h2V2h1z"/></symbol>
   <symbol id="i-play" viewBox="0 0 16 16"><path fill="currentColor" d="M4 2h2v1h2v1h2v1h2v1h1v2h1v2h-1v2h-1v1h-2v1H8v1H6v1H4z"/></symbol>
   <!-- icons.tsx, copied verbatim (16x16 grid, crisp-edged, currentColor unless noted) -->
@@ -206,6 +214,7 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
           <button id="btn-subagent">spawn a subagent for selected</button>
           <button id="btn-mega">mega evolution</button>
           <button id="btn-despawn" class="danger">recall selected (pokéball)</button>
+          <button id="btn-dismiss" class="danger">dismiss off-duty battler</button>
           <button id="btn-arceus">summon arceus</button>
         </div>
 
@@ -357,6 +366,10 @@ const STARTER_LINES = ['pichu','eevee','bulbasaur','charmander','squirtle','chik
 const DEMO_MEGA_FORMS = { charizard: 'charizard-megax', mewtwo: 'mewtwo-megay', gardevoir: 'gardevoir-mega', lucario: 'lucario-mega', garchomp: 'garchomp-mega', blaziken: 'blaziken-mega', tyranitar: 'tyranitar-mega', absol: 'absol-mega' };
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+/** Drawn once per page load rather than per run of the mega scene, so boot knows which two sprites
+ *  (base + mega form) that chapter is actually going to need and can warm exactly those — see
+ *  `prefetchTourCast`. Still a fresh draw on every reload, so the variety is unchanged. */
+const TOUR_MEGA_SPECIES = pick(Object.keys(DEMO_MEGA_FORMS));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
 /** Simulation clock, advanced by the frame loop — every wait in the demo is sim-time, so flows stay in lockstep with the animations. */
@@ -914,26 +927,44 @@ function fxShinySparkle(w, aboveY) {
     for (const q of parts) { q.timer += dt * 1000; if (q.timer >= 120) { q.timer -= 120; q.si = Math.floor(Math.random() * 3); q.ci = Math.random() < .5 ? 0 : 1; } plus(ctx, w.px + Math.cos(q.a) * r, w.py + aboveY + Math.sin(q.a) * r * .5, sizes[q.si], colors[q.ci]); }
     return p >= 1; }, w);
 }
-/** Mega evolution burst: gold/white ring + vortex + upward plume — gold-toned so it reads apart from the white sparkle burst and the pink/gold shiny sparkle. */
-function fxMegaBurst(w) {
-  const DUR = 0.7, cy = w.py - w.drawnH * .55, rMax = Math.max(20, w.drawnW * .8);
-  const vortex = Array.from({ length: 12 }, (_, i) => ({ a: (i / 12) * Math.PI * 2, sp: 5 + Math.random() * 3, s: 1.5 + Math.random() * 1.5 }));
-  const plume = Array.from({ length: 5 }, () => ({ x: (Math.random() - .5) * w.drawnW * .6, delay: Math.random() * .3, s: 1.5 + Math.random() * 1.5 }));
-  let t = 0;
-  fx.add((dt, ctx) => {
-    t += dt; const p = t / DUR;
-    // (a) expanding ring outline
-    const ringP = Math.min(1, p / .65); ctx.globalAlpha = Math.max(0, 1 - ringP) * .9; ctx.strokeStyle = '#ffe58a'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(w.px, cy, lerp(4, rMax, ringP), 0, Math.PI * 2); ctx.stroke();
-    // (b) particles swirling inward then back outward (vortex)
-    for (const v of vortex) {
-      v.a += dt * v.sp; const r = p < .5 ? lerp(rMax * .85, 4, p / .5) : lerp(4, rMax * .55, (p - .5) / .5);
-      ctx.globalAlpha = Math.max(0, 1 - p); plus(ctx, w.px + Math.cos(v.a) * r, cy + Math.sin(v.a) * r * .6, v.s, p < .5 ? '#fff6c8' : '#ffd94a');
-    }
-    // (c) a few particles drifting upward and fading (plume)
-    for (const q of plume) { const lp = clamp((p - q.delay) / (1 - q.delay), 0, 1); ctx.globalAlpha = Math.max(0, 1 - lp) * .8; plus(ctx, w.px + q.x, cy - lp * 26, q.s, '#fffbe0'); }
-    return p >= 1;
-  }, w);
+/* ── mega ceremony primitives (battle/MegaCeremony.ts's drawFlameShard / drawSpiralBlade / drawOrb) ──
+ * Hard-edged flat-filled polygons, three nested passes deep violet -> magenta -> hot core. Never a
+ * soft particle: at ~40px these have to read as poster-style graphic energy, not as a blur. */
+const MEGA_VIOLET = '#8b2fd6', MEGA_MAGENTA = '#ff3ea5', MEGA_HOT = '#fff0ff';
+const MEGA_LAYERS = [[1, MEGA_VIOLET], [.72, MEGA_MAGENTA], [.4, MEGA_HOT]];
+/** One flame-brush wedge fanning out along +x from the origin — the flash-out's shards, reused
+ *  (rotated up) for the feet plumes so both beats share one vocabulary. */
+function megaFlameShard(ctx, len, width) {
+  for (const [s, color] of MEGA_LAYERS) {
+    const l = len * s, w = width * s;
+    ctx.fillStyle = color; ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(l * .34, -w * .55); ctx.lineTo(l * .58, -w * .16); ctx.lineTo(l, 0); ctx.lineTo(l * .52, w * .3); ctx.lineTo(l * .26, w * .6);
+    ctx.closePath(); ctx.fill();
+  }
+}
+/** One curved pinwheel blade, swept MEGA_VORTEX_TURN radians from a stub out to a tapered tip — a
+ *  handful of these rotating together is the vortex's whirlpool motif. */
+const MEGA_VORTEX_TURN = .95;
+function megaSpiralBlade(ctx, len, width) {
+  const steps = 6;
+  for (const [s, color] of MEGA_LAYERS) {
+    ctx.fillStyle = color; ctx.beginPath();
+    for (let i = 0; i <= steps; i++) { const t = i / steps, r = lerp(width * .2, len, t) * s, a = t * MEGA_VORTEX_TURN; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+    for (let i = steps; i >= 0; i--) { const t = i / steps, r = lerp(width * .2, len * .8, t) * s, a = t * MEGA_VORTEX_TURN + .4 * (1 - t); ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+    ctx.closePath(); ctx.fill();
+  }
+}
+/** Three concentric circles falling off in alpha — the same cheap stand-in for a blur the evolution
+ *  ceremony's bubbles use (no filters on the fx canvas). */
+function megaOrb(ctx, x, y, r, a) {
+  for (const [m, color, al] of [[1.7, MEGA_VIOLET, .22], [1, MEGA_MAGENTA, .55], [.45, '#ffffff', .95]]) {
+    ctx.globalAlpha = a * al; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r * m, 0, Math.PI * 2); ctx.fill();
+  }
+}
+/** Traces (never strokes) a squashed-ellipse arc, so the caller picks its own width/colour pass. */
+function megaEllipseArc(ctx, cx, cy, rx, ry, a0, a1, seg) {
+  ctx.beginPath();
+  for (let i = 0; i <= seg; i++) { const a = lerp(a0, a1, i / seg); const x = cx + Math.cos(a) * rx, y = cy + Math.sin(a) * ry; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
 }
 function fxExclaim(w, aboveY, onDone) {
   let t = 0; const POP = .15, HOLD = .65, OUT = .15;
@@ -1010,7 +1041,7 @@ class Walker {
     this.px = startTile.x * TILE + TILE / 2; this.py = startTile.y * TILE + TILE;
     this.path = []; this.facing = 'left'; this.walking = false; this.wandering = false; this.wanderTimer = 0; this.wanderDelay = 1.5;
     this.status = 'starting'; this.napping = false; this.bobPhase = 0; this.backView = false; this.forcedBack = false; this.backBias = 0; this.segTarget = null;
-    this.locked = false; this.bounceT = null; this.zzzT = 0; this.badgePulse = 0; this.ceremony = null; this.floats = []; this.scaleMul = 1; this.recalling = false; this.destroyed = false;
+    this.locked = false; this.bounceT = null; this.zzzT = 0; this.badgePulse = 0; this.ceremony = null; this.megaCeremony = null; this.megaOriginal = null; this.retired = false; this.floats = []; this.scaleMul = 1; this.recalling = false; this.destroyed = false;
     this.el = document.createElement('div'); this.el.className = 'g-walker';
     this.el.innerHTML = '<div class="g-shadow"></div><div class="g-body"><img alt=""></div><div class="g-ring"></div><div class="g-badge"></div><div class="g-tag"></div><div class="g-zzz">z z z</div><div class="g-star"><svg><use href="#i-star"/></svg></div>';
     this.shadowEl = this.el.children[0]; this.bodyEl = this.el.children[1]; this.img = this.bodyEl.firstChild; this.ringEl = this.el.children[2]; this.badgeEl = this.el.children[3]; this.tagEl = this.el.children[4]; this.zzzEl = this.el.children[5]; this.starEl = this.el.children[6];
@@ -1039,6 +1070,11 @@ class Walker {
   get tile() { return { x: Math.floor(this.px / TILE), y: Math.floor((this.py - 1) / TILE) }; }
   get drawnHeight() { return this.drawnH; }
   get canFly() { return this.locomotion !== 'walk'; }
+  /** Whether this walker should keep drifting around on the ordinary idle wander. `retired` is a
+   *  battler that LOST its completion battle: BattleManager's `retireSub` hands it straight back to
+   *  the same idle-roam code `roaming` already used, so it reads as an off-duty pokemon rather than
+   *  one about to vanish. It simply never queues for another fight. */
+  get roams() { return this.status === 'working' || this.retired; }
   canEnter = (x, y) => map.isWalkable(x, y) || (this.canFly && map.isWater(x, y));
   goTo(tile) {
     if (this.ceremony || this.napping) return false;
@@ -1046,9 +1082,9 @@ class Walker {
     this.wandering = false; this.path = path; this.walking = path.length > 0; return true;
   }
   get arrived() { return this.path.length === 0 && !this.walking; }
-  beginWander() { if (this.ceremony || this.napping || this.locked || this.status !== 'working') return; this.path = this.path.slice(0, 1); this.wandering = true; this.wanderTimer = 0; this.wanderDelay = 1.5; }
+  beginWander() { if (this.ceremony || this.napping || this.locked || !this.roams) return; this.path = this.path.slice(0, 1); this.wandering = true; this.wanderTimer = 0; this.wanderDelay = 1.5; }
   stayPut() { if (this.ceremony) return; this.path = this.path.slice(0, 1); this.wandering = false; if (!this.path.length) { this.walking = false; this.restView(); } }
-  setStatus(s) { if (s === this.status) return; this.status = s; if (s !== 'working') this.stayPut(); else this.beginWander(); this.redrawBadge(); }
+  setStatus(s) { if (s === this.status) return; this.status = s; if (!this.roams) this.stayPut(); else this.beginWander(); this.redrawBadge(); }
   setSelected(on) { this.selected = on; if (!this.ceremony) this.ringEl.style.display = on ? 'block' : 'none'; }
   bounce() { this.bounceT = 0; }
   setLabel(l) { this.label = l; this.tagEl.textContent = l; }
@@ -1077,6 +1113,9 @@ class Walker {
    *  the congratulations text and the walk-away that follow in `onDone`. */
   evolve(nextSpecies, nextForms, onSwap, onDone, onFlash) {
     if (this.ceremony) return false;
+    // Evolution seizes the sprite — abort any mega mid-buildup rather than letting the two fight over
+    // it (the app's own "never touch a walker's sprite while isEvolving" invariant).
+    if (this.megaCeremony) this.megaCeremony.dispose();
     this.ceremony = new Ceremony(this, nextSpecies, nextForms, () => { this.configure(nextSpecies, nextForms); onSwap && onSwap(); }, () => { this.ceremony = null; onDone && onDone(); }, onFlash);
     return true;
   }
@@ -1109,12 +1148,12 @@ class Walker {
     if (!this.path.length) { this.walking = false; this.restView(); return; }
     const t = this.path[0]; if (t !== this.segTarget) { this.segTarget = t; this.noteSegment(t); }
     const tx = t.x * TILE + TILE / 2, ty = t.y * TILE + TILE; const dx = tx - this.px, dy = ty - this.py; const dist = Math.hypot(dx, dy);
-    if (dist < 1) { this.px = tx; this.py = ty; this.path.shift(); this.segTarget = null; if (!this.path.length) { this.walking = false; this.restView(); if (this.status === 'working' && !this.napping && !this.locked && !this.wandering) { this.wandering = true; this.wanderTimer = 0; this.wanderDelay = rand(1.5, 4.5); } } return; }
+    if (dist < 1) { this.px = tx; this.py = ty; this.path.shift(); this.segTarget = null; if (!this.path.length) { this.walking = false; this.restView(); if (this.roams && !this.napping && !this.locked && !this.wandering) { this.wandering = true; this.wanderTimer = 0; this.wanderDelay = rand(1.5, 4.5); } } return; }
     const step = Math.min(SPEED * dt, dist); this.px += (dx / dist) * step; this.py += (dy / dist) * step;
     if (Math.abs(dx) > Math.abs(dy)) { const f = dx > 0 ? 'right' : 'left'; if (f !== this.facing) { this.facing = f; this.applyView(); } }
   }
   noteSegment(t) { const c = this.tile; const up = t.y < c.y && t.x === c.x; this.backBias = up ? Math.min(this.backBias + 1, 3) : Math.max(this.backBias - 1, -3); if (this.backBias >= 2) this.setBackView(true); else if (this.backBias <= -1) this.setBackView(false); }
-  restView() { if (this.ceremony || this.forcedBack || (this.status === 'working' && !this.napping)) return; this.backBias = 0; this.segTarget = null; this.setBackView(false); }
+  restView() { if (this.ceremony || this.forcedBack || (this.roams && !this.napping)) return; this.backBias = 0; this.segTarget = null; this.setBackView(false); }
   updateWander(dt) {
     this.wanderTimer += dt; if (this.wanderTimer < this.wanderDelay) return; this.wanderTimer = 0; this.wanderDelay = rand(1.5, 4.5);
     const cur = this.tile; for (let i = 0; i < 16; i++) { const t = randomWalkableTile(this.canEnter, cur); if (!t) continue; const p = findPath(cur, t, this.canEnter); if (p && p.length) { this.path = p; this.walking = true; return; } }
@@ -1125,7 +1164,7 @@ class Walker {
     if (!this.recalling) this.bodyEl.style.transform = `translateY(${(this.bodyY || 0) + (this.bounceY || 0)}px) scale(${this.scaleMul})`;
   }
   redrawBadge() { const b = this.badgeEl; b.className = 'g-badge'; b.style.opacity = 1; this.badgePulse = 0; if (['blocked', 'working', 'done'].includes(this.status)) { b.classList.add(this.status); b.style.display = 'block'; } else b.style.display = 'none'; }
-  destroy() { this.destroyed = true; fx.purge(this); this.ceremony && this.ceremony.dispose(); for (const f of this.floats) f.el.remove(); this.bubble.destroy(); this.el.remove(); }
+  destroy() { this.destroyed = true; fx.purge(this); this.ceremony && this.ceremony.dispose(); this.megaCeremony && this.megaCeremony.dispose(); for (const f of this.floats) f.el.remove(); this.bubble.destroy(); this.el.remove(); }
 }
 
 // ───────────────────────────── evolution ceremony (EvolutionCeremony.ts timings) ─────────────────────────────
@@ -1189,19 +1228,230 @@ class Ceremony {
   dispose() { this.done = true; fx.purge(this); el('dim').style.display = 'none'; el('flash').style.display = 'none'; this.oldSil.remove(); this.newSil.remove(); this.w.img.style.opacity = 1; this.w.shadowEl.style.opacity = 1; this.w.scaleMul = 1; }
 }
 
+// ───────────────────────────── mega ceremony (battle/MegaCeremony.ts timeline) ─────────────────────────────
+/* A staged port of src/renderer/src/scene/garden/battle/MegaCeremony.ts, translated from Pixi to this
+ * file's fx-canvas + simulated-clock conventions: one `fx.add` entry that both steps the authored
+ * timeline and draws it, so a backgrounded tab throttles it exactly like every other beat here.
+ *
+ * WHAT IT DELIBERATELY DOES NOT BORROW FROM THE EVOLUTION `Ceremony` ABOVE, for the same reason the
+ * app's version doesn't: no `#dim`/`#flash` map-wide overlay rects and no chrome-hiding takeover.
+ * That whole-garden dim + white-out is REAL evolution's signature; reusing it would make a mega read
+ * as an ordinary evolution. Every dim/glow/flash below is sized off the sprite's own footprint
+ * (`drawnW`/`drawnH`) instead. It also never claims `w.ceremony`: unlike evolution, a battle keeps
+ * its participants exactly where the choreography put them, and the wave holds around the ceremony
+ * (see `startBattleMega`) rather than the ceremony seizing the walker.
+ *
+ * Authored in real ms on the app's own timeline, then played back at MEGA_DURATION_SCALE so the whole
+ * thing lands in ~2.3s on screen — the same authored-then-scaled shape the evolution ceremony uses. */
+const MEGA_SPARK_END = 700, MEGA_BODY_FADE_END = 1000, MEGA_CHARGE_END = 1700, MEGA_PULL_END = 2500,
+  MEGA_CORE_END = 2750, MEGA_MFLASH_END = 3050, MEGA_SETTLE_END = 3600;
+const MEGA_DURATION_SCALE = .65;
+const MEGA_ORBS = 6, MEGA_VORTEX_BLADES = 3, MEGA_BURST_SHARDS = 9;
+/** Stepped flicker sizes — a discrete step reads as pixel-art energy where a smooth ease reads as a
+ *  growing balloon (same reasoning as the shiny sparkle above). */
+const MEGA_FLICKER_MS = 70, MEGA_PLUME_STEPS = [.72, 1, .86, 1.12], MEGA_GLINT_SIZES = [1.5, 2.5, 3.5], MEGA_GLINT_STEP_MS = 90;
+/** 0 -> 1 across [from, to], clamped. */
+const ramp = (v, from, to) => clamp((v - from) / (to - from), 0, 1);
+
+class MegaCeremony {
+  /** `applySwap` performs the real sprite swap and is invoked exactly once, at the flash-out peak —
+   *  NOT up front. `onDone` fires when the ceremony settles, and also on the abort path (`dispose`),
+   *  so a caller holding a battle wave open on it can always release. */
+  constructor(w, applySwap, onDone) {
+    this.w = w; this.applySwap = applySwap; this.onDone = onDone;
+    this.v = 0; this.done = false; this.swapped = false; this.burst = null;
+    this.flickerT = 0; this.flickerIdx = 0; this.glintT = 0; this.glintIdx = 0; this.ringSpin = 0; this.vortexSpin = 0;
+    const ww = w.drawnW, h = w.drawnH;
+    // Footprint-scaled dim, behind the sprite (first child of .g-walker) — darkens the ground the
+    // pokemon stands against while the pokemon itself stays lit.
+    const d = document.createElement('div'); d.className = 'g-mega-dim';
+    d.style.width = ww * 2.6 + 'px'; d.style.height = h * 1.5 + 'px';
+    d.style.left = -ww * 1.3 + 'px'; d.style.top = -h * 1.05 + 'px'; d.style.opacity = 0;
+    w.el.insertBefore(d, w.el.firstChild); this.dimEl = d;
+    // Silhouette: the evolution ceremony's own `.sil` technique, tinted violet instead of white.
+    const f = w.forms.front, sw = f.w * w.scale, sh = f.h * w.scale;
+    const im = document.createElement('img'); im.className = 'sil mega-sil'; im.src = f.url; im.alt = '';
+    im.style.width = sw + 'px'; im.style.height = sh + 'px'; im.style.left = -sw / 2 + 'px'; im.style.top = -sh + 'px';
+    // Scaling about the TORSO is what makes the pull-in collapse toward the chest, not the feet.
+    im.style.transformOrigin = `50% ${sh - h * .55}px`; im.style.opacity = 0;
+    w.bodyEl.appendChild(im); this.sil = im;
+    this.orbs = Array.from({ length: MEGA_ORBS }, (_, i) => ({
+      a: (i / MEGA_ORBS) * Math.PI * 2 + Math.random() * .5, r: ww * (.35 + Math.random() * .3),
+      rise: h * (.5 + Math.random() * .6), drift: .6 + Math.random() * .8, size: 1.2 + Math.random() * 1.4
+    }));
+    fx.add((dt, ctx) => this.tick(dt, ctx), w);
+  }
+  tick(dt, ctx) {
+    if (this.done) return true;
+    const dtc = dt / MEGA_DURATION_SCALE;
+    this.v += dtc * 1000;
+    const v = this.v, w = this.w;
+    if (v >= MEGA_CORE_END && !this.swapped) this.startFlash();
+    if (v >= MEGA_SETTLE_END) { this.teardown(); return true; }
+    const ww = w.drawnW, h = w.drawnH, cx = w.px, feet = w.py, torso = feet - h * .55;
+
+    // Beat 1: the vicinity dims, washed back out by the flash rather than lingering under it.
+    this.dimEl.style.opacity = v < MEGA_CORE_END ? ramp(v, 0, MEGA_SPARK_END * .8) : 1 - ramp(v, MEGA_CORE_END, MEGA_MFLASH_END);
+
+    // Beat 2 into beat 3: the coloured body crossfades into its silhouette, which is then squeezed
+    // horizontally harder than vertically — a vortex pulling the shape into a column before it goes.
+    if (!this.swapped) {
+      const t = ramp(v, MEGA_SPARK_END, MEGA_BODY_FADE_END), collapse = ramp(v, MEGA_PULL_END - 700, MEGA_CORE_END);
+      w.img.style.opacity = 1 - t;
+      this.sil.style.opacity = t * (1 - collapse);
+      this.sil.style.transform = `${w.facing === 'left' ? '' : 'scaleX(-1) '}scale(${lerp(1, .28, collapse)}, ${lerp(1, .55, collapse)})`;
+    }
+
+    // Beat 1 -> 3: orbs pop in and drift up, then converge into the core.
+    const pull = ramp(v, MEGA_PULL_END - 500, MEGA_CORE_END);
+    const orbA = ramp(v, 0, 260) * (1 - ramp(v, MEGA_CORE_END, MEGA_CORE_END + 120));
+    if (orbA > .001) for (const o of this.orbs) {
+      o.a += dtc * o.drift;
+      const x = cx + Math.cos(o.a) * o.r, y = feet - o.rise * Math.min(1, v / MEGA_CHARGE_END) + Math.sin(o.a * 1.7) * ww * .1;
+      megaOrb(ctx, lerp(x, cx, pull), lerp(y, torso, pull), o.size, orbA);
+    }
+
+    // The swirling energy ring: a wide/dim violet pass plus a narrower/brighter magenta one, both
+    // dimmed on the far side so the ring reads as arcing BEHIND the pokemon and back around the
+    // front, with a brighter arc sweeping around it. Tightens and spins up into the pull-in, then
+    // drifts back out as residual embers on the settle.
+    const grow = ramp(v, MEGA_SPARK_END * .5, MEGA_CHARGE_END), tighten = ramp(v, MEGA_PULL_END - 600, MEGA_CORE_END);
+    const release = ramp(v, MEGA_CORE_END, MEGA_SETTLE_END - 150);
+    const rx = ww * lerp(lerp(.85, .16, tighten), .62, release) * grow, ry = rx * .34;
+    const env = grow * (1 - ramp(v, MEGA_CORE_END + 100, MEGA_SETTLE_END - 200));
+    this.ringSpin += dtc * (3.6 + tighten * 7);
+    if (env > .001) {
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (const [a0, a1, depth] of [[0, Math.PI, 1], [Math.PI, Math.PI * 2, .35]]) {
+        megaEllipseArc(ctx, cx, torso, rx, ry, a0, a1, 20);
+        ctx.globalAlpha = env * depth * .35; ctx.strokeStyle = MEGA_VIOLET; ctx.lineWidth = Math.max(1, ww * .1); ctx.stroke();
+        megaEllipseArc(ctx, cx, torso, rx, ry, a0, a1, 20);
+        ctx.globalAlpha = env * depth * .75; ctx.strokeStyle = MEGA_MAGENTA; ctx.lineWidth = Math.max(.6, ww * .045); ctx.stroke();
+      }
+      const wrapped = ((this.ringSpin % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2), depth = Math.sin(wrapped) > 0 ? 1 : .35;
+      megaEllipseArc(ctx, cx, torso, rx, ry, this.ringSpin - 1.15, this.ringSpin + 1.15, 16);
+      ctx.globalAlpha = env * depth * .7; ctx.strokeStyle = MEGA_MAGENTA; ctx.lineWidth = Math.max(.8, ww * .06); ctx.stroke();
+      megaEllipseArc(ctx, cx, torso, rx, ry, this.ringSpin - 1.15, this.ringSpin + 1.15, 16);
+      ctx.globalAlpha = env * depth * .9; ctx.strokeStyle = MEGA_HOT; ctx.lineWidth = Math.max(.4, ww * .026); ctx.stroke();
+    }
+
+    // Beat 3: the vortex — a pinwheel igniting at the torso and growing as the silhouette collapses,
+    // so it visually consumes it. Same window as the collapse and the core's grow, so all three land
+    // together.
+    const vt = ramp(v, MEGA_PULL_END - 700, MEGA_CORE_END);
+    this.vortexSpin += dtc * (4 + vt * 10);
+    const vScale = lerp(.12, 1, vt) * (ww / 34 + .5), vA = vt < 1 ? vt : 1 - ramp(v, MEGA_CORE_END, MEGA_CORE_END + 140);
+    if (vA > .001) for (let i = 0; i < MEGA_VORTEX_BLADES; i++) {
+      ctx.save(); ctx.globalAlpha = vA; ctx.translate(cx, torso);
+      ctx.rotate(this.vortexSpin + (i / MEGA_VORTEX_BLADES) * Math.PI * 2); ctx.scale(vScale, vScale);
+      megaSpiralBlade(ctx, h * .55, ww * .24); ctx.restore();
+    }
+
+    // Beat 2: twin flame wings at the feet — an outer wing plus a smaller inner tongue per side on an
+    // offset flicker phase, so each wing has internal movement instead of being one rigid wedge. Both
+    // shrink toward the body once the pull-in starts.
+    this.flickerT += dtc * 1000;
+    if (this.flickerT >= MEGA_FLICKER_MS) { this.flickerT -= MEGA_FLICKER_MS; this.flickerIdx = (this.flickerIdx + 1) % MEGA_PLUME_STEPS.length; }
+    const pA = v < MEGA_PULL_END ? ramp(v, MEGA_SPARK_END * .7, MEGA_CHARGE_END * .9) : 1 - ramp(v, MEGA_PULL_END, MEGA_CORE_END);
+    const shrink = lerp(1, .3, ramp(v, MEGA_PULL_END - 300, MEGA_CORE_END));
+    const outerStep = MEGA_PLUME_STEPS[this.flickerIdx], innerStep = MEGA_PLUME_STEPS[(this.flickerIdx + 2) % MEGA_PLUME_STEPS.length];
+    if (pA > .001) for (const sign of [-1, 1]) {
+      for (const [step, len, wid, lean, off] of [[outerStep, h * .95, ww * .62, sign * .28, sign * ww * .46], [innerStep, h * .6, ww * .32, sign * .12, sign * ww * .28]]) {
+        const s = step * shrink;
+        ctx.save(); ctx.globalAlpha = pA; ctx.translate(cx + off, feet); ctx.rotate(-Math.PI / 2 + lean); ctx.scale(s, s);
+        megaFlameShard(ctx, len, wid); ctx.restore();
+      }
+    }
+
+    // Beat 4: everything converged into one hot core at peak, then blown out by the flash.
+    const cGrow = ramp(v, MEGA_PULL_END - 700, MEGA_CORE_END), blowout = ramp(v, MEGA_CORE_END, MEGA_CORE_END + 140);
+    const cScale = cGrow * (1 + Math.sin(v * .02) * .08 * cGrow) * (ww / 34 + .5) * (1 + blowout * .7), cA = cGrow * (1 - blowout);
+    if (cA > .001 && cScale > .001) {
+      ctx.save(); ctx.translate(cx, torso); ctx.scale(cScale, cScale);
+      for (const [r, color, al] of [[13, MEGA_VIOLET, .22], [10, MEGA_VIOLET, .42], [8, MEGA_MAGENTA, .6], [6.2, MEGA_MAGENTA, .88], [4.4, MEGA_HOT, .96], [2.6, '#ffffff', 1]]) {
+        ctx.globalAlpha = cA * al; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = cA * .85; ctx.strokeStyle = MEGA_HOT; ctx.lineWidth = 1.3 / cScale; ctx.beginPath(); ctx.arc(0, 0, 12.6, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+
+    // Beat 5: the flash-out burst the swap is hidden inside (see startFlash).
+    if (this.burst) {
+      const t = ramp(v, MEGA_CORE_END, MEGA_MFLASH_END), R = Math.max(ww, h), ds = lerp(.35, 1.7, t);
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = Math.max(0, 1 - t * t) * .9; ctx.beginPath(); ctx.arc(cx, torso, R * .42 * ds, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = Math.max(0, 1 - t * t); ctx.beginPath(); ctx.arc(cx, torso, R * .26 * ds, 0, Math.PI * 2); ctx.fill();
+      const reach = lerp(.15, 1, t), ss = lerp(.5, 1.35, t);
+      for (const s of this.burst) {
+        ctx.save(); ctx.globalAlpha = 1 - t;
+        ctx.translate(cx + Math.cos(s.a) * ww * .7 * reach, torso + Math.sin(s.a) * h * .4 * reach);
+        ctx.rotate(s.a); ctx.scale(ss, ss); megaFlameShard(ctx, s.len, ww * .26); ctx.restore();
+      }
+      if (t >= 1) this.burst = null;
+    }
+
+    // Beat 6: a mega-stone glint above the NEW head while the residuals fade and the fight resumes.
+    if (v >= MEGA_MFLASH_END) {
+      this.glintT += dtc * 1000;
+      if (this.glintT >= MEGA_GLINT_STEP_MS) { this.glintT -= MEGA_GLINT_STEP_MS; this.glintIdx = (this.glintIdx + 1) % MEGA_GLINT_SIZES.length; }
+      const t = ramp(v, MEGA_MFLASH_END, MEGA_SETTLE_END), size = MEGA_GLINT_SIZES[this.glintIdx];
+      const gx = cx + ww * .3, gy = feet - h * 1.02;
+      ctx.globalAlpha = t < .25 ? t / .25 : Math.max(0, 1 - (t - .25) / .75);
+      plus(ctx, gx, gy, size, '#ffffff');
+      ctx.fillStyle = MEGA_HOT; ctx.fillRect(gx - size * .45, gy - size * .45, size * .9, size * .9);
+    }
+    return false;
+  }
+  /** Beat 5 — the flash-out. THIS is the frame the mega form actually appears: the swap is hidden
+   *  inside the burst's first frames rather than happening up front. */
+  startFlash() {
+    this.swapped = true;
+    this.sil.style.display = 'none';
+    this.applySwap();
+    this.w.img.style.opacity = 1;
+    this.burst = Array.from({ length: MEGA_BURST_SHARDS }, (_, i) => ({ a: (i / MEGA_BURST_SHARDS) * Math.PI * 2 + Math.random() * .25, len: this.w.drawnH * (.42 + Math.random() * .3) }));
+  }
+  /** Force-end WITHOUT performing the swap — the abort path (battle over, walker torn down, evolution
+   *  seizing the sprite). Restoring the body matters on BOTH paths: the silhouette beat fades it to 0
+   *  and nothing else here would ever put it back. */
+  dispose() { this.teardown(); }
+  teardown() {
+    if (this.done) return;
+    this.done = true;
+    this.dimEl.remove(); this.sil.remove(); this.w.img.style.opacity = 1;
+    if (this.w.megaCeremony === this) this.w.megaCeremony = null;
+    const cb = this.onDone; this.onDone = null; cb && cb();
+  }
+}
+
 // ───────────────────────────── battles (BattleManager.ts choreography) ─────────────────────────────
-const LUNGE_MS = 150, HOLD_MS = 150, RETURN_MS = 180, ATTACK_MS = LUNGE_MS + HOLD_MS + RETURN_MS, LUNGE_FRACTION = .28, SHAKE_MS = 180, FACEOFF_MS = 550, ENDING_MS = 550;
+/** Per-attack timing is BattleManager.ts's, verbatim: 300/280/320 with a 320ms shake. Those numbers
+ *  deliberately REPLACED an earlier 150/150/180 in the app because the faster pace read as
+ *  "blip-like" (see WAVE_ATTACKS' own comment there), and the weight of a single strike is what a
+ *  viewer actually perceives as the feel of a fight.
+ *
+ *  The ROUND COUNT is where the demo knowingly diverges: the app runs WAVE_ATTACKS = 8, the demo
+ *  runs 4. These scenes have to finish inside the marketing page's per-scene real-time ceiling, and
+ *  eight slow exchanges plus the walk over does not fit. Fewer, correctly-paced hits is the better
+ *  trade than the right count of wrong-feeling ones — a choice, not drift. */
+const LUNGE_MS = 300, HOLD_MS = 280, RETURN_MS = 320, ATTACK_MS = LUNGE_MS + HOLD_MS + RETURN_MS, LUNGE_FRACTION = .28, SHAKE_MS = 320, FACEOFF_MS = 550, ENDING_MS = 550;
 const battles = [];
-/** One battle between `p` (parent/session, back view) and `c` (challenger, front view). Resolves when
- *  the wave is over; `onFaceoff` (optional) fires earlier, the instant both combatants square up —
- *  the beat tour scenes actually want to resolve on, well before four rounds have played out. */
-function runBattle(p, c, { rounds = 4, tools = ['Read', 'Grep', 'Edit', 'Bash'], challengerTools = ['Task', 'Read', 'Bash'], onAttack, onEnd, onFaceoff } = {}) {
+/** One battle between `p` (the parent/session, front view) and `c` (the challenger, back view).
+ *  Resolves when the wave is over; `onFaceoff` (optional) fires earlier, the instant both combatants
+ *  square up — the beat tour scenes actually want to resolve on, well before four rounds have played
+ *  out. `mega` (optional, `{ session, onFire }`) is a pending mega evolution for `p`: it is NOT
+ *  applied here and now, it fires inside the wave at the face-off (see `startBattleMega`). */
+function runBattle(p, c, { rounds = 4, tools = ['Read', 'Grep', 'Edit', 'Bash'], challengerTools = ['Task', 'Read', 'Bash'], onAttack, onEnd, onFaceoff, mega } = {}) {
   return new Promise((resolve) => {
     p.stayPut(); c.stayPut(); p.locked = true; c.locked = true; p.wandering = false; c.wandering = false;
     const gap = Math.max(2, Math.ceil((p.drawnW / 2 + c.drawnW / 2) / TILE) + 1);
     const anchor = findMeetingAnchor(p, c, gap);
-    const b = { p, c, wave: 'alert', t: 0, attacks: 0, attack: null, anchor, gap, rounds, tools, challengerTools, onAttack, onEnd, onFaceoff, resolve, offP: { x: 0, y: 0 }, offC: { x: 0, y: 0 }, lastAttackerParent: false, roundRobin: 0, stuck: 0 };
+    const b = { p, c, wave: 'alert', t: 0, attacks: 0, attack: null, anchor, gap, rounds, tools, challengerTools, onAttack, onEnd, onFaceoff, resolve, offP: { x: 0, y: 0 }, offC: { x: 0, y: 0 }, lastAttackerParent: false, roundRobin: 0, stuck: 0, mega: mega || null, megaPrep: null, megaHold: false, ended: false };
     battles.push(b);
+    // Cache-warming only, exactly like BattleManager's admitBattle-time prefetch: the alert bubble
+    // plus the walk over is dead time a cold gen5ani fetch can hide behind, so the ceremony isn't
+    // still waiting on the network by the time the two square up.
+    if (b.mega) b.megaPrep = prepareMega(b.mega.session).catch(() => null);
     fxExclaim(p, -p.drawnH - 8, () => { b.wave = 'approaching'; b.t = 0; p.goTo(b.anchor.p); c.goTo(b.anchor.c); });
     fxExclaim(c, -c.drawnH - 6);
   });
@@ -1209,21 +1459,55 @@ function runBattle(p, c, { rounds = 4, tools = ['Read', 'Grep', 'Edit', 'Bash'],
 function findMeetingAnchor(p, c, gap) {
   const pt = p.tile, ct = c.tile; const mid = { x: Math.round((pt.x + ct.x) / 2), y: Math.round((pt.y + ct.y) / 2) };
   const both = (x, y) => map.isWalkable(x, y) || (p.canFly && c.canFly && map.isWater(x, y));
-  const ok = (a) => both(a.x, a.y) && both(a.x + gap, a.y) && findPath(pt, a, p.canEnter) && findPath(ct, { x: a.x + gap, y: a.y }, c.canEnter);
-  // ring search outward from the midpoint; parent stands left, challenger right
-  for (let r = 0; r < 24; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; const a = { x: mid.x + dx - Math.floor(gap / 2), y: mid.y + dy }; if (ok(a)) return { p: a, c: { x: a.x + gap, y: a.y } }; }
+  // The challenger always ends up in the parent's SW corner, never level with it and never NE of it
+  // (BattleManager's pickChallengerStandTileFor). That fixed arrangement is what lets the stance
+  // below skip all mirroring math — see the face-off transition in updateBattles.
+  const cTile = (a) => ({ x: a.x - gap, y: a.y + gap });
+  const ok = (a) => both(a.x, a.y) && both(cTile(a).x, cTile(a).y) && findPath(pt, a, p.canEnter) && findPath(ct, cTile(a), c.canEnter);
+  // ring search outward from the midpoint, offset so the PAIR straddles it rather than the parent
+  const half = Math.floor(gap / 2);
+  for (let r = 0; r < 24; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; const a = { x: mid.x + dx + half, y: mid.y + dy - half }; if (ok(a)) return { p: a, c: cTile(a) }; }
   return { p: pt, c: ct };
+}
+/** BattleManager's `startMega`: the mega fires once the combatants have actually squared up, and
+ *  HOLDS the wave in place for the whole ceremony — the face-off countdown, the attack in flight and
+ *  the ending beat all freeze exactly where they were until it finishes, then the fight resumes with
+ *  the mega form. A species with no mega form (or a sprite that never arrived) releases the hold
+ *  immediately, so a wave can never wedge on this. */
+function startBattleMega(b) {
+  const m = b.mega; b.mega = null; b.megaHold = true;
+  let fired = false; const fire = () => { if (fired) return; fired = true; m.onFire && m.onFire(); };
+  // Race the sprite fetch against a simulated-time cap: a stalled request would otherwise hold
+  // megaHold (and both walkers) frozen for however long the browser takes to give up on the socket.
+  // A miss is treated exactly like "no mega form" — skip it, release the hold, let the fight proceed.
+  const MEGA_PREP_TIMEOUT = Symbol('mega-prep-timeout');
+  Promise.race([b.megaPrep, sleep(3000).then(() => MEGA_PREP_TIMEOUT)]).then((result) => {
+    const prep = result === MEGA_PREP_TIMEOUT ? null : result;
+    if (!prep || b.ended || b.p.destroyed) { b.megaHold = false; fire(); return; }
+    megaEvolve(m.session, prep, fire).then(() => { b.megaHold = false; fire(); });
+  });
 }
 function updateBattles(dt) {
   for (const b of [...battles]) {
     const { p, c } = b; b.offP = { x: 0, y: 0 }; b.offC = { x: 0, y: 0 };
     if (p.destroyed || c.destroyed) { endBattle(b); continue; }
-    if (b.wave === 'approaching') {
+    // A mega ceremony HOLDS the wave in place while it plays (BattleManager's `megaHold`): the phase
+    // machine below is skipped entirely, so nothing advances and — because the lunge offsets are all
+    // driven by clocks the hold has frozen — both combatants stand on their own tiles for the whole
+    // beat instead of being stuck mid-lunge. Position sync at the bottom keeps running.
+    if (b.megaHold) { /* held */ }
+    else if (b.wave === 'approaching') {
       b.t += dt; const pa = p.arrived, ca = c.arrived;
       if (pa && !p.walking && manhattan(p.tile, b.anchor.p) > 0 && b.t > 1) p.goTo(b.anchor.p);
       if (ca && !c.walking && manhattan(c.tile, b.anchor.c) > 0 && b.t > 1) c.goTo(b.anchor.c);
       const parr = manhattan(p.tile, b.anchor.p) === 0 && pa, carr = manhattan(c.tile, b.anchor.c) === 0 && ca;
-      if ((parr && carr) || b.t > 25) { b.wave = 'faceoff'; b.t = 0; p.stayPut(); c.stayPut(); p.setForcedBackView(true); p.faceDirection(p.px < c.px ? 'right' : 'left'); c.setBackView(false); c.faceDirection(c.px < p.px ? 'right' : 'left'); p.hideBubble(); c.hideBubble(); b.onFaceoff && b.onFaceoff(); }
+      if ((parr && carr) || b.t > 25) {
+        b.wave = 'faceoff'; b.t = 0; p.stayPut(); c.stayPut(); p.hideBubble(); c.hideBubble();
+        applyBattleStance(p, c);
+        b.onFaceoff && b.onFaceoff();
+        // Only NOW, with both of them stood up and facing off, does a pending mega fire.
+        if (b.mega) startBattleMega(b);
+      }
     } else if (b.wave === 'faceoff') { b.t += dt * 1000; if (b.t >= FACEOFF_MS) { b.wave = 'looping'; startAttack(b); } }
     else if (b.wave === 'looping') {
       const a = b.attack; a.t += dt * 1000;
@@ -1232,7 +1516,7 @@ function updateBattles(dt) {
       const att = a.parent ? p : c, def = a.parent ? c : p; const dx = def.px - att.px, dy = def.py - att.py;
       const off = a.parent ? b.offP : b.offC; off.x = Math.round(dx * LUNGE_FRACTION * prog); off.y = Math.round(dy * LUNGE_FRACTION * prog);
       if (a.hit) { const st = (a.t - LUNGE_MS) / SHAKE_MS; if (st >= 0 && st < 1) { const s = (1 - st) * 3; const doff = a.parent ? b.offC : b.offP; doff.x += Math.round((Math.random() - .5) * 2 * s); doff.y += Math.round((Math.random() - .5) * 2 * s); } }
-      if (a.t >= ATTACK_MS) { b.attacks++; if (b.attacks < b.rounds) startAttack(b); else { b.wave = 'ending'; b.t = 0; p.setForcedBackView(false); p.showFloatingText('Victory!'); fxSparkleBurst(p); audio.victory(); } }
+      if (a.t >= ATTACK_MS) { b.attacks++; if (b.attacks < b.rounds) startAttack(b); else { b.wave = 'ending'; b.t = 0; c.setForcedBackView(false); p.showFloatingText('Victory!'); fxSparkleBurst(p); audio.victory(); } }
     } else if (b.wave === 'ending') { b.t += dt * 1000; b.offP.y = -Math.round(Math.sin(Math.min(1, b.t / ENDING_MS) * Math.PI) * 8); if (b.t >= ENDING_MS) endBattle(b); }
     p.el.style.left = Math.round(p.px) + b.offP.x + 'px'; p.el.style.top = Math.round(p.py) + b.offP.y + 'px';
     c.el.style.left = Math.round(c.px) + b.offC.x + 'px'; c.el.style.top = Math.round(c.py) + b.offC.y + 'px';
@@ -1243,7 +1527,27 @@ function applyHit(b, a) {
   const att = a.parent ? b.p : b.c, def = a.parent ? b.c : b.p; const text = `${att.species.name} used ${a.tool}!`;
   att.showFloatingText(text); fxHitFlash(def, Math.max(16, def.drawnH * .7), def.drawnH); audio.hit(); b.onAttack && b.onAttack(att, a.tool, text);
 }
-function endBattle(b) { battles.splice(battles.indexOf(b), 1); b.p.locked = false; b.c.locked = false; b.p.setForcedBackView(false); if (b.c.status === 'working') b.c.beginWander(); if (b.p.status === 'working') b.p.beginWander(); b.onEnd && b.onEnd(); b.resolve(); }
+/** The fixed battle stance — no mirroring math, ever (BattleManager's `applyBattleStance`, flipped
+ *  2026-09-04). The parent shows its FRONT sheet UNMIRRORED, facing the camera, so the player can
+ *  actually see it and its mega evolution reveal. The challenger — always in the parent's SW corner —
+ *  shows its BACK sheet unmirrored, which gen5ani draws already aimed up-right at the parent; a
+ *  species with no back art falls back to a mirrored front sheet, so at least it points back toward
+ *  the parent rather than away from it. */
+function applyBattleStance(p, c) {
+  p.setForcedBackView(false); p.faceDirection('left');
+  c.setForcedBackView(true); c.faceDirection(c.forms.back ? 'left' : 'right');
+}
+function endBattle(b) {
+  b.ended = true; b.megaHold = false;
+  battles.splice(battles.indexOf(b), 1); b.p.locked = false; b.c.locked = false;
+  b.p.setForcedBackView(false); b.c.setForcedBackView(false);
+  // A battle that ends mid-buildup aborts the ceremony WITHOUT applying its pending mega form, so the
+  // parent looks exactly as it did before rather than snapping into a mega it reverts a frame later.
+  if (b.p.megaCeremony) b.p.megaCeremony.dispose();
+  if (b.mega) { const m = b.mega; b.mega = null; m.onFire && m.onFire(); }
+  if (b.c.status === 'working') b.c.beginWander(); if (b.p.status === 'working') b.p.beginWander();
+  b.onEnd && b.onEnd(); b.resolve();
+}
 const isBattling = (w) => battles.some((b) => b.p === w || b.c === w);
 
 // ───────────────────────────── store: mock sessions ─────────────────────────────
@@ -1308,7 +1612,7 @@ function idle(s) { s.napping = false; s.walker.setNapping(false); s.looping = fa
 function blocked(s) { setStatus(s, 'blocked'); term(s, 'warn', pick(['Allow Bash(rm -rf dist)?  [y/n]', 'Edit(src/main/pty.ts) needs approval  [y/n]', 'Which approach do you prefer: (1) fix the race (2) skip the test?'])); term(s, 'sys', 'pokéharness: needs you'); }
 function done(s) { setStatus(s, 'done'); term(s, 'ok', 'session ended (exit 0)'); }
 function nap(s) { s.napping = !s.napping; s.walker.setNapping(s.napping); if (s.napping) term(s, 'sys', 'compacting conversation… (PreCompact)'); else term(s, 'sys', 'compaction complete — resumed (SessionStart)'); renderRoster(); renderTermHead(); syncBubble(s); }
-function loop(s) { s.looping = !s.looping; s.walker.setLabel(s.looping ? `${s.title} (looping)` : s.title); if (s.looping) { for (let i = 0; i < 3; i++) term(s, 'tool', 'Bash(npm test -- auth)'); term(s, 'warn', 'pokéharness: same tool call 3× in a row — looping?'); } syncBubble(s); renderRoster(); }
+function loop(s) { s.looping = !s.looping; s.walker.setLabel(s.looping ? `${s.title} (looping)` : s.title); if (s.looping) { for (let i = 0; i < 6; i++) term(s, 'tool', 'Bash(npm test -- auth)'); term(s, 'warn', 'pokéharness: same tool call 6× in a row — looping?'); } syncBubble(s); renderRoster(); }
 function chatter(s) { const w = s.walker; if (s.status === 'working') return toast('small talk only happens while idle — set the session idle first'); w.showText(pick(IDLE_LINES)); w.lingerBubble(); }
 async function berry(s) {
   const w = s.walker; if (s.status === 'working' || w.isEvolving || isBattling(w)) return toast('berry errands only happen while idle');
@@ -1316,22 +1620,36 @@ async function berry(s) {
   const t0 = simTime; while (!w.arrived && simTime - t0 < 20000) await sleep(100);
   w.showText(pick(BERRY_EAT)); w.lingerBubble(); w.showFloatingText('+1 berry'); audio.berry(); w.bounce();
 }
+/** Returns whether the recall actually happened, so callers that hold a reference to `s` (like the
+ *  `recall` scene's `cast.a`) know whether it's safe to drop it — a refused recall (already
+ *  recalling, or mid-battle) must not be treated as if the slot emptied out. */
 function despawn(s) {
-  if (!s || s.walker.recalling) return; if (isBattling(s.walker)) return toast('finish the battle first');
+  if (!s || s.walker.recalling) return false;
+  if (isBattling(s.walker)) { toast('finish the battle first'); return false; }
   term(s, 'sys', 'pokéharness: recalled'); s.walker.startRecall(() => { s.walker.destroy(); store.sessions.splice(store.sessions.indexOf(s), 1); store.usedSpecies.delete(s.species.line); if (store.selected === s.id) select(null); renderRoster(); });
   audio.poof();
+  // A recalled parent takes its retired subs with it — otherwise each one's walker keeps wandering
+  // the map forever with no card and no way to dismiss it (BattleManager's teardown does the same
+  // sweep on a killed session). Reuse despawnSub rather than duplicating its teardown here.
+  for (const sub of store.subs.filter((x) => x.parent === s)) despawnSub(sub);
+  return true;
 }
 
 /** Subagent battler lifecycle: poof-in at a far corner, roam with its task label, task completes → walks to
  *  the parent and fights, loses, poofs. `onFaceoff`/`onMegaFire` (optional) thread straight through to
  *  `subagentCompletes`/`runBattle` — early-resolve hooks for scenes that only want the "worth seeing"
  *  beat, not the full multi-round battle tail. */
-async function spawnSubagent(parent, { autoBattleMs = 6000, onFaceoff, onMegaFire } = {}) {
+async function spawnSubagent(parent, { autoBattleMs = 6000, onFaceoff, onMegaFire, startNear = false } = {}) {
   const pool = [...SPECIES.values()].filter((e) => e.stage === 1 && !STARTER_LINES.includes(e.line) && !store.subs.some((s) => s.species.line === e.line));
   const sp = pick(pool); const shiny = Math.random() < 1 / 64; const forms = await loadForms(sp.id, shiny);
   if (!forms.front) return toast('sprite fetch failed');
-  const far = pick(['wander-1', 'wander-2', 'wander-3', 'wander-4'].map((n) => map.spawn(n)).sort((a, b) => manhattan(b, parent.walker.tile) - manhattan(a, parent.walker.tile)).slice(0, 2));
-  const label = pick(SUB_TASKS); const sub = { id: 'sub' + (++store.seq), kind: 'sub', parent, species: sp, shiny, label, status: 'working' };
+  const corners = ['wander-1', 'wander-2', 'wander-3', 'wander-4'].map((n) => map.spawn(n)).sort((a, b) => manhattan(b, parent.walker.tile) - manhattan(a, parent.walker.tile));
+  // Normally a far corner, the way a roaming challenger really can be anywhere on the map. `startNear`
+  // is for the one tour chapter that has a multi-second ceremony of its own to fit inside the
+  // marketing page's per-scene real-time ceiling: the cross-map walk is already the whole point of
+  // the subagent chapter, so repeating it in full here would only crowd out the beat worth watching.
+  const far = startNear ? corners[corners.length - 1] : pick(corners.slice(0, 2));
+  const label = pick(SUB_TASKS); const sub = { id: 'sub' + (++store.seq), kind: 'sub', parent, species: sp, shiny, label, status: 'working', retired: false, wanderHome: far };
   sub.walker = new Walker({ species: sp, shiny, forms, startTile: far, label: sp.name, accent: parent.accent, kind: 'sub' }); sub.walker.onClick = () => select(sub.id);
   const w = sub.walker; w.scaleMul = .4; w.status = 'working'; store.subs.push(sub); renderRoster();
   const [call, result] = TOOL_MOCK.Task(label); term(parent, 'tool', call); term(parent, 'result', `  ⎿  ${result}`); term(parent, 'sys', `pokéharness: ${sp.name} materialised as a subagent`); audio.poof();
@@ -1346,13 +1664,51 @@ async function subagentCompletes(sub, { onFaceoff, onMegaFire } = {}) {
   const parent = sub.parent, w = sub.walker; if (!sub.pending || w.destroyed) return; sub.pending = false;
   term(parent, 'result', `  ⎿  subagent finished: ${sub.label}`); term(parent, 'sys', `pokéharness: completion battle — ${parent.species.name} vs ${sub.species.name}`);
   const before = parent.status; parent.tool = null; setStatus(parent, 'working');
-  if (parent.pendingMega) { parent.pendingMega = false; await megaEvolve(parent); onMegaFire && onMegaFire(); }
-  await runBattle(parent.walker, w, { rounds: 4, tools: ['Read', 'Grep', 'Edit', 'Bash'], challengerTools: ['Task', 'Read', 'Glob'], onAttack: (att, tool, text) => term(parent, att === parent.walker ? 'tool' : 'result', att === parent.walker ? `${tool}(…)  ·  ${text}` : `  ⎿  ${text}`), onFaceoff });
+  // A pending mega is handed to the BATTLE, not applied here: the fight starts, the two walk up and
+  // square off, and only then does the ceremony fire — holding the fight frozen while it plays.
+  let megaFired = false; const fireMega = () => { if (megaFired) return; megaFired = true; onMegaFire && onMegaFire(); };
+  const mega = parent.pendingMega ? { session: parent, onFire: fireMega } : null;
+  if (mega) parent.pendingMega = false;
+  await runBattle(parent.walker, w, { rounds: 4, tools: ['Read', 'Grep', 'Edit', 'Bash'], challengerTools: ['Task', 'Read', 'Glob'], onAttack: (att, tool, text) => term(parent, att === parent.walker ? 'tool' : 'result', att === parent.walker ? `${tool}(…)  ·  ${text}` : `  ⎿  ${text}`), onFaceoff, mega });
+  fireMega();
   revertMega(parent);
-  term(parent, 'ok', `${parent.species.name} wins — ${sub.species.name} returns`); audio.poof();
-  const t0 = simTime; while (simTime - t0 < 220) { w.scaleMul = Math.max(.001, 1 - (simTime - t0) / 220); await sleep(16); }
-  w.destroy(); store.subs.splice(store.subs.indexOf(sub), 1); if (store.selected === sub.id) select(parent.id); if (before !== 'working') setStatus(parent, before); renderRoster();
+  term(parent, 'ok', `${parent.species.name} wins — ${sub.species.name} stands down`);
+  retireSub(sub);
+  if (before !== 'working') setStatus(parent, before);
+  renderRoster();
 }
+/** Losing a completion battle does NOT poof a battler away — that changed in the app on 2026-08-29
+ *  ("DONE POKEMON STAY UNTIL DISMISSED", BattleManager.ts's file header). It goes off duty instead:
+ *  `retireSub` walks it back toward its own `wanderHome` and hands it to the same idle-roam code
+ *  roaming already used, at full colour with no dulling cue, so it reads as an ordinary off-duty
+ *  pokemon. It never queues for another fight and it never leaves on its own — it stays in
+ *  `store.subs`, and therefore on the roster strip, until the player dismisses it (`despawnSub`).
+ *  A sub that never reached a completion battle at all still just poofs, exactly as the app's
+ *  coarser `handleEndAll` cleanup does. */
+function retireSub(sub) {
+  const w = sub.walker; if (!w || w.destroyed) return;
+  sub.retired = true; sub.status = 'done';
+  w.hideBubble(); w.setForcedBackView(false);
+  // `retired` is what keeps it wandering once its status stops being 'working' (see Walker.roams).
+  w.retired = true; w.setStatus('done');
+  w.goTo(sub.wanderHome); // best-effort: goTo no-ops if home is unreachable from where the fight left it
+  term(sub.parent, 'sys', `pokéharness: ${sub.species.name} is off duty — it stays until you dismiss it`);
+}
+/** The other half of `retireSub` — the explicit dismissal. Reuses the very same pokéball recall the
+ *  session `despawn` above plays (`Walker.startRecall` -> `fxRecall`), then the same teardown.
+ *  Returns false if there was nothing to recall, so a caller can settle its own wait. */
+function despawnSub(sub, onDone) {
+  const w = sub && sub.walker; if (!w || w.recalling || w.destroyed) return false;
+  if (isBattling(w)) { toast('finish the battle first'); return false; }
+  term(sub.parent, 'sys', `pokéharness: ${sub.species.name} dismissed`);
+  w.startRecall(() => {
+    w.destroy(); store.subs.splice(store.subs.indexOf(sub), 1);
+    if (store.selected === sub.id) select(sub.parent.id);
+    renderRoster(); onDone && onDone();
+  });
+  audio.poof(); return true;
+}
+const retiredSubs = () => store.subs.filter((x) => x.retired && x.walker && !x.walker.destroyed && !x.walker.recalling);
 /** `resolveOn: 'flash'` (used by the tour/control scenes) resolves the returned promise the instant
  *  the evolution flash fires instead of waiting for the full congratulations-and-walk-away tail —
  *  the ceremony keeps playing either way, only the caller's wait gets shorter. */
@@ -1369,18 +1725,38 @@ async function evolveSession(s, { resolveOn = 'done' } = {}) {
       resolveOn === 'flash' ? settle : undefined);
   });
 }
-/** Battle-only mega evolution: swaps the walker's drawn sprite for the duration of a completion battle; `s.species` (roster/label truth) never changes. */
-async function megaEvolve(s) {
-  const megaId = DEMO_MEGA_FORMS[s.species.id]; if (!megaId || s.walker.megaOriginal) return;
-  const forms = await loadForms(megaId, s.shiny); if (!forms.front) return;
-  s.walker.megaOriginal = { species: s.walker.species, forms: s.walker.forms };
-  const baseName = s.species.name; fxMegaBurst(s.walker);
-  s.walker.configure({ ...s.species, name: `Mega ${baseName}`, id: megaId, evolvesTo: [] }, forms);
-  s.walker.showFloatingText('Mega Evolved!'); term(s, 'sys', `pokéharness: ${baseName} Mega Evolved!`);
+/** Resolves the mega sprite for `s` ahead of time, or null if the species has no mega form / the art
+ *  never arrived. Split out from `megaEvolve` so the fetch can be started early (runBattle) and the
+ *  ceremony itself can start on the exact frame the choreography calls for. */
+async function prepareMega(s) {
+  const megaId = DEMO_MEGA_FORMS[s.species.id]; if (!megaId) return null;
+  const forms = await loadForms(megaId, s.shiny); if (!forms.front) return null;
+  return { megaId, forms };
 }
+/** Battle-only mega evolution: the staged `MegaCeremony` above swaps the walker's drawn sprite at its
+ *  flash peak, for the duration of a completion battle; `s.species` (roster/label truth) never
+ *  changes. Resolves when the ceremony settles; `onSwap` fires earlier, on the reveal itself. */
+function megaEvolve(s, prep, onSwap) {
+  return new Promise((resolve) => {
+    const w = s.walker;
+    if (!prep || !w || w.destroyed || w.megaOriginal || w.megaCeremony || w.isEvolving) return resolve();
+    w.megaOriginal = { species: w.species, forms: w.forms };
+    const baseName = s.species.name;
+    w.megaCeremony = new MegaCeremony(w, () => {
+      w.configure({ ...s.species, name: `Mega ${baseName}`, id: prep.megaId, evolvesTo: [] }, prep.forms);
+      w.showFloatingText('Mega Evolved!'); term(s, 'sys', `pokéharness: ${baseName} Mega Evolved!`);
+      onSwap && onSwap();
+    }, resolve);
+  });
+}
+/** Safe (and cheap) to call unconditionally at every battle-end site: a no-op when no mega happened,
+ *  and it doubles as the abort path — disposing a ceremony still mid-buildup applies nothing, so the
+ *  restore below is then a no-op too. */
 function revertMega(s) {
-  if (!s.walker.megaOriginal) return;
-  const { species, forms } = s.walker.megaOriginal; s.walker.megaOriginal = null; s.walker.configure(species, forms);
+  const w = s.walker;
+  if (w.megaCeremony) w.megaCeremony.dispose();
+  if (!w.megaOriginal) return;
+  const { species, forms } = w.megaOriginal; w.megaOriginal = null; w.configure(species, forms);
 }
 async function battleSessions(a, b) {
   if (a === b) return toast('pick two different pokémon'); if (isBattling(a.walker) || isBattling(b.walker)) return toast('one of them is already battling');
@@ -1438,7 +1814,7 @@ function card(s) {
   if (s.kind === 'sub') {
     const d = document.createElement('div'); d.className = 'roster-card-wrap'; d.dataset.id = s.id;
     d.innerHTML = `<button type="button" class="roster-card roster-card-subagent roster-card-compact">
-      <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.label}</span><span class="roster-card-dot working"></span></div>
+      <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.label}</span><span class="roster-card-dot ${s.retired ? 'done' : 'working'}"></span></div>
       <div class="roster-card-parent-compact">↳ ${s.parent.title}</div>
       <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:100%"></div></div></button>`;
     d.querySelector('button').onclick = () => select(s.id);
@@ -1560,7 +1936,7 @@ async function ensureCast(need = 1) {
 const SCENES = [
   {
     id: 'spawn', group: 'tour', order: 1, label: 'spawn',
-    caption: "a claude code session joins the garden as a walking, talking pokémon — every walker here is a live coding agent, not a mascot.",
+    caption: "a claude code session joins the garden as a walking pokémon. every walker here is a live coding agent, not a mascot.",
     run: async () => {
       const { a } = await ensureCast(1); if (!a) return;
       select(a.id); a.walker.bounce();
@@ -1569,7 +1945,7 @@ const SCENES = [
   },
   {
     id: 'tool-calls', group: 'tour', order: 2, label: 'tool calls',
-    caption: "reads, greps, edits — every tool call shows up as a speech bubble overhead, instead of a line scrolling past in a terminal.",
+    caption: "reads, greps, edits. every tool call shows up as a speech bubble over the walker's head, not a line scrolling past.",
     run: async () => {
       const { a: s } = await ensureCast(1); if (!s) return;
       select(s.id);
@@ -1578,7 +1954,7 @@ const SCENES = [
   },
   {
     id: 'blocked', group: 'tour', order: 3, label: 'needs you',
-    caption: "sessions don't always run unattended — this one just hit something that needs your say-so, and it'll sit right there until you answer.",
+    caption: "this session hit something that needs your say-so. it stops where it stands and waits until you answer.",
     run: async () => {
       const { a: s } = await ensureCast(1); if (!s) return;
       select(s.id); blocked(s);
@@ -1589,8 +1965,8 @@ const SCENES = [
     }
   },
   {
-    id: 'subagent-battle', group: 'tour', order: 4, label: 'subagent battle',
-    caption: "dispatch a subagent and it hatches as its own pokémon — when its task finishes, it walks back and battles the parent for the win.",
+    id: 'subagent-battle', group: 'tour', order: 5, label: 'subagent battle',
+    caption: "a subagent hatches as its own pokémon. it walks back when its task finishes, loses to the parent, then stays in the garden.",
     run: async () => {
       const { a: s } = await ensureCast(1); if (!s) return;
       select(s.id); toolCall(s, 'Read');
@@ -1601,8 +1977,8 @@ const SCENES = [
     }
   },
   {
-    id: 'evolution', group: 'tour', order: 5, label: 'evolution',
-    caption: "enough accumulated working time and a session evolves mid-task — the same flash-and-silhouette ceremony the real app runs.",
+    id: 'evolution', group: 'tour', order: 4, label: 'evolution',
+    caption: "ten minutes of working time and a session evolves mid-task. this is the same flash-and-silhouette ceremony the real app runs.",
     run: async () => {
       const { a: s } = await ensureCast(1); if (!s) return;
       select(s.id); toolCall(s, 'Edit');
@@ -1612,19 +1988,21 @@ const SCENES = [
   },
   {
     id: 'mega-evolution', group: 'tour', order: 6, label: 'mega evolution',
-    caption: "a handful of species mega-evolve for the duration of a battle — a full ring-and-vortex ceremony, then they revert the second it's over.",
+    caption: "mega evolution is battle only. the two square up first, then the ceremony fires and holds the fight frozen until the new form lands.",
     run: async () => {
       let s = cast.mega && !cast.mega.walker.destroyed ? cast.mega : null;
-      if (!s || s.walker.isEvolving || isBattling(s.walker)) s = cast.mega = await spawnSession({ species: pick(Object.keys(DEMO_MEGA_FORMS)) });
+      if (!s || s.walker.isEvolving || isBattling(s.walker)) s = cast.mega = await spawnSession({ species: TOUR_MEGA_SPECIES });
       if (!s) return;
       select(s.id); s.pendingMega = true;
-      // resolve the instant the mega ceremony fires, well before the battle it triggers plays out.
-      await new Promise((resolve) => { spawnSubagent(s, { autoBattleMs: 2000, onMegaFire: resolve }); });
+      // The mega now fires INSIDE the battle, at the face-off — so this waits out the walk over as
+      // well. Resolve on the ceremony's reveal (the beat worth seeing), not on the fight's tail; the
+      // second resolve is a backstop for a subagent that never gets as far as a battle at all.
+      await new Promise((resolve) => { spawnSubagent(s, { autoBattleMs: 900, startNear: true, onMegaFire: resolve }).then(resolve, resolve); });
     }
   },
   {
     id: 'arceus', group: 'tour', order: 7, label: 'summon arceus',
-    caption: "summon a session as arceus and the garden folds into its own cosmos — a permanent, gold-framed orchestrator in the real app. we'll bring it back down in a few seconds so the tour can carry on.",
+    caption: "arceus is the garden's one orchestrator, gold-framed in the roster. select it and the whole garden warps into its own cosmos.",
     run: async () => {
       select(ARCEUS_ID);
       await sleep(6000);
@@ -1634,57 +2012,57 @@ const SCENES = [
   },
   {
     id: 'spawn-shiny', group: 'control', order: 1, label: 'spawn shiny',
-    caption: "every session rolls shiny once, 1-in-64 — force the roll here to see the sparkle burst and star badge without waiting on the odds.",
+    caption: "every session rolls shiny once, at 1-in-64. this forces the roll, so you get the sparkle burst and the star badge either way.",
     run: async () => { const { b } = await ensureCast(2); if (b) { select(b.id); b.walker.bounce(); } }
   },
   {
     id: 'recall', group: 'control', order: 2, label: 'recall',
-    caption: "recall a session with its pokéball — a clean poof-out, the same as ending it for real.",
-    run: async () => { const { a } = await ensureCast(1); if (!a) return; select(a.id); despawn(a); cast.a = null; }
+    caption: "a finished session gets recalled into its pokéball. the poof-out ends it for real.",
+    run: async () => { const { a } = await ensureCast(1); if (!a) return; select(a.id); if (despawn(a)) cast.a = null; }
   },
   {
     id: 'nap', group: 'control', order: 3, label: 'nap (compacting)',
-    caption: "long conversations get compacted every so often — the walker naps through it and wakes up resumed.",
+    caption: "long conversations get compacted every so often. the walker naps through it and wakes up resumed.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); nap(s); }
   },
   {
     id: 'loop', group: 'control', order: 4, label: 'looping',
-    caption: "the same tool call three times in a row trips a looping warning — a cheap tell that something's stuck.",
+    caption: "six identical tool calls in a row trip a looping warning. it is a cheap tell that a session is stuck.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); loop(s); }
   },
   {
     id: 'chatter', group: 'control', order: 5, label: 'small talk',
-    caption: "idle sessions aren't silent — little status lines drift up above them while they wait on the next task.",
+    caption: "idle sessions aren't silent. little status lines drift up above them while they wait on the next task.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); if (s.status === 'working') idle(s); chatter(s); }
   },
   {
     id: 'berry', group: 'control', order: 6, label: 'berry errand',
-    caption: "an idle walker wanders off for a berry now and then — it's not just standing there between tasks.",
+    caption: "an idle walker wanders off for a berry now and then. it doesn't just stand there between tasks.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); if (s.status === 'working') idle(s); await berry(s); }
   },
   {
     id: 'thinking', group: 'control', order: 7, label: 'thinking',
-    caption: "before a session touches a single file, it thinks out loud — a line of reasoning right above its head.",
+    caption: "between tool calls the bubble drops to an ellipsis. that is the session thinking, before it touches anything.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); thinking(s); }
   },
   {
     id: 'idle', group: 'control', order: 8, label: 'idle',
-    caption: "back to idle — the session's done with its current step and waiting on what's next.",
+    caption: "back to idle. the session finished its step and is waiting on what you want next.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); idle(s); }
   },
   {
     id: 'done', group: 'control', order: 9, label: 'done',
-    caption: "a session that's wrapped up — exit code and all — before you decide whether to recall it.",
+    caption: "a session that has wrapped up, exit code and all, before you decide whether to recall it.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); done(s); }
   },
   {
     id: 'tool-call', group: 'control', order: 10, label: 'tool call',
-    caption: "fire any specific tool call on demand — pick one from the dropdown and watch it play out as a bubble overhead.",
+    caption: "fire one specific tool call on demand and watch it play out as a bubble overhead.",
     run: async () => { const { a: s } = await ensureCast(1); if (!s) return; select(s.id); toolCall(s, el('sel-tool').value); }
   },
   {
     id: 'evolve-species', group: 'control', order: 11, label: 'evolve (pick one)',
-    caption: "pick any live session from the dropdown and force its next evolution stage on demand.",
+    caption: "force a live session's next evolution stage on demand, without waiting out the clock.",
     run: async () => {
       let s = find(el('sel-evolve').value);
       if (!s || s.kind === 'sub') s = (await ensureCast(1)).a;
@@ -1694,8 +2072,18 @@ const SCENES = [
     }
   },
   {
-    id: 'battle-two', group: 'control', order: 12, label: 'two-session battle',
-    caption: "pit any two live sessions against each other directly — no subagent required.",
+    id: 'dismiss-battler', group: 'control', order: 12, label: 'dismiss battler',
+    caption: "a battler that lost its fight stays in the garden off duty. the pokéball recall is what actually removes it.",
+    run: async () => {
+      const sub = retiredSubs()[0];
+      if (!sub) return toast('no off-duty battler yet — run a subagent battle first');
+      select(sub.id); await sleep(600);
+      await new Promise((res) => { if (!despawnSub(sub, res)) res(); });
+    }
+  },
+  {
+    id: 'battle-two', group: 'control', order: 13, label: 'two-session battle',
+    caption: "a demo-only way to watch the battle choreography. the app only starts a battle when a subagent or delegate finishes.",
     run: async () => {
       let a = find(el('sel-battle-a').value), b = find(el('sel-battle-b').value);
       if (!a || a.kind === 'sub') a = (await ensureCast(1)).a;
@@ -1749,6 +2137,7 @@ el('btn-spawn-shiny').onclick = () => run('spawn-shiny');
 el('btn-subagent').onclick = () => run('subagent-battle');
 el('btn-mega').onclick = () => run('mega-evolution');
 el('btn-despawn').onclick = () => run('recall');
+el('btn-dismiss').onclick = () => run('dismiss-battler');
 el('btn-arceus').onclick = () => run('arceus');
 el('btn-tool').onclick = () => run('tool-call');
 el('btn-thinking').onclick = () => run('thinking');
@@ -1767,7 +2156,7 @@ el('btn-audio').onclick = () => audio.toggle();
 el('edge-tab').onclick = () => openDrawer();
 el('drawer-close').onclick = () => closeDrawer();
 el('btn-drawer-toggle').onclick = () => (drawerOpen ? closeDrawer() : openDrawer());
-el('drawer-kill').onclick = () => { const s = find(store.selected); if (s && s.kind === 'session') despawn(s); };
+el('drawer-kill').onclick = () => { const s = find(store.selected); if (!s) return; if (s.kind === 'sub') despawnSub(s); else despawn(s); };
 el('split-handle').addEventListener('dblclick', () => { splitRatio = DEFAULT_GARDEN_SPLIT; applyDrawerState(); });
 (() => {
   let dragging = false;
@@ -1819,12 +2208,26 @@ el('btn-reel').onclick = runShowreel;
 audio.init();
 el('cosmos-nebula').style.backgroundImage = `url(${nebulaDataUrl()})`;
 el('btn-summon-arceus').onclick = () => select(ARCEUS_ID);
-const mapReady = map.init().then(() => {
-  cam.init(); renderRoster(); renderTerm(); schedule();
-  // warm the tour cast's sprites during boot so the first tour/showreel spawn isn't sitting on a
-  // cold CDN fetch — loadForms() caches by URL, and ensureCastSlot() above reuses these promises.
-  loadForms('pichu', false); loadForms('eevee', true);
-});
+/** Warms the sprites the tour's cast actually needs, so chapter 1 isn't the one paying for a cold CDN
+ *  fetch. Strictly opportunistic: nothing here is awaited, `ready` never blocks on it, and every
+ *  scene works unchanged if the whole thing fails (loadForms caches by URL and resolves null on a
+ *  404, so a miss just falls back to fetching on demand). Chained rather than fired in parallel so
+ *  the sprite chapter 1 is about to want isn't queued behind five it won't need for a minute. */
+function prefetchTourCast() {
+  const pichu = SPECIES.get('pichu');
+  const steps = [
+    // Both of chapter 1's sheets at once — loadForms() awaits front THEN back, so warming them in
+    // parallel here saves the scene a whole round trip it would otherwise sit through.
+    () => Promise.all([loadSprite('pichu'), loadSprite('pichu', { back: true })]),     // ch.1-4: the parent
+    () => Promise.all((pichu ? pichu.evolvesTo : []).map((id) => loadForms(id, false))), // ch.4: what it evolves into
+    () => loadForms(TOUR_MEGA_SPECIES, false),                                        // ch.6: the mega-capable parent
+    () => loadForms(DEMO_MEGA_FORMS[TOUR_MEGA_SPECIES], false),                       // ch.6: its mega form
+    () => loadForms('eevee', true)                                                    // 'spawn shiny'
+  ];
+  steps.reduce((prev, step) => prev.then(step, step), Promise.resolve()).catch(() => {});
+}
+prefetchTourCast();
+const mapReady = map.init().then(() => { cam.init(); renderRoster(); renderTerm(); schedule(); });
 document.addEventListener('visibilitychange', schedule);
 // BootWipe.tsx timings: 180ms beat, then a 650ms iris-open, then unmount.
 setTimeout(() => { const bw = el('boot-wipe'); if (bw) bw.classList.add('boot-wipe-open'); }, 180);
