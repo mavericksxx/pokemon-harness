@@ -264,6 +264,43 @@
  * `LiveBattler` entry (`getClickCandidates`, `setVisible`, `handleEndAll`,
  * `destroyBattle`, `retireSub`, and the retired-sub wander in
  * `updateOneBattle`). Every Claude-subagent path is untouched by all six.
+ *
+ * PER-SUB CRASH LOOP (2026-09-07 production bug — harness.log: one throw
+ * logged 34,295 times in 7.5 minutes, ~76/sec — every render tick — always
+ * the same `parentId`, always `subCount: 1`, `wave: "idle"` throughout;
+ * `TypeError: Cannot set properties of null (setting 'y')` inside
+ * `WalkerSprite.applyTransform`). The INVISIBLE-SUBAGENT HARDENING above
+ * (per-parent try/catch + `forceConcludeWave`) correctly stops one poisoned
+ * parent from freezing every OTHER parent's battles — that part already
+ * worked. What it didn't cover: `forceConcludeWave` only ever reset
+ * `pb.wave`/`pb.waveRing`, never `pb.subs` — so a SINGLE sub whose Pixi
+ * container was already destroyed (Pixi's own `Container.destroy()` nulls
+ * its internal position; see `dropDestroyedSubs`'s own doc comment for the
+ * full root-cause writeup, which mirrors `battleFx.ts`'s own `tickBattleFx`
+ * fix for the identical failure shape on the FX side) but was still sitting
+ * in `pb.subs` kept crashing THAT SAME parent every single tick forever,
+ * with no other parent involved. Fixed by giving `Challenger` a `destroyed`
+ * getter (Pixi's own flag) and sweeping `pb.subs` for it in two places —
+ * `updateOneBattle` (proactive, before touching any sub's Pixi objects) and
+ * `forceConcludeWave` (backstop, for any call path that throws before
+ * reaching the first sweep) — see `dropDestroyedSubs`.
+ *
+ * The actual trigger (found on advisor review, before merge): `destroyBattle`
+ * is the one destroy call site that does NOT clear `pb.subs` itself — it
+ * relies on its only two callers (`forceEnd`, `dispose`) to drop the whole
+ * `ParentBattle` afterward — and its per-sub loop calls the synchronous
+ * `onBattlerRemoved` store write mid-loop. `forceEnd` used to call
+ * `destroyBattle` BEFORE `this.battles.delete(parentId)`, so that write could
+ * re-enter (via GardenScene's `applyState` -> `removeWalker` -> `forceEnd`,
+ * still subscribed at that point) into the SAME parent's `destroyBattle`,
+ * on a `pb.subs` neither call had cleared yet — unbounded recursion to a
+ * `RangeError` that unwinds silently (bare `console.error`, not captured by
+ * harness.log) without ever reaching the delete, leaving the exact zombie
+ * `pb` the log shows. `forceEnd` now deletes before destroying, and
+ * `destroyBattle` now snapshots-and-clears `pb.subs`/`pb.waveRing` before
+ * its own loop runs — a re-entrant call now finds nothing to do either way.
+ * `dropDestroyedSubs` above is the belt-and-braces backstop on top of that
+ * source fix, not a substitute for it — see its own doc comment.
  */
 import { Container } from 'pixi.js';
 import type { Walker } from '../Walker';
@@ -460,6 +497,22 @@ export interface Challenger {
    *  needs to exist alongside `isPoofedOut` at all. */
   readonly isPoofingOut: boolean;
   readonly arrived: boolean;
+  /** Pixi's own `Container.destroyed` for this challenger's underlying
+   *  display object (`Battler`: its own `.container`; `WalkerChallenger`:
+   *  the delegate's live `Walker.container`, which GardenScene may destroy
+   *  independently of this manager — see `dropChallenger`). Added for the
+   *  2026-09-07 crash-loop fix (harness.log: one throw logged 34,295 times
+   *  in 7.5 minutes, same parentId, subCount 1 — `Cannot set properties of
+   *  null (setting 'y')` inside `WalkerSprite.applyTransform`) — see
+   *  `dropDestroyedSubs`'s own doc comment for the full root-cause writeup.
+   *  That specific crash stack is a `Battler` (via `WalkerSprite`), not a
+   *  `WalkerChallenger` — `WalkerChallenger.update` writes `.x` before `.y`
+   *  and would throw on `'x'` first if its own walker were the one destroyed
+   *  out from under it, never reaching `WalkerSprite.applyTransform`'s `.y`
+   *  at all. This getter is on the shared interface (and implemented by
+   *  both classes) purely for uniform defense in `dropDestroyedSubs`, not
+   *  because a `WalkerChallenger` was implicated in the actual repro. */
+  readonly destroyed: boolean;
   goTo(tile: { x: number; y: number }): boolean;
   update(dt: number): void;
   syncBubblePosition(): void;
@@ -955,8 +1008,18 @@ export class BattleManager {
     // mid-skirmish would leave battlesStarted permanently ahead of
     // battlesResolved (see diagnosticsCounters.ts's divergence check).
     if (pb.wave !== 'idle') bumpCounter('battlesResolved');
-    this.destroyBattle(pb);
+    // Deleted from `this.battles` BEFORE `destroyBattle` runs (2026-09-07
+    // re-entrancy fix — see `dropDestroyedSubs`'s own doc comment for the
+    // full root-cause writeup): `destroyBattle`'s per-sub loop calls
+    // `onBattlerRemoved`, a synchronous store write GardenScene's
+    // `applyState` reconcile reacts to immediately — including, potentially,
+    // a re-entrant `forceEnd(parentId)` for this SAME parent. Deleting first
+    // means that re-entrant call's own `this.battles.get(parentId)` finds
+    // nothing and returns immediately, instead of finding this same `pb`
+    // and recursing into `destroyBattle` again on subs it hasn't finished
+    // destroying yet.
     this.battles.delete(parentId);
+    this.destroyBattle(pb);
     notifyBattleEnd(parentId);
   }
 
@@ -1132,6 +1195,11 @@ export class BattleManager {
   }
 
   private updateOneBattle(pb: ParentBattle, dt: number, finishedParents: string[]): void {
+    // Crash-loop fix (2026-09-07) — see `dropDestroyedSubs`'s own doc comment.
+    // Must run before ANYTHING below touches a sub's Pixi objects (both the
+    // isEvolving early-return branch and the main per-sub loop call
+    // `sub.battler.update(dt)` unconditionally).
+    this.dropDestroyedSubs(pb);
     if (pb.parentWalker.isEvolving) {
       // The ceremony owns the parent's container for its duration — don't
       // touch positions; just keep every subagent roaming/battling/poofing
@@ -2589,6 +2657,15 @@ export class BattleManager {
    *  battler's internal state, since this runs from contexts where either
    *  could be corrupted. */
   private forceConcludeWave(pb: ParentBattle): void {
+    // Backstop half of the crash-loop fix (see `dropDestroyedSubs`'s own doc
+    // comment) — this is the per-parent catch site's own force-conclude path
+    // (`update`'s `try { this.updateOneBattle(...) } catch { ... }`), reached
+    // whenever a parent's battle just threw. `updateOneBattle`'s own sweep
+    // runs at the START of its NEXT call, one full tick later — sweeping
+    // again here, before `retireSub` below touches anything, means a
+    // destroyed sub can never survive past the very same tick it threw in,
+    // even via a call path this file doesn't sweep before directly.
+    this.dropDestroyedSubs(pb);
     for (const sub of pb.waveRing) {
       if (sub.lifecycle !== 'battling') continue;
       try {
@@ -2769,6 +2846,90 @@ export class BattleManager {
     else sub.battler.hideBubble();
   }
 
+  /**
+   * Crash-loop fix (2026-09-07 — harness.log: `TypeError: Cannot set
+   * properties of null (setting 'y')` inside `WalkerSprite.applyTransform`,
+   * logged 34,295 times in 7.5 minutes — ~76/sec, every render tick — always
+   * the same `parentId`, always `subCount: 1`, `wave: "idle"` throughout).
+   *
+   * ROOT CAUSE: Pixi's own `Container.destroy()` nulls a display object's
+   * internal position (`_position = null`) the instant it runs — the exact
+   * same failure shape `battleFx.ts`'s own `tickBattleFx` doc comment
+   * documents for the FX side (see that function's header). `reapSubs` and
+   * `despawnBattler`'s recall callback both remove the sub from `pb.subs` in
+   * the same synchronous step as the `.destroy()` call — but `destroyBattle`
+   * does NOT: it destroys every sub in a loop and relies on its caller
+   * (`forceEnd`) to `this.battles.delete(parentId)` afterward, which drops
+   * the WHOLE `ParentBattle` (`pb.subs` included) rather than clearing
+   * `pb.subs` itself. `forceEnd` called `destroyBattle(pb)` BEFORE deleting
+   * — and `destroyBattle`'s per-sub loop calls `this.deps.onBattlerRemoved`,
+   * a SYNCHRONOUS zustand store write that GardenScene's `useStore.subscribe
+   * (applyState)` reacts to immediately, re-entrantly, still inside that
+   * same loop: `applyState` sees the parent's session already gone from
+   * `sessions` (that's *why* `forceEnd` was called) but `runtimes` hasn't
+   * been cleared yet (still mid-stack in the ORIGINAL `removeWalker`), so it
+   * calls `removeWalker(parentId)` again -> `forceEnd(parentId)` again ->
+   * `destroyBattle(pb)` again, on the SAME never-cleared `pb.subs` — genuine
+   * unbounded recursion (matches the log: `subagentsCleanedUp` already at
+   * 1,226,920 in the earliest surviving line, `subagentsMaterialized` flat
+   * at 6 — many bumps per single poisoned event, not one per frame) until a
+   * `RangeError: Maximum call stack size exceeded`, which only reaches bare
+   * `console.error` (not captured by harness.log — see this file's own
+   * header) and unwinds WITHOUT ever reaching the original frame's
+   * `this.battles.delete(parentId)`. That leaves exactly the zombie state
+   * the log shows: `pb` still in `this.battles`, its one sub's `Battler`
+   * genuinely `.destroyed`, still sitting in `pb.subs` — so
+   * `updateOneBattle`'s very next tick calls `sub.battler.update(dt)` on it,
+   * throws the logged TypeError, and `forceConcludeWave` (which never
+   * touched `pb.subs`) can't stop it from throwing again the tick after
+   * that, forever.
+   *
+   * Fixed at the source too (`forceEnd` now deletes from `this.battles`
+   * BEFORE calling `destroyBattle`, and `destroyBattle` now snapshots and
+   * clears `pb.subs`/`pb.waveRing` before its own loop runs) — a re-entrant
+   * call reached mid-loop now finds no matching `parentId` in `this.battles`
+   * and an already-empty `pb.subs`, so it's a true no-op instead of
+   * recursing. This method is the belt-and-braces backstop for whatever
+   * that source fix doesn't cover (an unanticipated destroy path, same
+   * "cleanup paths may multiply" shape `battleFx.ts`'s own fix documents):
+   * `updateOneBattle` sweeps BEFORE touching any sub's Pixi objects this
+   * tick, and `forceConcludeWave` sweeps again as a backstop for any call
+   * path that throws before reaching the first sweep.
+   *
+   * Ordering within THIS method matters for the same reason the source bug
+   * above does: `pb.subs`/`pb.waveRing` are committed FIRST, and only then
+   * does the (still-synchronous) `onBattlerRemoved` side effect run, over
+   * the already-dropped list — never from inside the array's own filter/
+   * partition step, so a re-entrant reconcile triggered by it always sees
+   * the already-shrunk `pb.subs`, never the pre-commit one. `despawnBattler`
+   * already follows this same filter-then-destroy-then-bookkeeping order.
+   */
+  private dropDestroyedSubs(pb: ParentBattle): void {
+    if (!pb.subs.some((s) => s.battler.destroyed)) return;
+    const kept: SubBattler[] = [];
+    const dropped: SubBattler[] = [];
+    for (const sub of pb.subs) (sub.battler.destroyed ? dropped : kept).push(sub);
+    pb.subs = kept;
+    pb.waveRing = pb.waveRing.filter((s) => !s.battler.destroyed);
+    for (const sub of dropped) {
+      safeLogDiagnostic('battle', 'error', 'sub battler already destroyed — dropping to break crash loop', {
+        parentId: pb.parentId,
+        key: sub.key,
+        lifecycle: sub.lifecycle
+      });
+      // subagentsCleanedUp is deliberately NOT bumped here: every real
+      // destroy site already bumps it immediately after its own `.destroy()`
+      // call, so a sub found already-destroyed here was (almost certainly)
+      // already counted there once — bumping again would just further
+      // inflate a counter this method exists to stop corrupting, masking
+      // rather than preserving diagnosticsCounters.ts's own
+      // subagentsMaterialized >= subagentsCleanedUp invariant. Delegate subs
+      // are also skipped for onBattlerRemoved below — never mirrored into
+      // the store, same as `destroyBattle`'s delegate branch.
+      if (!this.isDelegateSub(sub)) this.deps.onBattlerRemoved(sub.key);
+    }
+  }
+
   // Only ever reaps 'leaving' subs (handleEndAll's own poof path) —
   // 'retired' stays here on purpose until despawned, and 'despawning'
   // removes itself via its own recall-completion callback (despawnBattler),
@@ -2786,9 +2947,22 @@ export class BattleManager {
 
   /** Hard teardown (forceEnd/dispose) — every remaining sub is destroyed
    *  with no poof ceremony, so each one counts as cleaned up right here
-   *  rather than through reapSubs, which this bypasses entirely. */
+   *  rather than through reapSubs, which this bypasses entirely.
+   *
+   *  Snapshots and clears `pb.subs`/`pb.waveRing` BEFORE the loop below runs
+   *  (2026-09-07 re-entrancy fix — see `dropDestroyedSubs`'s own doc comment
+   *  for the full root-cause writeup): the loop calls `onBattlerRemoved`, a
+   *  synchronous store write that can trigger a re-entrant call back into
+   *  this same method (via GardenScene's `applyState` -> `removeWalker` ->
+   *  `forceEnd`) before this loop has finished. With `pb.subs` cleared up
+   *  front, that re-entrant call iterates an empty local snapshot and does
+   *  nothing — it can't re-destroy (or re-`onBattlerRemoved`) a sub this
+   *  call is still in the middle of destroying. */
   private destroyBattle(pb: ParentBattle): void {
-    for (const sub of pb.subs) {
+    const subs = pb.subs;
+    pb.subs = [];
+    pb.waveRing = [];
+    for (const sub of subs) {
       // A delegate challenger is dropped, never destroyed: its `Walker` belongs
       // to a live session GardenScene owns (`removeWalker` -> `walker.destroy()`).
       // The two bookkeeping calls below are skipped for the same reason — it
