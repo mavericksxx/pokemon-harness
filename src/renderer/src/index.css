@@ -4109,12 +4109,12 @@ body.garden-lowres .garden canvas {
 
 /* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */
 .sessions-overview {
-  width: 640px;
+  width: min(92vw, 960px);
 }
 
 .sessions-overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   /* Parity sweep item 3 — CSS Grid's default `align-items: stretch` sizes
    * each ROW independently, so a card sharing a row with a taller session
    * card stretched tall while the same card type alone on its own row (no
