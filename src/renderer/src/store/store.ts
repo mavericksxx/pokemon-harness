@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SessionRecord } from '@shared/types';
-import { DEFAULT_GARDEN_SPLIT } from '@/gardenSplit';
+import { DEFAULT_GARDEN_SPLIT, NARROW_LAYOUT_MAX_PX } from '@/gardenSplit';
 
 /** Field-for-field `SessionRecord` (shared/types.ts) — kept as a local alias
  *  so call sites here read the same as before the crash-recovery work moved
@@ -147,6 +147,14 @@ function loadGardenSplit(): number {
   return DEFAULT_GARDEN_SPLIT;
 }
 
+/** Reads the real, current viewport width at store creation — NOT a
+ *  persisted preference read (see `narrowLayout`'s own comment) — so the
+ *  first render already matches reality instead of assuming a wide window
+ *  until App.tsx's `matchMedia` listener fires its first `change` event. */
+function loadNarrowLayout(): boolean {
+  return window.matchMedia(`(max-width: ${NARROW_LAYOUT_MAX_PX}px)`).matches;
+}
+
 /** Global (not per-workspace) subagent-cards visibility toggle — hides every
  *  `SubagentRosterCard` in both RosterStrip.tsx (garden view) and
  *  FocusSidebar.tsx (terminal view) when true, so switching view modes never
@@ -225,6 +233,18 @@ interface HarnessState {
    *  dropped IPC event must never leave the garden frozen while genuinely
    *  visible). */
   windowVisible: boolean;
+  /** Live viewport fact (issue #2 pt.1 narrow-window support), NOT
+   *  persisted — unlike `viewMode`/`gardenSplit` above, this isn't a user
+   *  preference, it's just "is the window currently narrower than
+   *  `NARROW_LAYOUT_MAX_PX` (gardenSplit.ts) right now." Kept up to date by
+   *  a single `matchMedia` listener wired once in App.tsx. Consumed through
+   *  `effectiveLayout.ts`'s `useEffectiveLayout`/`computeEffectiveLayout` —
+   *  not read directly by App.tsx/TerminalDrawer.tsx/GardenScene.tsx — so
+   *  those three can't independently drift on what "narrow + which pane"
+   *  actually means. Seeded from the real `matchMedia` result at store
+   *  creation so the very first render already reflects reality instead of
+   *  briefly assuming a wide window. */
+  narrowLayout: boolean;
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>,
@@ -269,6 +289,9 @@ interface HarnessState {
   setQuitDialogOpen(open: boolean, count?: number): void;
   setIsFullScreen(isFullScreen: boolean): void;
   setWindowVisible(windowVisible: boolean): void;
+  /** Written only by App.tsx's `matchMedia` listener — never persisted, see
+   *  `narrowLayout`'s own comment above. */
+  setNarrowLayout(narrowLayout: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
@@ -337,6 +360,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   quitDialogCount: 0,
   isFullScreen: false,
   windowVisible: true,
+  narrowLayout: loadNarrowLayout(),
 
   addSession: (s, options) => {
     const session: Session = {
@@ -422,6 +446,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   setQuitDialogOpen: (open, count) => set((st) => ({ quitDialogOpen: open, quitDialogCount: count ?? st.quitDialogCount })),
   setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
   setWindowVisible: (windowVisible) => set({ windowVisible }),
+  setNarrowLayout: (narrowLayout) => set({ narrowLayout }),
 
   pushToast: (text, action) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

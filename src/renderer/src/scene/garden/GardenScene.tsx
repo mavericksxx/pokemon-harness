@@ -35,6 +35,7 @@ import { useStore, type LiveBattler, type Session } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
+import { computeEffectiveLayout } from '@/effectiveLayout';
 import type { StationKind } from '@shared/types';
 import { ground, groundLight, hexToNumber } from '@/design/tokens';
 import { resolveEffectiveTheme } from '@/design/theme';
@@ -406,7 +407,7 @@ export function GardenScene(): JSX.Element {
       // `syncRenderState()` call (from `applyState()`'s initial call, below)
       // corrects it immediately if the scene mounts already-hidden.
       let renderPaused = false;
-      const shouldRender = (): boolean =>
+      const shouldRender = (): boolean => {
         // Fail-open: `document.hidden` is the browser's own signal (reliable,
         // and — checked against Chromium's source — independent of this
         // window's `backgroundThrottling: false`, which only disables timer/
@@ -414,11 +415,21 @@ export function GardenScene(): JSX.Element {
         // correctly; `windowVisible` is main-forwarded (see main/index.ts's
         // `hide`/`show`/`minimize`/`restore` handlers) and defaults to
         // `true` in the store specifically so a dropped/late IPC event can
-        // never be the ONLY thing leaving the garden paused. `viewMode` is
-        // read fresh, not cached, so a context-loss rebuild that lands
-        // mid-'terminal'-mode starts paused correctly (see the comment
-        // above).
-        !document.hidden && useStore.getState().windowVisible && useStore.getState().viewMode !== 'terminal';
+        // never be the ONLY thing leaving the garden paused. The store reads
+        // below are fresh, not cached, so a context-loss rebuild that lands
+        // mid-hidden-garden starts paused correctly (see the comment above).
+        if (document.hidden || !useStore.getState().windowVisible) return false;
+        // Was a plain `viewMode !== 'terminal'` check — that's no longer
+        // enough on its own (issue #2 pt.1): below `NARROW_LAYOUT_MAX_PX`
+        // (gardenSplit.ts), 'garden' mode's own split can collapse the
+        // garden pane down to zero size too (App.tsx's `gardenVisible`), and
+        // the ticker must not keep rendering into that zero-size host.
+        // effectiveLayout.ts's `gardenVisible` is exactly App.tsx's own
+        // mount-visibility flag, so this is the same check, not a
+        // reimplementation of it.
+        const { viewMode, drawerOpen, narrowLayout } = useStore.getState();
+        return computeEffectiveLayout(viewMode, drawerOpen, narrowLayout).gardenVisible;
+      };
       const syncRenderState = (): void => {
         if (destroyed) return;
         const wantRender = shouldRender();

@@ -5,6 +5,7 @@ import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pt
 import { FocusView } from '@/components/FocusView';
 import { NewTerminalButton } from '@/components/NewTerminalButton';
 import { terminalWidthCss } from '@/gardenSplit';
+import { useEffectiveLayout } from '@/effectiveLayout';
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget).
@@ -38,8 +39,11 @@ export function TerminalDrawer(): JSX.Element | null {
   // Phase 8 §1: 'terminal' always shows the terminal (it IS the view);
   // 'gardenFull' never does; 'garden' keeps the old manual toggle.
   const open = viewMode === 'terminal' || (viewMode === 'garden' && drawerOpenPref);
-  // Full-bleed in terminal-owning mode — no side-panel width cap.
-  const wide = viewMode !== 'garden';
+  // Full-bleed in terminal-owning mode, OR when the narrow-layout collapse
+  // (issue #2 pt.1) has pushed 'garden' mode down to a single pane —
+  // effectiveLayout.ts is the one shared place this combination is computed
+  // (App.tsx and GardenScene.tsx read the same thing).
+  const { drawerWide: wide } = useEffectiveLayout();
   // The bottom roster strip (terminal-focus mode; parity sweep item 5,
   // formerly a left sidebar) already offers session switching; the drawer's
   // own tab strip would just duplicate it.

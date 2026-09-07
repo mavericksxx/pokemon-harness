@@ -24,6 +24,18 @@ export const HANDLE_PX = 6;
  *  double-click on the handle resets to. */
 export const DEFAULT_GARDEN_SPLIT = 0.54;
 
+/** Row width below which the garden/terminal split stops being structurally
+ *  valid: `TERMINAL_MIN_PX + GARDEN_MIN_PX + HANDLE_PX` (806px) is the exact
+ *  point the two floors above start fighting each other (see
+ *  GardenSplitHandle.tsx's `movedRef` comment for that pre-existing, until
+ *  now unreachable-below-the-old-900px-window-floor bug) — plus a small
+ *  slack margin so the collapse (effectiveLayout.ts) kicks in just before
+ *  the fight starts, not exactly at the edge where clamp() is already
+ *  producing a squeezed, half-collapsed split for one frame. Landing around
+ *  820px. Driven off these constants rather than picked freestanding so a
+ *  future change to either floor keeps this threshold honest. */
+export const NARROW_LAYOUT_MAX_PX = TERMINAL_MIN_PX + GARDEN_MIN_PX + HANDLE_PX + 14;
+
 /** Dispatched on `window` by GardenSplitHandle.tsx the instant a drag ends
  *  (pointerup/pointercancel, or an early unmount mid-drag) — after
  *  `body.is-splitting` comes off. GardenScene.tsx and terminalRegistry.ts
