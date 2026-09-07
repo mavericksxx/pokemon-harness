@@ -342,6 +342,38 @@ body {
   }
 }
 
+/* Priority-tier hiding (issue #2 pt.1 + narrow-window support): below this,
+ * `.topbar-actions`' full icon cluster plus the garden/terminal drawer
+ * toggle no longer fits without clipping, down toward the window's new
+ * 640px floor (main/index.ts). Rather than generalizing OverflowChipRow's
+ * hidden-measurement-row pattern here — several of these components
+ * (UsageChip, AudioPopover, NotificationBell, QuickSettings) each own a
+ * `position: fixed`/absolute popover with a document-level outside-click
+ * handler scoped to their own wrapper ref, and cramming duplicates of them
+ * into an overflow "more" menu would double those effects and fight each
+ * other's outside-click logic — just drop these four outright, in priority
+ * order (least-critical first): HarnessInstructionsChip, UsageChip,
+ * ThemeToggle, AudioPopover. Each stays reachable another way, so nothing
+ * here goes permanently unreachable, just relocated: theme lives in
+ * QuickSettings' own popover too, HARNESS.md's toggle is in both
+ * QuickSettings and the full SettingsPanel, usage limits are a SettingsPanel
+ * section, and AudioPopover's mute-all/music-on-off (not its transport/
+ * track-search) are in QuickSettings as well. ViewModeSwitcher, QuickSettings
+ * itself, and the drawer toggle (App.tsx's `topbar-actions`, needed for the
+ * narrow single-pane switch — see effectiveLayout.ts) stay put.
+ *
+ * Same breakpoint as gardenSplit.ts's NARROW_LAYOUT_MAX_PX (a plain `@media`
+ * query, not that store value — this bar has no reason to react any later
+ * or earlier than the layout it sits above already does). */
+@media (max-width: 820px) {
+  .harness-instructions-chip,
+  .usage-popover,
+  .theme-toggle,
+  .audio-popover {
+    display: none;
+  }
+}
+
 .session-chips {
   display: flex;
   align-items: center;
@@ -2855,7 +2887,14 @@ body.garden-lowres .garden canvas {
  * (unlike `.roster-strip-new`), so it stays reachable once there are enough
  * sessions for the strip to scroll. Shares the top-right corner with
  * `.roster-strip-fade` above — safe since that fade is `pointer-events: none`
- * and this sits on top of it in DOM order. */
+ * and this sits on top of it in DOM order; its opaque background fully
+ * occludes the fade underneath regardless of width, so widening it here
+ * (discoverability fix — an icon-only 20px button was too easy to miss, see
+ * `.focus-sidebar-toggle`'s own "▸/▾ subagents" label for the pattern this
+ * follows) needs no change to the fade's own 28px band below it. Width is
+ * auto/content-sized (not fixed) so the label fits; at ~80px it's still a
+ * small fraction of `GARDEN_MIN_PX` (380px, gardenSplit.ts), so it never gets
+ * clipped by the garden column's own floor. */
 .roster-strip-toggle {
   position: absolute;
   top: 4px;
@@ -2864,8 +2903,10 @@ body.garden-lowres .garden canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  gap: 4px;
   height: 20px;
+  padding: 0 6px;
+  white-space: nowrap;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -3075,6 +3116,76 @@ body.garden-lowres .garden canvas {
 .focus-sidebar .roster-card-wrap,
 .focus-sidebar .roster-card {
   height: auto;
+}
+
+/* Narrow-window overlay reveal tab (issue #2 pt.2, FocusSidebar.tsx) —
+ * hidden outside the narrow breakpoint; the `@media` block below is the only
+ * place either of these classes does anything. Same "edge tab reveals a
+ * hidden panel" interaction as GardenDrawerEdgeTab.tsx/
+ * `.garden-drawer-edge-tab`, docked to `.body-row`'s own left edge instead of
+ * its right (App.tsx's `.body-row` is already `position: relative`). */
+.focus-sidebar-edge-tab {
+  display: none;
+}
+
+/* Below this, the fixed 300px sidebar would leave xterm too little width to
+ * be usable (~324px, ~36 columns) at the window's 640px floor (main/index.ts).
+ * It collapses to hidden-by-default here and reappears as a floating overlay
+ * ON TOP of the terminal panel instead of a flex sibling that resizes it —
+ * `position: absolute` takes it out of `.body-row`'s flex flow entirely, so
+ * toggling it never changes the terminal mount's own width/height and no
+ * fit()/resizePty call fires just from opening/closing this (see
+ * FocusView.tsx's header comment for why that mount div must stay
+ * undisturbed by mode-adjacent state). Same breakpoint as gardenSplit.ts's
+ * NARROW_LAYOUT_MAX_PX (a plain `@media` query, not that store value — see
+ * the other 820px block above for the same reasoning). Every other
+ * `.focus-sidebar` property (width, padding, background, border-right, …)
+ * is inherited unchanged from the base rule above — this only swaps its
+ * flex participation for absolute positioning and adds the hidden-by-default
+ * toggle. */
+@media (max-width: 820px) {
+  .focus-sidebar {
+    display: none;
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    box-shadow: var(--shadow-hard);
+  }
+
+  .focus-sidebar.focus-sidebar-overlay-open {
+    display: flex;
+  }
+
+  /* `.body-row >` (rather than the bare class) is load-bearing, not
+   * stylistic: this button also carries the shared `.tip` class for its
+   * tooltip, and `.tip { position: relative; }` (below, same 0,1,0
+   * specificity) sits LATER in this file, so it would otherwise win the
+   * cascade by source order and silently put this element back in
+   * `.body-row`'s flex flow instead of floating it — the exact push/resize
+   * behavior this whole feature exists to avoid. The extra `.body-row`
+   * ancestor raises specificity to 0,2,0 so this wins unconditionally. */
+  .body-row > .focus-sidebar-edge-tab {
+    display: flex;
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 20px;
+    height: 40px;
+    transform: translateY(-50%);
+    align-items: center;
+    justify-content: center;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-left: none;
+    color: var(--muted);
+    cursor: pointer;
+    z-index: 21;
+  }
+
+  .focus-sidebar-edge-tab:hover {
+    color: var(--gold);
+    border-color: var(--gold);
+  }
 }
 
 .roster-card {
@@ -4159,12 +4270,12 @@ body.garden-lowres .garden canvas {
 
 /* ── Sessions overview (Phase 8 §3) ──────────────────────────────────────── */
 .sessions-overview {
-  width: 640px;
+  width: min(92vw, 960px);
 }
 
 .sessions-overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   /* Parity sweep item 3 — CSS Grid's default `align-items: stretch` sizes
    * each ROW independently, so a card sharing a row with a taller session
    * card stretched tall while the same card type alone on its own row (no
