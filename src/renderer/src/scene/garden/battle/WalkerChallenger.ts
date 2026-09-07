@@ -98,6 +98,17 @@ export class WalkerChallenger implements Challenger {
     return false;
   }
 
+  /** See `Challenger.destroyed`'s own doc comment (BattleManager.ts,
+   *  2026-09-07 crash-loop fix). `dropChallenger` is meant to always untrack
+   *  a delegate sub BEFORE `removeWalker`/`recallDelegate` destroy its
+   *  walker (see this file's own header on that ownership boundary), but
+   *  reading Pixi's own flag here rather than assuming that boundary always
+   *  holds is what lets `BattleManager.dropDestroyedSubs` catch it even if
+   *  it doesn't. */
+  get destroyed(): boolean {
+    return this.walker.container.destroyed;
+  }
+
   /** Arrival by TILE COMPARISON rather than by peeking at `Walker`'s private
    *  path state — the same test `updateApproaching` already uses for the
    *  PARENT walker's own arrival (`parentArrived`), so both halves of a

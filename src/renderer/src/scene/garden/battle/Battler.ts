@@ -135,6 +135,15 @@ export class Battler {
     return this.poofPhase === 'gone';
   }
 
+  /** Pixi's own `Container.destroyed` — see BattleManager.ts's
+   *  `Challenger.destroyed` doc comment (2026-09-07 crash-loop fix) for why
+   *  this exists: once true, nothing may touch this battler's Pixi objects
+   *  again (`Container.destroy()` nulls its internal position, so even a
+   *  plain `.y =` throws). */
+  get destroyed(): boolean {
+    return this.container.destroyed;
+  }
+
   /** True only WHILE the poof-out scale tween is actively running — between
    *  `startPoofOut()` and `isPoofedOut` going true — as opposed to
    *  `isPoofedOut`, which flips true only once that tween has FINISHED.
