@@ -16,6 +16,7 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
 import { showUpdateToast } from '@/updateNotifier';
+import { counterSnapshot } from '@/diagnosticsCounters';
 import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
 import type { UsageProviderId } from '@shared/usageTypes';
 
@@ -186,6 +187,20 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
       cancelled = true;
       clearInterval(id);
     };
+  }, [open]);
+
+  // Phase F ("measure it") — a live renderedFrames/rendererTicks readout so
+  // checking the idle-render ratio doesn't require opening devtools and
+  // hand-computing it from a raw harness.log line. `counterSnapshot()` reads
+  // renderer-local module state directly (diagnosticsCounters.ts), no IPC
+  // needed — same 5s poll cadence as the diagnosticsInfo block above.
+  const [counters, setCounters] = useState<ReturnType<typeof counterSnapshot> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const poll = (): void => setCounters(counterSnapshot());
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
   }, [open]);
 
   // Export diagnostics bundle (BACKLOG friend-testing readiness) — same
@@ -702,6 +717,16 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                     <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
                     <dt>errors this session</dt>
                     <dd>{diagnosticsInfo ? diagnosticsInfo.recentErrorCount : '—'}</dd>
+                    <dt>rendered frames / ticks</dt>
+                    <dd>
+                      {counters
+                        ? `${counters.renderedFrames} / ${counters.rendererTicks} (${
+                            counters.rendererTicks > 0
+                              ? (counters.renderedFrames / counters.rendererTicks).toFixed(3)
+                              : '—'
+                          }, idle target well under 0.25)`
+                        : '—'}
+                    </dd>
                   </dl>
                   <div className="row harness-home-row">
                     <input
