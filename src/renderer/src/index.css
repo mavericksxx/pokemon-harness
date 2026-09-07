@@ -2837,7 +2837,14 @@ body.garden-lowres .garden canvas {
  * (unlike `.roster-strip-new`), so it stays reachable once there are enough
  * sessions for the strip to scroll. Shares the top-right corner with
  * `.roster-strip-fade` above — safe since that fade is `pointer-events: none`
- * and this sits on top of it in DOM order. */
+ * and this sits on top of it in DOM order; its opaque background fully
+ * occludes the fade underneath regardless of width, so widening it here
+ * (discoverability fix — an icon-only 20px button was too easy to miss, see
+ * `.focus-sidebar-toggle`'s own "▸/▾ subagents" label for the pattern this
+ * follows) needs no change to the fade's own 28px band below it. Width is
+ * auto/content-sized (not fixed) so the label fits; at ~80px it's still a
+ * small fraction of `GARDEN_MIN_PX` (380px, gardenSplit.ts), so it never gets
+ * clipped by the garden column's own floor. */
 .roster-strip-toggle {
   position: absolute;
   top: 4px;
@@ -2846,8 +2853,10 @@ body.garden-lowres .garden canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  gap: 4px;
   height: 20px;
+  padding: 0 6px;
+  white-space: nowrap;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);

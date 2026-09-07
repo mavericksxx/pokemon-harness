@@ -63,7 +63,7 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
         aria-label={subagentCardsHidden ? 'show subagent cards' : 'hide subagent cards'}
         data-tip={subagentCardsHidden ? 'show subagents' : 'hide subagents'}
       >
-        {subagentCardsHidden ? '▸' : '▾'}
+        {subagentCardsHidden ? '▸' : '▾'} subagents
       </button>
       <div className="roster-strip">
         <ArceusRosterCard variant={selectedId === ARCEUS_SESSION_ID ? 'medium' : 'compact'} />
