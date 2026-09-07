@@ -1,16 +1,12 @@
----
-import pkg from '../../../package.json';
----
-
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pokéharness</title>
-<meta name="description" content="pokéharness turns every claude, codex, or cursor session running on your machine into a walker in a pixel-art garden — spawn one, watch it work, and see what it's doing without staring at a terminal.">
+<meta name="description" content="pokéharness turns every claude, codex, or cursor session on your machine into a walker in a pixel-art garden. watch it work instead of staring at a terminal.">
 <meta property="og:title" content="pokéharness">
-<meta property="og:description" content="pokéharness turns every claude, codex, or cursor session running on your machine into a walker in a pixel-art garden.">
+<meta property="og:description" content="pokéharness turns every claude, codex, or cursor session on your machine into a walker in a pixel-art garden. watch it work instead of staring at a terminal.">
 <meta property="og:image" content="https://pokeharness.parthkohale.com/og.png">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -142,7 +138,6 @@ import pkg from '../../../package.json';
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin-bottom: 18px;
   }
   .btn {
     display: inline-block;
@@ -174,11 +169,6 @@ import pkg from '../../../package.json';
   }
   .btn-secondary:hover:not(:disabled) {
     box-shadow: inset 0 0 0 1px var(--gold);
-  }
-  .hero-tag {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--ink-500);
   }
   .eyebrow {
     font-family: var(--font-mono);
@@ -586,18 +576,17 @@ import pkg from '../../../package.json';
 <header class="hero wrap">
   <div class="hero-text">
     <h1>your coding agents, as pokémon in a garden</h1>
-    <p class="subhead">pokéharness turns every claude, codex, or cursor session running on your machine into a walker in a pixel-art garden — spawn one, watch it work, and see what it's doing without staring at a terminal.</p>
+    <p class="subhead">pokéharness turns every claude, codex, or cursor session on your machine into a walker in a pixel-art garden. spawn one and watch it work instead of staring at a terminal.</p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="https://github.com/mavericksxx/pokemon-harness/releases/latest">download for mac</a>
       <a class="btn btn-secondary" href="https://github.com/mavericksxx/pokemon-harness">browse the source</a>
     </div>
-    <div class="hero-tag">v{pkg.version} · free, local, no accounts, no cloud</div>
   </div>
 </header>
 
 <div class="wrap demo-shell">
   <p class="eyebrow">live demo</p>
-  <p class="demo-intro">this is the real app running in your browser, not a recording — click any scene below to watch it happen.</p>
+  <p class="demo-intro">try a scene below to see what it does.</p>
   <div class="window-chrome">
     <span class="dot dot-red"></span>
     <span class="dot dot-yellow"></span>
@@ -610,20 +599,20 @@ import pkg from '../../../package.json';
   </div>
   <div class="demo-below">
     <div class="demo-tour-head">
-      <span class="demo-tour-label">try it — click any scene</span>
+      <span class="demo-tour-label">pick a scene</span>
       <button type="button" class="btn btn-primary demo-playall" id="demo-btn-showreel" disabled>loading…</button>
     </div>
     <div class="demo-tour-grid" id="demo-tour-grid">
       <p class="demo-loading">loading tour…</p>
     </div>
-    <p class="demo-caption" id="demo-caption">loading the live demo — give it a second.</p>
+    <p class="demo-caption" id="demo-caption">loading the live demo. give it a second.</p>
     <details class="demo-more" id="demo-more">
       <summary id="demo-more-summary">more controls</summary>
       <div class="demo-more-grid" id="demo-more-grid">
         <p class="demo-loading">loading…</p>
       </div>
     </details>
-    <p class="demo-mobile-note">the garden view above is scaled down to fit small screens — it's easiest to see the pixel detail and hover effects on a bigger one.</p>
+    <p class="demo-mobile-note">the garden view above is scaled down to fit small screens. the pixel detail and hover effects show up best on a bigger one.</p>
   </div>
 </div>
 <script>
@@ -751,7 +740,7 @@ import pkg from '../../../package.json';
       chips.forEach(function (c) { c.classList.remove('is-playing'); c.disabled = false; });
       playAllBtn.disabled = false;
       playAllBtn.textContent = 'play the full tour';
-      setCaption(wasCancelled ? 'stopped — click any scene to keep exploring.' : 'that\'s the whole harness. run it again, or poke at the triggers.');
+      setCaption(wasCancelled ? 'stopped. click any scene to keep going.' : 'tour finished. click any scene to run it again.');
     }
 
     playAllBtn.addEventListener('click', function () {
@@ -793,15 +782,15 @@ import pkg from '../../../package.json';
 </script>
 
 <div class="wrap works-with">
-  <span>works with the coding-agent cli you already have</span>
+  <span>works with the coding-agent cli you already run</span>
   <span class="tag">claude</span>
   <span class="tag">codex</span>
   <span class="tag">cursor-agent</span>
 </div>
 
 <section class="section wrap">
-  <p class="eyebrow">how it works</p>
-  <h2>from zip to garden in about a minute</h2>
+  <p class="eyebrow">getting started</p>
+  <h2>how it works</h2>
   <div class="how-steps">
     <div class="how-step">
       <div class="how-media">
@@ -815,14 +804,14 @@ import pkg from '../../../package.json';
       <div class="how-text">
         <div class="how-step-num">1</div>
         <h3>download and open it</h3>
-        <p>one .zip, drag it to applications. gatekeeper asks once — right-click, open, open. that's the whole install.</p>
+        <p>download the .zip and drag it to applications. gatekeeper asks for permission once: right-click, then open, then open again. it won't ask after that.</p>
       </div>
     </div>
     <div class="how-step">
       <div class="how-text">
         <div class="how-step-num">2</div>
         <h3>spawn a session</h3>
-        <p>point it at a project folder and pick a pokémon, or let it pick a random starter. it launches claude, codex, or cursor-agent right there, the same as running it in a terminal.</p>
+        <p>point it at a project folder and pick a pokémon, or let it choose a random starter. it launches claude, codex, or cursor-agent the same way you would from a terminal.</p>
       </div>
       <div class="how-media">
         <img src="/screenshots/garden.png" alt="a few walkers roaming the garden, mid tool-call, with speech bubbles above them">
@@ -830,26 +819,26 @@ import pkg from '../../../package.json';
     </div>
     <div class="how-step">
       <div class="how-media">
-        <img src="/screenshots/battle.png" alt="two walkers squared up mid-battle, move text overhead">
+        <img src="/screenshots/battle.png" alt="two walkers squared up in a battle, move text floating overhead">
       </div>
       <div class="how-text">
         <div class="how-step-num">3</div>
         <h3>watch it work</h3>
-        <p>tool calls show as a speech bubble and a walk to the right spot in the garden. subagents spawn as battles. long sessions evolve. everything you'd see scrolling past in the terminal, you now see from across the room.</p>
+        <p>tool calls show up as a speech bubble while the walker goes about its business in the garden. subagents spawn as battles. long sessions evolve.</p>
       </div>
     </div>
   </div>
 </section>
 
 <section class="section wrap">
-  <p class="eyebrow">what's in the garden</p>
-  <h2>six things worth watching for</h2>
+  <p class="eyebrow">features</p>
+  <h2>what's in the garden</h2>
   <div class="features">
     <div class="feature-card" style="border-left-color: var(--coral)">
       <div class="feature-media solid" style="background: rgba(224, 140, 130, 0.14); color: var(--coral)">★</div>
       <div class="feature-body">
         <h3>shiny pokémon</h3>
-        <p>every session rolls shiny once, 1-in-64, kept for life. a sparkle burst and a star badge — no different from the games.</p>
+        <p>every session rolls for shiny once, at 1-in-64 odds, and keeps it for life. a shiny session gets a sparkle burst and a star badge.</p>
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--mint)">
@@ -858,14 +847,14 @@ import pkg from '../../../package.json';
       </div>
       <div class="feature-body">
         <h3>evolution</h3>
-        <p>working time adds up. cross a threshold and the walker plays a real evolution ceremony — flash, silhouette, the old/new-form blur — then comes out the other side stronger, sometimes flies.</p>
+        <p>working time adds up. cross a threshold and the walker plays an evolution ceremony: a flash, a silhouette, then the new form. some evolved forms fly instead of walk.</p>
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--sky)">
       <div class="feature-media solid" style="background: rgba(111, 179, 196, 0.14); color: var(--sky)">⚔</div>
       <div class="feature-body">
         <h3>subagent battles</h3>
-        <p>a task tool call spawns a wild pokémon and a real battle: lunges, hit flashes, move text, up to three at once.</p>
+        <p>a task tool call spawns a wild pokémon. when it's done, it walks up and fights the parent: lunges, hit flashes, move text overhead. battles play out one at a time, so finishes queue up if a few land close together.</p>
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--lemon)">
@@ -874,7 +863,7 @@ import pkg from '../../../package.json';
       </div>
       <div class="feature-body">
         <h3>mega evolution</h3>
-        <p>a handful of species mega-evolve mid-battle with a full ring, vortex, and plume ceremony, then revert when the fight ends.</p>
+        <p>a handful of species mega-evolve for the length of a battle, with a full ring, vortex, and plume ceremony. they revert once the fight ends.</p>
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--lilac)">
@@ -883,14 +872,14 @@ import pkg from '../../../package.json';
       </div>
       <div class="feature-body">
         <h3>arceus</h3>
-        <p>summon a real claude session as arceus — a permanent, gold-framed orchestrator that can hand work to any other session in the garden.</p>
+        <p>summon a real claude session as arceus. it's a permanent, gold-framed orchestrator that can hand work to any other session in the garden.</p>
       </div>
     </div>
     <div class="feature-card" style="border-left-color: var(--peach)">
       <div class="feature-media solid" style="background: linear-gradient(135deg, rgba(111, 179, 196, 0.2), rgba(26, 19, 32, 0.5)); color: var(--peach)">☀ ☾</div>
       <div class="feature-body">
         <h3>day and night</h3>
-        <p>the garden tracks your actual local clock. lamps flicker on at dusk, the pond catches moonlight, and it fades back at sunrise.</p>
+        <p>the garden tracks your local clock. lamps come on at dusk, and the pond catches moonlight overnight. it fades back to day at sunrise.</p>
       </div>
     </div>
   </div>
