@@ -60,9 +60,38 @@
 
   html { color-scheme: dark; }
 
+  /* The page used to sit on one flat --ground-0 slab top to bottom. This
+     layers two things over it instead: a fine 4px grain (axis-aligned so it
+     stays crisp, no diagonal antialiasing) for a CRT/GB-screen texture, and
+     a tall gradient that cycles gently through the three ground tokens
+     down the whole document — background-size 100% 100% sizes it against
+     the html element's box (the CSS root-background propagation rule hands
+     body's background to the canvas when html itself paints none), which
+     is identical to body's own box today since html has no explicit
+     height, but isn't guaranteed to stay that way. Section-to-section
+     rhythm on top of this base layer comes from the full-bleed .band-*
+     wrappers further down, not from this gradient's own (deliberately
+     gentle) steps. background-attachment stays at its "scroll" default
+     throughout (never "fixed") to avoid the repaint jank fixed backgrounds
+     cause on mobile Safari. */
   body {
     margin: 0;
-    background: var(--ground-0);
+    background-color: var(--ground-0);
+    background-image:
+      repeating-conic-gradient(rgba(232, 183, 64, 0.03) 0 25%, transparent 0 50%),
+      linear-gradient(
+        180deg,
+        var(--ground-0) 0%,
+        var(--ground-100) 10%,
+        var(--ground-0) 24%,
+        var(--ground-200) 40%,
+        var(--ground-0) 58%,
+        var(--ground-100) 76%,
+        var(--ground-0) 92%,
+        var(--ground-0) 100%
+      );
+    background-repeat: repeat, no-repeat;
+    background-size: 4px 4px, 100% 100%;
     color: var(--ink-900);
     font-family: var(--font-ui);
     font-size: 16px;
@@ -103,21 +132,17 @@
   /* ── hero ─────────────────────────────────────────────────────────── */
   .hero {
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
     padding-block: 56px 44px;
     overflow: hidden;
   }
-  .hero::before {
-    content: '';
-    position: absolute;
-    top: -120px;
-    right: -160px;
-    width: 480px;
-    height: 480px;
-    background: radial-gradient(circle, rgba(232, 183, 64, 0.16), transparent 70%);
-    pointer-events: none;
-  }
   .hero-text {
     position: relative;
+    flex: 1 1 420px;
+    min-width: 0;
     max-width: 640px;
   }
   .hero h1 {
@@ -139,6 +164,80 @@
     flex-wrap: wrap;
     gap: 12px;
   }
+  /* Decorative pixel-framed panel filling the empty right half of the hero
+     at wide viewports. aria-hidden in the markup below since it's flavor,
+     not content — the actual copy lives in .hero-text. */
+  .hero-panel {
+    position: relative;
+    flex: 0 0 300px;
+    align-self: center;
+  }
+  .hero-panel-frame {
+    position: relative;
+    padding: 22px 20px 20px;
+    background:
+      repeating-conic-gradient(rgba(232, 183, 64, 0.05) 0 25%, transparent 0 50%) 0 0 / 4px 4px,
+      var(--ground-100);
+    box-shadow:
+      inset 0 0 0 2px rgba(120, 118, 132, 0.35),
+      inset 2px 2px 0 0 rgba(222, 219, 214, 0.05),
+      inset -2px -2px 0 0 rgba(0, 0, 0, 0.4);
+    clip-path: polygon(
+      0 10px, 10px 10px, 10px 0,
+      calc(100% - 10px) 0, calc(100% - 10px) 10px, 100% 10px,
+      100% calc(100% - 10px), calc(100% - 10px) calc(100% - 10px), calc(100% - 10px) 100%,
+      10px 100%, 10px calc(100% - 10px), 0 calc(100% - 10px)
+    );
+  }
+  .hero-panel-label {
+    font-family: var(--font-display);
+    font-size: 8px;
+    line-height: 12px;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin: 0 0 14px;
+  }
+  .hero-panel-label::before {
+    content: '> ';
+  }
+  .hero-panel-line {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-900);
+    margin: 0 0 20px;
+  }
+  .hero-panel-status {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .hero-panel-status p {
+    margin: 0;
+    color: var(--ink-500);
+  }
+  .hero-panel-status p::after {
+    content: attr(data-value);
+    color: var(--value-color, var(--ink-900));
+  }
+  /* Stepped pixel corners (NES/GB dialog-box style), reused at a few sizes
+     below via the --cut custom property: cuts an 8-bit "stair" out of each
+     corner instead of the smooth curve border-radius would give — this
+     design system has no rounded corners anywhere, so this is the pixel-art
+     substitute for chrome that would otherwise reach for border-radius. */
+  .btn,
+  .tag {
+    --cut: 6px;
+    clip-path: polygon(
+      0 var(--cut), var(--cut) var(--cut), var(--cut) 0,
+      calc(100% - var(--cut)) 0, calc(100% - var(--cut)) var(--cut), 100% var(--cut),
+      100% calc(100% - var(--cut)), calc(100% - var(--cut)) calc(100% - var(--cut)), calc(100% - var(--cut)) 100%,
+      var(--cut) 100%, var(--cut) calc(100% - var(--cut)), 0 calc(100% - var(--cut))
+    );
+  }
   .btn {
     display: inline-block;
     font-family: var(--font-ui);
@@ -149,34 +248,69 @@
     text-decoration: none;
     cursor: pointer;
     border: 1px solid transparent;
-    transition: opacity 120ms ease, box-shadow 120ms ease;
+    transition: opacity 120ms ease, box-shadow 120ms ease, transform 80ms ease;
   }
   .btn:disabled {
     opacity: 0.5;
     cursor: default;
   }
+  /* The global :focus-visible rule's outline-offset:2px puts the ring
+     outside the stepped clip-path above, so it gets clipped away entirely
+     on every .btn — pull it back inside the shape instead. */
+  .btn:focus-visible {
+    outline-offset: -6px;
+  }
+  .btn-primary:focus-visible {
+    outline-color: var(--on-accent);
+  }
   .btn-primary {
     background: var(--gold);
     color: var(--on-accent);
+    box-shadow:
+      inset 3px 3px 0 0 rgba(255, 246, 214, 0.45),
+      inset -3px -3px 0 0 rgba(26, 19, 32, 0.4);
   }
   .btn-primary:hover:not(:disabled) {
     opacity: 0.9;
   }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(2px);
+    box-shadow:
+      inset -3px -3px 0 0 rgba(255, 246, 214, 0.3),
+      inset 3px 3px 0 0 rgba(26, 19, 32, 0.4);
+  }
   .btn-secondary {
-    background: transparent;
+    background: var(--ground-200);
     color: var(--ink-900);
-    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.4);
+    box-shadow:
+      inset 0 0 0 2px rgba(120, 118, 132, 0.5),
+      inset 2px 2px 0 0 rgba(222, 219, 214, 0.08),
+      inset -2px -2px 0 0 rgba(0, 0, 0, 0.35);
   }
   .btn-secondary:hover:not(:disabled) {
-    box-shadow: inset 0 0 0 1px var(--gold);
+    box-shadow:
+      inset 0 0 0 2px var(--gold),
+      inset 2px 2px 0 0 rgba(222, 219, 214, 0.08),
+      inset -2px -2px 0 0 rgba(0, 0, 0, 0.35);
+  }
+  .btn-secondary:active:not(:disabled) {
+    transform: translateY(2px);
+    box-shadow:
+      inset 0 0 0 2px rgba(120, 118, 132, 0.5),
+      inset -2px -2px 0 0 rgba(222, 219, 214, 0.08),
+      inset 2px 2px 0 0 rgba(0, 0, 0, 0.35);
   }
   .eyebrow {
-    font-family: var(--font-mono);
+    font-family: var(--font-display);
     font-size: 12px;
-    letter-spacing: 0.08em;
+    line-height: 20px;
+    letter-spacing: 0;
     text-transform: uppercase;
     color: var(--gold);
-    margin: 0 0 10px;
+    margin: 0 0 14px;
+  }
+  .eyebrow::before {
+    content: '> ';
   }
 
   /* ── demo frame ───────────────────────────────────────────────────── */
@@ -324,6 +458,18 @@
   }
 
   /* ── works with ───────────────────────────────────────────────────── */
+  /* The section washes below (.band-works, .band-how, .band-features,
+     .band-footer) live on a plain unconstrained div wrapping each
+     .wrap-bearing section, not on the .wrap element itself — .wrap caps
+     out at 1100px, so a background painted directly on it would hard-stop
+     in a vertical seam past that width instead of bleeding to the page
+     edges. The band div has no max-width, so its background naturally
+     covers the full viewport; deliberately not the calc(50% - 50vw) trick,
+     since 50vw includes the scrollbar gutter on Windows and would add a
+     horizontal scrollbar. */
+  .band-works {
+    background: radial-gradient(ellipse 900px 260px at 30% 0%, rgba(232, 183, 64, 0.09), transparent 70%);
+  }
   .works-with {
     padding-block: 40px;
     margin-top: 12px;
@@ -345,11 +491,16 @@
     color: var(--ink-500);
   }
   .tag {
+    --cut: 4px;
+    display: inline-block;
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--ink-900);
     background: var(--ground-200);
-    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.25);
+    box-shadow:
+      inset 0 0 0 2px rgba(120, 118, 132, 0.3),
+      inset 1px 1px 0 0 rgba(222, 219, 214, 0.06),
+      inset -1px -1px 0 0 rgba(0, 0, 0, 0.3);
     padding: 5px 10px;
   }
 
@@ -357,10 +508,23 @@
   .section {
     padding-block: 64px;
   }
+  /* One band wrapper per .section (see .band-works above for why the
+     background lives on the unconstrained wrapper, not .wrap itself) —
+     a light warm wash behind "how it works", a cooler one behind "what's
+     in the garden", so the page's overall background isn't the only thing
+     carrying the section-to-section rhythm. */
+  .band-how {
+    background: linear-gradient(180deg, transparent, rgba(38, 38, 44, 0.1));
+  }
+  .band-features {
+    background: radial-gradient(ellipse 1000px 400px at 70% 0%, rgba(111, 179, 196, 0.09), transparent 70%);
+  }
   .section h2 {
-    font-family: var(--font-ui);
-    font-weight: 700;
-    font-size: 22px;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 24px;
+    letter-spacing: 0;
     margin: 0 0 40px;
     color: var(--ink-900);
   }
@@ -380,8 +544,10 @@
     min-width: 0;
   }
   .how-step-num {
-    font-family: var(--font-mono);
-    font-size: 13px;
+    font-family: var(--font-display);
+    font-size: 12px;
+    line-height: 20px;
+    letter-spacing: 0;
     color: var(--gold);
     margin-bottom: 8px;
   }
@@ -470,6 +636,10 @@
   }
 
   /* ── footer ───────────────────────────────────────────────────────── */
+  /* Same band-wrapper reasoning as .band-works above — see that comment. */
+  .band-footer {
+    background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.1));
+  }
   footer {
     border-top: 1px solid rgba(120, 118, 132, 0.2);
     padding-block: 32px 48px;
@@ -488,6 +658,13 @@
   }
 
   /* ── responsive ───────────────────────────────────────────────────── */
+  /* Hides above the existing 900px tier on purpose: the hero panel needs
+     ~300px plus a 40px gap alongside .hero-text's 420px flex-basis, so it
+     starts crowding out the hero copy before the layout's other tiers
+     would otherwise kick in. */
+  @media (max-width: 1000px) {
+    .hero-panel { display: none; }
+  }
   @media (max-width: 900px) {
     .how-step { flex-direction: column; }
     /* Step 2's media sits after its text in source order (for the
@@ -595,6 +772,17 @@
     <div class="hero-actions">
       <a class="btn btn-primary" href="https://github.com/mavericksxx/pokemon-harness/releases/latest">download for mac</a>
       <a class="btn btn-secondary" href="https://github.com/mavericksxx/pokemon-harness">browse the source</a>
+    </div>
+  </div>
+  <div class="hero-panel" aria-hidden="true">
+    <div class="hero-panel-frame">
+      <p class="hero-panel-label">session preview</p>
+      <p class="hero-panel-line">a wild claude session appeared.</p>
+      <div class="hero-panel-status">
+        <p data-value="running" style="--value-color: var(--mint)">status: </p>
+        <p data-value="edit" style="--value-color: var(--sky)">tool: </p>
+        <p data-value="★ shiny" style="--value-color: var(--lemon)">badge: </p>
+      </div>
     </div>
   </div>
 </header>
@@ -827,16 +1015,19 @@
   })();
 </script>
 
-<div class="wrap works-with">
-  <div class="works-with-row">
-    <span>works with the coding-agent cli you already run</span>
-    <span class="tag">claude</span>
-    <span class="tag">codex</span>
-    <span class="tag">cursor-agent</span>
+<div class="band-works">
+  <div class="wrap works-with">
+    <div class="works-with-row">
+      <span>works with the coding-agent cli you already run</span>
+      <span class="tag">claude</span>
+      <span class="tag">codex</span>
+      <span class="tag">cursor-agent</span>
+    </div>
+    <p class="works-with-note">free and open source. runs on your machine, no accounts, no cloud.</p>
   </div>
-  <p class="works-with-note">free and open source. runs on your machine, no accounts, no cloud.</p>
 </div>
 
+<div class="band-how">
 <section class="section wrap">
   <p class="eyebrow">getting started</p>
   <h2>how it works</h2>
@@ -878,7 +1069,9 @@
     </div>
   </div>
 </section>
+</div>
 
+<div class="band-features">
 <section class="section wrap">
   <p class="eyebrow">features</p>
   <h2>what's in the garden</h2>
@@ -933,7 +1126,9 @@
     </div>
   </div>
 </section>
+</div>
 
+<div class="band-footer">
 <footer class="wrap">
   <div class="footer-links">
     <a href="https://github.com/mavericksxx/pokemon-harness">github repo</a>
@@ -942,5 +1137,6 @@
   </div>
   <p class="disclaimer">Pokémon, Pokémon character names, and their designs are trademarks of Nintendo, Game Freak, and Creatures Inc. Sprites shown here are fan-made and used non-commercially; this project is not affiliated with or endorsed by any of them.</p>
 </footer>
+</div>
 </body>
 </html>
