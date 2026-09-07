@@ -314,7 +314,15 @@ const hookBridge: HookBridge = new HookBridge(
     return { ok: true, id };
   }
 );
-const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake());
+// Third arg (GitHub #8) — mirrors `pty:kill`'s own
+// `taskNotificationWatcher.unregisterSession(id)` for the one teardown path
+// that handler never runs on: a natural exit (the child process dying on its
+// own, handled entirely inside pty.ts). Without it, a parent that exits
+// naturally while it still has `pending > 0` async subagents keeps the
+// watcher's 2s poll cadence alive for that dead session id forever.
+const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake(), (id) =>
+  taskNotificationWatcher.unregisterSession(id)
+);
 let activeTheme: AppSettings['theme'] = 'system';
 /** `appSettings.codexDelegateModel` (BACKLOG advisor/delegate model
  *  settings) — set at boot and on every settings save, same module-level

@@ -96,10 +96,22 @@ export class PtyManager {
    *  change to the live-session count (spawn, kill, natural exit) — the
    *  keep-awake powerSaveBlocker's only signal for "is a session still
    *  live"; optional so callers that don't care about keep-awake are
-   *  unaffected. */
+   *  unaffected.
+   *
+   *  `onSessionExited` — GitHub #8 fix: fires with the specific `id` ONLY on
+   *  the natural-exit branch of `spawn()`'s `onExit` (the child process died
+   *  on its own), never from `kill()`/`killAll()`'s deliberate teardown —
+   *  those already remove the session from `this.sessions` before the child
+   *  dies, which trips the identity guard at the top of `onExit` and skips
+   *  its whole body, this callback included. index.ts uses it to mirror
+   *  `pty:kill`'s own `taskNotificationWatcher.unregisterSession(id)` call
+   *  for the one exit path that handler never sees. Separate from
+   *  `onSessionsChanged` (a plain "something changed" ping) because this one
+   *  needs to carry WHICH id died. */
   constructor(
     private hookBridge?: HookBridge,
-    private onSessionsChanged?: () => void
+    private onSessionsChanged?: () => void,
+    private onSessionExited?: (id: string) => void
   ) {}
 
   attachWebContents(wc: WebContents): void {
@@ -350,6 +362,14 @@ export class PtyManager {
         this.lastExitCodes.set(opts.id, exitCode);
         this.sessions.delete(opts.id);
         this.onSessionsChanged?.();
+        // GitHub #8 — unconditionally, even when a fallback shell is about to
+        // take over this same id below: taskNotificationWatcher only ever
+        // (re-)tracks an id via a CLI hook payload (registerSession), and a
+        // plain shell process never fires hooks, so there's nothing here for
+        // an unregister to wrongly cut off. Waiting on `willFallback` would
+        // just leave the watcher's 2s poll spinning for a session that's no
+        // longer an agentic CLI.
+        this.onSessionExited?.(opts.id);
         if (session.isDelegate) this.delegateExits.set(opts.id, { exitCode, signal });
 
         // BUG/UX fix — a real terminal drops you to a shell when the
