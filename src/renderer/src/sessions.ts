@@ -331,7 +331,16 @@ export async function restartSessionFresh(id: string): Promise<void> {
     toolTarget: undefined,
     station: 'wander',
     looping: false,
-    cwd: res.cwd ?? session.cwd
+    cwd: res.cwd ?? session.cwd,
+    // Bug fix: a fresh (non-`--resume`) process starts a brand-new
+    // conversation with no cost/model history of its own yet — without
+    // this, the old process's last-known cost/context% and any
+    // "↺ changed from" model badge keep showing until the new process's
+    // CostWatcher parses its own first transcript update. `undefined`
+    // matches what a brand-new session has at creation (store.ts's
+    // `addSession` — both fields are simply absent until set).
+    cost: undefined,
+    modelChangedFrom: undefined
   });
 }
 

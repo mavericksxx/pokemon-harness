@@ -61,6 +61,21 @@ export function hasPendingAsyncSubagents(parentId: string): boolean {
   return (pendingAsyncLaunches.get(parentId) ?? 0) > 0;
 }
 
+/** Bug fix (status-pill staleness, 2026-09-07) — sessions whose most recent
+ *  `Stop` couldn't set `status: 'idle'` because `hasPendingAsyncSubagents`
+ *  was still true at the time (see the `Stop` case below). Membership means
+ *  "the moment this session's last outstanding async subagent finishes,
+ *  flip its status to idle" — `onSubagentTaskNotification` below is what
+ *  actually does that flip, once `pendingAsyncLaunches` for this session
+ *  drops back to 0.
+ *
+ *  Cleared at the top of `handleHookEvent` for every hook event, including
+ *  another `Stop` — any fresher hook already moved `status` to whatever it
+ *  should be right now (working, idle, blocked, ...), so a subagent
+ *  finishing later must not clobber that. Only a `Stop` that is STILL gated
+ *  when it fires re-adds the entry. */
+const awaitingSubagentIdle = new Set<string>();
+
 window.api.onAsyncSubagentLaunch((agentId) => {
   pendingAsyncLaunches.set(agentId, (pendingAsyncLaunches.get(agentId) ?? 0) + 1);
 });
@@ -68,6 +83,21 @@ window.api.onAsyncSubagentLaunch((agentId) => {
 window.api.onSubagentTaskNotification((agentId, taskId) => {
   const n = pendingAsyncLaunches.get(agentId) ?? 0;
   if (n > 0) pendingAsyncLaunches.set(agentId, n - 1);
+  // Bug fix (status-pill staleness) — this is the completion side of the
+  // `Stop`-time gate below: the parent's status only stayed 'working'
+  // instead of going idle because THIS session's async subagent count was
+  // still nonzero. Now that it just dropped, check whether it reached 0 and,
+  // if so and nothing fresher already claimed the flag (see
+  // `awaitingSubagentIdle`'s own doc comment), flip the parent back to idle.
+  // Guarded the same way `handleHookEvent` guards every store write: never
+  // resurrect a session that's already torn down.
+  if (n > 0 && n - 1 === 0 && awaitingSubagentIdle.has(agentId)) {
+    awaitingSubagentIdle.delete(agentId);
+    const live = useStore.getState().sessions.find((s) => s.id === agentId);
+    if (live && live.status !== 'done') {
+      useStore.getState().updateSession(agentId, { status: 'idle' });
+    }
+  }
   // A real per-subagent completion, whatever its status — reuses the
   // existing 'end' signal, now carrying the exact CLI-internal task-id
   // (battler ↔ task-id correlation fix) so BattleManager.handleEnd retires
@@ -209,6 +239,7 @@ window.api.onDelegateHookEvent((signal: DelegateHookSignal) => {
 export function clearHookAuthority(sessionId: string): void {
   lastHookAt.delete(sessionId);
   pendingAsyncLaunches.delete(sessionId);
+  awaitingSubagentIdle.delete(sessionId);
   // External-codex-delegate feature — a torn-down parent's Stop never
   // reaches the renderer (hookBridge.ts's `isKnownSession` drops it once the
   // parent's pty is gone), so without this sweep a delegate spawned under it
@@ -226,6 +257,10 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
   // hookBridge.ts never reach here at all).
   bumpCounter('hookEventsReceived');
   lastHookAt.set(sessionId, Date.now());
+  // This hook event is fresher than any earlier gated `Stop` — see
+  // `awaitingSubagentIdle`'s doc comment for why every hook clears it (the
+  // `Stop` case below re-adds it if THIS event is itself a still-gated Stop).
+  awaitingSubagentIdle.delete(sessionId);
   // A hook can arrive after the pty itself already exited (e.g. a trailing
   // Stop racing the process's own exit) — never resurrect a done session's
   // state, same guard the regex parser's idle timer uses.
@@ -418,8 +453,31 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       update({ status: 'working' });
       break;
 
-    case 'Stop':
-      update({ status: 'idle', tool: undefined, toolTarget: undefined, station: 'wander' });
+    case 'Stop': {
+      // A fresh Stop is a clean slate for the loop breaker too (Bug fix,
+      // 2026-09-07): a session that tripped the loop-breaker mid-turn and
+      // then genuinely finished (Stop, no new tool call, no new prompt yet)
+      // should stop reading as "looping" — nothing else clears it in that
+      // sequence (`resetLoopStreak`'s other call sites are a fresh prompt, a
+      // user keystroke, and teardown, none of which have fired yet here).
+      resetLoopStreak(sessionId);
+      // Status-pill staleness fix: don't go idle if this session dispatched
+      // an async subagent that's still outstanding — see
+      // `hasPendingAsyncSubagents`'s doc comment for why that's knowable
+      // here. The parent's OWN last tool call is done either way, so
+      // tool/toolTarget/station are cleared unconditionally; only `status`
+      // is gated. When gated, `awaitingSubagentIdle` records that this
+      // session is waiting on exactly that subagent so
+      // `onSubagentTaskNotification` can flip it back to idle once it
+      // actually finishes (see that listener + the set's doc comment).
+      const stillWorking = hasPendingAsyncSubagents(sessionId);
+      if (stillWorking) awaitingSubagentIdle.add(sessionId);
+      update({
+        status: stillWorking ? 'working' : 'idle',
+        tool: undefined,
+        toolTarget: undefined,
+        station: 'wander'
+      });
       // A `Task` tool call blocks the parent's own turn until it genuinely
       // completes — for a SYNCHRONOUS dispatch, which makes the parent
       // reaching Stop a deterministic "every subagent dispatched this turn
@@ -450,7 +508,7 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // that can queue a roaming sub off this path (`queueEligibleAt`,
       // MIN_ROAM_MS later — by which point the poller has had many chances
       // to catch up).
-      if (!hasPendingAsyncSubagents(sessionId)) {
+      if (!stillWorking) {
         try {
           emitBattleSignal({ type: 'parentDone', parentId: sessionId });
         } catch (err) {
@@ -467,6 +525,7 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
         });
       }
       break;
+    }
 
     case 'SubagentStop':
       // Wired, and DOES fire (confirmed live in two independent captures —
