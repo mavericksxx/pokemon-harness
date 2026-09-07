@@ -744,7 +744,14 @@ function createWindow(backgroundColor: string): void {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 900,
+    // 640, not the old 900 — half of a 13" MacBook's ~1280pt logical width,
+    // so the window can still tile into a true 50/50 macOS Split View
+    // (issue #2 pt.1). Any higher and the window's own minimum would exceed
+    // half that screen's width, which is exactly what Split View was
+    // clipping against. The renderer's own narrow-layout collapse
+    // (gardenSplit.ts's NARROW_LAYOUT_MAX_PX + effectiveLayout.ts) is what
+    // keeps the UI usable, not clipped, once the window gets this small.
+    minWidth: 640,
     minHeight: 600,
     title: 'Pokéharness',
     backgroundColor,

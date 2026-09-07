@@ -26,6 +26,8 @@ import { QuitDialog } from '@/components/QuitDialog';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
+import { useEffectiveLayout } from '@/effectiveLayout';
+import { NARROW_LAYOUT_MAX_PX } from '@/gardenSplit';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { useWorkspaceStore } from '@/store/workspaceStore';
@@ -106,6 +108,21 @@ export function App(): JSX.Element {
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const setViewMode = useStore((s) => s.setViewMode);
   const isFullScreen = useStore((s) => s.isFullScreen);
+  const setNarrowLayout = useStore((s) => s.setNarrowLayout);
+
+  // Narrow-layout signal (issue #2 pt.1 + narrow-window support) — a single
+  // `matchMedia` listener, not a `ResizeObserver`: collapsing the garden
+  // pane below changes PANE widths, not the WINDOW's, so there's no
+  // feedback-loop risk a `ResizeObserver` on an inner pane would have, and
+  // this only fires once at the threshold crossing rather than on every
+  // pixel. Wired once here alongside the store's own initial `matchMedia`
+  // read (store.ts's `loadNarrowLayout`) so the two never disagree.
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${NARROW_LAYOUT_MAX_PX}px)`);
+    const onChange = (e: MediaQueryListEvent): void => setNarrowLayout(e.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [setNarrowLayout]);
 
   // Global Cmd/Ctrl+1..4 (discoverable copy also lives in ViewModeSwitcher's
   // tooltips). Ctrl on top of Cmd so it also works un-remapped on Linux/Win,
@@ -163,7 +180,12 @@ export function App(): JSX.Element {
   // its OWN `display` (flex when shown, none when hidden) still keeps
   // GardenScene at the same position in the tree across every mode switch,
   // so it's never unmounted/remounted by this.
-  const gardenVisible = viewMode === 'garden' || viewMode === 'gardenFull';
+  // `gardenVisible`/`splitActive` come from effectiveLayout.ts (the one
+  // shared place `viewMode`/`drawerOpen`/`narrowLayout` are combined) —
+  // below `NARROW_LAYOUT_MAX_PX`, 'garden' mode's split collapses to
+  // whichever single pane `drawerOpen` currently prefers, so `gardenVisible`
+  // is no longer simply "viewMode is 'garden' or 'gardenFull'".
+  const { gardenVisible, splitActive } = useEffectiveLayout();
   // Bottom roster strip (parity sweep item 5) — 'garden' only now. 'terminal'
   // got its own left sidebar instead (Munder Difflin restyle, FocusSidebar,
   // rendered in body-row below); 'gardenFull' keeps the previous topbar
@@ -294,7 +316,7 @@ export function App(): JSX.Element {
               split, and a hidden drawer has nothing to divide). See
               gardenSplit.ts for the persisted ratio/clamps and index.css's
               "garden/terminal split divider" block for its styling. */}
-          {viewMode === 'garden' && drawerOpen && <GardenSplitHandle />}
+          {splitActive && <GardenSplitHandle />}
           {/* Parity sweep item 4 — the "bring it back" half of the same
               toggle, docked to the row's own edge while there's no divider
               to ride (see GardenDrawerEdgeTab.tsx's own header). */}
