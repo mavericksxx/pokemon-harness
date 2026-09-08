@@ -177,6 +177,12 @@ if (dryRun) {
 }
 
 // ---- build ----
+// dist/ accumulates artifacts across versions (and, historically, stale
+// productName variants — see the artifact-glob comment below), so start
+// from a clean slate rather than letting old builds pile up alongside the
+// new one.
+console.log('[release] cleaning dist/…');
+runLoud(`rm -rf ${DIST_DIR}`);
 console.log('[release] building (npm run dist)…');
 runLoud('npm run dist');
 
