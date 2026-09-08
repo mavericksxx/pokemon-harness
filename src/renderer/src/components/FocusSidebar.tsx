@@ -150,7 +150,7 @@ export function FocusSidebar({ onNewSession }: Props): JSX.Element {
               </button>
               <NewTerminalButton
                 className="focus-sidebar-add-menu-item"
-                label="Terminal"
+                label="terminal"
                 role="menuitem"
                 onSelect={() => setAddMenuOpen(false)}
               />
