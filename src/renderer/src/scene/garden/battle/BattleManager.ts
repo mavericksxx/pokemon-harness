@@ -3051,6 +3051,14 @@ export class BattleManager {
     for (const sub of pb.subs) (sub.battler.destroyed ? dropped : kept).push(sub);
     pb.subs = kept;
     pb.waveRing = pb.waveRing.filter((s) => !s.battler.destroyed);
+    // Dangling currentAttack fix (2026-09-08): a dropped sub can be the
+    // in-flight attack's own attacker or defender — without this,
+    // advanceAttack/applyPositions would keep reading a destroyed battler's
+    // container every tick until the beat naturally finishes on its own
+    // clock (or the wave's hard cap eventually trips).
+    if (pb.currentAttack && dropped.some((s) => s === pb.currentAttack?.attacker || s === pb.currentAttack?.defender)) {
+      pb.currentAttack = null;
+    }
     for (const sub of dropped) {
       safeLogDiagnostic('battle', 'error', 'sub battler already destroyed — dropping to break crash loop', {
         parentId: pb.parentId,
