@@ -31,7 +31,7 @@ import { stopSession } from '@/sessions';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
-import { useStore, type LiveBattler, type Session } from '@/store/store';
+import { useStore, type Session } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
@@ -44,6 +44,7 @@ import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter, markRendererTick } from '@/diagnosticsCounters';
 import { isClosingTimeActive } from '@/closingTime';
 import { markDirty, consumeDirty } from './renderDirty';
+import { GardenRebuildController } from './gardenRebuild';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
@@ -129,115 +130,24 @@ export function GardenScene(): JSX.Element {
     // Rebuild plumbing (garden-ui-crash triage, 2026-08-29): `mountScene`
     // below is exactly the old effect body (app init through the map/
     // walkers/battle setup) — unchanged except that it now assigns its own
-    // teardown to `currentCleanup` instead of a variable local to the
-    // effect, so it can be re-invoked to tear down a dead renderer and build
-    // a fresh one in its place without a second, parallel init path.
-    // `rebuild` is the ONE place that actually does that: it reuses
-    // `currentCleanup` (the same function component-unmount would call —
-    // detaches every listener/ticker on the OLD canvas, including the
-    // webglcontextlost/restored pair added below, since a rebuilt
-    // Application means a brand-new canvas needing its own) and then calls
-    // `mountScene` again for the fresh Application. `rebuildInFlight` caps
-    // it at one in-flight rebuild — a second signal (e.g. a stray restore
-    // event) while one is already running just logs and no-ops rather than
-    // racing a second teardown/rebuild against the first.
-    //
-    // `rebuildAttempts` caps how many times the 2s alarm may trigger this
-    // AUTOMATICALLY per context-loss EVENT before giving up and showing the
-    // crash overlay — a genuine crash loop (losses within
-    // REBUILD_BUDGET_RESET_MS of the last attempt) keeps counting toward the
-    // same budget, but a loss that lands well after the last attempt (the
-    // rebuilt renderer ran fine for a while, then something unrelated —
-    // sleep/wake, a driver reset — took it out again) reads as a NEW event
-    // and gets a fresh budget rather than inheriting a stale count. The
-    // overlay's manual "rebuild" button also resets it outright, since
-    // that's a deliberate user retry either way.
-    let currentCleanup: (() => void) | null = null;
-    let rebuildInFlight = false;
-    let rebuildAttempts = 0;
-    let lastRebuildAttemptAt = 0;
-    // A burst of subagent battler spawns can knock the context out more than
-    // twice within a single burst (each loss its own genuine event, not a
-    // rebuild failing to stick) — 2 was tight enough that a busy burst alone
-    // could exhaust the budget and land on the crash overlay. 4 gives a
-    // burst (the triage log showed several losses inside one minute) real
-    // room to breathe while still catching a genuine rebuild-fails-
-    // immediately loop (see REBUILD_BUDGET_RESET_MS below for how the budget
-    // stays bounded regardless).
-    const MAX_REBUILD_ATTEMPTS = 4;
-    const REBUILD_BUDGET_RESET_MS = 60_000;
-    // Cross-generation (survives a rebuild) so the "context lost" diagnostic
-    // row below can report how long it's been since the PREVIOUS loss, not
-    // just this generation's own downtime — that's what actually shows a
-    // burst in the log, one row at a time, versus several unrelated losses
-    // spread across a session.
-    let lastContextLossAt = 0;
-    // What `rebuild()` will treat `rebuildAttempts` as once it actually
-    // runs (it applies this same reset check itself, right before consulting
-    // the cap) — shared so the "context lost" row's own `attempt` field
-    // can't disagree with the "rebuilding renderer"/"attempts exhausted" row
-    // that follows it a couple seconds later.
-    const budgetAdjustedAttempts = (now: number): number =>
-      lastRebuildAttemptAt && now - lastRebuildAttemptAt > REBUILD_BUDGET_RESET_MS ? 0 : rebuildAttempts;
-    // Snapshot of the store's `battlers` slice taken right before teardown —
-    // `currentCleanup()` below tears down the old BattleManager, and its
-    // `destroyBattle` calls `onBattlerRemoved` for every live battler
-    // (GardenScene wires that to `removeBattler`), so by the time the fresh
-    // `mountScene()` reconciles, the store's own `battlers` array is already
-    // empty. This is what `respawnFromStore` (below, inside `mountScene`)
-    // actually reads instead.
-    let pendingRespawn: LiveBattler[] = [];
-    let pendingWalkerTiles = new Map<string, { x: number; y: number }>();
-    let snapshotWalkerTiles: () => Map<string, { x: number; y: number }> = () => new Map();
-
-    const rebuild = async (): Promise<void> => {
-      if (rebuildInFlight) {
-        safeLogDiagnostic('gpu', 'info', 'context-loss signal ignored — rebuild already in flight', {});
-        return;
-      }
-      rebuildAttempts = budgetAdjustedAttempts(Date.now());
-      if (rebuildAttempts >= MAX_REBUILD_ATTEMPTS) {
-        safeLogDiagnostic('gpu', 'error', 'garden rebuild attempts exhausted — showing crash overlay', {
-          attempts: rebuildAttempts
-        });
-        // Give up on this generation for real rather than leaving a dead
-        // renderer (and its ticker) running invisibly behind the overlay.
-        currentCleanup?.();
-        currentCleanup = null;
-        setCrashed(true);
-        return;
-      }
-      rebuildInFlight = true;
-      rebuildAttempts += 1;
-      lastRebuildAttemptAt = Date.now();
-      safeLogDiagnostic('gpu', 'error', 'webgl context not restored — rebuilding renderer', {
-        attempt: rebuildAttempts
-      });
-      try {
-        pendingRespawn = useStore.getState().battlers.slice();
-        pendingWalkerTiles = snapshotWalkerTiles();
-        currentCleanup?.();
-        currentCleanup = null;
-        await mountScene();
-        setCrashed(false);
-        safeLogDiagnostic('gpu', 'info', 'garden renderer rebuilt successfully', { attempt: rebuildAttempts });
-      } catch (e) {
-        safeLogDiagnostic('gpu', 'error', 'garden renderer rebuild failed', {
-          attempt: rebuildAttempts,
-          error: e instanceof Error ? (e.stack ?? e.message) : String(e)
-        });
-        setCrashed(true);
-      } finally {
-        rebuildInFlight = false;
-      }
-    };
+    // teardown to `rebuildController.currentCleanup` instead of a variable
+    // local to the effect, so it can be re-invoked to tear down a dead
+    // renderer and build a fresh one in its place without a second,
+    // parallel init path. `rebuildController.rebuild()` is the ONE place
+    // that actually does that — see gardenRebuild.ts for the full budget/
+    // in-flight/pending-respawn machinery, extracted verbatim out of this
+    // effect body.
+    const rebuildController = new GardenRebuildController({
+      setCrashed,
+      getBattlers: () => useStore.getState().battlers
+    });
     // The crash overlay's own button (JSX below) — a deliberate user retry,
     // so it gets a fresh automatic budget rather than staying permanently
-    // stuck at the cap from the earlier crash loop.
-    manualRebuildRef.current = (): void => {
-      rebuildAttempts = 0;
-      void rebuild();
-    };
+    // stuck at the cap from the earlier crash loop. `mountScene` is a
+    // forward reference (defined below) — safe here since this arrow
+    // function isn't invoked until the button is actually clicked, well
+    // after `mountScene` is assigned.
+    manualRebuildRef.current = (): void => rebuildController.manualRebuild(mountScene);
 
     const mountScene = async (): Promise<void> => {
       const sessionsAtMount = new Set(useStore.getState().sessions.map((session) => session.id));
@@ -249,7 +159,7 @@ export function GardenScene(): JSX.Element {
       // still reaches THIS generation's `destroyed`/`cleanup` — `cleanup`
       // itself stays null until `init` finishes setting it up, at which
       // point this closure already sees the live binding.
-      currentCleanup = (): void => {
+      rebuildController.currentCleanup = (): void => {
         destroyed = true;
         cleanup?.();
       };
@@ -295,72 +205,17 @@ export function GardenScene(): JSX.Element {
       host.appendChild(app.canvas);
 
       // WebGL/GPU context-loss instrumentation (garden-ui-crash triage,
-      // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md): a lost
-      // context used to leave the canvas silently dead with ZERO trace in
-      // harness.log — no renderer JS exception (nothing throws; lost-context
-      // GL calls are spec'd no-ops), no main-process signal, nothing. Pixi's
-      // own GlContextSystem already listens for these same two events on
-      // this canvas, calls `preventDefault()` on loss itself (required for
-      // the browser to ever restore it) and rebuilds every renderer system's
-      // GPU resources on restore, and the ticker below never stops ticking
-      // through any of this — so a context the BROWSER actually restores
-      // needs nothing further here beyond logging.
-      //
-      // CONFIRMED PRODUCTION FAILURE (2026-08-29, harness.log 10:59:53Z-
-      // 11:00:03Z): that assumption only covers the case the browser DOES
-      // restore it — here it never did, and Pixi's self-heal never got a
-      // chance to run, leaving a permanently dead canvas with nothing to
-      // recover it. The 2s alarm below now calls `rebuild()` (defined
-      // above this scene's mount function) instead of only logging.
-      const CONTEXT_RESTORE_TIMEOUT_MS = 2_000;
+      // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md) — the
+      // listener setup/rebuild-on-timeout machinery now lives in
+      // gardenRebuild.ts (GardenRebuildController.attachContextLossListeners),
+      // attached fresh here for THIS generation's own canvas since it closes
+      // over this generation's own `destroyed`/`canvas`.
       const canvas = app.canvas;
-      let contextLostAt = 0;
-      let contextRestoreTimer: ReturnType<typeof setTimeout> | null = null;
-      const onContextLost = (event: Event): void => {
-        if (destroyed) return; // this generation is already being torn down
-        event.preventDefault(); // required to allow the browser to restore it
-        contextLostAt = Date.now();
-        // Both surface a burst in the log even though each loss is its own
-        // row: `attempt` is what `rebuild()` (below) will treat the budget
-        // as once its own 2s alarm actually fires — via the same
-        // `budgetAdjustedAttempts` reset check `rebuild()` applies itself,
-        // so this can't log a stale pre-reset count that the very next row
-        // then contradicts. `secondsSinceLastLoss` is null the very first
-        // loss this session has ever seen.
-        const secondsSinceLastLoss = lastContextLossAt ? Math.round((contextLostAt - lastContextLossAt) / 1000) : null;
-        lastContextLossAt = contextLostAt;
-        safeLogDiagnostic('gpu', 'error', 'webgl context lost', {
-          statusMessage: (event as WebGLContextEvent).statusMessage || undefined,
-          attempt: budgetAdjustedAttempts(contextLostAt),
-          secondsSinceLastLoss
-        });
-        if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
-        contextRestoreTimer = setTimeout(() => {
-          contextRestoreTimer = null;
-          safeLogDiagnostic('gpu', 'error', 'webgl context lost, not restored after 2s', {});
-          void rebuild();
-        }, CONTEXT_RESTORE_TIMEOUT_MS);
-      };
-      const onContextRestored = (): void => {
-        if (destroyed) {
-          // Stale event from a generation already torn down (e.g. a rebuild
-          // already underway) — the listener normally can't outlive its own
-          // removeEventListener call in `cleanup`, but this is the same
-          // "subsequent signals no-op with a log row" guard `rebuild` itself
-          // uses, kept here too for defense-in-depth.
-          safeLogDiagnostic('gpu', 'info', 'context restored signal ignored — this generation already torn down', {});
-          return;
-        }
-        if (contextRestoreTimer) {
-          clearTimeout(contextRestoreTimer);
-          contextRestoreTimer = null;
-        }
-        safeLogDiagnostic('gpu', 'info', 'webgl context restored', {
-          downtimeMs: contextLostAt ? Date.now() - contextLostAt : null
-        });
-      };
-      canvas.addEventListener?.('webglcontextlost', onContextLost, false);
-      canvas.addEventListener?.('webglcontextrestored', onContextRestored, false);
+      const detachContextLossListeners = rebuildController.attachContextLossListeners({
+        canvas,
+        isDestroyed: () => destroyed,
+        mountScene
+      });
 
       // Idle-energy pass (2026-09-01, "Using Significant Energy" at idle
       // triage) — ProMotion displays otherwise drive this ticker at 120Hz for
@@ -791,7 +646,7 @@ export function GardenScene(): JSX.Element {
       // across the whole scene lifetime keep spreading out rather than
       // re-colliding once the count wraps past STATION_SPAWNS.wander.length.
       let overflowSlot = 0;
-      snapshotWalkerTiles = () =>
+      rebuildController.snapshotWalkerTiles = () =>
         new Map([...runtimes].map(([id, runtime]) => [id, runtime.walker.tile]));
 
       // Select-cry (Phase 8 §4): seeded from the CURRENT selection, not null,
@@ -1087,7 +942,7 @@ export function GardenScene(): JSX.Element {
         const slot = reservedHomePatch ? STATION_SPAWNS.patch.indexOf(reservedHomePatch) : overflowSlot++;
         const animation = resolveAnimation(session.pokemon, session.shiny);
         const restored = sessionsAtMount.has(session.id);
-        const restoredTile = pendingWalkerTiles.get(session.id);
+        const restoredTile = rebuildController.pendingWalkerTiles.get(session.id);
         // Restored idle walkers are already home; live sessions still walk in from the entrance.
         const startTile =
           restoredTile ??
@@ -1529,12 +1384,13 @@ export function GardenScene(): JSX.Element {
       applyState();
 
       // Context-loss recovery (garden-ui-crash triage, 2026-08-29): on a
-      // normal first mount `pendingRespawn` is always empty (nothing has
-      // battled yet), so this is a no-op then — it only does real work
-      // coming out of `rebuild()`, which snapshots the store's `battlers`
-      // slice into `pendingRespawn` BEFORE tearing down the old
-      // BattleManager (whose teardown removes every one of them from the
-      // store as a side effect — see `pendingRespawn`'s own comment above).
+      // normal first mount `rebuildController.pendingRespawn` is always
+      // empty (nothing has battled yet), so this is a no-op then — it only
+      // does real work coming out of `rebuild()`, which snapshots the
+      // store's `battlers` slice into `pendingRespawn` BEFORE tearing down
+      // the old BattleManager (whose teardown removes every one of them
+      // from the store as a side effect — see `pendingRespawn`'s own
+      // comment in gardenRebuild.ts).
       // Reuses BattleManager's own spawn machinery (`respawnFromStore`)
       // rather than a parallel one; species/parent is preserved, lifecycle
       // resets to roaming — or, done/retired follow-up, to 'retired' when
@@ -1549,8 +1405,8 @@ export function GardenScene(): JSX.Element {
       // subagent card's elapsed-time readout restarts from this rebuild,
       // not the battler's original spawn — `done`/`doneAt` pass through
       // unchanged either way, straight from the snapshot).
-      const toRespawn = pendingRespawn;
-      pendingRespawn = [];
+      const toRespawn = rebuildController.pendingRespawn;
+      rebuildController.pendingRespawn = [];
       const unrespawnable = new Set(battleManager.respawnFromStore(toRespawn));
       for (const battler of toRespawn) {
         if (unrespawnable.has(battler.key)) {
@@ -1913,9 +1769,7 @@ export function GardenScene(): JSX.Element {
         // (`if (!this.started)`) — a no-op when it was already running,
         // e.g. an ordinary unmount while visible.
         Ticker.shared.start();
-        canvas.removeEventListener?.('webglcontextlost', onContextLost);
-        canvas.removeEventListener?.('webglcontextrestored', onContextRestored);
-        if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
+        detachContextLossListeners();
         world.off('pointerdown', onWorldPointerDown);
         charLayer.removeEventListener('pointertap', resolveCharacterClick, { capture: true });
         window.removeEventListener('pointermove', onWindowPointerMove);
@@ -1942,7 +1796,7 @@ export function GardenScene(): JSX.Element {
     void mountScene();
 
     return () => {
-      currentCleanup?.();
+      rebuildController.currentCleanup?.();
     };
   }, []);
 
