@@ -15,11 +15,15 @@
  * `tryResumeArceus`), rather than the older behavior of silently ignoring
  * that call forever.
  *
- * Reading: polled (not `fs.watch` — an append-only file under a renderer
- * that's writing it is exactly the rename/coalescing case `fs.watch` is
- * flaky about on macOS), every POLL_MS, tailing from a saved byte offset so
- * a big transcript is never re-read whole. A `\n`-incomplete tail is carried
- * to the next poll rather than parsed.
+ * Reading: primarily event-driven via `fs.watch` on each tracked session's
+ * transcript path — a change event triggers an immediate tail. `fs.watch`
+ * is known to miss events on some platforms/filesystems (the exact
+ * rename/coalescing flakiness this file used to cite as a reason to avoid it
+ * outright), so a slow FALLBACK_POLL_MS interval still runs underneath as a
+ * safety net, same cadence gating as before (only while a tracked session is
+ * `'working'`). Either path tails from a saved byte offset so a big
+ * transcript is never re-read whole. A `\n`-incomplete tail is carried to
+ * the next read rather than parsed.
  *
  * Parsing: each line is one JSONL entry from the CLI's own transcript
  * format. Only `type === 'assistant'` entries carry `usage`; entries with
@@ -30,22 +34,27 @@
  * tiny subagent turn happened to log last.
  *
  * Cadence gating (2026-09-01): the transcript only grows while its session
- * is actually generating a turn, so the POLL_MS timer only runs while at
- * least one TRACKED session is `'working'` — idle sessions have nothing new
- * to tail. `onSessionsChecked` (fed from main/index.ts's `sessions:checkpoint`
- * handler, itself fired synchronously off every renderer session-status
- * change — see sessions.ts's `startRegistrySync`) is the resume/pause
- * trigger: it fires an immediate poll on resume (so a transition to
- * 'working' never waits out a stale tick) and one more poll before pausing
- * (so a usage entry written in the last unread tail — right as the session
- * flips back off 'working' — isn't lost by stopping one beat too early).
+ * is actually generating a turn, so the FALLBACK_POLL_MS timer only runs
+ * while at least one TRACKED session is `'working'` — idle sessions have
+ * nothing new to tail. `onSessionsChecked` (fed from main/index.ts's
+ * `sessions:checkpoint` handler, itself fired synchronously off every
+ * renderer session-status change — see sessions.ts's `startRegistrySync`) is
+ * the resume/pause trigger: it fires an immediate poll on resume (so a
+ * transition to 'working' never waits out a stale tick) and one more poll
+ * before pausing (so a usage entry written in the last unread tail — right
+ * as the session flips back off 'working' — isn't lost by stopping one beat
+ * too early).
  */
 import type { WebContents } from 'electron';
-import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, openSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
 import type { SessionCostUpdate } from '../shared/costTypes';
 import type { SessionRecord } from '../shared/types';
 
-const POLL_MS = 5_000;
+/** Safety-net poll cadence — `fs.watch` (set up per tracked session in
+ *  `registerSession`) is the primary trigger and reacts near-instantly;
+ *  this interval only exists to cover the known cases where `fs.watch`
+ *  silently misses a change event (some platforms/network filesystems). */
+const FALLBACK_POLL_MS = 30_000;
 
 /** $/1M-token input/output rates. Keyed by PREFIX match (checked longest-
  *  first) since a real transcript's `message.model` can carry a dated
@@ -133,6 +142,11 @@ interface TrackedSession {
 export class CostWatcher {
   private sessions = new Map<string, TrackedSession>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Per-tracked-session `fs.watch` handle on its transcript path — the
+   *  primary read trigger (see this file's header). Kept in lockstep with
+   *  `sessions`: set up in `registerSession`, torn down in
+   *  `unregisterSession` and on a reset (path change) in `registerSession`. */
+  private watchers = new Map<string, FSWatcher>();
   /** Whether `start()`/`stop()` currently permit the timer to run at all —
    *  the app-lifecycle on/off switch, orthogonal to the working/idle cadence
    *  gate below. */
@@ -152,11 +166,19 @@ export class CostWatcher {
     this.armed = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    for (const watcher of this.watchers.values()) {
+      try {
+        watcher.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    this.watchers.clear();
   }
 
   /** Fed from main/index.ts's `sessions:checkpoint` handler on every
    *  session-status change (see this file's header) — resumes/pauses the
-   *  POLL_MS timer to match whether any TRACKED session is actually
+   *  FALLBACK_POLL_MS timer to match whether any TRACKED session is actually
    *  producing new transcript content right now. */
   onSessionsChecked(sessions: SessionRecord[]): void {
     this.workingIds = new Set(sessions.filter((s) => s.status === 'working').map((s) => s.id));
@@ -175,7 +197,7 @@ export class CostWatcher {
     const shouldRun = this.hasWorkingTrackedSession();
     if (shouldRun && !this.timer) {
       this.pollAll(); // fire immediately on resume — never wait out a stale tick
-      this.timer = setInterval(() => this.pollAll(), POLL_MS);
+      this.timer = setInterval(() => this.pollAll(), FALLBACK_POLL_MS);
     } else if (!shouldRun && this.timer) {
       // One more poll before pausing: a usage entry written in the last
       // unread tail — right as the session flips off 'working' — must not
@@ -186,11 +208,38 @@ export class CostWatcher {
     }
   }
 
+  /** Sets up (or replaces) the `fs.watch` for a tracked session's transcript
+   *  path. Best-effort: `fs.watch` can throw synchronously if the path
+   *  doesn't exist yet, and can itself emit an `error` event later (e.g. the
+   *  file gets removed) — either case just leaves reads to the
+   *  FALLBACK_POLL_MS safety net instead of tracking this session live. */
+  private watchPath(agentId: string, path: string): void {
+    this.unwatchPath(agentId);
+    try {
+      const watcher = watch(path, () => this.pollOne(agentId));
+      watcher.on('error', () => this.unwatchPath(agentId));
+      this.watchers.set(agentId, watcher);
+    } catch {
+      /* file not there yet, or platform can't watch it — fallback poll covers it */
+    }
+  }
+
+  private unwatchPath(agentId: string): void {
+    const watcher = this.watchers.get(agentId);
+    if (!watcher) return;
+    try {
+      watcher.close();
+    } catch {
+      /* already closed */
+    }
+    this.watchers.delete(agentId);
+  }
+
   /** Register (or no-op if already registered against the SAME path) a
    *  session's transcript path. Safe to call repeatedly/redundantly — see
    *  this file's header. Does an immediate full-file parse so the HUD has
-   *  numbers before the first POLL_MS tick, then only tails on subsequent
-   *  polls.
+   *  numbers right away, sets up the `fs.watch` for subsequent changes, and
+   *  only tails on later reads (watch-triggered or fallback-poll).
    *
    *  2026-09-06 stale-registration fix: a registration for an agentId that's
    *  already tracked against a DIFFERENT transcript path means the CLI
@@ -236,6 +285,7 @@ export class CostWatcher {
       lastModel: null
     };
     this.sessions.set(agentId, s);
+    this.watchPath(agentId, transcriptPath);
     this.pollOne(agentId);
     // A reset session's new transcript is typically still empty at this
     // instant (SessionStart fires before the first turn) — `pollOne`'s own
@@ -249,6 +299,7 @@ export class CostWatcher {
 
   unregisterSession(agentId: string): void {
     this.sessions.delete(agentId);
+    this.unwatchPath(agentId);
     this.reconcileTimer(); // may have been the last working tracked session
   }
 
@@ -281,6 +332,11 @@ export class CostWatcher {
     } catch {
       return; // not written yet, or gone — retry next tick
     }
+    // The file demonstrably exists now — if `watchPath` failed at
+    // registration time (ENOENT, since the transcript didn't exist yet
+    // then), this is the retry: `watchPath` unwatches-first, so calling it
+    // again when already watching is a safe no-op.
+    if (!this.watchers.has(agentId)) this.watchPath(agentId, s.path);
     if (size < s.offset) {
       // Rotated/truncated — restart from scratch rather than reading garbage,
       // including the cumulative counters (a shrunk file means the earlier
