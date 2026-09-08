@@ -73,6 +73,28 @@ function lerp(a: number, b: number, t: number): number {
  *  work in a second color. */
 const silhouetteCache = new WeakMap<Texture, Texture>();
 
+/** Refcounts how many currently-live EvolutionCeremony instances are holding
+ *  a silhouette for a given source frame texture — see `acquireSilhouette`/
+ *  `releaseSilhouette` below. Now that a lazily-loaded species' source frame
+ *  texture can itself be evicted+destroyed (lazySprites.ts's LRU), a
+ *  `silhouetteCache` entry that outlives every ceremony showing it is a real
+ *  leak (its derived Texture owns its own canvas-backed GPU resource,
+ *  independent of the source texture, so destroying the source doesn't
+ *  reclaim it) — this refcount is what lets a ceremony's teardown release
+ *  its own share and `destroy(true)` the derived texture once nothing else
+ *  is still showing it, without a naive per-ceremony destroy breaking the
+ *  case where two ceremonies happen to be evolving into/out of the exact
+ *  same species (and therefore the same source frame texture — a real
+ *  scenario for any of the 42 bundled species, whose frame textures are
+ *  stable, shared, long-lived objects) at once. Deliberately NOT touched by
+ *  battle/MegaCeremony.ts's own `silhouetteFrom` calls (out of this fix's
+ *  scope — see that file): a mega ceremony sharing the exact same source
+ *  frame texture (a rare species-identity coincidence, since mega ids are
+ *  distinct from base species ids) just keeps this count from ever reaching
+ *  zero for that one texture, same as before this fix — it never causes an
+ *  early, wrong destroy. */
+const silhouetteRefs = new Map<Texture, number>();
+
 export function silhouetteFrom(frameTexture: Texture): Texture {
   const cached = silhouetteCache.get(frameTexture);
   if (cached) return cached;
@@ -103,12 +125,46 @@ export function silhouetteFrom(frameTexture: Texture): Texture {
   return texture;
 }
 
+/** `silhouetteFrom`, plus bumping this ceremony's own hold on the result —
+ *  see `silhouetteRefs`'s doc comment. Always paired with a matching
+ *  `releaseSilhouette` call (EvolutionCeremony's teardown). */
+function acquireSilhouette(frameTexture: Texture): Texture {
+  const texture = silhouetteFrom(frameTexture);
+  silhouetteRefs.set(frameTexture, (silhouetteRefs.get(frameTexture) ?? 0) + 1);
+  return texture;
+}
+
+/** Releases one `acquireSilhouette` call's hold on `frameTexture`'s derived
+ *  silhouette. Once no ceremony holds it any longer, destroys the derived
+ *  Texture (freeing its own canvas-backed GPU resource — `destroy(true)`,
+ *  since nothing outside this cache ever references it) and drops both this
+ *  refcount and the `silhouetteCache` entry itself. */
+function releaseSilhouette(frameTexture: Texture): void {
+  const count = silhouetteRefs.get(frameTexture) ?? 0;
+  if (count > 1) {
+    silhouetteRefs.set(frameTexture, count - 1);
+    return;
+  }
+  silhouetteRefs.delete(frameTexture);
+  const cached = silhouetteCache.get(frameTexture);
+  if (!cached) return;
+  silhouetteCache.delete(frameTexture);
+  if (!cached.destroyed) cached.destroy(true);
+}
+
 /** One form's silhouette sprite, sized/mirrored exactly as the real body
  *  would be — so swapping forms (or swapping back to the real sprite at the
- *  end) never shifts the feet. */
-function makeSilhouetteSprite(animation: PokemonAnimation, tileSize: number, facing: Facing): Sprite {
-  const texture = silhouetteFrom(animation.front.frames[0].texture);
-  const sprite = new Sprite(texture);
+ *  end) never shifts the feet. Takes the already-`acquireSilhouette`'d
+ *  texture (rather than deriving it itself) so the caller — the
+ *  EvolutionCeremony constructor — is the one holding the refcount it must
+ *  later release in teardown(). */
+function makeSilhouetteSprite(
+  animation: PokemonAnimation,
+  silhouette: Texture,
+  tileSize: number,
+  facing: Facing
+): Sprite {
+  const sprite = new Sprite(silhouette);
   sprite.anchor.set(0.5, 1);
   const scale = spriteScale(animation.info.name, animation.front.frameHeight, tileSize);
   sprite.scale.set(facing === 'left' ? scale : -scale, scale);
@@ -201,6 +257,11 @@ export class EvolutionCeremony {
 
   private oldSilhouette: Sprite;
   private newSilhouette: Sprite;
+  /** The source frame textures `oldSilhouette`/`newSilhouette` were derived
+   *  from — kept so teardown() can `releaseSilhouette` this ceremony's own
+   *  hold on each (see `silhouetteRefs`'s doc comment). */
+  private readonly oldSourceTexture: Texture;
+  private readonly newSourceTexture: Texture;
   private bubbles: Bubble[] = [];
   private stars: { g: Graphics; sizeIdx: number; timer: number }[] = [];
 
@@ -240,8 +301,20 @@ export class EvolutionCeremony {
     deps.container.addChild(this.bubbleLayer, this.blobContainer, this.rayLayer, this.starLayer);
 
     const facing = deps.sprite.currentFacing;
-    this.oldSilhouette = makeSilhouetteSprite(deps.sprite.animation, deps.tileSize, facing);
-    this.newSilhouette = makeSilhouetteSprite(deps.newAnimation, deps.tileSize, facing);
+    this.oldSourceTexture = deps.sprite.animation.front.frames[0].texture;
+    this.newSourceTexture = deps.newAnimation.front.frames[0].texture;
+    this.oldSilhouette = makeSilhouetteSprite(
+      deps.sprite.animation,
+      acquireSilhouette(this.oldSourceTexture),
+      deps.tileSize,
+      facing
+    );
+    this.newSilhouette = makeSilhouetteSprite(
+      deps.newAnimation,
+      acquireSilhouette(this.newSourceTexture),
+      deps.tileSize,
+      facing
+    );
     this.oldSilhouette.alpha = 0;
     this.newSilhouette.visible = false;
     this.blobContainer.addChild(this.oldSilhouette, this.newSilhouette);
@@ -573,7 +646,14 @@ export class EvolutionCeremony {
     this.blackOverlay.destroy();
     this.whiteOverlay.destroy();
     this.bubbleLayer.destroy({ children: true });
+    // Destroys oldSilhouette/newSilhouette themselves (Sprite.destroy()
+    // leaves its texture alone by default), so it's safe to release this
+    // ceremony's own hold on their derived textures right after — see
+    // silhouetteRefs's doc comment for why release (refcounted), not an
+    // unconditional destroy, is what's actually safe here.
     this.blobContainer.destroy({ children: true });
+    releaseSilhouette(this.oldSourceTexture);
+    releaseSilhouette(this.newSourceTexture);
     this.rayLayer.destroy({ children: true });
     this.starLayer.destroy({ children: true });
     if (this.originalParent && !this.deps.container.destroyed) {
