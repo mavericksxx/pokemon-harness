@@ -388,7 +388,16 @@ export function startCompletionToasts(): void {
   // consumed — rebuilding the map only after the loop would instead let the
   // nested call see the stale pre-transition value and toast a second time.
   const prevStatus = new Map<string, SessionStatus>();
+  // Same reference-equality short-circuit `startRegistrySync` below already
+  // uses: this subscribes without a selector, so it re-runs on EVERY store
+  // mutation, not just a session-list change — zustand's `set` only replaces
+  // the top-level keys a mutation actually touches, so an unrelated change
+  // (toasts, a garden-only field, ...) leaves `state.sessions` as the exact
+  // same array reference and this loop has nothing new to find.
+  let lastSessions: ReturnType<typeof useStore.getState>['sessions'] | null = null;
   useStore.subscribe((state) => {
+    if (state.sessions === lastSessions) return;
+    lastSessions = state.sessions;
     for (const session of state.sessions) {
       const was = prevStatus.get(session.id);
       prevStatus.set(session.id, session.status);
