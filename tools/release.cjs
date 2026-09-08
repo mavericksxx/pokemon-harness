@@ -20,7 +20,10 @@
  * Without --publish: bumps + commits + tags locally, builds, prints the
  * exact `git push` + `gh release create` commands to run when ready.
  * With --publish: also runs those commands for you (still requires `gh` to
- * be authenticated — this script never handles credentials itself).
+ * be authenticated — this script never handles credentials itself). Publish
+ * is idempotent: re-running it for the SAME version after a partial failure
+ * skips whatever already landed (tag already pushed, release already
+ * created) instead of erroring or minting a second release.
  *
  * Before touching any git state, a preflight guards against shipping a
  * stale Electron: electron-builder packages whatever is currently sitting
@@ -48,7 +51,7 @@
  */
 const { execSync } = require('node:child_process');
 const { existsSync, readdirSync, readFileSync } = require('node:fs');
-const { join } = require('node:path');
+const { join, basename } = require('node:path');
 
 const REPO_ROOT = join(__dirname, '..');
 const DIST_DIR = join(REPO_ROOT, 'dist');
@@ -219,9 +222,41 @@ console.log(`  ${ghCmd}`);
 console.log('');
 
 if (publish) {
+  // Idempotent: a failed partial run (e.g. tag pushed but `gh release
+  // create` died partway through an asset upload) can be safely re-run for
+  // the SAME version — steps that already landed are skipped rather than
+  // re-attempted or erroring out.
   console.log('[release] --publish passed — running the above now.');
-  runLoud(`git push && git push origin ${tag}`);
-  runLoud(ghCmd);
+  runLoud('git push');
+
+  const remoteTag = run(`git ls-remote --tags origin ${tag}`);
+  if (remoteTag) {
+    console.log(`[release] tag ${tag} already on origin — skipping push.`);
+  } else {
+    runLoud(`git push origin ${tag}`);
+  }
+
+  let releaseInfo = null;
+  try {
+    releaseInfo = JSON.parse(run(`gh release view ${tag} --json assets`));
+  } catch {
+    // release doesn't exist yet
+  }
+
+  if (!releaseInfo) {
+    runLoud(ghCmd);
+  } else {
+    console.log(`[release] release ${tag} already exists — checking for missing assets…`);
+    const existingAssetNames = new Set(releaseInfo.assets.map((a) => a.name));
+    const missing = artifacts.filter((a) => !existingAssetNames.has(basename(a)));
+    if (missing.length === 0) {
+      console.log('[release] all artifacts already uploaded — nothing to do.');
+    } else {
+      console.log(`[release] uploading missing assets: ${missing.map((a) => basename(a)).join(', ')}`);
+      runLoud(`gh release upload ${tag} ${missing.map((a) => `"${a}"`).join(' ')} --clobber`);
+    }
+  }
+
   console.log(`[release] published ${tag}.`);
 } else {
   console.log('[release] --publish not passed — nothing pushed or published. Run the commands above when ready.');
