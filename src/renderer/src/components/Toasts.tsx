@@ -13,7 +13,19 @@ export function Toasts(): JSX.Element | null {
   return (
     <div className="toasts">
       {toasts.map((t) => (
-        <div key={t.id} className="toast" onClick={() => dismiss(t.id)}>
+        <div
+          key={t.id}
+          className="toast"
+          role="button"
+          tabIndex={0}
+          onClick={() => dismiss(t.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              dismiss(t.id);
+            }
+          }}
+        >
           {t.text}
           {t.action && (
             <button

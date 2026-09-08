@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import type { WorkspaceRecord } from '@shared/workspaceTypes';
+import { useEscapeToClose } from './useEscapeToClose';
 
 interface Props {
   workspace: WorkspaceRecord;
@@ -21,6 +22,8 @@ export function DeleteWorkspaceDialog({ workspace, deadSessionCount, onClose }: 
   const deleteWorkspace = useWorkspaceStore((s) => s.deleteWorkspace);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEscapeToClose(onClose);
 
   const confirm = async (): Promise<void> => {
     setBusy(true);

@@ -70,6 +70,13 @@ let playerQueue: string[] = [];
 let playerLastAutoId: string | null = null;
 let playerTimer: ReturnType<typeof setTimeout> | null = null;
 let consecutiveFailures = 0;
+/** Bumped at the start of every player-mode track request (`playCatalogTrack`)
+ *  and threaded into `crossfadeToTrack` as `seq` — a stale-request guard for
+ *  a quick next→prev: without it, the slower of the two `resolveTrackBlobUrl`
+ *  fetches can resolve last and silently overwrite the track the newer
+ *  request already applied. Battle/ceremony callers don't pass `seq`, so
+ *  they're unaffected. */
+let trackRequestSeq = 0;
 
 const trackBlobUrlCache = new Map<string, string | null>();
 /** Insertion order of ids with a resolved (non-null) blob URL, oldest first —
@@ -216,12 +223,16 @@ function cancelPlayerTimer(): void {
 /** Fades the current music Howl (if any) out and a new one in, over
  *  CROSSFADE_MS, to the MUSIC bus's current volume — never a hardcoded 1, so
  *  a user's volume slider is respected through every transition. Returns
- *  false (and touches nothing) if music is off or the track couldn't be
- *  fetched — callers treat that as "skip silently." */
-async function crossfadeToTrack(id: string, opts: { loop: boolean }): Promise<boolean> {
+ *  false (and touches nothing) if music is off, the track couldn't be
+ *  fetched, or (when `seq` is passed) a newer player-mode request has
+ *  already superseded this one — callers treat all three as "skip
+ *  silently." `seq` is only meaningful for the player-mode caller
+ *  (`playCatalogTrack`); battle/ceremony callers omit it and are exempt. */
+async function crossfadeToTrack(id: string, opts: { loop: boolean }, seq?: number): Promise<boolean> {
   if (!useAudioStore.getState().settings.musicOn) return false;
   const url = await resolveTrackBlobUrl(id);
   if (!url) return false;
+  if (seq !== undefined && seq !== trackRequestSeq) return false;
 
   const prev = currentMusic;
   // `format` is required here: a `blob:` URL has no file extension, and
@@ -276,8 +287,14 @@ async function playCatalogTrack(id: string): Promise<void> {
   store.setTrackError(null);
   const title = trackTitle(id);
 
-  const ok = await crossfadeToTrack(id, { loop: false });
+  const seq = ++trackRequestSeq;
+  const ok = await crossfadeToTrack(id, { loop: false }, seq);
   useAudioStore.getState().setTrackLoading(false);
+  if (seq !== trackRequestSeq) {
+    // Superseded by a newer player-mode track request (rapid next/prev) —
+    // that call owns nowPlaying/retry state now.
+    return;
+  }
   if (currentMusicMode !== 'player') {
     // Superseded by a battle/ceremony takeover while this fetch was in
     // flight — that path owns nowPlaying now, but trackLoading is cleared

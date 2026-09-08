@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AGENT_PROVIDERS, type AgentProviderId } from '@shared/agentProvider';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { saveArceusSummonConfig, summonArceus, summonArceusDevStandin } from '@/arceus';
+import { useEscapeToClose } from './useEscapeToClose';
 
 interface Props {
   onClose(): void;
@@ -36,6 +37,8 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
   // IPC round-trip settles, rather than flashing the wrong state first.
   const [cliAvailable, setCliAvailable] = useState<boolean | null>(null);
   const [devStandin, setDevStandin] = useState(false);
+
+  useEscapeToClose(onClose);
 
   useEffect(() => {
     void window.api.getHarnessHomePath().then(setCwd);

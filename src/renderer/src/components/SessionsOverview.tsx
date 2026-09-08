@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
+import { useEscapeToClose } from './useEscapeToClose';
 
 /** Full-roster grid (Phase 8 §3/§7) — opened from the topbar button or the
  *  garden's signpost prop. Picking a card selects that session and switches
@@ -19,6 +20,8 @@ export function SessionsOverview(): JSX.Element | null {
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
   const battlers = useStore((s) => s.battlers);
+
+  useEscapeToClose(() => setOpen(false), open);
 
   if (!open) return null;
 

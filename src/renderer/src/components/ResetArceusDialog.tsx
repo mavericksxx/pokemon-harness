@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { resetArceusSummonConfig } from '@/arceus';
+import { useEscapeToClose } from './useEscapeToClose';
 
 interface Props {
   onClose(): void;
@@ -15,6 +16,8 @@ interface Props {
  *  again instead of a silent auto-summon. */
 export function ResetArceusDialog({ onClose }: Props): JSX.Element {
   const [busy, setBusy] = useState(false);
+
+  useEscapeToClose(onClose);
 
   const confirm = async (): Promise<void> => {
     setBusy(true);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
+import { useEscapeToClose } from './useEscapeToClose';
 
 interface Props {
   onClose(): void;
@@ -18,6 +19,8 @@ export function NewWorkspaceDialog({ onClose }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const createWorkspace = useWorkspaceStore((s) => s.createWorkspace);
   const recentFolders = useAppSettingsStore((s) => s.settings.recentFolders);
+
+  useEscapeToClose(onClose);
 
   const pickFolder = async (): Promise<void> => {
     const picked = await window.api.chooseFolder();
