@@ -50,11 +50,16 @@ const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 /** Per-session bookkeeping the scene keeps outside the store. */
 interface Runtime {
   walker: Walker;
-  /** The patch station this session claimed for its file work. */
-  homePatch: string;
+  /** The patch station this session claimed for its file work, or null when
+   *  every one of the 6 seats was already taken at spawn time (overflow) —
+   *  null must NOT be released back to the pool, since it was never reserved. */
+  homePatch: string | null;
   /** This session's index into EVERY station list. Taken from the patch it
    *  reserved (SeatPool already keeps those distinct), so two concurrent
-   *  sessions running Bash go to different logs instead of stacking on one. */
+   *  sessions running Bash go to different logs instead of stacking on one.
+   *  An overflow session (no patch reservation) gets a distinct index from
+   *  `overflowSlot` instead, so it doesn't collide with every other overflow
+   *  session on the same wander spot. */
   slot: number;
   /** Last (station, tool, target) applied, so we don't restart the path every frame. */
   lastStation: StationKind | null;
@@ -779,7 +784,13 @@ export function GardenScene(): JSX.Element {
 
       const patchPool = new SeatPool(STATION_SPAWNS.patch);
       const runtimes = new Map<string, Runtime>();
-      let restoredWanderSlot = 0;
+      // Shared counter for every session that couldn't claim one of the 6
+      // patch seats (all 6 already taken) — gives each overflow session its
+      // own distinct slot instead of every one of them landing on slot 0 and
+      // stacking on the same wander tile. Never reset, so overflow sessions
+      // across the whole scene lifetime keep spreading out rather than
+      // re-colliding once the count wraps past STATION_SPAWNS.wander.length.
+      let overflowSlot = 0;
       snapshotWalkerTiles = () =>
         new Map([...runtimes].map(([id, runtime]) => [id, runtime.walker.tile]));
 
@@ -1068,8 +1079,12 @@ export function GardenScene(): JSX.Element {
 
       const addWalker = (session: Session): Runtime => {
         const reservedHomePatch = patchPool.reserveNext();
-        const homePatch = reservedHomePatch ?? STATION_SPAWNS.patch[0];
-        const slot = Math.max(0, STATION_SPAWNS.patch.indexOf(homePatch));
+        // No `?? STATION_SPAWNS.patch[0]` fallback here on purpose: forging an
+        // overflow session onto slot 0's tile without actually reserving it
+        // is exactly the double-booking bug this fixes (see `homePatch`'s own
+        // comment on Runtime and `removeWalker` below).
+        const homePatch = reservedHomePatch;
+        const slot = reservedHomePatch ? STATION_SPAWNS.patch.indexOf(reservedHomePatch) : overflowSlot++;
         const animation = resolveAnimation(session.pokemon, session.shiny);
         const restored = sessionsAtMount.has(session.id);
         const restoredTile = pendingWalkerTiles.get(session.id);
@@ -1079,7 +1094,7 @@ export function GardenScene(): JSX.Element {
           (restored && session.status !== 'working'
             ? reservedHomePatch
               ? spawnTileFor('patch', slot, animation.info.locomotion !== 'walk')
-              : spawnTileFor('wander', restoredWanderSlot++, animation.info.locomotion !== 'walk')
+              : spawnTileFor('wander', slot, animation.info.locomotion !== 'walk')
             : entrance);
         const walker = new Walker({
           sessionId: session.id,
@@ -1199,7 +1214,11 @@ export function GardenScene(): JSX.Element {
         // own role as a PARENT and can't cover this: it's keyed by parent id.
         battleManager.dropChallenger(id);
         battleManager.forceEnd(id);
-        patchPool.release(rt.homePatch);
+        // Only release a seat this session actually reserved — an overflow
+        // session's `homePatch` is null (see Runtime's own comment), and
+        // releasing patch[0] on its behalf would free a seat a different,
+        // still-live session legitimately owns.
+        if (rt.homePatch) patchPool.release(rt.homePatch);
         rt.walker.destroy();
         runtimes.delete(id);
         markDirty(); // a walker disappearing is a visible change with no other hook covering it

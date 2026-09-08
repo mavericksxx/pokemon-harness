@@ -26,6 +26,12 @@ export class SeatPool {
 
   /** Release a previously-reserved seat. Idempotent. */
   release(seat: string): void {
+    if (!this.claimed.has(seat)) {
+      // Releasing a seat nobody reserved here would free it out from under
+      // whichever caller actually holds it — a caller bug, not a normal path.
+      console.warn(`[SeatPool] release() called on unclaimed seat: ${seat}`);
+      return;
+    }
     this.claimed.delete(seat);
   }
 
