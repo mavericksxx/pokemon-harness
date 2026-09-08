@@ -26,6 +26,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CachedSprite, LazySpriteMeta, SpriteView } from '../shared/types';
+import { log } from './diagnostics';
 // Plain data import (JSON), not the renderer's `@assets` alias — that alias
 // is only configured for the renderer's Vite build (electron.vite.config.ts),
 // which Phase 6 does not touch.
@@ -44,6 +45,50 @@ const DEX = {
   ...(dexIndex as unknown as Record<string, DexEntryLite>),
   ...(forms as unknown as Record<string, DexEntryLite>)
 };
+
+// Every id these three exported functions ever legitimately see, straight
+// from the renderer's own callers (grepped: lazySprites.ts's `loadView`/
+// `fetchAndDecode*`/`decodeThumbnailFrame*`, all keyed by a `speciesEntry`/
+// dex id) is a key of `DEX` above — EXCEPT Arceus's 17 synthetic type-forme
+// ids (`arceus-fire`, ...), which are not real dex entries at all (see
+// arceusFormes.ts's own header) and only ever reach `fetchSpriteGif` (via
+// ArceusWarp.tsx -> lazySprites.ts's `loadLazyThumbnail`, which
+// deliberately skips the disk cache). Hardcoded here rather than imported —
+// main cannot import renderer source (separate build targets) — and must be
+// kept in sync with src/renderer/src/scene/garden/arceusFormes.ts's
+// ARCEUS_FORMES.
+const ARCEUS_FORME_IDS: ReadonlySet<string> = new Set([
+  'arceus-fire',
+  'arceus-water',
+  'arceus-electric',
+  'arceus-grass',
+  'arceus-ice',
+  'arceus-fighting',
+  'arceus-poison',
+  'arceus-ground',
+  'arceus-flying',
+  'arceus-psychic',
+  'arceus-bug',
+  'arceus-rock',
+  'arceus-ghost',
+  'arceus-dragon',
+  'arceus-dark',
+  'arceus-steel',
+  'arceus-fairy'
+]);
+
+/** Belt-and-braces alongside the known-id check below: every real id here is
+ *  lowercase alphanumeric-with-hyphens, so this also rejects a path-
+ *  traversal attempt (`/`, `\`, `..`) or an embedded NUL outright. */
+const VALID_ID_PATTERN = /^[a-z0-9-]+$/;
+
+/** Whether `id` is a real, known sprite id — a dex/form entry or one of
+ *  Arceus's forme ids. `cachePaths`/`getCachedSprite`/`saveCachedSprite`
+ *  build filesystem paths straight from `id` (`join()`), and `fetchSpriteGif`
+ *  builds a fetch URL from it — an unknown id must never reach either. */
+function isValidSpriteId(id: string): boolean {
+  return VALID_ID_PATTERN.test(id) && (id in DEX || ARCEUS_FORME_IDS.has(id));
+}
 
 const SPRITE_BASE = {
   front: {
@@ -72,6 +117,10 @@ export async function getCachedSprite(
   view: SpriteView,
   shiny: boolean
 ): Promise<CachedSprite | null> {
+  if (!isValidSpriteId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return null;
+  }
   const { png, meta } = cachePaths(id, view, shiny);
   if (!existsSync(png) || !existsSync(meta)) return null;
   try {
@@ -94,6 +143,10 @@ export async function saveCachedSprite(
   png: ArrayBuffer,
   meta: LazySpriteMeta
 ): Promise<void> {
+  if (!isValidSpriteId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return;
+  }
   await mkdir(cacheDir(), { recursive: true });
   const { png: pngPath, meta: metaPath } = cachePaths(id, view, shiny);
   await Promise.all([writeFile(pngPath, Buffer.from(png)), writeFile(metaPath, JSON.stringify(meta))]);
@@ -110,6 +163,10 @@ export async function fetchSpriteGif(
   shiny: boolean,
   explicitKind?: 'animated' | 'static'
 ): Promise<ArrayBuffer | null> {
+  if (!isValidSpriteId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return null;
+  }
   const kind = explicitKind ?? (DEX[id]?.static ? 'static' : 'animated');
   const ext = kind === 'static' ? 'png' : 'gif';
   const base = SPRITE_BASE[view][kind];
