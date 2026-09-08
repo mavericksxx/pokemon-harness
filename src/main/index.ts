@@ -983,16 +983,38 @@ app.whenReady().then(async () => {
   // creating the window, so the first renderer replay has real data when the
   // toggle is on. Disabled boots deliberately skip the disk read entirely.
   await usageService.init(appSettings.usageLimitsEnabled);
+  // Resolved (and its two awaits settled) BEFORE createWindow() below, on
+  // purpose — see the "no await between createWindow() and diskRestorePromise"
+  // invariant explained there. harnessHomeDir can be a user-configured
+  // network/iCloud path, so these awaits are not guaranteed instant.
+  harnessHomeDir = resolveHarnessHomeDir(appSettings);
+  await ensureHarnessHome(harnessHomeDir);
+  await ensureHarnessInstructions(harnessHomeDir);
   // Perf — create the window here, as soon as the above (theme + usage
-  // snapshot) is ready, instead of after the entire init chain below.
-  // show:false + ready-to-show already hide the empty-window flash; this
-  // additionally lets the renderer bundle start loading/mounting concurrently
-  // with the rest of boot instead of waiting for all of it first. Everything
-  // still below either doesn't affect window/renderer readiness (background
-  // watchers already started above, diagnostics, update checks) or only
-  // needs to be settled by the time a real user-triggered pty spawn can
-  // happen (harness instructions/advisor model/shell-fallback wiring, codex
-  // hooks) — which in practice is far later than window/bundle load takes.
+  // snapshot + harness home) is ready, instead of after the entire init
+  // chain below. show:false + ready-to-show already hide the empty-window
+  // flash; this additionally lets the renderer bundle start loading/mounting
+  // concurrently with the rest of boot instead of waiting for all of it
+  // first. Everything still below either doesn't affect window/renderer
+  // readiness (background watchers already started above, diagnostics,
+  // update checks) or only needs to be settled by the time a real
+  // user-triggered pty spawn can happen (advisor model/shell-fallback
+  // wiring, codex hooks) — which in practice is far later than window/bundle
+  // load takes.
+  //
+  // Correctness-critical: nothing between this call and the
+  // `diskRestorePromise = restoreFromDisk(appSettings)` reassignment below
+  // may contain an `await` (a fire-and-forget async call like
+  // `ensureClaudeTheme(...)` below is fine — the yield only matters if WE
+  // await it). The renderer's first mount races a `Promise.all` of
+  // `sessions:restore`/`app:getDiskRestoreInfo`/`workspaces:list`, all of
+  // which await `diskRestorePromise` — until that reassignment runs,
+  // `diskRestorePromise` is still the placeholder empty-resolved promise
+  // from its module-scope initialization, so an `await` here would open a
+  // window for those IPC calls to land on stale/empty data while
+  // `restoreFromDisk()` is still respawning PTYs main-side (orphaned
+  // processes with no tab). Keeping this stretch synchronous is what
+  // guarantees that can't happen.
   createWindow(resolveWindowBg(appSettings.theme));
   hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   ptyManager.setShellFallbackEnabled(appSettings.shellFallbackEnabled);
@@ -1011,9 +1033,6 @@ app.whenReady().then(async () => {
   // default it starts with (see usageService.ts's `setExcludedProviders`).
   usageService.setExcludedProviders(appSettings.usageExcludedProviders);
   usageService.setEnabled(appSettings.usageLimitsEnabled);
-  harnessHomeDir = resolveHarnessHomeDir(appSettings);
-  await ensureHarnessHome(harnessHomeDir);
-  await ensureHarnessInstructions(harnessHomeDir);
   ptyManager.setHarnessInstructions(appSettings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
   ptyManager.setAdvisorModel(appSettings.advisorModel);
   codexDelegateModel = appSettings.codexDelegateModel;

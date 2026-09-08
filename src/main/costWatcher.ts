@@ -332,6 +332,11 @@ export class CostWatcher {
     } catch {
       return; // not written yet, or gone — retry next tick
     }
+    // The file demonstrably exists now — if `watchPath` failed at
+    // registration time (ENOENT, since the transcript didn't exist yet
+    // then), this is the retry: `watchPath` unwatches-first, so calling it
+    // again when already watching is a safe no-op.
+    if (!this.watchers.has(agentId)) this.watchPath(agentId, s.path);
     if (size < s.offset) {
       // Rotated/truncated — restart from scratch rather than reading garbage,
       // including the cumulative counters (a shrunk file means the earlier
