@@ -1,5 +1,7 @@
 # Pokéharness
 
+[![CI](https://github.com/mavericksxx/pokemon-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/mavericksxx/pokemon-harness/actions/workflows/ci.yml)
+
 A local-only, single-user desktop coding harness: your coding-agent CLI sessions
 shown as Pokemon-style walkers moving around a pixel-art garden.
 
