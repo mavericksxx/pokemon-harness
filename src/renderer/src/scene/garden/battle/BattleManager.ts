@@ -1109,8 +1109,19 @@ export class BattleManager {
       };
       pb.subs.push(sub);
       if (!isBundled(species.id)) {
+        // Destroyed/identity guard (2026-09-08, see startMega's own comment
+        // for the full reasoning) — `pb!.subs.includes(sub)` already goes
+        // false the instant this sub is dropped (every destroy path in this
+        // file clears it from `pb.subs` before or in the same synchronous
+        // step as the actual `.destroy()` call), but the identity/container
+        // checks are cheap belt-and-braces against a `pb` this exact closure
+        // still references having been torn down and replaced wholesale.
         void this.deps.loadLazyAnimation(species.id, false).then((real) => {
-          if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+          if (!real) return;
+          if (this.battles.get(entry.parentId) !== pb) return;
+          if (!pb!.subs.includes(sub)) return;
+          if (battler.container.destroyed) return;
+          battler.setAnimation(real);
         });
       }
     }
@@ -1445,8 +1456,14 @@ export class BattleManager {
     // A shiny pick always needs the lazy fetch too (see resolveAnimation),
     // even for an otherwise-bundled species.
     if (!isBundled(species.id) || shiny) {
+      // Destroyed/identity guard — see respawnFromStore's own comment on this
+      // exact pattern.
       void this.deps.loadLazyAnimation(species.id, shiny).then((real) => {
-        if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+        if (!real) return;
+        if (this.battles.get(parentId) !== pb) return;
+        if (!pb!.subs.includes(sub)) return;
+        if (battler.container.destroyed) return;
+        battler.setAnimation(real);
       });
     }
   }
@@ -1883,8 +1900,14 @@ export class BattleManager {
       tile: home
     });
     if (!isBundled(species.id)) {
+      // Destroyed/identity guard — see respawnFromStore's own comment on this
+      // exact pattern.
       void this.deps.loadLazyAnimation(species.id, false).then((real) => {
-        if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+        if (!real) return;
+        if (this.battles.get(parentId) !== pb) return;
+        if (!pb!.subs.includes(sub)) return;
+        if (battler.container.destroyed) return;
+        battler.setAnimation(real);
       });
     }
   }
@@ -2414,10 +2437,25 @@ export class BattleManager {
       // the same reason the 'ending' case already was: a mega that lands
       // after the fight reads as over is worse than no mega at all. The
       // `admitBattle` prefetch (#1 above) is what keeps this the rare path.
+      //
+      // Destroyed/torn-down-parent fix (2026-09-08): none of the staleness
+      // checks above notice a hard teardown (`forceEnd`/`destroyBattle`) that
+      // happened while this fetch was still in flight — `destroyBattle` now
+      // resets `pb.wave` back to 'idle' (see its own comment), which the
+      // `pb.wave !== 'faceoff'` check above already catches for the common
+      // case, but a torn-down `pb` could in principle be replaced by a BRAND
+      // NEW `ParentBattle` for the same `parentId` (a fresh spawn) that
+      // happens to reach 'faceoff' again before this promise resolves — the
+      // identity check below is what actually distinguishes "this exact
+      // wave, still tracked" from "some other wave that reused the same
+      // parentId". The walker's own `container.destroyed` is the last-resort
+      // backstop for a teardown this file doesn't yet reset `pb` for.
       if (pb.megaActive) return;
       if (pb.waveStartedAt !== token) return;
       if (pb.wave !== 'faceoff') return;
       if (pb.parentWalker.isEvolving) return;
+      if (this.battles.get(pb.parentId) !== pb) return;
+      if (pb.parentWalker.container.destroyed) return;
       if (!anim) {
         safeLogDiagnostic('battle', 'warn', 'mega evolve failed — sprite unavailable', { speciesId, megaId, shiny });
         return;
@@ -2438,6 +2476,23 @@ export class BattleManager {
       // was instant, there is no ceremony to wait for).
       pb.megaHold = pb.parentWalker.isMegaCeremonyActive;
       safeLogDiagnostic('battle', 'info', 'mega evolve started', { speciesId, megaId, shiny, held: pb.megaHold });
+    }).catch((err) => {
+      // Belt-and-braces try/catch (2026-09-08): this whole callback used to
+      // run as a bare `.then()` with nothing catching a synchronous throw
+      // from deep inside `startMegaCeremony` (e.g. the reduced-motion path's
+      // `setTemporaryForm` -> `applyTempForm` -> `sprite.configure` on an
+      // already-destroyed Graphics — see file header's CRITICAL fix). An
+      // uncaught throw here is a floating rejection outside any try/catch
+      // this app's own error boundaries cover (GardenScene.tsx's ticker
+      // catch only wraps the SYNCHRONOUS per-frame call, not a `.then()`
+      // firing on its own microtask later).
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle', 'error', 'startMega post-await apply threw', {
+        parentId: pb.parentId,
+        speciesId,
+        megaId,
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
     });
   }
 
@@ -3000,6 +3055,19 @@ export class BattleManager {
       bumpCounter('subagentsCleanedUp');
       this.deps.onBattlerRemoved(sub.key);
     }
+    // Stale-wave-state fix (2026-09-08): this method used to leave
+    // `pb.wave`/`pb.currentAttack` exactly as they were at the moment of
+    // teardown — every OTHER conclusion path (`concludeWave`,
+    // `forceConcludeWave`) resets both, but `forceEnd`/`dispose` only delete
+    // `pb` from `this.battles` afterward, which does nothing to the `pb`
+    // object itself. A late-resolving `startMega` promise (or anything else
+    // still holding a reference to this exact `pb`) would then find every one
+    // of its own staleness guards (`pb.wave !== 'faceoff'`, `megaActive`)
+    // still reading as if the fight were live, and run its post-await body
+    // against a walker whose container this loop (or `forceEnd`'s own
+    // teardown of `pb.parentWalker`) may already have destroyed.
+    pb.wave = 'idle';
+    pb.currentAttack = null;
     pb.parentWalker.setForcedBackView(false);
     this.revertMega(pb);
   }
