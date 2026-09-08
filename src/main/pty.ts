@@ -40,6 +40,22 @@ const REPLAY_MAX_CHARS = 200_000;
  *  usage (garden + delegates) while still bounding worst case. */
 const MAX_CONCURRENT_SESSIONS = 64;
 
+/** Cap on `lastExitCodes` (a dead session's id is normally removed the one
+ *  time `sessionRespawn.ts`'s boot restore consumes it via
+ *  `takeLastExitCode` — see that map's own comment) — belt-and-braces
+ *  against any id that's never consumed (a session that dies and is never
+ *  part of a boot respawn) piling up for the life of the process. Evicted
+ *  oldest-by-insertion-order, same shape as `MAX_CONCURRENT_SESSIONS`. */
+const MAX_LAST_EXIT_CODES = 200;
+
+/** How long a first-class delegate's natural-exit snapshot stays in
+ *  `delegateExits` before an unclaimed entry expires — same set-then-
+ *  auto-clear idea as index.ts's `pendingCrashInfo`/`PENDING_CRASH_INFO_TTL_MS`,
+ *  but per-entry (a `setTimeout` tied to each insertion, cleared the moment
+ *  it's claimed via `getDelegateExit`/`kill`) rather than one shared timer,
+ *  since more than one delegate can exit before its parent ever asks. */
+const DELEGATE_EXIT_TTL_MS = 10 * 60 * 1000;
+
 interface PtySession {
   id: string;
   proc: pty.IPty;
@@ -68,8 +84,10 @@ interface PtySession {
 export class PtyManager {
   private sessions = new Map<string, PtySession>();
   /** Natural exits retained briefly for first-class delegates whose renderer
-   *  adoption can arrive after a very fast `codex exec` has already ended. */
-  private delegateExits = new Map<string, PtyExit>();
+   *  adoption can arrive after a very fast `codex exec` has already ended.
+   *  Each entry carries its own expiry timer (`DELEGATE_EXIT_TTL_MS`) so an
+   *  adoption that never comes doesn't pin the entry here forever. */
+  private delegateExits = new Map<string, { exit: PtyExit; timer: ReturnType<typeof setTimeout> }>();
   private webContents: WebContents | null = null;
   /** BUG/UX fix — whether a naturally-exited session's pty respawns the
    *  user's shell instead of leaving the tab dead. Set from
@@ -193,7 +211,7 @@ export class PtyManager {
 
     // A respawn reusing a live id would orphan the old child. Kill it first.
     if (this.sessions.has(opts.id)) this.kill(opts.id);
-    this.delegateExits.delete(opts.id);
+    this.clearDelegateExit(opts.id);
     this.lastExitCodes.delete(opts.id);
 
     // Cap checked AFTER the reused-id kill above, so a respawn under an
@@ -377,7 +395,7 @@ export class PtyManager {
         if (exitCode !== 0) {
           log('pty', 'warn', 'session exited nonzero', { id: opts.id, command: session.command, exitCode, signal });
         }
-        this.lastExitCodes.set(opts.id, exitCode);
+        this.setLastExitCode(opts.id, exitCode);
         this.sessions.delete(opts.id);
         this.onSessionsChanged?.();
         // GitHub #8 — unconditionally, even when a fallback shell is about to
@@ -388,7 +406,10 @@ export class PtyManager {
         // just leave the watcher's 2s poll spinning for a session that's no
         // longer an agentic CLI.
         this.onSessionExited?.(opts.id);
-        if (session.isDelegate) this.delegateExits.set(opts.id, { exitCode, signal });
+        if (session.isDelegate) {
+          const timer = setTimeout(() => this.delegateExits.delete(opts.id), DELEGATE_EXIT_TTL_MS);
+          this.delegateExits.set(opts.id, { exit: { exitCode, signal }, timer });
+        }
 
         // BUG/UX fix — a real terminal drops you to a shell when the
         // foreground process exits; this app used to just leave the tab
@@ -630,9 +651,19 @@ export class PtyManager {
    *  sessions do not retain exit state because their renderer listener is
    *  established before their PTY is spawned. */
   getDelegateExit(id: string): PtyExit | null {
-    const exit = this.delegateExits.get(id) ?? null;
-    if (exit) this.delegateExits.delete(id);
-    return exit;
+    const entry = this.delegateExits.get(id);
+    if (!entry) return null;
+    this.clearDelegateExit(id);
+    return entry.exit;
+  }
+
+  /** Removes a `delegateExits` entry and its TTL timer together — a bare
+   *  `Map.delete` would leave the timer to fire later against an
+   *  already-gone (or, worse, id-reused) entry. */
+  private clearDelegateExit(id: string): void {
+    const entry = this.delegateExits.get(id);
+    if (entry) clearTimeout(entry.timer);
+    this.delegateExits.delete(id);
   }
 
   write(id: string, data: string): PtyResult {
@@ -662,13 +693,13 @@ export class PtyManager {
     if (!s) {
       // A natural delegate exit already removed the live PTY; this is the
       // later recall bookkeeping call, so drop its retained exit snapshot too.
-      this.delegateExits.delete(id);
+      this.clearDelegateExit(id);
       return { ok: false, error: `no pty: ${id}` };
     }
     // Delete BEFORE killing: onExit fires asynchronously and its identity guard
     // then correctly treats the dying process as stale.
     this.sessions.delete(id);
-    this.delegateExits.delete(id);
+    this.clearDelegateExit(id);
     this.onSessionsChanged?.();
     this.hookBridge?.cleanupSession(id, hookTmpDir());
     try {
@@ -726,7 +757,26 @@ export class PtyManager {
     return session?.replay ?? '';
   }
 
-  getLastExitCode(id: string): number | undefined { return this.lastExitCodes.get(id); }
+  /** Records `id`'s exit code (`spawn()`'s `onExit`), evicting the oldest
+   *  entry first if this would push the map past `MAX_LAST_EXIT_CODES` — see
+   *  that constant's own comment. */
+  private setLastExitCode(id: string, exitCode: number): void {
+    if (!this.lastExitCodes.has(id) && this.lastExitCodes.size >= MAX_LAST_EXIT_CODES) {
+      const oldest = this.lastExitCodes.keys().next().value;
+      if (oldest !== undefined) this.lastExitCodes.delete(oldest);
+    }
+    this.lastExitCodes.set(id, exitCode);
+  }
+
+  /** Reads and removes `id`'s last recorded exit code — consumed at most
+   *  once, by `sessionRespawn.ts`'s boot restore (its one caller), so a
+   *  claimed entry doesn't linger in the map until `MAX_LAST_EXIT_CODES`
+   *  eviction eventually gets to it. */
+  takeLastExitCode(id: string): number | undefined {
+    const code = this.lastExitCodes.get(id);
+    this.lastExitCodes.delete(id);
+    return code;
+  }
 
   /** Bulk-kill for app quit. Closing the pty HUPs the child's process group, so
    *  trees die with it on POSIX. */
