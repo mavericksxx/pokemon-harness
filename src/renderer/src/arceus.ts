@@ -83,6 +83,11 @@ async function spawnArceus(
   if (existing) useStore.getState().removeSession(existing.id);
   if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
 
+  // Mirrors sessions.ts's `startSession`: `addSession` below selects Arceus
+  // by default, so a failed summon must not leave whatever was selected
+  // before this call permanently swapped out for a session that's about to
+  // be torn down again in the catch block.
+  const previousSelectedId = useStore.getState().selectedId;
   let sessionAdded = false;
   try {
     createTerminal(ARCEUS_SESSION_ID, provider);
@@ -114,7 +119,12 @@ async function spawnArceus(
     useStore.getState().updateSession(ARCEUS_SESSION_ID, { status: 'idle', cwd: res.cwd ?? req.cwd });
   } catch (err) {
     if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
-    if (sessionAdded) useStore.getState().removeSession(ARCEUS_SESSION_ID);
+    if (sessionAdded) {
+      useStore.getState().removeSession(ARCEUS_SESSION_ID);
+      if (previousSelectedId && useStore.getState().sessions.some((session) => session.id === previousSelectedId)) {
+        useStore.getState().select(previousSelectedId);
+      }
+    }
     throw err instanceof Error ? err : new Error(String(err));
   }
 }
