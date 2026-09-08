@@ -11,11 +11,12 @@ import {
 import type { MenuItemConstructorOptions } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { PtyManager } from './pty';
 import { handle } from './ipc/handle';
 import { registerPtyIpc } from './ipc/pty';
 import { registerSessionsIpc } from './ipc/sessions';
+import { registerWorkspacesIpc } from './ipc/workspaces';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { CODEX_HOOKS_NOTICE_TEXT, ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
@@ -57,7 +58,7 @@ import type {
 import type { AudioSettings } from '../shared/audioTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
 import type { TerminalSettings } from '../shared/terminalTypes';
-import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
+import { DEFAULT_WORKSPACE_ID, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
 import type { ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
@@ -1333,105 +1334,20 @@ handle('arceus:saveSummonConfig', (_e, config: ArceusSummonConfig) =>
 );
 handle('arceus:resetSummonConfig', () => resetArceusSummonConfig(harnessHomeDir));
 
-// ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────────
-// Every handler here returns the FULL current snapshot (not just the one
-// field that changed) so the renderer always hydrates from one authoritative
-// source instead of patching its local copy — most load-bearing for delete,
-// where main may have to pick a new active workspace itself.
-handle('workspaces:list', async () => {
-  // workspaceRegistry is populated inside restoreFromDisk() — await the same
-  // promise sessions:restore does so this never races ahead of it.
-  await diskRestorePromise;
-  return workspaceRegistry;
-});
-
-handle('workspaces:create', (_e, name: string, primaryFolder: string) => {
-  const id = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const workspace: WorkspaceRecord = {
-    id,
-    name: name.trim() || basename(primaryFolder.replace(/\/+$/, '')) || 'new garden',
-    primaryFolder,
-    createdAt: Date.now()
-  };
-  // A freshly created workspace becomes the active one immediately — there's
-  // no reason to create one and keep looking at another.
-  workspaceRegistry = { workspaces: [...workspaceRegistry.workspaces, workspace], activeWorkspaceId: id };
-  saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:rename', (_e, id: string, name: string) => {
-  const trimmed = name.trim();
-  if (trimmed) {
-    workspaceRegistry = {
-      ...workspaceRegistry,
-      workspaces: workspaceRegistry.workspaces.map((w) => (w.id === id ? { ...w, name: trimmed } : w))
-    };
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  }
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:update', (_e, id: string, fields: { name?: string; primaryFolder?: string; accent?: number }) => {
-  if (workspaceRegistry.workspaces.some((workspace) => workspace.id === id)) {
-    workspaceRegistry = {
-      ...workspaceRegistry,
-      workspaces: workspaceRegistry.workspaces.map((workspace) =>
-        workspace.id === id
-          ? {
-              ...workspace,
-              ...(fields.name?.trim() ? { name: fields.name.trim() } : {}),
-              ...(fields.primaryFolder?.trim() ? { primaryFolder: fields.primaryFolder.trim() } : {}),
-              ...(fields.accent !== undefined ? { accent: fields.accent } : {})
-            }
-          : workspace
-      )
-    };
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  }
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:setActive', (_e, id: string) => {
-  if (workspaceRegistry.workspaces.some((w) => w.id === id) && id !== workspaceRegistry.activeWorkspaceId) {
-    workspaceRegistry = { ...workspaceRegistry, activeWorkspaceId: id };
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  }
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:delete', (_e, id: string) => {
-  if (workspaceRegistry.workspaces.length <= 1) {
-    return { ok: false, error: "can't delete your only workspace.", ...workspaceRegistry };
-  }
-  // Authoritative liveness check (ptyManager, not merely `status !== 'done'`
-  // — same distinction main draws everywhere else it counts live sessions)
-  // — the renderer is expected to only ever offer delete once its own view
-  // agrees there's nothing live left, but this is the actual guard.
-  const liveIds = new Set(ptyManager.list().map((p) => p.id));
-  // Arceus (Phase 8.8) is excluded from both checks below: he isn't really
-  // "in" whatever workspace his absent workspaceId would otherwise default
-  // to, so his liveness must never block a workspace delete, and he must
-  // never be dropped as if he were that workspace's orphaned session.
-  const hasLiveSession = sessionRegistry.some(
-    (s) => !s.isArceus && (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === id && liveIds.has(s.id)
-  );
-  if (hasLiveSession) {
-    return { ok: false, error: 'this workspace still has running sessions.', ...workspaceRegistry };
-  }
-
-  // Drop this workspace's persisted-dead sessions (finished-but-still-listed
-  // records) along with it, so deleting a workspace never leaves an orphaned
-  // entry with a workspaceId nothing in the registry owns anymore.
-  sessionRegistry = sessionRegistry.filter((s) => s.isArceus || (s.workspaceId ?? DEFAULT_WORKSPACE_ID) !== id);
-  sessionPersistence.schedule({ sessions: sessionRegistry, lastSelectedId });
-
-  const workspaces = workspaceRegistry.workspaces.filter((w) => w.id !== id);
-  const activeWorkspaceId =
-    workspaceRegistry.activeWorkspaceId === id ? workspaces[0].id : workspaceRegistry.activeWorkspaceId;
-  workspaceRegistry = { workspaces, activeWorkspaceId };
-  saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  return { ok: true, ...workspaceRegistry };
+registerWorkspacesIpc({
+  ptyManager,
+  sessionPersistence,
+  getWorkspaceRegistry: () => workspaceRegistry,
+  setWorkspaceRegistry: (snapshot) => {
+    workspaceRegistry = snapshot;
+  },
+  getHarnessHomeDir: () => harnessHomeDir,
+  getDiskRestorePromise: () => diskRestorePromise,
+  getSessionRegistry: () => sessionRegistry,
+  setSessionRegistry: (sessions) => {
+    sessionRegistry = sessions;
+  },
+  getLastSelectedId: () => lastSelectedId
 });
 
 // ─── Config ─────────────────────────────────────────────────────────────────
