@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useUsageStore } from '@/store/usageStore';
 import { useStore } from '@/store/store';
@@ -106,7 +107,10 @@ function UsageWindowRow({ window: w, now }: { window: UsageWindow; now: number }
         <span className="usage-window-pct">{Math.round(w.usedPercent)}%</span>
       </div>
       <div className="usage-bar">
-        <div className={`usage-bar-fill usage-bar-fill--${tone}`} style={{ width: `${Math.round(w.usedPercent)}%` }} />
+        <div
+          className={`usage-bar-fill usage-bar-fill--${tone}`}
+          style={{ '--fill': Math.round(w.usedPercent) / 100 } as CSSProperties}
+        />
       </div>
       {(resetText || w.spend) && (
         <div className="usage-window-foot">
@@ -271,7 +275,7 @@ export function UsageChip(): JSX.Element | null {
                   <span className="hp-bar">
                     <span
                       className={`hp-bar-fill${gaugeToneValue !== 'normal' ? ` ${gaugeToneValue}` : ''}`}
-                      style={{ width: `${Math.round(w.usedPercent)}%` }}
+                      style={{ '--fill': Math.round(w.usedPercent) / 100 } as CSSProperties}
                     />
                   </span>
                   <span className="usage-chip-gauge-label">{w.label}</span> <b>{Math.round(w.usedPercent)}%</b>

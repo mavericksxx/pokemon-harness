@@ -2511,10 +2511,13 @@ body.garden-lowres .garden canvas {
 
 .hp-bar-fill {
   display: block;
+  width: 100%;
   height: 100%;
   background-color: var(--status-done);
   background-image: repeating-linear-gradient(to right, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 4px);
-  transition: width 400ms steps(2, end);
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
+  transition: transform 400ms steps(2, end);
 }
 
 .hp-bar-fill.warn {
@@ -2546,10 +2549,13 @@ body.garden-lowres .garden canvas {
  * bar" texture — a fixed-opacity dark overlay, so it reads correctly over
  * any of the three fill colors in either theme. */
 .usage-bar-fill {
+  width: 100%;
   height: 100%;
   background-color: var(--status-done);
   background-image: repeating-linear-gradient(to right, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 4px);
-  transition: width 400ms steps(2, end);
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
+  transition: transform 400ms steps(2, end);
 }
 
 .usage-bar-fill--warn {

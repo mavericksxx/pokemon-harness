@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useStore } from '@/store/store';
 import type { Session } from '@/store/store';
 import { ModelBadge } from '@/components/ModelBadge';
@@ -55,7 +56,10 @@ export function SessionStatusStrip({ session }: Props): JSX.Element | null {
       <span className="status-strip-seg">
         context
         <div className="hp-bar">
-          <div className={`hp-bar-fill${tone !== 'normal' ? ` ${tone}` : ''}`} style={{ width: `${contextPct}%` }} />
+          <div
+            className={`hp-bar-fill${tone !== 'normal' ? ` ${tone}` : ''}`}
+            style={{ '--fill': contextPct / 100 } as CSSProperties}
+          />
         </div>
         <span className="status-strip-ctx-num">
           {contextPct}% {formatContextCompact(cost.contextTokens)}/{formatContextCompact(cost.contextWindow)}
