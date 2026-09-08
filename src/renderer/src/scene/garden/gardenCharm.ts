@@ -298,6 +298,14 @@ export class GardenCharm {
     return true;
   }
 
+  /** True while `sessionId`'s walker is mid-errand (walking to/from a bush).
+   *  GardenScene's own station reconcile checks this alongside its
+   *  isBattling/isNapping-style guards so it doesn't stayPut() a walker out
+   *  from under an errand this class already sent it on. */
+  isBusy(sessionId: string): boolean {
+    return this.charmStates.get(sessionId)?.busy ?? false;
+  }
+
   private progressErrand(walker: Walker, cs: CharmState): void {
     cs.busyElapsedS += 1;
     const bush = cs.bushIndex !== null ? this.bushes[cs.bushIndex] : undefined;
@@ -339,6 +347,18 @@ export class GardenCharm {
       if (!cs) {
         cs = { cooldownS: this.randomCooldown(), busy: false, bushIndex: null, busyElapsedS: 0 };
         this.charmStates.set(session.id, cs);
+      }
+
+      if (cs.busy && session.status !== 'idle') {
+        // The session stopped being idle mid-errand (started working, got
+        // blocked, finished) — drop the errand right away instead of
+        // leaving `busy` set until ERRAND_TIMEOUT_S catches it, which was
+        // silently stalling this session's own station reconcile in the
+        // meantime (see GardenScene.tsx's `isBusy` guard).
+        cs.busy = false;
+        cs.bushIndex = null;
+        cs.busyElapsedS = 0;
+        continue;
       }
 
       if (cs.busy) {

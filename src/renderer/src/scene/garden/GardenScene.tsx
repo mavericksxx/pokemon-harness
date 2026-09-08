@@ -1415,10 +1415,19 @@ export function GardenScene(): JSX.Element {
           // walker up to its parent — truncating the approach path mid-stride.
           // Keyed by the DELEGATE's id, where `isBattling` is keyed by the
           // parent's; both are true at once during a delegate battle.
+          //
+          // GardenCharm's own `isBusy` gets the identical treatment: an idle
+          // session's status doesn't change while it's off on a berry errand,
+          // so without this guard the `stayPut()` branch below would fire on
+          // EVERY reconcile during the errand (this function reruns on every
+          // store change) and truncate the walker's goTo path to the bush
+          // after a single tile, stranding it until GardenCharm's own
+          // ERRAND_TIMEOUT_S gave up.
           if (
             !battleManager.isBattling(session.id) &&
             !battleManager.isChallenger(session.id) &&
-            !walker.isNapping
+            !walker.isNapping &&
+            !gardenCharm.isBusy(session.id)
           ) {
             if (session.status !== 'working') {
               // Idle/starting/blocked/done walkers own their current
