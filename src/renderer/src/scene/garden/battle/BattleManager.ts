@@ -617,10 +617,9 @@ interface SubBattler {
    *  instead of only inferable from frozen counter snapshots after the
    *  fact. */
   visibleLogged: boolean;
-  /** State for the intermittent roaming label and its live-tool override. */
+  /** State for the intermittent roaming label. */
   roamLabelElapsedMs: number;
   roamLabelCycleMs: number;
-  toolBubbleRemainingMs: number;
   roamBubbleMode: 'hidden' | 'label' | 'tool';
 }
 
@@ -1128,7 +1127,6 @@ export class BattleManager {
         visibleLogged: false,
         roamLabelElapsedMs: bubbleTiming.elapsedMs,
         roamLabelCycleMs: bubbleTiming.cycleMs,
-        toolBubbleRemainingMs: 0,
         roamBubbleMode: 'hidden'
       };
       pb.subs.push(sub);
@@ -1478,7 +1476,6 @@ export class BattleManager {
       visibleLogged: false,
       roamLabelElapsedMs: bubbleTiming.elapsedMs,
       roamLabelCycleMs: bubbleTiming.cycleMs,
-      toolBubbleRemainingMs: 0,
       roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
@@ -1607,7 +1604,6 @@ export class BattleManager {
       visibleLogged: true,
       roamLabelElapsedMs: 0,
       roamLabelCycleMs: ROAM_LABEL_CYCLE_MIN_MS,
-      toolBubbleRemainingMs: 0,
       roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
@@ -1962,7 +1958,6 @@ export class BattleManager {
       visibleLogged: false,
       roamLabelElapsedMs: bubbleTiming.elapsedMs,
       roamLabelCycleMs: bubbleTiming.cycleMs,
-      toolBubbleRemainingMs: 0,
       roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
@@ -2017,7 +2012,6 @@ export class BattleManager {
     sub.lifecycle = 'queued';
     sub.queuedSince = Date.now();
     sub.queueEligibleAt = null;
-    sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.showBubbleLabel();
   }
@@ -2052,7 +2046,6 @@ export class BattleManager {
       // `isPoofedOut` that can never become true.
       if (this.isDelegateSub(sub)) continue;
       sub.lifecycle = 'leaving';
-      sub.toolBubbleRemainingMs = 0;
       sub.roamBubbleMode = 'hidden';
       sub.battler.hideBubble();
       sub.battler.startPoofOut();
@@ -2849,7 +2842,6 @@ export class BattleManager {
    *  removes it. */
   private retireSub(sub: SubBattler): void {
     sub.lifecycle = 'retired';
-    sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
     // Battle stance is released for EVERY sub here, delegate included —
@@ -2901,7 +2893,6 @@ export class BattleManager {
     const bubbleTiming = roamingBubbleTiming(sub.key);
     sub.roamLabelElapsedMs = bubbleTiming.elapsedMs;
     sub.roamLabelCycleMs = bubbleTiming.cycleMs;
-    sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.roamingSince = Date.now();
     sub.queueEligibleAt = null;
@@ -2966,17 +2957,12 @@ export class BattleManager {
     }
   }
 
-  /** Drive Tier 1's intermittent label cadence. The Tier 2 tool-bubble
-   *  takeover this once guarded is now dead (nothing sets
-   *  toolBubbleRemainingMs above 0 anymore — see showSubagentTool), so this
-   *  guard is a permanent no-op kept only because the field/type it reads
-   *  are still declared. */
+  /** Drive Tier 1's intermittent label cadence. (The Tier 2 tool-bubble
+   *  takeover this once guarded — a countdown field this sub carried — was
+   *  dead code, removed 2026-09-08: nothing ever set it above 0, see
+   *  showSubagentTool.) */
   private updateRoamingBubble(sub: SubBattler, dt: number): void {
     sub.roamLabelElapsedMs = (sub.roamLabelElapsedMs + dt * 1000) % sub.roamLabelCycleMs;
-    if (sub.toolBubbleRemainingMs > 0) {
-      sub.toolBubbleRemainingMs = Math.max(0, sub.toolBubbleRemainingMs - dt * 1000);
-      if (sub.toolBubbleRemainingMs > 0) return;
-    }
 
     const shouldShowLabel = !!sub.label && sub.roamLabelElapsedMs < ROAM_LABEL_VISIBLE_MS;
     const nextMode: SubBattler['roamBubbleMode'] = shouldShowLabel ? 'label' : 'hidden';
