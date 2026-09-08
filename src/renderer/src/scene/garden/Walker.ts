@@ -10,6 +10,7 @@ import { evolutionConfig } from './evolution';
 import { markDirty } from './renderDirty';
 import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { SessionStatus } from '@shared/types';
+import { pinAnimation, unpinAnimation } from './lazySprites';
 
 /**
  * One session's avatar in the garden.
@@ -141,6 +142,26 @@ export class Walker {
    *  answers "is a mega in flight for this wave" now; this answers only "is a
    *  temporary form currently on screen". */
   private tempFormBase: PokemonAnimation | null = null;
+
+  /** The animation currently protected from lazySprites.ts's cache eviction
+   *  (see pinAnimation/unpinAnimation there) because it's this walker's LIVE
+   *  sprite right now. Kept in lockstep with whatever `this.sprite` actually
+   *  shows — every place that swaps the sprite's species goes through
+   *  `swapPinnedLive` so the pin transfers atomically instead of leaving a
+   *  gap where the incoming or outgoing species is briefly unprotected. */
+  private pinnedLive: PokemonAnimation;
+  /** Set for the full ~15s of an evolution ceremony's buildup (evolve(),
+   *  below) — the target species is shown via silhouette well before
+   *  `setAnimation` (the ceremony's own reveal) ever runs, so it must be
+   *  pinned from the moment the ceremony starts, not just once it goes live.
+   *  Cleared (and its pin released) either by `setAnimation` transferring it
+   *  to `pinnedLive`, or by `destroy()` if the ceremony is aborted first. */
+  private pinnedEvolveTarget: PokemonAnimation | null = null;
+  /** Same idea as `pinnedEvolveTarget`, for a staged mega ceremony's target
+   *  (startMegaCeremony, below) — its silhouette shows the mega form for the
+   *  whole buildup before `applyMegaCeremonySwap` ever runs. Cleared there,
+   *  or by `cancelMegaCeremony` if the ceremony is aborted first. */
+  private pinnedMegaTarget: PokemonAnimation | null = null;
   /** Elapsed ms into the current mega flash beat, or null when idle — see
    *  flashSwap(). */
   private megaFlashT: number | null = null;
@@ -172,6 +193,8 @@ export class Walker {
     this.sessionId = opts.sessionId;
     this.map = opts.map;
     this.locomotion = opts.animation.info.locomotion;
+    this.pinnedLive = opts.animation;
+    pinAnimation(this.pinnedLive);
     this.dimLayer = opts.dimLayer;
     this.flashLayer = opts.flashLayer;
     this.ceremonyLayer = opts.ceremonyLayer;
@@ -472,6 +495,14 @@ export class Walker {
     // Cancel-without-applying — the mega form it was about to reveal is
     // superseded by the species this walker is evolving into.
     this.cancelMegaCeremony();
+    // The ceremony shows `nextAnimation` (via silhouette) for its whole ~15s
+    // buildup, well before `setAnimation` (its own reveal, below) ever runs —
+    // pin it now so lazySprites.ts's eviction can't destroy it out from under
+    // a ceremony that's still mid-flight. `setAnimation` transfers this pin
+    // to `pinnedLive` at the reveal; `destroy()` releases it if the ceremony
+    // is aborted before that.
+    this.pinnedEvolveTarget = nextAnimation;
+    pinAnimation(nextAnimation);
     const ts = this.map.tileSize;
     this.ceremony = new EvolutionCeremony({
       container: this.container,
@@ -546,7 +577,14 @@ export class Walker {
     // superseded (evolving, or a fresh lazy sprite landing, mid-battle).
     this.cancelMegaFlash();
     this.cancelMegaCeremony();
-    this.tempFormBase = null;
+    this.setTempFormBase(null);
+    this.swapPinnedLive(animation);
+    if (this.pinnedEvolveTarget === animation) {
+      // The evolution ceremony's own reveal — its buildup-long reservation
+      // (see evolve()) is now covered by `pinnedLive` above, so release it.
+      unpinAnimation(this.pinnedEvolveTarget);
+      this.pinnedEvolveTarget = null;
+    }
     this.sprite.configure(animation);
     this.locomotion = animation.info.locomotion;
     this.layoutForSprite();
@@ -555,6 +593,28 @@ export class Walker {
     // counter (still primed from before) silently disagrees.
     this.backViewBias = 0;
     this.facingTarget = null;
+  }
+
+  /** Transfers the `pinnedLive` protection (lazySprites.ts's eviction guard)
+   *  from whatever this walker was showing to `next` — the one place every
+   *  live sprite swap (setAnimation, applyTempForm) must route through so
+   *  the outgoing species is never unprotected before the incoming one is. */
+  private swapPinnedLive(next: PokemonAnimation): void {
+    if (next === this.pinnedLive) return;
+    pinAnimation(next);
+    unpinAnimation(this.pinnedLive);
+    this.pinnedLive = next;
+  }
+
+  /** Assigns `tempFormBase`, keeping its lazySprites.ts pin in lockstep with
+   *  the field itself — non-null for exactly as long as this walker needs a
+   *  mega-evolution base to revert to (see that field's own comment). */
+  private setTempFormBase(value: PokemonAnimation | null): void {
+    if (value === this.tempFormBase) return;
+    if (value) pinAnimation(value);
+    const old = this.tempFormBase;
+    this.tempFormBase = value;
+    if (old) unpinAnimation(old);
   }
 
   /** Battle-only mega evolution's sprite swap (BattleManager's
@@ -584,13 +644,21 @@ export class Walker {
     if (animation) {
       // Keep the ORIGINAL base if a mega is somehow re-triggered before its
       // own revert — never overwrite it with whatever's showing mid-swap.
-      if (!this.tempFormBase) this.tempFormBase = this.sprite.animation;
+      if (!this.tempFormBase) this.setTempFormBase(this.sprite.animation);
       this.flashSwap(() => this.applyTempForm(animation));
     } else {
       if (!this.tempFormBase) return;
       const base = this.tempFormBase;
-      this.tempFormBase = null;
-      this.flashSwap(() => this.applyTempForm(base));
+      // `tempFormBase` (and its pin) is deliberately NOT cleared here: `base`
+      // still needs lazySprites.ts protection for the flash's async gap
+      // (flashSwap can cancel a pending swap and re-fire it later, or force-
+      // complete an OLDER pending one first — see flashSwap's own re-entrancy
+      // branch). Cleared inside the closure below, right after `base` is
+      // actually applied (and thus already re-protected as `pinnedLive`).
+      this.flashSwap(() => {
+        this.applyTempForm(base);
+        this.setTempFormBase(null);
+      });
     }
   }
 
@@ -620,6 +688,11 @@ export class Walker {
     // flash) — cancel-without-applying, then start fresh.
     this.cancelMegaCeremony();
     this.cancelMegaFlash();
+    // Same buildup-long protection evolve() gives its own ceremony target —
+    // the mega ceremony's silhouette shows `animation` well before
+    // `applyMegaCeremonySwap` (its reveal) ever runs.
+    this.pinnedMegaTarget = animation;
+    pinAnimation(animation);
     this.megaCeremony = new MegaCeremony({
       container: this.container,
       sprite: this.sprite,
@@ -645,8 +718,14 @@ export class Walker {
    *  `setTemporaryForm`: that cancels the ceremony as its first act, which
    *  would dispose the very object currently mid-`update()`. */
   private applyMegaCeremonySwap(animation: PokemonAnimation): void {
-    if (!this.tempFormBase) this.tempFormBase = this.sprite.animation;
+    if (!this.tempFormBase) this.setTempFormBase(this.sprite.animation);
     this.applyTempForm(animation);
+    if (this.pinnedMegaTarget === animation) {
+      // applyTempForm above already re-protects `animation` as `pinnedLive`
+      // — release the ceremony's own buildup-long reservation (startMegaCeremony).
+      unpinAnimation(this.pinnedMegaTarget);
+      this.pinnedMegaTarget = null;
+    }
   }
 
   /** Drop a staged mega ceremony without ever performing its pending swap
@@ -658,9 +737,18 @@ export class Walker {
   private cancelMegaCeremony(): void {
     this.megaCeremony?.dispose();
     this.megaCeremony = null;
+    if (this.pinnedMegaTarget) {
+      // Aborted before applyMegaCeremonySwap ever ran (dispose() tears down
+      // without applying, same as EvolutionCeremony — see its own comment) —
+      // this reservation was never transferred to `pinnedLive`, so release it
+      // here instead or it would stay pinned forever.
+      unpinAnimation(this.pinnedMegaTarget);
+      this.pinnedMegaTarget = null;
+    }
   }
 
   private applyTempForm(animation: PokemonAnimation): void {
+    this.swapPinnedLive(animation);
     this.sprite.configure(animation);
     // configure() always resets to the front sheet; battle stance (the only
     // context this runs in) may currently be forcing the back one.
@@ -1011,7 +1099,19 @@ export class Walker {
     this.cancelMegaFlash();
     // Same for a staged mega ceremony: its flash-out burst also lives in the
     // shared flashLayer, and its teardown is what puts the body's alpha back.
+    // (Also releases `pinnedMegaTarget` if the ceremony was still mid-buildup.)
     this.cancelMegaCeremony();
+    // Release every lazySprites.ts pin this walker still holds — a live
+    // sprite's (pinnedLive), and any still-staged evolution target
+    // (pinnedEvolveTarget) or mega-revert base (tempFormBase) a ceremony
+    // left behind. Without this, destroying a walker mid-ceremony would
+    // leave its species permanently un-evictable.
+    this.setTempFormBase(null);
+    if (this.pinnedEvolveTarget) {
+      unpinAnimation(this.pinnedEvolveTarget);
+      this.pinnedEvolveTarget = null;
+    }
+    unpinAnimation(this.pinnedLive);
     this.bubble.destroy();
     this.container.destroy({ children: true });
   }
