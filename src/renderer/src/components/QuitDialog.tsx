@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '@/store/store';
 import { sessionWorkspaceId } from '@/store/workspaceStore';
 import { startClosingTime } from '@/closingTime';
+import { useEscapeToClose } from './useEscapeToClose';
 
 /**
  * Quit-intercept dialog (parity sweep item 2). Main prevents a close/quit
@@ -33,12 +34,15 @@ export function QuitDialog(): JSX.Element | null {
   // never carries over to the next time it's shown.
   const [confirmingWipe, setConfirmingWipe] = useState(false);
 
-  if (!open) return null;
-
   const keepRunning = (): void => {
     setConfirmingWipe(false);
     setOpen(false);
   };
+
+  useEscapeToClose(keepRunning, open);
+
+  if (!open) return null;
+
   const closingTime = (): void => {
     setOpen(false);
     startClosingTime();

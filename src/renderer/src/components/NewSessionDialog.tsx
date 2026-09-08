@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '@/store/workspaceStore';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, chainLabel, speciesEntry } from '@/scene/garden/dexData';
 import { PokemonPicker } from './PokemonPicker';
+import { useEscapeToClose } from './useEscapeToClose';
 
 interface Props {
   onClose(): void;
@@ -39,6 +40,8 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   // (parity sweep item 1) — defaults to whatever the Settings panel has for
   // THIS provider, editable per session from here.
   const [autoMode, setAutoMode] = useState(() => appSettings.autoModeByProvider[configuredProvider] ?? false);
+
+  useEscapeToClose(onClose);
 
   const chosen = speciesEntry(pokemon);
   const base = baseStageOf(pokemon);
