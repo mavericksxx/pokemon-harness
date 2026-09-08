@@ -584,7 +584,15 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       max={TERMINAL_FONT_SIZE_MAX}
                       step={1}
                       value={terminalSettings.fontSize}
-                      onChange={(e) => setFontSize(Number(e.target.value))}
+                      // Drag ticks pass `persist: false` — collapses the
+                      // persist IPC + per-terminal fit/SIGWINCH into one
+                      // trailing 150ms debounce (terminalSettingsStore.ts)
+                      // instead of firing on every pixel of movement; the end
+                      // handlers below flush the final value immediately.
+                      onChange={(e) => setFontSize(Number(e.target.value), { persist: false })}
+                      onMouseUp={(e) => setFontSize(Number(e.currentTarget.value), { persist: true })}
+                      onTouchEnd={(e) => setFontSize(Number(e.currentTarget.value), { persist: true })}
+                      onKeyUp={(e) => setFontSize(Number(e.currentTarget.value), { persist: true })}
                       aria-label="terminal font size"
                     />
                     <span className="hint">{terminalSettings.fontSize}px</span>
@@ -597,7 +605,11 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       max={TERMINAL_SCROLLBACK_MAX}
                       step={1000}
                       value={terminalSettings.scrollback}
-                      onChange={(e) => setScrollback(Number(e.target.value))}
+                      // Same drag-debounce reasoning as font size above.
+                      onChange={(e) => setScrollback(Number(e.target.value), { persist: false })}
+                      onMouseUp={(e) => setScrollback(Number(e.currentTarget.value), { persist: true })}
+                      onTouchEnd={(e) => setScrollback(Number(e.currentTarget.value), { persist: true })}
+                      onKeyUp={(e) => setScrollback(Number(e.currentTarget.value), { persist: true })}
                       aria-label="terminal scrollback depth"
                     />
                     <span className="hint">{terminalSettings.scrollback.toLocaleString()} lines</span>

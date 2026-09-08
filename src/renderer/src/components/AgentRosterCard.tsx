@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { useStore, type Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
 import { PokemonPicker } from '@/components/PokemonPicker';
@@ -61,7 +61,14 @@ function SessionFace({ session, box }: { session: Session; box: number }): JSX.E
   return <PokemonFace name={session.pokemon} shiny={session.shiny} box={box} />;
 }
 
-export function AgentRosterCard({
+// Wrapped in `memo` (garden-split roster-strip rework perf pass) — RosterStrip
+// /FocusSidebar re-render their whole list whenever the filtered session
+// array's identity changes (any one session's tick), but each card's own
+// props (`session`, `onSelect`, ...) only change when THAT session actually
+// changes (store.ts's `updateSession` no-op guard keeps other sessions'
+// object identities stable) — memo lets every unaffected card bail out of
+// that re-render instead of re-diffing its whole subtree.
+export const AgentRosterCard = memo(function AgentRosterCard({
   session,
   selected,
   onSelect,
@@ -423,4 +430,4 @@ export function AgentRosterCard({
       )}
     </div>
   );
-}
+});
