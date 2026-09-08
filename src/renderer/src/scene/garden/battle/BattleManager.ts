@@ -1399,7 +1399,17 @@ export class BattleManager {
     }
 
     const species = this.pickSpecies();
-    if (!species) return; // dex exhausted — extremely unlikely; just drop
+    if (!species) {
+      // Dex exhausted — extremely unlikely, and previously a silent drop.
+      // Logged now (2026-09-08) so a real repro (e.g. the collectExcludedLines
+      // retired-lifecycle leak this same fix addresses) is findable in
+      // harness.log instead of only inferable from a spawn that never
+      // materialized. No dedicated counter exists for this in
+      // diagnosticsCounters.ts — not adding one here, out of scope for this
+      // file-only fix.
+      safeLogDiagnostic('battle', 'warn', 'spawn dropped — dex exhausted (no eligible species)', { parentId });
+      return;
+    }
 
     // A wild challenger is a fresh roll every spawn — same odds as a session
     // (Phase 5 §5), independent of it (battlers never evolve, so there's no
@@ -2025,7 +2035,16 @@ export class BattleManager {
   private collectExcludedLines(): Set<string> {
     const set = new Set(this.deps.activeSessionLines());
     for (const pb of this.battles.values()) {
-      for (const sub of pb.subs) set.add(sub.battler.species.line);
+      for (const sub of pb.subs) {
+        // Retired-lifecycle exclusion fix (2026-09-08): a retired battler
+        // stays in `pb.subs` (by design — see file header's "DONE POKEMON
+        // STAY UNTIL DISMISSED") until a player explicitly despawns it, so
+        // leaving its line excluded here would reserve that line forever
+        // even once it's off-duty. Over a long session the exclusion set
+        // only grows, and `pickSpecies`'s pools eventually run dry.
+        if (sub.lifecycle === 'retired') continue;
+        set.add(sub.battler.species.line);
+      }
     }
     return set;
   }
