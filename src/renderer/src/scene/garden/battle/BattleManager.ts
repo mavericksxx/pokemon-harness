@@ -302,13 +302,9 @@
  * `dropDestroyedSubs` above is the belt-and-braces backstop on top of that
  * source fix, not a substitute for it — see its own doc comment.
  */
-import { Container } from 'pixi.js';
 import type { Walker } from '../Walker';
-import type { TiledMapRenderer } from '../TiledMapRenderer';
 import type { PokemonAnimation } from '../showdownArt';
 import { DEX_LIST, isBundled, type DexEntry } from '../dexData';
-import { targetTileHeight } from '../spriteScale';
-import { findPath } from '../pathfinding';
 import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
 import { WalkerChallenger } from './WalkerChallenger';
@@ -321,438 +317,37 @@ import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
 import { markDirty } from '../renderDirty';
+import type { Attack, BattleDeps, Challenger, ParentBattle, SubBattler } from './battleTypes';
+import {
+  ATTACK_TOTAL_MS,
+  BATTLER_SPEED_PX_S,
+  BATTLE_COOLDOWN_MAX_MS,
+  BATTLE_COOLDOWN_MIN_MS,
+  ENDING_MS,
+  FACEOFF_MS,
+  HOLD_MS,
+  LUNGE_FRACTION,
+  LUNGE_MS,
+  MAX_COMBO_RESTARTS,
+  MAX_RING,
+  MAX_ROAM_MS,
+  MIN_ROAM_MS,
+  RETIRED_TASK_INFO_CAP,
+  RETURN_MS,
+  ROAM_LABEL_CYCLE_MAX_MS,
+  ROAM_LABEL_CYCLE_MIN_MS,
+  ROAM_LABEL_VISIBLE_MS,
+  SHAKE_MS,
+  WANDER_MAX_DELAY,
+  WANDER_MIN_DELAY,
+  WANDER_RANGE,
+  WAVE_ATTACKS,
+  WAVE_HARD_CAP_MS,
+  WAVE_STUCK_MIN_MS
+} from './battleTuning';
+import { findMeetingAnchor, gapTilesForBatch, manhattan, pickChallengerStandTileFor, pickRoamHome, tileKey } from './battlePlacement';
 
-const LUNGE_MS = 300;
-const HOLD_MS = 280;
-const RETURN_MS = 320;
-const ATTACK_TOTAL_MS = LUNGE_MS + HOLD_MS + RETURN_MS;
-/** Lunge travels this fraction of the full gap toward the opponent and back
- *  — always well short of contact, whatever the gap or sprite size (see
- *  gapTilesForBatch). */
-const LUNGE_FRACTION = 0.28;
-const SHAKE_MS = 320;
-const FACEOFF_MS = 550;
-const ENDING_MS = 550;
-/** Exactly one challenger per battle now (spec: "strictly one battle at a
- *  time" — a completion battle is one subagent vs. the parent, never a
- *  batch). Kept as a named constant, not inlined as 1, because the ring/
- *  arc-slot machinery below (pickChallengerStandTileFor's 3-way arc,
- *  gapTilesForBatch) still takes an array + slot index — MAX_RING=1
- *  exercises exactly slot 0 of that existing machinery rather than
- *  deleting code that already generalizes fine. */
-const MAX_RING = 1;
-/** Scripted attack exchanges per skirmish before it concludes on its own —
- *  the only thing that CAN conclude it now that real per-subagent signals
- *  can't be trusted for the moment-to-moment beat (see file header). Was 2
- *  attacks at a snappier 480ms each, which read as "just one attack each" —
- *  the whole exchange needs 8-10s to read as a real fight rather than a
- *  blip. Getting there is deliberately a combination of more hits AND
- *  somewhat slower hits, not either alone: 8 attacks at the original 480ms
- *  pace would be a rapid-fire blur, and 2 attacks stretched to fill the same
- *  time would be a slow-motion crawl. So WAVE_ATTACKS goes to 8 (4x) while
- *  LUNGE_MS/HOLD_MS/RETURN_MS each roughly double (150/150/180 ->
- *  300/280/320, ATTACK_TOTAL_MS 480 -> 900) — proportional, not flat, so the
- *  lunge/hold/return motion in applyPositions still reads the same shape,
- *  just unhurried. Total: FACEOFF_MS + WAVE_ATTACKS * ATTACK_TOTAL_MS +
- *  ENDING_MS = 550 + 8*900 + 550 = 8300ms, inside the 8-10s target. */
-const WAVE_ATTACKS = 8;
-/** Combo-coalescing pin fix (2026-09-08): `handleAttack` restarts the
- *  current beat's timeline (elapsedMs/hitApplied) when a rapid tool event
- *  arrives before the hit has landed, so a fast burst of calls still reads
- *  as one coalesced combo instead of a queued replay per event (see
- *  handleAttack's own comment). Without a cap, a subagent calling faster
- *  than ATTACK_TOTAL_MS apart could restart that same beat indefinitely —
- *  waveAttacks would never increment, and the wave would only ever end via
- *  WAVE_HARD_CAP_MS's force-conclude, which skips beginEnding's victory
- *  pose. This caps how many times ONE beat may restart before it's just
- *  left to finish on its own clock. */
-const MAX_COMBO_RESTARTS = 3;
-
-/** Minimum face-off gap, in tiles, between the parent and a battler — chosen
- *  so two average-sized sprites (2-2.5 drawn tiles tall) read as clearly
- *  separated rather than overlapping. Bumped up when either side's drawn
- *  height crosses LARGE_TILE_THRESHOLD (a Snorlax/Tyranitar-class sprite). */
-const GAP_BASE_TILES = 3;
-const GAP_LARGE_BONUS_TILES = 2;
-const LARGE_TILE_THRESHOLD = 2.7;
-
-// Roam pacing — mirrors Walker.ts's own idle wander timing/range exactly, so
-// a roaming subagent reads the same as any other idling walker in the garden
-// (spec: "simply roams the garden like other pokemon").
-const WANDER_MIN_DELAY = 1.5;
-const WANDER_MAX_DELAY = 4.5;
-const WANDER_RANGE = 5;
-/** Roaming task labels are deliberately occasional rather than pinned over
- *  every working battler. Each battler gets its own deterministic cycle and
- *  initial phase, so a group reads as organic instead of blinking together. */
-const ROAM_LABEL_VISIBLE_MS = 3_000;
-const ROAM_LABEL_CYCLE_MIN_MS = 7_000;
-const ROAM_LABEL_CYCLE_MAX_MS = 10_000;
-/** How far in from the map edge a roam "home" corner sits — enough that a
- *  roaming subagent's own local jitter (WANDER_RANGE) never walks it off the
- *  map or into an unwalkable border. */
-const CORNER_MARGIN = 3;
-
-/** A subagent must roam for at least this long before a `parentDone` signal
- *  (the parent's own `Stop` hook — see `handleParentDone`) is allowed to
- *  queue its completion battle. Guards the degenerate case of a `Task`
- *  dispatched and the parent's turn ending in the same beat — without this
- *  floor that would read as a pokemon appearing and instantly dying, exactly
- *  the premature-death complaint this rework exists to fix. A genuine
- *  `SubagentStop` (`handleEnd`) bypasses it: that signal names the ONE
- *  subagent that actually just finished, not a coarse "the parent's whole
- *  turn ended" proxy, so there's nothing to guard against. */
-const MIN_ROAM_MS = 15_000;
-
-/** Absolute cap on how long a battler may sit `roaming` before it queues for
- *  its completion battle unconditionally, ignoring `hasPendingAsyncSubagents`
- *  entirely — the backstop for two failure modes that neither `MIN_ROAM_MS`/
- *  `queueEligibleAt` nor `handleEnd`/`handleParentDone` can ever close on
- *  their own: (1) a subagent that dies without ANY terminal notification
- *  (e.g. killed by an API error) never decrements `pendingAsyncLaunches`, so
- *  `hasPendingAsyncSubagents` reads true for that parent forever and the
- *  `queueEligibleAt` re-check below never passes — the battler ↔ task-id
- *  correlation fix (below) doesn't touch this case at all, since there's no
- *  completion to correlate; (2) a RESUMED agent's second completion
- *  notification USED TO BE deduped by task-id (taskNotificationWatcher.ts's
- *  `t.notified`) and silently swallowed — now fixed at the source (that
- *  watcher un-guards a task-id from `notified` the moment it sees the same
- *  id dispatch async again, and `handleCorrelate` re-materializes the
- *  battler from `retiredTaskInfo`'s remembered species/label) — but only for
- *  as long as this manager's own in-memory `retiredTaskInfo` still holds that
- *  task-id (an app restart between the original completion and the resume
- *  loses it, same as every other purely in-memory piece of battle state).
- *  Either way the sub would otherwise sit in 'roaming' forever — a card on
- *  the roster strip for an agent that's long gone (log-confirmed:
- *  `subagentsMaterialized` staying permanently ahead of
- *  `subagentsCleanedUp`). Real agents in this project routinely run 9-16
- *  minutes and have hit ~26 in the extreme; set generously past that
- *  extreme (not just "around" it) — a premature farewell battle for a
- *  still-running agent is worse than a late one for a dead agent, and a
- *  cap equal to or only slightly above the observed extreme would risk
- *  firing on that exact legitimate case.
- *
- *  Real per-subagent identity now exists (`handleCorrelate`, fed by
- *  taskNotificationWatcher.ts's `battle:taskCorrelated` — a dispatch's
- *  `tool_use_id`, known at PreToolUse, linked to the CLI-internal task-id a
- *  completion names), so `handleEnd` resolves a completion to the sub that
- *  actually finished instead of "the oldest roaming one" whenever that
- *  correlation landed. This cap remains the backstop for whatever it still
- *  can't close — failure mode (1) above, or any battler whose correlation
- *  never arrived at all — not a replacement for it. */
-const MAX_ROAM_MS = 30 * 60_000;
-
-/** Cap on `retiredTaskInfo`'s size (2026-09-08 fix — see that field's own
- *  comment): a generously large bound, well past how many subagents even a
- *  very long-running or heavily-resumed session would realistically
- *  complete, so eviction is a genuine backstop rather than something that
- *  routinely trims real resume memory. */
-const RETIRED_TASK_INFO_CAP = 500;
-
-/** Gap enforced, in ms, between the end of one completion battle and the
- *  start of the next — GLOBALLY, across every parent (the queue in
- *  `pickNextQueued`/`nextBattleEarliestAt` is what makes the lock global,
- *  not per-parent). Spec: "a few seconds of free time" so battles never
- *  overlap or instantly chain. */
-const BATTLE_COOLDOWN_MIN_MS = 4_000;
-const BATTLE_COOLDOWN_MAX_MS = 6_000;
-
-/** Absolute outer bound on a single wave, whatever phase it's in — the
- *  self-healing backstop if a bug (or a corrupted battler) ever wedges a
- *  wave partway through, so a stuck battle can never block the global queue
- *  forever (see file header's invisible-subagent writeup). A normal wave
- *  (alert + a walk-in + FACEOFF_MS + WAVE_ATTACKS attacks + ENDING_MS) now
- *  totals roughly 8-9 seconds for the scripted exchange alone, plus whatever
- *  the alert and walk-in add on top; this is deliberately generous so it
- *  never trips a legitimately long approach walk, only a genuinely stuck one. */
-const WAVE_HARD_CAP_MS = 60_000;
-/** Floor under the per-wave, distance-based watchdog computed in
- *  `admitBattle` for the `alert`/`approaching` phases specifically — the
- *  only two phases bounded by something actually happening in the world (a
- *  poof finishing, a goTo() arriving) rather than a fixed clock. A roaming
- *  challenger can be anywhere on the map now (not held near the parent like
- *  the old design's fixed-radius spawn), so a flat cap alone would misfire
- *  on a genuinely long walk; this is just the minimum for a short one. */
-const WAVE_STUCK_MIN_MS = 15_000;
-/** Mirrors Battler.ts's own (unexported) `SPEED` — duplicated here only for
- *  the stuck-watchdog's walk-time estimate in `admitBattle`. Not imported
- *  because Battler.ts doesn't export it; if that ever changes, bump this
- *  too. */
-const BATTLER_SPEED_PX_S = 44;
-
-/**
- * Everything this manager's wave/attack/mega machinery actually touches on a
- * sub's fighter — the FULL surface, taken from an exhaustive grep of every
- * `sub.battler.*` / `s.battler.*` / `a.attacker.battler.*` in this file, not
- * from a guess. (`setAnimation` is deliberately absent: it's only ever called
- * on a local `const battler = new Battler(...)` inside the three spawn paths,
- * never through a `SubBattler`.)
- *
- * DELEGATE BATTLE PARITY (the reason this exists at all): a `poke-delegate`
- * session is a real `Session` with its own independent `Walker`, and when it
- * finishes it should get the same one completion battle against its parent
- * that a Claude Agent-tool subagent's `Battler` does — same choreography, same
- * GLOBAL one-at-a-time lock, same mega eligibility. Widening `SubBattler.
- * battler` from the concrete `Battler` to this interface is what lets
- * `WalkerChallenger` (a thin adapter over that already-live `Walker`) enter
- * the queue through the exact same path, with ZERO branches in the wave
- * machinery itself. `Battler` satisfies this structurally and is unchanged —
- * every existing Claude-subagent code path behaves identically.
- */
-export interface Challenger {
-  readonly container: Container;
-  readonly bubbleContainer: Container;
-  readonly species: DexEntry;
-  /** Plain mutable field, not a getter — `admitBattle`/
-   *  `pickChallengerStandTileFor` assign it directly. */
-  standTile: { x: number; y: number } | null;
-  readonly tile: { x: number; y: number };
-  readonly drawnHeight: number;
-  readonly isSpawning: boolean;
-  readonly isPoofedOut: boolean;
-  /** Issue #7 (dirty-flag predicate) — true only WHILE a poof-out scale
-   *  tween is actively running, as opposed to `isPoofedOut` (true only once
-   *  it's finished). See `Battler.isPoofingOut`'s own comment for why this
-   *  needs to exist alongside `isPoofedOut` at all. */
-  readonly isPoofingOut: boolean;
-  readonly arrived: boolean;
-  /** Pixi's own `Container.destroyed` for this challenger's underlying
-   *  display object (`Battler`: its own `.container`; `WalkerChallenger`:
-   *  the delegate's live `Walker.container`, which GardenScene may destroy
-   *  independently of this manager — see `dropChallenger`). Added for the
-   *  2026-09-07 crash-loop fix (harness.log: one throw logged 34,295 times
-   *  in 7.5 minutes, same parentId, subCount 1 — `Cannot set properties of
-   *  null (setting 'y')` inside `WalkerSprite.applyTransform`) — see
-   *  `dropDestroyedSubs`'s own doc comment for the full root-cause writeup.
-   *  That specific crash stack is a `Battler` (via `WalkerSprite`), not a
-   *  `WalkerChallenger` — `WalkerChallenger.update` writes `.x` before `.y`
-   *  and would throw on `'x'` first if its own walker were the one destroyed
-   *  out from under it, never reaching `WalkerSprite.applyTransform`'s `.y`
-   *  at all. This getter is on the shared interface (and implemented by
-   *  both classes) purely for uniform defense in `dropDestroyedSubs`, not
-   *  because a `WalkerChallenger` was implicated in the actual repro. */
-  readonly destroyed: boolean;
-  goTo(tile: { x: number; y: number }): boolean;
-  update(dt: number): void;
-  syncBubblePosition(): void;
-  setBattleStance(): void;
-  clearBattleStance(): void;
-  showBubbleLabel(): void;
-  showAttack(tool: string, target?: string): void;
-  showMoveText(text: string): void;
-  hideBubble(): void;
-  startPoofOut(): void;
-  startRecall(onDone: () => void): void;
-  destroy(): void;
-}
-
-/** One spawned subagent's own battler + where it is in its lifecycle. */
-interface SubBattler {
-  key: string;
-  battler: Challenger;
-  /** The animation currently protected from lazySprites.ts's cache eviction
-   *  (see pinAnimation/unpinAnimation) — only ever set for a plain `Battler`
-   *  fighter this manager owns. A delegate's `WalkerChallenger` wraps a live
-   *  session's own `Walker`, which already pins its own current animation for
-   *  its whole lifetime (see Walker.ts) — this stays null for that sub, and
-   *  `releaseSubPin` is a no-op on it. Null until this sub's first animation
-   *  is pinned at spawn, cleared once its battler is destroyed. */
-  pinnedAnimation: PokemonAnimation | null;
-  /** 'retired': lost its completion battle (or aged out into one) and is now
-   *  off-duty — resumes ordinary wandering (`updateRoaming`), never re-
-   *  queues, stays until despawned. 'despawning': a player-initiated pokéball
-   *  recall is in flight (`despawnBattler`) — its own completion callback
-   *  does the final removal, NOT `reapSubs` (see that method's own comment).
-   *  'leaving' is now reached only via `handleEndAll`'s coarse cleanup. */
-  lifecycle: 'roaming' | 'queued' | 'battling' | 'leaving' | 'retired' | 'despawning';
-  /** The spawning dispatch's own `description`/`subagent_type` (see
-   *  battleBus.ts's `spawn` signal) — kept on the sub (not just forwarded to
-   *  the store) so a RESUME can re-materialize a battler with the same label
-   *  (`handleCorrelate`'s `retiredTaskInfo`). */
-  label?: string;
-  /** This battler's spawning dispatch's `tool_use_id` (battler ↔ task-id
-   *  correlation fix) — the one identity available at spawn time, before any
-   *  CLI-internal task-id exists. Null for the regex-fallback path
-   *  (ptyParser.ts, no hook payload to read one from) and for a garden
-   *  context-loss recovery (`respawnFromStore`, no correlation survives a
-   *  renderer rebuild). Cleared to irrelevance once `taskId` is stamped —
-   *  kept around only so `handleCorrelate` can find this sub by it. */
-  toolUseId: string | null;
-  /** The CLI-internal task-id (`toolUseResult.agentId`) this battler's
-   *  dispatch was correlated to, once `handleCorrelate` links its
-   *  `toolUseId` to a completion's task-id — see the file header's battler ↔
-   *  task-id correlation fix. Null until stamped; a battler that's never
-   *  stamped (correlation raced ahead, or predates this fix) still falls
-   *  back to `handleEnd`'s oldest-roaming heuristic exactly as before. */
-  taskId: string | null;
-  /** Best-effort Claude CLI-internal subagent id observed on a subagent-scoped
-   *  PreToolUse. Usually absent; when the single-roamer fallback attributes
-   *  one event, retaining it lets later events keep following that battler if
-   *  another sibling starts roaming. */
-  subagentId: string | null;
-  /** DELEGATE BATTLE PARITY — the SESSION id of the `poke-delegate` session
-   *  whose own `Walker` this sub wraps (`queueDelegateChallenge`), or null for
-   *  every ordinary Claude-subagent sub. This is the one discriminator: a
-   *  non-null value means the fighter is a `WalkerChallenger` over a live
-   *  session's walker that this manager does NOT own — see `isDelegateSub` for
-   *  the (small, all skip-shaped) set of places that has to matter. */
-  delegateSessionId: string | null;
-  /** Where this battler roams — chosen once at spawn (`pickRoamHome`) and
-   *  never recomputed; a battler never re-enters roaming after its one
-   *  completion battle. */
-  wanderHome: { x: number; y: number };
-  wanderTimer: number;
-  wanderDelay: number;
-  /** Epoch ms this battler started roaming — the basis for `MIN_ROAM_MS`
-   *  (`handleParentDone`) and `handleEnd`'s oldest-first tie-break. */
-  roamingSince: number;
-  /** Set by `handleParentDone` when a `parentDone` signal arrives before
-   *  this sub has cleared `MIN_ROAM_MS` — the epoch ms it BECOMES eligible
-   *  to queue (checked every tick in `updateOneBattle`), rather than the
-   *  signal just being dropped. Without this, a subagent whose parent's
-   *  `Stop` arrives within the floor (plausible for a short subagent in a
-   *  fast wave — the exact pattern the orchestrator's live repro showed)
-   *  would only ever queue on a LATER `Stop` for that same parent, which may
-   *  never come if the session doesn't prompt again — "late is fine"
-   *  stretched into "never". Null while not applicable. */
-  queueEligibleAt: number | null;
-  /** Epoch ms this battler was queued for its completion battle — the
-   *  GLOBAL FIFO tie-break across every parent's subs (`pickNextQueued`). 0
-   *  until queued. */
-  queuedSince: number;
-  /** One-shot: logged the first tick this battler's poof-in actually
-   *  finishes, so "materialized but never became visible" (the invisible-
-   *  subagent bug — see file header) is findable in the diagnostics log
-   *  instead of only inferable from frozen counter snapshots after the
-   *  fact. */
-  visibleLogged: boolean;
-  /** State for the intermittent roaming label. */
-  roamLabelElapsedMs: number;
-  roamLabelCycleMs: number;
-  roamBubbleMode: 'hidden' | 'label' | 'tool';
-}
-
-interface Attack {
-  attacker: SubBattler | 'parent';
-  defender: SubBattler | 'parent';
-  tool: string;
-  combo: number;
-  elapsedMs: number;
-  hitApplied: boolean;
-  /** How many times `handleAttack` has restarted THIS beat's timeline —
-   *  capped at MAX_COMBO_RESTARTS (see that constant's own comment). */
-  restarts: number;
-}
-
-interface ParentBattle {
-  parentId: string;
-  parentWalker: Walker;
-  /** Every live subagent for this parent, any lifecycle — the only
-   *  authoritative list; nothing is removed from it until fully destroyed. */
-  subs: SubBattler[];
-  /** The one sub currently choreographing THIS wave (empty while
-   *  `wave === 'idle'`). Still an array (not a single field) so the
-   *  existing arc/multi-slot machinery (pickChallengerStandTileFor,
-   *  gapTilesForBatch) needs no signature change for MAX_RING=1. */
-  waveRing: SubBattler[];
-  wave: 'idle' | 'alert' | 'approaching' | 'faceoff' | 'looping' | 'ending';
-  waveElapsedMs: number;
-  waveAttacks: number;
-  alertShown: boolean;
-  currentAttack: Attack | null;
-  lastAttackerWasParent: boolean;
-  roundRobinIdx: number;
-  /** Where the parent walks TO for the CURRENT wave — recomputed fresh at
-   *  the start of every wave, since the parent resumes its own life between
-   *  battles and may have moved. */
-  parentStandTile: { x: number; y: number } | null;
-  /** A tool event that arrived before the wave reached its loop (still
-   *  approaching or facing off) — coalesced here instead of dropped, opened
-   *  as the first scripted attack's flavor the instant face-off completes. */
-  pendingTool: string | null;
-  pendingCombo: number;
-  nextSeq: number;
-  /** Epoch ms the current wave was admitted — the basis for the stuck-
-   *  watchdog checks below. */
-  waveStartedAt: number;
-  /** Per-wave stuck cap for the `alert`/`approaching` phases, computed fresh
-   *  in `admitBattle` from the actual walk distance (see WAVE_STUCK_MIN_MS's
-   *  own comment on why this can't be a flat constant anymore). */
-  waveStuckCapMs: number;
-  /** True from the moment `startMega` successfully KICKS OFF a mega (async —
-   *  see that method) until `revertMega` releases it. Note "kicks off", not
-   *  "applies": the sprite itself only changes at the ceremony's flash peak
-   *  a few seconds later (Walker.startMegaCeremony), and this flag has to
-   *  cover the buildup too, or a second `startMega` for the same wave would
-   *  see no mega in flight. `revertMega` during the buildup is the abort
-   *  path and applies nothing — see Walker's `tempFormBase` invariant. */
-  megaActive: boolean;
-  /** True while a mega ceremony is playing and this wave is therefore HELD in
-   *  place — nothing advances (no face-off countdown, no attack, no ending
-   *  beat) until the ceremony finishes, the same shape as `updateAlert`
-   *  holding the wave until the "!" bubble finishes its pop cycle. Always
-   *  false under reduced motion, where the mega swap is instant and there is
-   *  nothing to wait for. */
-  megaHold: boolean;
-}
-
-export interface BattleDeps {
-  map: TiledMapRenderer;
-  charLayer: Container;
-  /** Bundled species resolve instantly; anything else starts as a pokeball
-   *  and is upgraded via loadLazyAnimation, matching GardenScene's own
-   *  walkers. */
-  resolveAnimation: (species: string, shiny?: boolean) => PokemonAnimation;
-  loadLazyAnimation: (species: string, shiny?: boolean) => Promise<PokemonAnimation | null>;
-  getRuntime: (parentId: string) => { walker: Walker } | undefined;
-  /** The parent session's current species display name, for move text
-   *  ("Pikachu used Grep!"). */
-  getParentLabel: (parentId: string) => string;
-  /** The parent session's current species dex id, for sizing the face-off gap
-   *  (a Snorlax-class parent needs more room than a Pichu-class one). */
-  getParentSpeciesId: (parentId: string) => string | undefined;
-  /** Whether the parent session's Pokemon is shiny — mega evolution reuses
-   *  the shiny variant of the mega sprite when true (falling back to
-   *  non-shiny mega, then to no mega, on a 404 — see megaForms.ts). */
-  getParentShiny: (parentId: string) => boolean;
-  /** Evolution lines already spoken for by a live SESSION (not battlers —
-   *  BattleManager tracks its own separately). */
-  activeSessionLines: () => string[];
-  /** Called every time a wave concludes and no new one starts right away —
-   *  i.e. whenever the parent is free to resume its own normal life. */
-  onBattleEnd: (parentId: string) => void;
-  /** Fires the instant a wild battler actually enters the world (already
-   *  added to charLayer, same moment `subagentsMaterialized` bumps) — the
-   *  bridge GardenScene uses to mirror battler presence into the zustand
-   *  store for the roster strip's subagent cards. `label` (parity sweep item
-   *  7) — the spawning `Task`'s own description/subagent_type, straight
-   *  through from the `spawn` signal (see battleBus.ts); undefined for the
-   *  regex-fallback path. */
-  onBattlerSpawned: (battler: { key: string; parentId: string; species: string; label?: string }) => void;
-  /** Fires the instant a battler is fully torn down — the normal poof-then-
-   *  cleanup path (reapSubs) and the hard force-end/dispose path
-   *  (destroyBattle) both call this, so it's the complete mirror of
-   *  onBattlerSpawned above regardless of how a battler's life ends. */
-  onBattlerRemoved: (key: string) => void;
-  /** Forwards a player click on a battler to GardenScene, which owns the
-   *  selection, view-mode, and camera-focus store state. */
-  onBattlerClick: (parentId: string, key: string) => void;
-  /** Fires whenever a battler's `done` state changes — `true` the moment it
-   *  loses its completion battle (or ages out into one) and becomes
-   *  `retired`, `false` if a resumed task-id later revives that same battler
-   *  in place (`reviveRetired`) instead of spawning a duplicate. One
-   *  bidirectional callback rather than two, since both directions are the
-   *  same store patch (`LiveBattler.done`) with the boolean flipped. */
-  onBattlerDone: (key: string, done: boolean) => void;
-}
-
-function tileKey(t: { x: number; y: number }): string {
-  return `${t.x},${t.y}`;
-}
-
-function manhattan(a: { x: number; y: number }, b: { x: number; y: number }): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
+export type { Challenger, BattleDeps };
 
 function hashString(value: string): number {
   let hash = 2166136261;
@@ -764,47 +359,6 @@ function roamingBubbleTiming(key: string): { elapsedMs: number; cycleMs: number 
   const seed = hashString(key);
   const cycleMs = ROAM_LABEL_CYCLE_MIN_MS + (seed % (ROAM_LABEL_CYCLE_MAX_MS - ROAM_LABEL_CYCLE_MIN_MS + 1));
   return { elapsedMs: seed % cycleMs, cycleMs };
-}
-
-/** Nearest walkable tile to `center` within [minDist, maxDist] (Manhattan),
- *  shuffled among ties for variety. When `reachableFrom` is given, a
- *  candidate must also have an actual BFS path from it — a tile that merely
- *  passes `isWalkable` can still sit in a disconnected pocket (the far side
- *  of a wall/pond), which would leave a battler assigned to walk there stuck
- *  forever (goTo fails silently, by design, to avoid teleporting). Null if
- *  nothing in range qualifies. */
-function findNearbyWalkable(
-  map: TiledMapRenderer,
-  center: { x: number; y: number },
-  minDist: number,
-  maxDist: number,
-  avoid?: ReadonlySet<string>,
-  reachableFrom?: { x: number; y: number },
-  /** Extra positional constraint on the ABSOLUTE candidate tile — e.g. "stay
-   *  in the parent's SW quadrant" — evaluated alongside walkability/avoid. */
-  filter?: (candidate: { x: number; y: number }) => boolean
-): { x: number; y: number } | null {
-  const candidates: { x: number; y: number; d: number }[] = [];
-  for (let dx = -maxDist; dx <= maxDist; dx++) {
-    for (let dy = -maxDist; dy <= maxDist; dy++) {
-      const d = Math.abs(dx) + Math.abs(dy);
-      if (d < minDist || d > maxDist) continue;
-      candidates.push({ x: center.x + dx, y: center.y + dy, d });
-    }
-  }
-  for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-  }
-  candidates.sort((a, b) => a.d - b.d);
-  for (const c of candidates) {
-    if (avoid?.has(tileKey(c))) continue;
-    if (!map.isWalkable(c.x, c.y)) continue;
-    if (filter && !filter(c)) continue;
-    if (reachableFrom && findPath(map, reachableFrom, c) === null) continue;
-    return { x: c.x, y: c.y };
-  }
-  return null;
 }
 
 export class BattleManager {
@@ -1102,44 +656,23 @@ export class BattleManager {
       // recovered battler always comes back non-shiny — the one known gap
       // in this recovery path's fidelity.
       const animation = this.deps.resolveAnimation(species.id, false);
-      const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-      const battler = new Battler({
-        map: this.deps.map,
-        animation,
+      const home = pickRoamHome(this.deps.map, pb.parentWalker.tile, pb.parentWalker.tile, this.claimedWanderHomes());
+      // No correlation survives a renderer rebuild — this sub falls back to
+      // handleEnd's oldest-roaming heuristic if its real completion
+      // notification arrives after recovery, same as any other never-stamped
+      // battler.
+      const { battler, sub } = this.createRoamingSub(
+        entry.parentId,
         species,
-        spawnTile: home,
-        label: entry.label,
-        onClick: () => this.handleBattlerClick(entry.parentId, entry.key)
-      });
-      pinAnimation(animation);
-      this.deps.charLayer.addChild(battler.container);
-      this.deps.charLayer.addChild(battler.bubbleContainer);
-      const bubbleTiming = roamingBubbleTiming(entry.key);
-      const sub: SubBattler = {
-        key: entry.key,
-        battler,
-        pinnedAnimation: animation,
-        lifecycle: entry.done ? 'retired' : 'roaming',
-        label: entry.label,
-        // No correlation survives a renderer rebuild — this sub falls back
-        // to handleEnd's oldest-roaming heuristic if its real completion
-        // notification arrives after recovery, same as any other never-
-        // stamped battler.
-        toolUseId: null,
-        taskId: null,
-        subagentId: null,
-        delegateSessionId: null,
-        wanderHome: home,
-        wanderTimer: 0,
-        wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
-        roamingSince: Date.now(),
-        queuedSince: 0,
-        queueEligibleAt: null,
-        visibleLogged: false,
-        roamLabelElapsedMs: bubbleTiming.elapsedMs,
-        roamLabelCycleMs: bubbleTiming.cycleMs,
-        roamBubbleMode: 'hidden'
-      };
+        animation,
+        home,
+        entry.label,
+        entry.key,
+        null,
+        null,
+        entry.done ? 'retired' : 'roaming',
+        false
+      );
       pb.subs.push(sub);
       // nextSeq collision fix (2026-09-08): `createBattle` always starts a
       // fresh `pb` at `nextSeq: 0`, but this respawned sub keeps its OLD
@@ -1452,7 +985,7 @@ export class BattleManager {
     // "stays shiny" state to track beyond this one Battler's lifetime).
     const shiny = rollShiny();
     const animation = this.deps.resolveAnimation(species.id, shiny);
-    const home = this.pickRoamHome(pb, pb.parentWalker.tile);
+    const home = pickRoamHome(this.deps.map, pb.parentWalker.tile, pb.parentWalker.tile, this.claimedWanderHomes());
     let key = `${parentId}#${pb.nextSeq++}`;
     // Defensive uniqueness guard (2026-09-08, companion to respawnFromStore's
     // nextSeq fix above) — `nextSeq` is the normal source of truth for
@@ -1460,40 +993,18 @@ export class BattleManager {
     // would silently overwrite that sub's roster entry rather than fail
     // loudly, so this keeps bumping until the key is actually free.
     while (pb.subs.some((s) => s.key === key)) key = `${parentId}#${pb.nextSeq++}`;
-    const battler = new Battler({
-      map: this.deps.map,
-      animation,
+    const { battler, sub } = this.createRoamingSub(
+      parentId,
       species,
-      spawnTile: home,
+      animation,
+      home,
       label,
-      onClick: () => this.handleBattlerClick(parentId, key)
-    });
-    pinAnimation(animation);
-    this.deps.charLayer.addChild(battler.container);
-    this.deps.charLayer.addChild(battler.bubbleContainer);
-    const bubbleTiming = roamingBubbleTiming(key);
-
-    const sub: SubBattler = {
       key,
-      battler,
-      pinnedAnimation: animation,
-      lifecycle: 'roaming',
-      label,
-      toolUseId: toolUseId ?? null,
-      taskId: null,
-      subagentId: null,
-      delegateSessionId: null,
-      wanderHome: home,
-      wanderTimer: 0,
-      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
-      roamingSince: Date.now(),
-      queuedSince: 0,
-      queueEligibleAt: null,
-      visibleLogged: false,
-      roamLabelElapsedMs: bubbleTiming.elapsedMs,
-      roamLabelCycleMs: bubbleTiming.cycleMs,
-      roamBubbleMode: 'hidden'
-    };
+      toolUseId ?? null,
+      null,
+      'roaming',
+      false
+    );
     pb.subs.push(sub);
     this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label });
     // "Materialized" (vs. hookRouter.ts's "spawned" bump on the Task tool
@@ -1532,6 +1043,69 @@ export class BattleManager {
     }
   }
 
+  /**
+   * Builds a fresh roaming `SubBattler` — the `Battler` instance, its
+   * charLayer placement, and the `SubBattler` record itself — the ~20-field
+   * construction that `handleSpawn`, `respawnFromStore`, and
+   * `handleCorrelate`'s RESUME branch each used to hand-roll separately.
+   * Every parameter here is a genuine per-site difference (see each call
+   * site); everything else below was identical across all three and is
+   * fixed here instead. Does NOT push the returned sub onto `pb.subs` or
+   * call `onBattlerSpawned`/`bumpCounter`/log — those differ enough per site
+   * (or don't apply at all, e.g. `respawnFromStore`) to stay at the call
+   * site. Returns the concrete `Battler` alongside the `SubBattler` record
+   * (whose own `.battler` is the same instance, just widened to the narrow
+   * `Challenger` interface) — every call site's own lazy-load `.then`
+   * callback needs the concrete type for `setAnimation`, which isn't on
+   * `Challenger` (see that interface's own comment on why). */
+  private createRoamingSub(
+    parentId: string,
+    species: DexEntry,
+    animation: PokemonAnimation,
+    home: { x: number; y: number },
+    label: string | undefined,
+    key: string,
+    toolUseId: string | null,
+    taskId: string | null,
+    lifecycle: SubBattler['lifecycle'],
+    visibleLogged: boolean
+  ): { battler: Battler; sub: SubBattler } {
+    const battler = new Battler({
+      map: this.deps.map,
+      animation,
+      species,
+      spawnTile: home,
+      label,
+      onClick: () => this.handleBattlerClick(parentId, key)
+    });
+    pinAnimation(animation);
+    this.deps.charLayer.addChild(battler.container);
+    this.deps.charLayer.addChild(battler.bubbleContainer);
+    const bubbleTiming = roamingBubbleTiming(key);
+    const sub: SubBattler = {
+      key,
+      battler,
+      pinnedAnimation: animation,
+      lifecycle,
+      label,
+      toolUseId,
+      taskId,
+      subagentId: null,
+      delegateSessionId: null,
+      wanderHome: home,
+      wanderTimer: 0,
+      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
+      roamingSince: Date.now(),
+      queuedSince: 0,
+      queueEligibleAt: null,
+      visibleLogged,
+      roamLabelElapsedMs: bubbleTiming.elapsedMs,
+      roamLabelCycleMs: bubbleTiming.cycleMs,
+      roamBubbleMode: 'hidden'
+    };
+    return { battler, sub };
+  }
+
   // --- delegate battle parity ---------------------------------------------
 
   /** True for a sub whose fighter is a live SESSION's own `Walker`
@@ -1552,6 +1126,32 @@ export class BattleManager {
       unpinAnimation(sub.pinnedAnimation);
       sub.pinnedAnimation = null;
     }
+  }
+
+  /** Hands a delegate's walker back to GardenScene/its own session CLEAN,
+   *  without destroying or poofing it — this manager never owns that
+   *  `Walker` (see `isDelegateSub`), so every site that stops choreographing
+   *  a delegate mid-battle (`dropChallenger`'s still-queued case,
+   *  `handleEndAll`'s coarse cleanup, `destroyBattle`'s teardown) must undo
+   *  whatever the wave left on it instead of just letting go:
+   *   - `hideBubble()` — the battle label/attack bubble would otherwise sit
+   *     over that walker indefinitely; GardenScene's own bubble reconcile
+   *     only writes when `toolKey` changes, which a frozen 'done' walker
+   *     never does again.
+   *   - `update(0)` — the adapter's position RESYNC (ignores `dt` entirely —
+   *     see `WalkerChallenger.update`), undoing any lunge/mega offset a wave
+   *     interrupted mid-attack would otherwise leave baked into the
+   *     container forever: this sub stops being ticked here, and a
+   *     stationary `Walker` never calls `syncPosition` on its own.
+   *   - `clearBattleStance()` — releases the forced back view (if this
+   *     species ever got one); without it, the walker's own idle-facing bias
+   *     logic stays skipped forever (see Walker.ts's own update guard),
+   *     leaving it stuck facing away from the camera for the rest of its
+   *     life. */
+  private releaseDelegate(sub: SubBattler): void {
+    sub.battler.hideBubble();
+    sub.battler.update(0);
+    sub.battler.clearBattleStance();
   }
 
   /**
@@ -1677,21 +1277,12 @@ export class BattleManager {
       if (pb.waveRing.includes(sub)) this.forceConcludeWave(pb);
       pb.waveRing = pb.waveRing.filter((s) => s !== sub);
       pb.subs = pb.subs.filter((s) => s !== sub);
-      // Hand the walker back clean, exactly as `destroyBattle` does for the
-      // parent-killed case — see its own comment for all three reasons.
-      // `update(0)` is the adapter's position resync (it ignores `dt`),
-      // undoing any lunge offset a wave interrupted mid-attack would
-      // otherwise leave baked in once this sub stops being ticked.
-      // `clearBattleStance()` releases the forced back view (if this species
-      // ever got one) — without it, this walker's own idle-facing bias logic
-      // stays skipped forever (see Walker.ts's own update guard), leaving a
-      // delegate that lost its battle stuck facing away from the camera for
-      // the rest of its life. `forceConcludeWave` above already hid the
-      // bubble via `retireSub` when there WAS a wave; this covers the
-      // still-'queued' case, where nothing has.
-      sub.battler.hideBubble();
-      sub.battler.update(0);
-      sub.battler.clearBattleStance();
+      // Hand the walker back clean via `releaseDelegate` — see that method's
+      // own comment for why each of its three calls matters.
+      // `forceConcludeWave` above already hid the bubble via `retireSub`
+      // when there WAS a wave; this covers the still-'queued' case, where
+      // nothing has (a harmless redundant `hideBubble()` when there was).
+      this.releaseDelegate(sub);
       return;
     }
   }
@@ -1961,41 +1552,20 @@ export class BattleManager {
       this.battles.set(parentId, pb);
     }
     const animation = this.deps.resolveAnimation(species.id, false);
-    const home = this.pickRoamHome(pb, pb.parentWalker.tile);
+    const home = pickRoamHome(this.deps.map, pb.parentWalker.tile, pb.parentWalker.tile, this.claimedWanderHomes());
     const key = `${parentId}#${pb.nextSeq++}`;
-    const battler = new Battler({
-      map: this.deps.map,
-      animation,
+    const { battler, sub } = this.createRoamingSub(
+      parentId,
       species,
-      spawnTile: home,
-      label: info.label,
-      onClick: () => this.handleBattlerClick(parentId, key)
-    });
-    pinAnimation(animation);
-    this.deps.charLayer.addChild(battler.container);
-    this.deps.charLayer.addChild(battler.bubbleContainer);
-    const bubbleTiming = roamingBubbleTiming(key);
-    const sub: SubBattler = {
+      animation,
+      home,
+      info.label,
       key,
-      battler,
-      pinnedAnimation: animation,
-      lifecycle: 'roaming',
-      label: info.label,
       toolUseId,
       taskId,
-      subagentId: null,
-      delegateSessionId: null,
-      wanderHome: home,
-      wanderTimer: 0,
-      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
-      roamingSince: Date.now(),
-      queuedSince: 0,
-      queueEligibleAt: null,
-      visibleLogged: false,
-      roamLabelElapsedMs: bubbleTiming.elapsedMs,
-      roamLabelCycleMs: bubbleTiming.cycleMs,
-      roamBubbleMode: 'hidden'
-    };
+      'roaming',
+      false
+    );
     pb.subs.push(sub);
     this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label: info.label });
     bumpCounter('subagentsMaterialized');
@@ -2094,13 +1664,11 @@ export class BattleManager {
       // A delegate mid-wave was skipped by the loop above (never marked
       // 'leaving', never retired) — it's the one waveRing member this coarse
       // cleanup can otherwise strand in battle stance forever, since nothing
-      // else releases it until `dropChallenger`. Same "hand back clean" trio
-      // `destroyBattle`'s delegate branch uses.
+      // else releases it until `dropChallenger`. See `releaseDelegate`'s own
+      // comment for why each of its three calls matters.
       for (const sub of pb.waveRing) {
         if (!this.isDelegateSub(sub)) continue;
-        sub.battler.hideBubble();
-        sub.battler.update(0);
-        sub.battler.clearBattleStance();
+        this.releaseDelegate(sub);
       }
       pb.wave = 'idle';
       pb.waveRing = [];
@@ -2196,6 +1764,31 @@ export class BattleManager {
     return best;
   }
 
+  /** Every LIVE roaming battler garden-wide, keyed by `wanderHome` tile —
+   *  the claimed-tile input `pickRoamHome` (battlePlacement.ts) needs to
+   *  avoid picking a corner another battler already occupies. Not just this
+   *  parent's own subs: `this.battles` spans every tracked parent, so this
+   *  naturally covers sibling-avoidance across sessions too. Retired
+   *  (non-delegate) subs are included too (2026-09 fix): a retired sub never
+   *  leaves its `wanderHome` neighborhood again (see `retireSub` and the
+   *  'retired' branch of updateOneBattle's sub loop — it only jitters
+   *  locally), so without this a corner that fills up with parked retirees
+   *  keeps reading as empty to every later spawn and the pile grows without
+   *  bound over a long session. Delegates are excluded — a delegate's
+   *  `wanderHome` is an inert placeholder (see `isDelegateSub`), not an
+   *  actual claimed tile. */
+  private claimedWanderHomes(): Set<string> {
+    const claimed = new Set<string>();
+    for (const battle of this.battles.values()) {
+      for (const sub of battle.subs) {
+        if (sub.lifecycle === 'roaming' || (sub.lifecycle === 'retired' && !this.isDelegateSub(sub))) {
+          claimed.add(tileKey(sub.wanderHome));
+        }
+      }
+    }
+    return claimed;
+  }
+
   /** Admit exactly one queued sub into a fresh wave — called only when the
    *  global lock (`update`) says no other parent is mid-wave and the
    *  cooldown gap has elapsed. */
@@ -2228,13 +1821,13 @@ export class BattleManager {
 
     // A fresh stand tile every wave — the parent may have moved during the
     // last roaming gap.
-    const gap = this.gapTilesForBatch(pb.parentId, admitted);
+    const gap = gapTilesForBatch(this.deps, pb.parentId, admitted);
     const originalTile = pb.parentWalker.tile;
-    pb.parentStandTile = this.findMeetingAnchor(originalTile, gap) ?? originalTile;
+    pb.parentStandTile = findMeetingAnchor(this.deps.map, originalTile, gap) ?? originalTile;
 
     const anchor = pb.parentStandTile;
     admitted.forEach((s, slot) => {
-      s.battler.standTile = this.pickChallengerStandTileFor(admitted, gap, slot, anchor);
+      s.battler.standTile = pickChallengerStandTileFor(this.deps.map, admitted, gap, slot, anchor);
     });
 
     // Distance-based stuck watchdog for THIS wave's alert/approaching phases
@@ -2254,206 +1847,6 @@ export class BattleManager {
     // Cache-warming only, not the real trigger — see startMega's own doc
     // comment for why this needs a head start over the alert+approach walk.
     this.startMega(pb, true);
-  }
-
-  /** A far corner of the map, well apart from any sibling already roaming OR
-   *  parked there — a corner picked by weighted random draw across all four
-   *  (favoring the farthest from the parent's CURRENT position, but not
-   *  guaranteed — see the occupancy weighting below), with local jitter/
-   *  avoidance spreading multiple roamers out instead of stacking on the
-   *  same tile. The claimed set spans every tracked parent's roaming AND
-   *  retired subs garden-wide, not just this one — two different sessions'
-   *  battlers, live or long since parked, should never converge on the same
-   *  region either. `reachableFrom` (the parent's tile — no battler exists
-   *  yet at spawn time to BFS from) keeps the pick off a disconnected pocket
-   *  (the far side of a wall/pond), which would leave this battler unable to
-   *  ever walk back for its eventual completion battle. Falls back toward
-   *  the parent only in the pathological case where nowhere far is reachable
-   *  at all. */
-  private pickRoamHome(pb: ParentBattle, reachableFrom: { x: number; y: number }): { x: number; y: number } {
-    const map = this.deps.map;
-    const margin = CORNER_MARGIN;
-    const corners = [
-      { x: margin, y: margin },
-      { x: map.width - 1 - margin, y: margin },
-      { x: margin, y: map.height - 1 - margin },
-      { x: map.width - 1 - margin, y: map.height - 1 - margin }
-    ];
-    const parentTile = pb.parentWalker.tile;
-
-    // Every LIVE roaming battler garden-wide counts as claimed, not just this
-    // parent's own subs — `this.battles` already includes `pb` itself, so
-    // this naturally covers sibling-avoidance too. Retired (non-delegate)
-    // subs are included too (2026-09 fix): a retired sub never leaves its
-    // `wanderHome` neighborhood again (see `retireSub` and the 'retired'
-    // branch of updateOneBattle's sub loop — it only jitters locally), so
-    // without this a corner that fills up with parked retirees keeps reading
-    // as empty to every later spawn and the pile grows without bound over a
-    // long session. Delegates are excluded — a delegate's `wanderHome` is an
-    // inert placeholder (see `isDelegateSub`), not an actual claimed tile.
-    const claimedGlobal = new Set<string>();
-    for (const battle of this.battles.values()) {
-      for (const sub of battle.subs) {
-        if (sub.lifecycle === 'roaming' || (sub.lifecycle === 'retired' && !this.isDelegateSub(sub))) {
-          claimedGlobal.add(tileKey(sub.wanderHome));
-        }
-      }
-    }
-
-    // Weighted-random corner order rather than a hard "farthest 3 of 4" cut:
-    // for any parent walker that tends to sit in a similar map region across
-    // sessions, the farthest-3 set is nearly always the same, so one corner
-    // structurally wins over the long run. Each corner's weight favors
-    // distance from the parent, then divides that down by how many already-
-    // claimed wander-homes (from the set above) sit near it — a corner that
-    // starts filling up loses share to the other three even while it's still
-    // the single farthest one, keeping the long-session spread even across
-    // all four instead of just among the top three.
-    const occupancyRadius = margin * 6;
-    const claimedTiles = Array.from(claimedGlobal, (key) => {
-      const [x, y] = key.split(',').map(Number);
-      return { x, y };
-    });
-    const pool = corners.map((corner) => {
-      const dist = manhattan(corner, parentTile);
-      const occupancy = claimedTiles.filter((t) => manhattan(t, corner) <= occupancyRadius).length;
-      return { corner, weight: Math.max(1, dist) / (1 + occupancy) };
-    });
-    const order: { x: number; y: number }[] = [];
-    while (pool.length > 0) {
-      const total = pool.reduce((sum, c) => sum + c.weight, 0);
-      let r = Math.random() * total;
-      let pickIdx = pool.length - 1;
-      for (let i = 0; i < pool.length; i++) {
-        r -= pool[i].weight;
-        if (r <= 0) {
-          pickIdx = i;
-          break;
-        }
-      }
-      order.push(pool[pickIdx].corner);
-      pool.splice(pickIdx, 1);
-    }
-
-    for (const corner of order) {
-      const home =
-        findNearbyWalkable(map, corner, 0, 6, claimedGlobal, reachableFrom) ??
-        findNearbyWalkable(map, corner, 0, 14, claimedGlobal, reachableFrom);
-      if (home) return home;
-    }
-    return parentTile; // pathological: nothing reachable anywhere far — stand near the parent instead
-  }
-
-  /** Face-off gap, in tiles, for this wave — bumped up whenever the parent or
-   *  any admitted battler is a large-class sprite so a Snorlax or Tyranitar
-   *  never reads as standing inside its opponent. */
-  private gapTilesForBatch(parentId: string, subs: SubBattler[]): number {
-    const map = this.deps.map;
-    const parentSpeciesId = this.deps.getParentSpeciesId(parentId);
-    const parentAnimation = parentSpeciesId ? this.deps.resolveAnimation(parentSpeciesId) : undefined;
-    const parentPixels = parentAnimation
-      ? targetTileHeight(parentAnimation.info.name, parentAnimation.front.frameHeight) * map.tileSize
-      : GAP_BASE_TILES * map.tileSize;
-    const maxPixels = subs.reduce((m, s) => Math.max(m, s.battler.drawnHeight), parentPixels);
-    const isLarge = maxPixels >= LARGE_TILE_THRESHOLD * map.tileSize;
-    return GAP_BASE_TILES + (isLarge ? GAP_LARGE_BONUS_TILES : 0);
-  }
-
-  /**
-   * The parent's stand tile for THIS wave — the anchor half of a canonical
-   * anchor(parent)/SW(challenger) battle pair (2026-09-04 facing swap: the
-   * challenger now takes the SW corner so the parent, unmirrored, can face
-   * the camera — see BattleManager.ts's file header). Tries the parent's own
-   * current tile first (it may not need to move at all); if that tile has no
-   * valid SW partner (or the partner isn't actually reachable from it),
-   * widens a shuffled search outward from `originalTile` for an alternate
-   * anchor that DOES have one — moving the whole meeting spot to open lawn
-   * rather than ever inverting the arrangement. `gap` is the eventual
-   * parent-challenger distance on each axis; the anchor only needs its
-   * immediate SW corner to be clear, since pickChallengerStandTileFor does
-   * its own reachability search from here for the actual stand tile.
-   */
-  private findMeetingAnchor(originalTile: { x: number; y: number }, gap: number): { x: number; y: number } | null {
-    const hasSwPartner = (a: { x: number; y: number }): boolean => {
-      if (!this.deps.map.isWalkable(a.x, a.y)) return false;
-      const partner = { x: a.x - gap, y: a.y + gap };
-      if (!this.deps.map.isWalkable(partner.x, partner.y)) return false;
-      return findPath(this.deps.map, a, partner) !== null;
-    };
-    const reachableFromOriginal = (a: { x: number; y: number }): boolean =>
-      (a.x === originalTile.x && a.y === originalTile.y) || findPath(this.deps.map, originalTile, a) !== null;
-
-    if (hasSwPartner(originalTile)) return originalTile;
-
-    for (let radius = 1; radius <= 12; radius++) {
-      const ring: { x: number; y: number }[] = [];
-      for (let dx = -radius; dx <= radius; dx++) {
-        const dy = radius - Math.abs(dx);
-        ring.push({ x: originalTile.x + dx, y: originalTile.y + dy });
-        if (dy !== 0) ring.push({ x: originalTile.x + dx, y: originalTile.y - dy });
-      }
-      for (let i = ring.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [ring[i], ring[j]] = [ring[j], ring[i]];
-      }
-      for (const c of ring) {
-        if (hasSwPartner(c) && reachableFromOriginal(c)) return c;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * A stand tile for ring slot `slot`, ALWAYS somewhere in the SW arc from
-   * `anchor` (the parent's stand tile for this wave) — never level with it,
-   * never on its top/right side (2026-09-04 facing swap: the challenger now
-   * takes the SW corner so the parent, unmirrored, can face the camera — see
-   * BattleManager.ts's file header). This is what lets `applyBattleStance`
-   * skip all direction math: a native/unmirrored back sheet drawn facing
-   * up-right already points at anything placed down-left of it. Up to
-   * MAX_RING slots fan across the arc (roughly SW, WSW, SSW) at the same
-   * radius so they spread out rather than stacking. Every candidate is
-   * BFS-reachable from `anchor` — not just "walkable" — so goTo() is
-   * guaranteed to actually get there (no permanently-stuck battler).
-   */
-  private pickChallengerStandTileFor(
-    admitted: SubBattler[],
-    gap: number,
-    slot: number,
-    anchor: { x: number; y: number }
-  ): { x: number; y: number } {
-    const claimed = new Set<string>([tileKey(anchor)]);
-    for (const s of admitted) if (s.battler.standTile) claimed.add(tileKey(s.battler.standTile));
-
-    const arcOffsets = [
-      { x: -gap, y: gap },
-      { x: -Math.round(gap * 1.4), y: Math.round(gap * 0.6) },
-      { x: -Math.round(gap * 0.6), y: Math.round(gap * 1.4) }
-    ];
-    const primary = arcOffsets[slot % arcOffsets.length];
-    const primaryTile = { x: anchor.x + primary.x, y: anchor.y + primary.y };
-    if (
-      !claimed.has(tileKey(primaryTile)) &&
-      this.deps.map.isWalkable(primaryTile.x, primaryTile.y) &&
-      findPath(this.deps.map, anchor, primaryTile) !== null
-    ) {
-      return primaryTile;
-    }
-
-    // Widen the search but STAY in the SW quadrant relative to the PARENT's
-    // anchor (never the search center) — never fall back to its top/right
-    // side.
-    return (
-      findNearbyWalkable(
-        this.deps.map,
-        primaryTile,
-        1,
-        gap + 3,
-        claimed,
-        anchor,
-        (c) => c.x <= anchor.x && c.y >= anchor.y
-      ) ?? primaryTile
-    );
   }
 
   /**
@@ -3155,26 +2548,10 @@ export class BattleManager {
       // But it must be HANDED BACK CLEAN, not merely let go — this is the one
       // teardown path where the delegate's own session outlives the battle
       // (a PARENT killed mid-fight, or a renderer rebuild), so nothing else
-      // ever tidies up after it:
-      //  - `hideBubble()` because the battle label/attack bubble would
-      //    otherwise sit over that walker until it's recalled. GardenScene's
-      //    bubble reconcile can't clear it: that only writes when its
-      //    `toolKey` changes, and every part of it is frozen at 'done'.
-      //  - `update(0)` is the adapter's position RESYNC (it ignores `dt`
-      //    entirely — see WalkerChallenger.update). Without it, a wave killed
-      //    mid-lunge leaves that frame's `applyPositions` `+=` offset baked
-      //    into the container forever: this sub is about to stop existing, so
-      //    its own per-tick resync never runs again, and a stationary `Walker`
-      //    never calls `syncPosition` on its own.
-      //  - `clearBattleStance()` releases the forced back view (if this
-      //    species ever got one) — the walker's own idle-facing bias logic
-      //    stays skipped for as long as that's set (see Walker.ts's own
-      //    update guard), and this sub is about to outlive the battle for
-      //    good, so nothing else will ever release it.
+      // ever tidies up after it. See `releaseDelegate`'s own comment for why
+      // each of its three calls matters.
       if (this.isDelegateSub(sub)) {
-        sub.battler.hideBubble();
-        sub.battler.update(0);
-        sub.battler.clearBattleStance();
+        this.releaseDelegate(sub);
         continue;
       }
       sub.battler.destroy();
