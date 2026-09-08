@@ -1,8 +1,6 @@
 import {
   app,
   BrowserWindow,
-  dialog,
-  ipcMain,
   Menu,
   nativeTheme,
   Notification,
@@ -10,56 +8,40 @@ import {
   shell
 } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { PtyManager } from './pty';
+import { registerPtyIpc } from './ipc/pty';
+import { registerSessionsIpc } from './ipc/sessions';
+import { registerWorkspacesIpc } from './ipc/workspaces';
+import { registerSettingsIpc } from './ipc/settings';
+import { registerAssetsIpc } from './ipc/assets';
+import { registerAppIpc } from './ipc/app';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
-import { CODEX_HOOKS_NOTICE_TEXT, ensureCodexHooks } from './codexHooks';
+import { ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
 import { UsageService } from './usageService';
 import { ArceusRelayWatcher } from './arceusRelay';
-import { writeArceusRosterFile } from './arceusRosterFile';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
-import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
-import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
-import { ensureCry } from './cryCache';
-import { loadAudioSettings, saveAudioSettings } from './audioSettings';
+import { loadAudioSettings } from './audioSettings';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
 import { respawnSession } from './sessionRespawn';
 import { ensureClaudeTheme } from './claudeTheme';
-import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
-import { ensureArceusSystemPrompt } from './arceusPrompt';
-import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from './arceusSummonConfig';
 import { initWorkspaceRegistry, repairWorkspaceFolders, saveWorkspaceRegistry } from './workspacePersistence';
 import { checkForUpdate } from './updateCheck';
-import {
-  getLogDir,
-  getRecentErrorCount,
-  initDiagnostics,
-  log,
-  setDiagnosticsLoggingEnabled
-} from './diagnostics';
-import { buildDiagnosticsBundle, defaultBundleFilename } from './diagnosticsExport';
+import { getLogDir, initDiagnostics, log, setDiagnosticsLoggingEnabled } from './diagnostics';
 import type {
   DiskRestoreInfo,
-  LazySpriteMeta,
   RendererCrashInfo,
   SessionRecord,
-  SessionStatus,
-  SpawnPtyOptions,
-  SpriteView
+  SessionStatus
 } from '../shared/types';
-import type { AudioSettings } from '../shared/audioTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
-import type { TerminalSettings } from '../shared/terminalTypes';
-import { DEFAULT_WORKSPACE_ID, type WorkspaceRecord, type WorkspaceSnapshot } from '../shared/workspaceTypes';
-import type { UpdateCheckResult } from '../shared/updateTypes';
-import type { ArceusSummonConfig } from '../shared/arceus';
-import type { ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
+import { DEFAULT_WORKSPACE_ID, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { DelegateSessionSpawned, DelegateSpawnRequest, DelegateSpawnResponse } from '../shared/delegateSpawn';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
@@ -1144,548 +1126,93 @@ app.on('before-quit', (e) => {
   taskNotificationWatcher.stop();
 });
 
-// ─── IPC failure capture (BACKLOG friend-testing readiness) ────────────────
-// A thrown/rejected `ipcMain.handle` listener is caught INSIDE Electron's own
-// invoke bridge and turned into a rejection on the renderer's `invoke()` call
-// — it never reaches this process's `uncaughtException`/`unhandledRejection`
-// handlers above, so a bug in any one of the ~50 handlers below had zero
-// trace in harness.log until now. Every registration in this file goes
-// through this thin wrapper instead of `ipcMain.handle` directly so a throw
-// surfaces here once, without touching any handler's own body; the original
-// rejection still propagates to the caller exactly as before (the `throw`
-// below), so no existing renderer-side error handling changes.
-type IpcListener = Parameters<typeof ipcMain.handle>[1];
-function handle(channel: string, fn: IpcListener): void {
-  ipcMain.handle(channel, async (event, ...args) => {
-    try {
-      return await fn(event, ...args);
-    } catch (e) {
-      log('ipc', 'error', `handler threw: ${channel}`, {
-        message: e instanceof Error ? e.message : String(e),
-        stack: e instanceof Error ? e.stack : undefined
-      });
-      throw e;
-    }
-  });
-}
+registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher });
 
-// ─── PTY IPC ────────────────────────────────────────────────────────────────
-handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts, true));
-handle('pty:write', (_e, id: string, data: string) => ptyManager.write(id, data));
-handle('pty:resize', (_e, id: string, cols: number, rows: number) =>
-  ptyManager.resize(id, cols, rows)
-);
-handle('pty:kill', (_e, id: string) => {
-  costWatcher.unregisterSession(id);
-  taskNotificationWatcher.unregisterSession(id);
-  return ptyManager.kill(id);
-});
-handle('pty:list', () => ptyManager.list());
-handle('pty:available', (_e, command: string) => ptyManager.isCommandAvailable(command));
-handle('paths:resolveTerminalCwd', (_e, candidates: string[]) => {
-  const expand = (candidate: string): string => {
-    const trimmed = candidate.trim();
-    if (trimmed === '~') return homedir();
-    if (trimmed.startsWith('~/')) return join(homedir(), trimmed.slice(2));
-    return resolve(trimmed);
-  };
-  const isDirectory = (candidate: string): boolean => {
-    try {
-      return statSync(candidate).isDirectory();
-    } catch {
-      return false;
-    }
-  };
-  return [...candidates, homedir()].map(expand).find(isDirectory) ?? homedir();
-});
-// First-class delegate sessions (shared/delegateSpawn.ts) — the renderer's
-// `delegate:sessionSpawned` listener (sessions.ts's `startDelegateSpawnListener`)
-// subscribes its terminal to `pty:data:<id>` FIRST, then pulls this to backfill
-// whatever the pty already emitted before that subscription existed: unlike
-// `sessions:restore`'s replay (captured main-side before any renderer round
-// trip even starts), a delegate's pty is already running by the time the
-// renderer hears about it at all, so capturing replay before the subscription
-// risks a real gap — pulling after risks a few duplicated bytes instead, which
-// a live terminal tolerates far better than missing output does.
-handle('pty:replay', (_e, id: string) => ptyManager.getReplay(id));
-// A first-class delegate can finish before the renderer receives its spawned
-// event and installs the terminal listener. Keep that adoption race from
-// losing the done transition (see sessions.ts's adoptDelegateSession).
-handle('pty:exit-info', (_e, id: string) => ptyManager.getDelegateExit(id));
-
-// ─── Crash recovery ─────────────────────────────────────────────────────────
-// See the `render-process-gone` handler in createWindow(): the freshly-booted
-// renderer calls this once it's actually mounted, rather than main pushing it
-// over a one-shot event the renderer might not be listening for yet. A plain
-// read, not a destructive one — see pendingCrashInfo's own comment for why.
-handle('app:getCrashInfo', () => pendingCrashInfo);
-
-// Renderer → main mirror, called on every session-list or selection change
-// (see `startRegistrySync` in src/renderer/src/sessions.ts) — see
-// sessionRegistry's own comment above for why this replaces wholesale rather
-// than upserting.
-handle('sessions:checkpoint', (_e, sessions: SessionRecord[], selectedId: string | null) => {
-  notifyStatusTransitions(sessions, selectedId);
-  sessionRegistry = sessions;
-  lastSelectedId = selectedId;
-  // First-class delegate sessions (shared/delegateSpawn.ts) are excluded from
-  // DISK persistence only (sessionRegistry above still mirrors them, for
-  // notifications/roster file below) — SessionRecord has no field for the
-  // prompt that launched one, so a relaunch's `respawnSession`
-  // (sessionRespawn.ts) would otherwise respawn a bare, promptless
-  // interactive `codex` under a delegate's old card. Silently re-running the
-  // ORIGINAL task (if the prompt were persisted instead) would be worse: a
-  // delegate still live when the app quits is simply not resurrected, same
-  // as a session closed in-app via stopSession never reaching this file.
-  sessionPersistence.schedule({
-    sessions: sessions.filter((s) => !s.delegateParentId),
-    lastSelectedId: selectedId
-  });
-  // BACKLOG "next up" item 3 — flushes any relay Arceus queued for a target
-  // that's now idle (or drops it if that target closed/finished in the
-  // meantime). Cheap no-op when nothing is queued.
-  arceusRelay.onSessionsChecked(sessions);
-  // Cadence gating (2026-09-01) — this checkpoint fires synchronously off
-  // every renderer session-status change (see startRegistrySync in
-  // sessions.ts), so it's also the resume/pause trigger for costWatcher's
-  // and taskNotificationWatcher's own POLL_MS timers: each only needs to run
-  // while a session it tracks is actually producing new transcript content.
-  // See each watcher's own file header for the exact gate.
-  costWatcher.onSessionsChecked(sessions);
-  taskNotificationWatcher.onSessionsChecked(sessions);
-  // Regenerates agents/arceus/roster.json (self-serve roster Arceus can read
-  // with his own tools) — cheap no-op when nothing roster-relevant changed.
-  writeArceusRosterFile(harnessHomeDir, sessions);
-});
-
-// Boot-time pull, for both a crash-triggered reload and a plain dev Cmd+R:
-// only sessions whose PTY is still actually alive come back — a session
-// whose process had already exited before the reload has nothing live to
-// reattach to, so its tab just doesn't reappear (its checkpoint may still be
-// sitting in sessionRegistry from before the exit; ptyManager.list() is the
-// authority here, not the mirror). Same liveness check for selectedId: no
-// point reselecting a tab that isn't coming back.
-handle('sessions:restore', async () => {
-  // Awaits the launch-time disk restore (a no-op once it's already settled,
-  // which is the common case by the time the renderer gets this far) so this
-  // never races ahead of `restoreFromDisk` and sees a still-empty registry —
-  // see that function's own header.
-  await diskRestorePromise;
-  const liveIds = new Set(ptyManager.list().map((p) => p.id));
-  const sessions = sessionRegistry
-    .filter((s) => liveIds.has(s.id))
-    .map((session) => ({ session, replay: ptyManager.getReplay(session.id) }));
-  const selectedId = lastSelectedId && liveIds.has(lastSelectedId) ? lastSelectedId : null;
-  return { sessions, selectedId };
-});
-
-// Boot-time pull for the "restored N sessions" toast (Phase 8.5 #1) — see
-// `diskRestoreConsumed`'s own comment for why this is clear-on-read.
-handle('app:getDiskRestoreInfo', async () => {
-  const info = await diskRestorePromise;
-  if (diskRestoreConsumed || info.count === 0) return null;
-  diskRestoreConsumed = true;
-  return info;
-});
-
-// Boot-time pull for the one-time "codex will ask to approve this hook"
-// notice — same clear-on-read shape as `app:getDiskRestoreInfo` above (and
-// for the same reason: a plain dev Cmd+R after boot must not re-toast it).
-handle('app:getCodexHooksNotice', () => {
-  if (!codexHooksNoticePending) return null;
-  codexHooksNoticePending = false;
-  return CODEX_HOOKS_NOTICE_TEXT;
-});
-
-handle('app:getClaudeThemeNotice', () => {
-  const notice = claudeThemeNoticePending;
-  claudeThemeNoticePending = null;
-  return notice;
-});
-
-// ─── Lazy sprite cache (Phase 3 §2) ────────────────────────────────────────
-// Main is the only network and disk actor here: the renderer's CSP has no
-// 'unsafe-eval' script-src beyond self and no external connect-src, so it can
-// neither fetch Showdown directly nor reach outside contextBridge to touch
-// userData. Decoding/re-encoding happens renderer-side (it has a canvas).
-handle('sprites:getCached', (_e, id: string, view: SpriteView, shiny: boolean) =>
-  getCachedSprite(id, view, shiny)
-);
-handle('sprites:fetchGif', (_e, id: string, view: SpriteView, shiny: boolean, explicitKind?: 'animated' | 'static') =>
-  fetchSpriteGif(id, view, shiny, explicitKind)
-);
-handle(
-  'sprites:saveCache',
-  (_e, id: string, view: SpriteView, shiny: boolean, png: ArrayBuffer, meta: LazySpriteMeta) =>
-    saveCachedSprite(id, view, shiny, png, meta)
-);
-
-// ─── Audio (Phase 7) ────────────────────────────────────────────────────────
-// Same rationale as the sprite cache above: the renderer's CSP has no
-// connect-src beyond self, so main is the only actor that can reach khinsider
-// or Showdown's cry endpoint; it also owns the userData disk cache and the
-// settings JSON (see audioSettings.ts — no other persistence precedent
-// existed in this app to follow instead).
-handle('audio:getSettings', () => loadAudioSettings());
-handle('audio:saveSettings', async (_e, settings: AudioSettings) => {
-  audioMasterMuted = settings.masterMuted;
-  await saveAudioSettings(settings);
-});
-// `id` is any mini-player catalog id (musicCatalog.ts), not just the 9
-// original curated MusicTrackIds — see musicCache.ts's header.
-handle('audio:ensureTrack', (_e, id: string) => ensureMusicTrack(id));
-handle('audio:ensureCry', (_e, id: string) => ensureCry(id));
-// Background catalog-warm (mini-player generation filter) — see
-// musicCache.ts's single-flight coordination.
-handle('audio:prefetchTrack', (_e, id: string) => prefetchTrack(id));
-handle('audio:cancelPrefetch', () => cancelPrefetch());
-handle('audio:cacheStatus', () => getCacheStatus());
-
-// ─── General app settings (parity sweep: theme, auto-permission mode,
-// keep-awake, recent folders) — same rationale as audio settings above.
-handle('appSettings:getSettings', () => loadAppSettings());
-handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
-  activeTheme = settings.theme;
-  ptyManager.setTerminalAppearance(resolveTerminalAppearance(settings.theme));
-  keepAwakeEnabled = settings.keepAwake;
-  syncKeepAwake();
-hookBridge.setHideStatusline(settings.hideClaudeStatusline);
-  ptyManager.setShellFallbackEnabled(settings.shellFallbackEnabled);
-  // Usage-limits toggle (BACKLOG "next up" item 1) — the ONLY place a save
-  // reaches usageService, so flipping it off here is what makes "toggle off
-  // = zero credential access" true the instant the user unchecks it, not
-  // just on next launch. Per-provider exclusion (feedback: "let the user
-  // pick which providers to include") goes first, same ordering rationale as
-  // the boot path above.
-  usageService.setExcludedProviders(settings.usageExcludedProviders);
-  usageService.setEnabled(settings.usageLimitsEnabled);
-  // Diagnostics opt-in (BACKLOG friend-testing readiness) — takes effect on
-  // this very save, same immediacy as the usage-limits toggle above.
-  setDiagnosticsLoggingEnabled(settings.diagnosticsLoggingEnabled);
-
-  // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
-  // actually changed, and never touches anything at the OLD location (the
-  // Settings copy says changing this "moves nothing automatically"). Writing
-  // the in-memory workspace registry to the NEW location right away is a
-  // future write, same as any other mutation below — not a migration of
-  // existing files — but it's what keeps "just point future writes at a new
-  // folder" from silently losing the workspace list on next launch (that
-  // folder has no workspaces.json of its own yet).
-  const nextHarnessHomeDir = resolveHarnessHomeDir(settings);
-  if (nextHarnessHomeDir !== harnessHomeDir) {
-    harnessHomeDir = nextHarnessHomeDir;
-    await ensureHarnessHome(harnessHomeDir);
-    await ensureHarnessInstructions(harnessHomeDir);
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-    initDiagnostics(harnessHomeDir); // future log writes only — see its own comment
-  }
-  // Harness-owned instructions file (HARNESS.md) — reached on every save
-  // (not just a dir change) so flipping the toggle off takes effect on the
-  // very next spawn, same immediacy as shellFallbackEnabled above. Re-reads
-  // the path off the (possibly just-updated) harnessHomeDir.
-  ptyManager.setHarnessInstructions(settings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
-  ptyManager.setAdvisorModel(settings.advisorModel);
-  codexDelegateModel = settings.codexDelegateModel;
-
-  await saveAppSettings(settings);
-  return harnessHomeDir;
-});
-
-// ─── Harness home directory (Phase 8.7) ────────────────────────────────────
-// Pulled once at boot (main.tsx) to display the CURRENT resolved path in
-// Settings even when the setting itself is null (i.e. "use the default") —
-// only main can resolve that default (needs os.homedir()).
-handle('harnessHome:getResolvedPath', () => harnessHomeDir);
-
-// ─── Harness-owned instructions file (HARNESS.md) ──────────────────────────
-// Resolved path only (the file is seeded/ensured at boot and on every
-// harness-home-dir change above — see ensureHarnessInstructions' two call
-// sites) — Settings' "harness instructions" row displays this and its "open
-// file" button shells out to it, same shape as diagnostics:openLogs below.
-handle('harness:instructionsPath', () => harnessInstructionsPath(harnessHomeDir));
-handle('harness:openInstructions', () => shell.openPath(harnessInstructionsPath(harnessHomeDir)));
-
-// ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────────
-// Ensures agents/arceus/SYSTEM.md exists (seeding it from the template on
-// first call only) and returns its CURRENT contents — called fresh on every
-// summon, never cached here or renderer-side, so an edit to the file takes
-// effect on the very next summon. See arceusPrompt.ts. Also writes
-// roster.json from the current `sessionRegistry` before returning its path,
-// so the file the renderer is about to hand Arceus as "always current"
-// actually exists at that moment rather than depending on a
-// `sessions:checkpoint` having already fired first.
-handle('arceus:ensureSystemPrompt', async () => {
-  writeArceusRosterFile(harnessHomeDir, sessionRegistry);
-  return ensureArceusSystemPrompt(harnessHomeDir);
-});
-// Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds
-// above): this app must never spawn a REAL claude session for its own
-// testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
-// real `claude` spawn (persona typed as his first prompt once ready — see
-// shared/arceus.ts) for a plain shell tagged `isArceus` (see the renderer's
-// arceus.ts `summonArceusDevStandin`) — everything BUT the real spawn (the
-// cosmos ascent, alpha card, dispatch box, persistence, cross-workspace
-// presence) is then exercisable live.
-handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');
-
-// ─── Arceus summon-once (Phase 8.9) ────────────────────────────────────────
-// See arceusSummonConfig.ts's own header — this file's mere existence gates
-// the setup dialog vs. a silent auto-summon on every later launch.
-// Provider-aware Arceus (BACKLOG item 1) — a summon.json predating the
-// `provider` field (or one that never named a supported one) falls back to
-// the app's own default provider (settings' "default agent provider" row),
-// not a hardcoded 'claude'; see loadArceusSummonConfig's own comment.
-handle('arceus:loadSummonConfig', async () => {
-  const settings = await loadAppSettings();
-  return loadArceusSummonConfig(harnessHomeDir, settings.defaultAgentProvider);
-});
-handle('arceus:saveSummonConfig', (_e, config: ArceusSummonConfig) =>
-  saveArceusSummonConfig(harnessHomeDir, config)
-);
-handle('arceus:resetSummonConfig', () => resetArceusSummonConfig(harnessHomeDir));
-
-// ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────────
-// Every handler here returns the FULL current snapshot (not just the one
-// field that changed) so the renderer always hydrates from one authoritative
-// source instead of patching its local copy — most load-bearing for delete,
-// where main may have to pick a new active workspace itself.
-handle('workspaces:list', async () => {
-  // workspaceRegistry is populated inside restoreFromDisk() — await the same
-  // promise sessions:restore does so this never races ahead of it.
-  await diskRestorePromise;
-  return workspaceRegistry;
-});
-
-handle('workspaces:create', (_e, name: string, primaryFolder: string) => {
-  const id = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const workspace: WorkspaceRecord = {
-    id,
-    name: name.trim() || basename(primaryFolder.replace(/\/+$/, '')) || 'new garden',
-    primaryFolder,
-    createdAt: Date.now()
-  };
-  // A freshly created workspace becomes the active one immediately — there's
-  // no reason to create one and keep looking at another.
-  workspaceRegistry = { workspaces: [...workspaceRegistry.workspaces, workspace], activeWorkspaceId: id };
-  saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:rename', (_e, id: string, name: string) => {
-  const trimmed = name.trim();
-  if (trimmed) {
-    workspaceRegistry = {
-      ...workspaceRegistry,
-      workspaces: workspaceRegistry.workspaces.map((w) => (w.id === id ? { ...w, name: trimmed } : w))
-    };
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  }
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:update', (_e, id: string, fields: { name?: string; primaryFolder?: string; accent?: number }) => {
-  if (workspaceRegistry.workspaces.some((workspace) => workspace.id === id)) {
-    workspaceRegistry = {
-      ...workspaceRegistry,
-      workspaces: workspaceRegistry.workspaces.map((workspace) =>
-        workspace.id === id
-          ? {
-              ...workspace,
-              ...(fields.name?.trim() ? { name: fields.name.trim() } : {}),
-              ...(fields.primaryFolder?.trim() ? { primaryFolder: fields.primaryFolder.trim() } : {}),
-              ...(fields.accent !== undefined ? { accent: fields.accent } : {})
-            }
-          : workspace
-      )
-    };
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  }
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:setActive', (_e, id: string) => {
-  if (workspaceRegistry.workspaces.some((w) => w.id === id) && id !== workspaceRegistry.activeWorkspaceId) {
-    workspaceRegistry = { ...workspaceRegistry, activeWorkspaceId: id };
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  }
-  return { ok: true, ...workspaceRegistry };
-});
-
-handle('workspaces:delete', (_e, id: string) => {
-  if (workspaceRegistry.workspaces.length <= 1) {
-    return { ok: false, error: "can't delete your only workspace.", ...workspaceRegistry };
-  }
-  // Authoritative liveness check (ptyManager, not merely `status !== 'done'`
-  // — same distinction main draws everywhere else it counts live sessions)
-  // — the renderer is expected to only ever offer delete once its own view
-  // agrees there's nothing live left, but this is the actual guard.
-  const liveIds = new Set(ptyManager.list().map((p) => p.id));
-  // Arceus (Phase 8.8) is excluded from both checks below: he isn't really
-  // "in" whatever workspace his absent workspaceId would otherwise default
-  // to, so his liveness must never block a workspace delete, and he must
-  // never be dropped as if he were that workspace's orphaned session.
-  const hasLiveSession = sessionRegistry.some(
-    (s) => !s.isArceus && (s.workspaceId ?? DEFAULT_WORKSPACE_ID) === id && liveIds.has(s.id)
-  );
-  if (hasLiveSession) {
-    return { ok: false, error: 'this workspace still has running sessions.', ...workspaceRegistry };
-  }
-
-  // Drop this workspace's persisted-dead sessions (finished-but-still-listed
-  // records) along with it, so deleting a workspace never leaves an orphaned
-  // entry with a workspaceId nothing in the registry owns anymore.
-  sessionRegistry = sessionRegistry.filter((s) => s.isArceus || (s.workspaceId ?? DEFAULT_WORKSPACE_ID) !== id);
-  sessionPersistence.schedule({ sessions: sessionRegistry, lastSelectedId });
-
-  const workspaces = workspaceRegistry.workspaces.filter((w) => w.id !== id);
-  const activeWorkspaceId =
-    workspaceRegistry.activeWorkspaceId === id ? workspaces[0].id : workspaceRegistry.activeWorkspaceId;
-  workspaceRegistry = { workspaces, activeWorkspaceId };
-  saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-  return { ok: true, ...workspaceRegistry };
-});
-
-// ─── Config ─────────────────────────────────────────────────────────────────
-// The renderer is sandboxed and cannot reliably read process.env itself; main
-// definitely can. Lets POKE_EVOLVE_SECONDS accelerate evolution for demos/tests.
-handle('config:evolveSeconds', () => process.env.POKE_EVOLVE_SECONDS ?? null);
-// Phase 5 §1: POKE_SHINY_ODDS overrides the 1-in-N shiny roll (e.g. "1" =
-// always shiny, for demos/tests).
-handle('config:shinyOdds', () => process.env.POKE_SHINY_ODDS ?? null);
-// Phase 8.5 Wave B item 3 §3 — the "plain shell" provider's actual command:
-// the user's own interactive shell, which only main can read off $SHELL.
-handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
-
-// ─── App version + updates (ship-cut item 4) ───────────────────────────────
-handle('app:getVersion', () => app.getVersion());
-handle('app:openExternal', (_e, url: string) => openExternalIfSafe(url));
-// Settings panel's "check now" — unlike the background 24h check
-// (`scheduleUpdateChecks`), this reports its result either way (including
-// "you're up to date"), since a user who clicked the button is owed an
-// answer, not silence.
-handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
-
-// ─── Usage limits (BACKLOG "next up" item 1) ───────────────────────────────
-// `getSnapshot` is a plain cache read (never triggers a fetch) — the
-// renderer's boot-time hydrate and the toggle's own "off" cleanup both use
-// it. `refresh` is the popover-open trigger, throttled inside the service
-// itself (see usageService.ts's MANUAL_REFRESH_MIN_INTERVAL_MS).
-handle('usage:getSnapshot', () => usageService.getSnapshot());
-handle('usage:refresh', () => usageService.refreshNow());
-
-// ─── Diagnostics (BACKLOG item 1) — local-only, nothing here leaves the
-// machine. ───────────────────────────────────────────────────────────────
-// Renderer → main log forwarding: window.onerror/unhandledrejection
-// (main.tsx), the counter snapshots (diagnosticsCounters.ts) — all routed
-// through the same `log()` hookBridge/pty/uncaughtException use, so the
-// Settings panel's "errors this session" count covers renderer-origin
-// errors too.
-handle('diagnostics:log', (_e, area: string, level: LogLevel, message: string, data?: unknown) =>
-  log(area, level, message, data)
-);
-handle('diagnostics:getInfo', () => ({
-  appVersion: app.getVersion(),
-  electronVersion: process.versions.electron,
-  logDir: getLogDir(),
-  recentErrorCount: getRecentErrorCount()
-}));
-// Settings panel's "open logs" button. `logDir` is only null if
-// initDiagnostics somehow never ran — falls back to harnessHomeDir itself
-// so the button still does something reasonable rather than silently no-op.
-// The `log()` in whenReady() already creates the folder on every normal
-// boot, but mkdirSync here too in case nothing has actually logged yet.
-handle('diagnostics:openLogs', () => {
-  const dir = getLogDir() ?? harnessHomeDir;
-  try {
-    mkdirSync(dir, { recursive: true });
-  } catch {
-    /* best-effort — openPath below will just fail visibly if this did too */
-  }
-  return shell.openPath(dir);
-});
-// "Export diagnostics bundle" (BACKLOG friend-testing readiness) — a
-// dead-simple share flow for a non-technical tester: save-dialog, then
-// reveal the finished zip in Finder so "send it to me" is just attaching
-// that file. See diagnosticsExport.ts for what's inside and what's redacted.
-handle('diagnostics:exportBundle', async (): Promise<ExportDiagnosticsResult> => {
-  const win = mainWindow;
-  const dialogOpts = {
-    defaultPath: defaultBundleFilename(new Date()),
-    filters: [{ name: 'Zip', extensions: ['zip'] }]
-  };
-  const res = win ? await dialog.showSaveDialog(win, dialogOpts) : await dialog.showSaveDialog(dialogOpts);
-  if (res.canceled || !res.filePath) return { ok: false, canceled: true };
-  try {
-    await buildDiagnosticsBundle(res.filePath, await loadAppSettings());
-    shell.showItemInFolder(res.filePath);
-    return { ok: true, path: res.filePath };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    log('diagnostics', 'error', 'export bundle failed', { message });
-    return { ok: false, error: message };
+registerSessionsIpc({
+  ptyManager,
+  sessionPersistence,
+  arceusRelay,
+  costWatcher,
+  taskNotificationWatcher,
+  notifyStatusTransitions,
+  getSessionRegistry: () => sessionRegistry,
+  setSessionRegistry: (sessions) => {
+    sessionRegistry = sessions;
+  },
+  getLastSelectedId: () => lastSelectedId,
+  setLastSelectedId: (id) => {
+    lastSelectedId = id;
+  },
+  getHarnessHomeDir: () => harnessHomeDir,
+  getDiskRestorePromise: () => diskRestorePromise,
+  isDiskRestoreConsumed: () => diskRestoreConsumed,
+  setDiskRestoreConsumed: (consumed) => {
+    diskRestoreConsumed = consumed;
   }
 });
 
-// ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
-handle('terminal:getSettings', () => loadTerminalSettings());
-handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
-  saveTerminalSettings(settings)
-);
+registerAssetsIpc();
 
-// ─── Cost & context HUD (Phase 8.5 Wave B item 1) ──────────────────────────
-// Test-only escape hatch: registers a session id against an arbitrary
-// transcript path, bypassing the real hook payload entirely — this app is
-// never allowed to spawn a real `claude` for testing (see hookRouter.ts), so
-// verifying the watcher means pointing it at a synthetic transcript from a
-// plain bash session instead.
-handle('cost:registerTestPath', (_e, agentId: string, transcriptPath: string) =>
-  costWatcher.registerSession(agentId, transcriptPath)
-);
-
-// ─── App lifecycle ──────────────────────────────────────────────────────────
-// Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called once the
-// renderer's own walk/wave/toast/audio-fade sequence finishes (see
-// src/renderer/src/closingTime.ts). `before-quit` (above) already kills
-// every PTY and stops the hook/cost-watcher servers. This is always a
-// CONFIRMED quit (the ritual is its only caller) — sets `quitConfirmed`
-// first so it passes through the quit-intercept guard uninterrupted, even if
-// sessions are still technically live (the ritual doesn't itself kill them;
-// `before-quit`'s existing `ptyManager.killAll()` does).
-handle('app:quit', () => {
-  quitConfirmed = true;
-  app.quit();
+registerSettingsIpc({
+  ptyManager,
+  hookBridge,
+  usageService,
+  resolveTerminalAppearance,
+  syncKeepAwake,
+  setActiveTheme: (theme) => {
+    activeTheme = theme;
+  },
+  setKeepAwakeEnabled: (enabled) => {
+    keepAwakeEnabled = enabled;
+  },
+  setCodexDelegateModel: (model) => {
+    codexDelegateModel = model;
+  },
+  getHarnessHomeDir: () => harnessHomeDir,
+  setHarnessHomeDir: (dir) => {
+    harnessHomeDir = dir;
+  },
+  getWorkspaceRegistry: () => workspaceRegistry,
+  setAudioMasterMuted: (muted) => {
+    audioMasterMuted = muted;
+  }
 });
 
-// "kill it & quit" — the quit dialog's destructive action (parity sweep item
-// 2). Bypasses the sunset ritual entirely; `before-quit`'s existing flush +
-// killAll still runs.
-handle('app:forceQuit', () => {
-  quitConfirmed = true;
-  app.quit();
+registerWorkspacesIpc({
+  ptyManager,
+  sessionPersistence,
+  getWorkspaceRegistry: () => workspaceRegistry,
+  setWorkspaceRegistry: (snapshot) => {
+    workspaceRegistry = snapshot;
+  },
+  getHarnessHomeDir: () => harnessHomeDir,
+  getDiskRestorePromise: () => diskRestorePromise,
+  getSessionRegistry: () => sessionRegistry,
+  setSessionRegistry: (sessions) => {
+    sessionRegistry = sessions;
+  },
+  getLastSelectedId: () => lastSelectedId
 });
 
-// "clear & quit" — the quit dialog's most destructive action: quits AND
-// wipes the session registry so the next launch opens to a genuinely empty
-// garden (nothing resumes, nothing respawns). Kill ptys BEFORE flushEmpty —
-// same ordering concern as sessionPersistence.ts's flush() doc comment, but
-// reversed: an exit handler firing during killAll re-checkpoints a
-// non-empty registry, so that must happen before the empty write, not
-// after. `before-quit`'s own `sessionPersistence.flush()` then no-ops
-// safely since `pending` is already null.
-handle('app:wipeGardenAndQuit', () => {
-  quitConfirmed = true;
-  ptyManager.killAll();
-  sessionPersistence.flushEmpty();
-  app.quit();
-});
-
-// ─── Dialog ─────────────────────────────────────────────────────────────────
-handle('dialog:chooseFolder', async () => {
-  const win = mainWindow;
-  const opts = { properties: ['openDirectory', 'createDirectory'] as const };
-  const res = win
-    ? await dialog.showOpenDialog(win, { properties: [...opts.properties] })
-    : await dialog.showOpenDialog({ properties: [...opts.properties] });
-  if (res.canceled || res.filePaths.length === 0) return null;
-  return res.filePaths[0];
+registerAppIpc({
+  ptyManager,
+  sessionPersistence,
+  usageService,
+  costWatcher,
+  getMainWindow: () => mainWindow,
+  getPendingCrashInfo: () => pendingCrashInfo,
+  getCodexHooksNoticePending: () => codexHooksNoticePending,
+  setCodexHooksNoticePending: (pending) => {
+    codexHooksNoticePending = pending;
+  },
+  getClaudeThemeNoticePending: () => claudeThemeNoticePending,
+  setClaudeThemeNoticePending: (notice) => {
+    claudeThemeNoticePending = notice;
+  },
+  openExternalIfSafe,
+  setQuitConfirmed: (confirmed) => {
+    quitConfirmed = confirmed;
+  },
+  getHarnessHomeDir: () => harnessHomeDir,
+  getSessionRegistry: () => sessionRegistry
 });
