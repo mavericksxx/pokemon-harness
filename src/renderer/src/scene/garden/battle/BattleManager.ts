@@ -1108,6 +1108,14 @@ export class BattleManager {
         roamBubbleMode: 'hidden'
       };
       pb.subs.push(sub);
+      // nextSeq collision fix (2026-09-08): `createBattle` always starts a
+      // fresh `pb` at `nextSeq: 0`, but this respawned sub keeps its OLD
+      // `${parentId}#${n}` key — without advancing `nextSeq` past every key
+      // recovered here, the next `handleSpawn` for this parent would mint
+      // `${parentId}#0` again and collide with whatever respawned sub
+      // already holds that exact key.
+      const seqNum = Number(entry.key.slice(entry.key.lastIndexOf('#') + 1));
+      if (Number.isInteger(seqNum)) pb.nextSeq = Math.max(pb.nextSeq, seqNum + 1);
       if (!isBundled(species.id)) {
         // Destroyed/identity guard (2026-09-08, see startMega's own comment
         // for the full reasoning) — `pb!.subs.includes(sub)` already goes
@@ -1399,7 +1407,13 @@ export class BattleManager {
     const shiny = rollShiny();
     const animation = this.deps.resolveAnimation(species.id, shiny);
     const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-    const key = `${parentId}#${pb.nextSeq++}`;
+    let key = `${parentId}#${pb.nextSeq++}`;
+    // Defensive uniqueness guard (2026-09-08, companion to respawnFromStore's
+    // nextSeq fix above) — `nextSeq` is the normal source of truth for
+    // uniqueness, but a stray minted key colliding with a live sub's key
+    // would silently overwrite that sub's roster entry rather than fail
+    // loudly, so this keeps bumping until the key is actually free.
+    while (pb.subs.some((s) => s.key === key)) key = `${parentId}#${pb.nextSeq++}`;
     const battler = new Battler({
       map: this.deps.map,
       animation,
