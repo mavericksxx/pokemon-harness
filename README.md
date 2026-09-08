@@ -29,7 +29,7 @@ normally like anything else.
 ```sh
 git clone https://github.com/mavericksxx/pokemon-harness.git
 cd pokemon-harness
-npm install     # includes electron-rebuild for node-pty
+npm install     # postinstall runs electron-builder install-app-deps for node-pty
 npm run dev
 ```
 

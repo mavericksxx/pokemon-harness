@@ -28,7 +28,7 @@ import {
   type ArceusSummonConfig
 } from '@shared/arceus';
 import { useStore, type Session } from '@/store/store';
-import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
+import { createTerminal, disposeTerminal, hasTerminal, recreateTerminal } from '@/pty/terminalRegistry';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { RESUME_GRACE_MS } from '@shared/resumeTiming';
 
@@ -394,8 +394,14 @@ async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<bo
   // has it (see `disarmFirstPrompt`'s own comment).
   disarmFirstPrompt?.();
   disarmFirstPrompt = null;
-  if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
-  createTerminal(ARCEUS_SESSION_ID, 'claude');
+  // `recreateTerminal` (not a plain dispose+create): if Arceus is the
+  // currently-selected session, TerminalDrawer.tsx's attach effect (keyed on
+  // `[open, selectedId]` only) never re-fires for a respawn under this
+  // unchanged id, so a bare dispose+create would leave the drawer's mount div
+  // attached to the disposed entry and the resumed terminal blank. See
+  // `recreateTerminal`'s own comment (terminalRegistry.ts) for the full
+  // rationale, shared with sessions.ts's `restartSessionFresh`.
+  recreateTerminal(ARCEUS_SESSION_ID, 'claude');
   const res = await window.api.spawnPty({
     id: ARCEUS_SESSION_ID,
     cwd,
