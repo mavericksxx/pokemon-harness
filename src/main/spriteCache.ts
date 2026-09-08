@@ -26,24 +26,15 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CachedSprite, LazySpriteMeta, SpriteView } from '../shared/types';
-// Plain data import (JSON), not the renderer's `@assets` alias — that alias
-// is only configured for the renderer's Vite build (electron.vite.config.ts),
-// which Phase 6 does not touch.
-import dexIndex from '../../assets/dex/dexIndex.json';
-import forms from '../../assets/dex/forms.json';
+import { log } from './diagnostics';
+import { DEX, isValidSpeciesId } from './spriteIds';
 
-interface DexEntryLite {
-  static?: boolean;
-}
-// Merge in forms.json so an alt-form id (e.g. "zacian-crowned") resolves its
-// `static` flag correctly too — without this, DEX[id]?.static is always
-// undefined for a form (it's not in dexIndex.json at all), so `kind` below
-// always reads 'animated' for a form regardless of which tier its art is
-// actually on, a real 404 mid-render for every static-tier form.
-const DEX = {
-  ...(dexIndex as unknown as Record<string, DexEntryLite>),
-  ...(forms as unknown as Record<string, DexEntryLite>)
-};
+// Every id these three exported functions ever legitimately see, straight
+// from the renderer's own callers (grepped: lazySprites.ts's `loadView`/
+// `fetchAndDecode*`/`decodeThumbnailFrame*`, all keyed by a `speciesEntry`/
+// dex id, plus megaForms.ts's mega ids and arceusFormes.ts's 17 synthetic
+// type-forme ids), is either a `DEX` key (see `./spriteIds`) or a hyphenated
+// forme/mega variant of one — `isValidSpeciesId` accepts both.
 
 const SPRITE_BASE = {
   front: {
@@ -72,6 +63,10 @@ export async function getCachedSprite(
   view: SpriteView,
   shiny: boolean
 ): Promise<CachedSprite | null> {
+  if (!isValidSpeciesId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return null;
+  }
   const { png, meta } = cachePaths(id, view, shiny);
   if (!existsSync(png) || !existsSync(meta)) return null;
   try {
@@ -94,6 +89,10 @@ export async function saveCachedSprite(
   png: ArrayBuffer,
   meta: LazySpriteMeta
 ): Promise<void> {
+  if (!isValidSpeciesId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return;
+  }
   await mkdir(cacheDir(), { recursive: true });
   const { png: pngPath, meta: metaPath } = cachePaths(id, view, shiny);
   await Promise.all([writeFile(pngPath, Buffer.from(png)), writeFile(metaPath, JSON.stringify(meta))]);
@@ -110,6 +109,10 @@ export async function fetchSpriteGif(
   shiny: boolean,
   explicitKind?: 'animated' | 'static'
 ): Promise<ArrayBuffer | null> {
+  if (!isValidSpeciesId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return null;
+  }
   const kind = explicitKind ?? (DEX[id]?.static ? 'static' : 'animated');
   const ext = kind === 'static' ? 'png' : 'gif';
   const base = SPRITE_BASE[view][kind];

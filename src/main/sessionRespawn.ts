@@ -55,11 +55,16 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
     : (primary.error ?? 'the original command could not be restarted');
   const fallback = ptyManager.spawnFallbackShellFromRespawn(record.id, record.cwd, record.provider);
   if (!fallback.ok) return { ok: false };
+  // Consumed here, not just read — this is the one place a boot-restore
+  // failure's exit code is ever needed, so leaving it in `lastExitCodes`
+  // after this point would just be a leak (see that map's own comment in
+  // pty.ts).
+  const exitCode = ptyManager.takeLastExitCode(record.id);
   log('pty', 'warn', 'session respawn fell back to shell', {
     id: record.id,
     provider: record.provider,
     reason,
-    ...(ptyManager.getLastExitCode(record.id) === undefined ? {} : { exitCode: ptyManager.getLastExitCode(record.id) })
+    ...(exitCode === undefined ? {} : { exitCode })
   });
   return { ok: true, fallbackReason: reason };
 }
