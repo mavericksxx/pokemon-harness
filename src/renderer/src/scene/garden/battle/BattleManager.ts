@@ -315,6 +315,7 @@ import { WalkerChallenger } from './WalkerChallenger';
 import { spawnExclaimBubble, spawnHitFlash, spawnShinySparkle, spawnSparkleBurst, tickBattleFx } from './battleFx';
 import { rollShiny } from '../shiny';
 import { isMegaFormStatic, loadMegaAnimation, pickMegaId } from '../megaForms';
+import { pinAnimation, unpinAnimation } from '../lazySprites';
 import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
@@ -549,6 +550,14 @@ export interface Challenger {
 interface SubBattler {
   key: string;
   battler: Challenger;
+  /** The animation currently protected from lazySprites.ts's cache eviction
+   *  (see pinAnimation/unpinAnimation) — only ever set for a plain `Battler`
+   *  fighter this manager owns. A delegate's `WalkerChallenger` wraps a live
+   *  session's own `Walker`, which already pins its own current animation for
+   *  its whole lifetime (see Walker.ts) — this stays null for that sub, and
+   *  `releaseSubPin` is a no-op on it. Null until this sub's first animation
+   *  is pinned at spawn, cleared once its battler is destroyed. */
+  pinnedAnimation: PokemonAnimation | null;
   /** 'retired': lost its completion battle (or aged out into one) and is now
    *  off-duty — resumes ordinary wandering (`updateRoaming`), never re-
    *  queues, stays until despawned. 'despawning': a player-initiated pokéball
@@ -1102,12 +1111,14 @@ export class BattleManager {
         label: entry.label,
         onClick: () => this.handleBattlerClick(entry.parentId, entry.key)
       });
+      pinAnimation(animation);
       this.deps.charLayer.addChild(battler.container);
       this.deps.charLayer.addChild(battler.bubbleContainer);
       const bubbleTiming = roamingBubbleTiming(entry.key);
       const sub: SubBattler = {
         key: entry.key,
         battler,
+        pinnedAnimation: animation,
         lifecycle: entry.done ? 'retired' : 'roaming',
         label: entry.label,
         // No correlation survives a renderer rebuild — this sub falls back
@@ -1151,6 +1162,9 @@ export class BattleManager {
           if (this.battles.get(entry.parentId) !== pb) return;
           if (!pb!.subs.includes(sub)) return;
           if (battler.container.destroyed) return;
+          pinAnimation(real);
+          this.releaseSubPin(sub);
+          sub.pinnedAnimation = real;
           battler.setAnimation(real);
         });
       }
@@ -1454,6 +1468,7 @@ export class BattleManager {
       label,
       onClick: () => this.handleBattlerClick(parentId, key)
     });
+    pinAnimation(animation);
     this.deps.charLayer.addChild(battler.container);
     this.deps.charLayer.addChild(battler.bubbleContainer);
     const bubbleTiming = roamingBubbleTiming(key);
@@ -1461,6 +1476,7 @@ export class BattleManager {
     const sub: SubBattler = {
       key,
       battler,
+      pinnedAnimation: animation,
       lifecycle: 'roaming',
       label,
       toolUseId: toolUseId ?? null,
@@ -1508,6 +1524,9 @@ export class BattleManager {
         if (this.battles.get(parentId) !== pb) return;
         if (!pb!.subs.includes(sub)) return;
         if (battler.container.destroyed) return;
+        pinAnimation(real);
+        this.releaseSubPin(sub);
+        sub.pinnedAnimation = real;
         battler.setAnimation(real);
       });
     }
@@ -1522,6 +1541,17 @@ export class BattleManager {
    *  path changes behavior. */
   private isDelegateSub(sub: SubBattler): boolean {
     return sub.delegateSessionId !== null;
+  }
+
+  /** Releases a plain `Battler` sub's hold on its currently-displayed
+   *  animation (see `SubBattler.pinnedAnimation`'s own comment) — call at
+   *  every point a sub's battler is actually destroyed. Idempotent and safe
+   *  on a delegate sub (`pinnedAnimation` is already null there). */
+  private releaseSubPin(sub: SubBattler): void {
+    if (sub.pinnedAnimation) {
+      unpinAnimation(sub.pinnedAnimation);
+      sub.pinnedAnimation = null;
+    }
   }
 
   /**
@@ -1585,6 +1615,10 @@ export class BattleManager {
       // nothing looks it up as a `LiveBattler`.
       key: `${parentId}#delegate:${delegateId}`,
       battler: new WalkerChallenger(delegateWalker, species, label),
+      // Never set for a delegate — its `Walker` already pins its own current
+      // animation for its whole lifetime (see Walker.ts and this field's own
+      // comment on SubBattler).
+      pinnedAnimation: null,
       lifecycle: 'queued',
       label,
       toolUseId: null,
@@ -1937,12 +1971,14 @@ export class BattleManager {
       label: info.label,
       onClick: () => this.handleBattlerClick(parentId, key)
     });
+    pinAnimation(animation);
     this.deps.charLayer.addChild(battler.container);
     this.deps.charLayer.addChild(battler.bubbleContainer);
     const bubbleTiming = roamingBubbleTiming(key);
     const sub: SubBattler = {
       key,
       battler,
+      pinnedAnimation: animation,
       lifecycle: 'roaming',
       label: info.label,
       toolUseId,
@@ -1977,6 +2013,9 @@ export class BattleManager {
         if (this.battles.get(parentId) !== pb) return;
         if (!pb!.subs.includes(sub)) return;
         if (battler.container.destroyed) return;
+        pinAnimation(real);
+        this.releaseSubPin(sub);
+        sub.pinnedAnimation = real;
         battler.setAnimation(real);
       });
     }
@@ -2930,6 +2969,7 @@ export class BattleManager {
       sub.battler.startRecall(() => {
         pb.subs = pb.subs.filter((s) => s !== sub);
         sub.battler.destroy();
+        this.releaseSubPin(sub);
         bumpCounter('subagentsCleanedUp');
         this.deps.onBattlerRemoved(sub.key);
       });
@@ -3051,6 +3091,12 @@ export class BattleManager {
         key: sub.key,
         lifecycle: sub.lifecycle
       });
+      // Belt-and-braces, same reasoning as skipping the subagentsCleanedUp
+      // bump below: a real destroy site SHOULD have already released this,
+      // but a battler found already-destroyed here means it got torn down by
+      // some path this file doesn't otherwise track — releaseSubPin is a
+      // no-op if that already happened, so this only matters when it didn't.
+      this.releaseSubPin(sub);
       // subagentsCleanedUp is deliberately NOT bumped here: every real
       // destroy site already bumps it immediately after its own `.destroy()`
       // call, so a sub found already-destroyed here was (almost certainly)
@@ -3073,6 +3119,7 @@ export class BattleManager {
     pb.subs = pb.subs.filter((sub) => {
       if (sub.lifecycle !== 'leaving' || !sub.battler.isPoofedOut) return true;
       sub.battler.destroy();
+      this.releaseSubPin(sub);
       bumpCounter('subagentsCleanedUp');
       this.deps.onBattlerRemoved(sub.key);
       return false;
@@ -3131,6 +3178,7 @@ export class BattleManager {
         continue;
       }
       sub.battler.destroy();
+      this.releaseSubPin(sub);
       bumpCounter('subagentsCleanedUp');
       this.deps.onBattlerRemoved(sub.key);
     }

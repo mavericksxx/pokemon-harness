@@ -27,7 +27,7 @@ import { WalkerSprite } from '../WalkerSprite';
 import type { PokemonAnimation } from '../showdownArt';
 import type { TiledMapRenderer } from '../TiledMapRenderer';
 import { ADVISOR_DEX_IDS } from '../dexData';
-import { loadLazyAnimation, placeholderAnimation } from '../lazySprites';
+import { loadLazyAnimation, pinAnimation, placeholderAnimation, unpinAnimation } from '../lazySprites';
 import { TOOL_BUBBLE_Z_BASE } from '../ToolBubble';
 import { spawnAdvisorAura, spawnPokeballRecall, purgeBattleFxFor } from './battleFx';
 import { accent, accentLight, hexToNumber } from '@/design/tokens';
@@ -126,6 +126,17 @@ interface Companion {
   container: Container;
   sprite: WalkerSprite;
   aura: { destroy: () => void; resize: (diameterPx: number, centerY: number) => void };
+  /** The animation currently protected from lazySprites.ts's cache eviction
+   *  (see pinAnimation/unpinAnimation there) — mirrors Walker.ts's own
+   *  `pinnedLive`/`swapPinnedLive` pattern so a companion's on-screen sheet
+   *  can never be evicted out from under it under budget pressure. Starts as
+   *  the placeholder (pinning it is a harmless no-op — placeholders never
+   *  live in the lazy cache, see pinAnimation's own doc comment) and is
+   *  swapped to the real species animation the instant it loads (see
+   *  handleSpawn's `.then`), pinning the incoming animation before releasing
+   *  the outgoing one so there's never a gap where nothing is protected.
+   *  Released for good in beginDespawn/dispose. */
+  pinnedAnimation: PokemonAnimation;
   despawning: boolean;
   /** `Date.now()` at spawn — the reference point for the
    *  `MAX_COMPANION_LIFETIME_MS` safety net in `update()`. */
@@ -240,6 +251,7 @@ export class AdvisorManager {
     container.on('pointertap', () => this.deps.onCompanionClick(parentId));
 
     const anim: PokemonAnimation = placeholderAnimation(speciesId);
+    pinAnimation(anim);
     const sprite = new WalkerSprite(anim, ts);
     container.addChild(sprite.container);
 
@@ -262,6 +274,7 @@ export class AdvisorManager {
       container,
       sprite,
       aura,
+      pinnedAnimation: anim,
       despawning: false,
       spawnedAt: Date.now()
     };
@@ -273,6 +286,12 @@ export class AdvisorManager {
 
     void loadLazyAnimation(speciesId).then((real) => {
       if (!real || !this.companions.includes(companion)) return;
+      // Pin the incoming real animation before releasing the placeholder's
+      // (no-op) pin — same atomic transfer order as Walker.ts's own
+      // swapPinnedLive, so the sprite is never unprotected between the two.
+      pinAnimation(real);
+      unpinAnimation(companion.pinnedAnimation);
+      companion.pinnedAnimation = real;
       sprite.configure(real);
       // The placeholder pokeball's drawn size (what the aura was originally
       // sized against — see `handleSpawn` above) rarely matches the real
@@ -363,6 +382,7 @@ export class AdvisorManager {
     spawnPokeballRecall(companion.container, companion.sprite.container, companion.sprite.drawnHeight, () => {
       this.companions = this.companions.filter((c) => c !== companion);
       purgeBattleFxFor(companion.container);
+      unpinAnimation(companion.pinnedAnimation);
       companion.sprite.destroy();
       companion.container.destroy({ children: true });
     });
@@ -464,6 +484,7 @@ export class AdvisorManager {
     for (const companion of this.companions) {
       companion.aura.destroy();
       purgeBattleFxFor(companion.container);
+      unpinAnimation(companion.pinnedAnimation);
       companion.sprite.destroy();
       companion.container.destroy({ children: true });
     }
