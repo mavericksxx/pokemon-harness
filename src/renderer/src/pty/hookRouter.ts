@@ -76,6 +76,56 @@ export function hasPendingAsyncSubagents(parentId: string): boolean {
  *  when it fires re-adds the entry. */
 const awaitingSubagentIdle = new Set<string>();
 
+/** Backstop for the `awaitingSubagentIdle` gate above — generous on purpose,
+ *  same rationale as this file's own `HOOK_SILENCE_MS`: a session only
+ *  leaves `awaitingSubagentIdle` when every outstanding async subagent's
+ *  task notification arrives (`onSubagentTaskNotification` below), or the
+ *  next hook event supersedes it. A killed/crashed subagent that never
+ *  reports back would otherwise leave the gate — and the status pill —
+ *  stuck 'working' forever, with nothing else in this file able to clear
+ *  it. Picked long enough that a genuinely long-running subagent never trips
+ *  it in ordinary use. */
+const ASYNC_SUBAGENT_IDLE_BACKSTOP_MS = 10 * 60_000;
+
+/** One armed timer per gated session, keyed the same as `awaitingSubagentIdle`
+ *  itself — see `armAsyncIdleBackstop`/`clearAsyncIdleBackstop` below for the
+ *  arm/clear points, which mirror exactly where `awaitingSubagentIdle` itself
+ *  is added to/removed from. */
+const asyncIdleBackstopTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearAsyncIdleBackstop(sessionId: string): void {
+  const timer = asyncIdleBackstopTimers.get(sessionId);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  asyncIdleBackstopTimers.delete(sessionId);
+}
+
+/** Arms (replacing any timer already running for this session) the backstop
+ *  that force-clears a stuck `awaitingSubagentIdle` gate. Called whenever a
+ *  `Stop` gates on outstanding async subagents, and again on every later
+ *  notification for a session that's still gated afterward — so a subagent
+ *  that's still actively reporting keeps extending its own window instead of
+ *  racing the timer armed for the FIRST subagent that finished. */
+function armAsyncIdleBackstop(sessionId: string): void {
+  clearAsyncIdleBackstop(sessionId);
+  const timer = setTimeout(() => {
+    asyncIdleBackstopTimers.delete(sessionId);
+    pendingAsyncLaunches.delete(sessionId);
+    awaitingSubagentIdle.delete(sessionId);
+    const live = useStore.getState().sessions.find((s) => s.id === sessionId);
+    if (live && live.status !== 'done') {
+      useStore.getState().updateSession(sessionId, { status: 'idle' });
+    }
+    safeLogDiagnostic(
+      'hook-router',
+      'warn',
+      'async-subagent Stop gate backstop fired — no task notification arrived in time',
+      { sessionId }
+    );
+  }, ASYNC_SUBAGENT_IDLE_BACKSTOP_MS);
+  asyncIdleBackstopTimers.set(sessionId, timer);
+}
+
 window.api.onAsyncSubagentLaunch((agentId) => {
   pendingAsyncLaunches.set(agentId, (pendingAsyncLaunches.get(agentId) ?? 0) + 1);
 });
@@ -91,11 +141,20 @@ window.api.onSubagentTaskNotification((agentId, taskId) => {
   // `awaitingSubagentIdle`'s own doc comment), flip the parent back to idle.
   // Guarded the same way `handleHookEvent` guards every store write: never
   // resurrect a session that's already torn down.
-  if (n > 0 && n - 1 === 0 && awaitingSubagentIdle.has(agentId)) {
-    awaitingSubagentIdle.delete(agentId);
-    const live = useStore.getState().sessions.find((s) => s.id === agentId);
-    if (live && live.status !== 'done') {
-      useStore.getState().updateSession(agentId, { status: 'idle' });
+  if (awaitingSubagentIdle.has(agentId)) {
+    if (n > 0 && n - 1 === 0) {
+      awaitingSubagentIdle.delete(agentId);
+      clearAsyncIdleBackstop(agentId);
+      const live = useStore.getState().sessions.find((s) => s.id === agentId);
+      if (live && live.status !== 'done') {
+        useStore.getState().updateSession(agentId, { status: 'idle' });
+      }
+    } else {
+      // Still gated (more async subagents outstanding), but a notification
+      // just arrived, so this parent isn't stuck — extend the backstop
+      // rather than letting the window armed for the FIRST one to finish
+      // keep counting down under a session that's still actively reporting.
+      armAsyncIdleBackstop(agentId);
     }
   }
   // A real per-subagent completion, whatever its status — reuses the
@@ -240,6 +299,7 @@ export function clearHookAuthority(sessionId: string): void {
   lastHookAt.delete(sessionId);
   pendingAsyncLaunches.delete(sessionId);
   awaitingSubagentIdle.delete(sessionId);
+  clearAsyncIdleBackstop(sessionId);
   // External-codex-delegate feature — a torn-down parent's Stop never
   // reaches the renderer (hookBridge.ts's `isKnownSession` drops it once the
   // parent's pty is gone), so without this sweep a delegate spawned under it
@@ -259,8 +319,10 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
   lastHookAt.set(sessionId, Date.now());
   // This hook event is fresher than any earlier gated `Stop` — see
   // `awaitingSubagentIdle`'s doc comment for why every hook clears it (the
-  // `Stop` case below re-adds it if THIS event is itself a still-gated Stop).
+  // `Stop` case below re-adds it, and re-arms the backstop, if THIS event is
+  // itself a still-gated Stop).
   awaitingSubagentIdle.delete(sessionId);
+  clearAsyncIdleBackstop(sessionId);
   // A hook can arrive after the pty itself already exited (e.g. a trailing
   // Stop racing the process's own exit) — never resurrect a done session's
   // state, same guard the regex parser's idle timer uses.
@@ -471,7 +533,10 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // `onSubagentTaskNotification` can flip it back to idle once it
       // actually finishes (see that listener + the set's doc comment).
       const stillWorking = hasPendingAsyncSubagents(sessionId);
-      if (stillWorking) awaitingSubagentIdle.add(sessionId);
+      if (stillWorking) {
+        awaitingSubagentIdle.add(sessionId);
+        armAsyncIdleBackstop(sessionId);
+      }
       update({
         status: stillWorking ? 'working' : 'idle',
         tool: undefined,
