@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Application, Container, Rectangle, Ticker } from 'pixi.js';
-import type { FederatedPointerEvent } from 'pixi.js';
+import { Application, Container, Ticker } from 'pixi.js';
 // Pixi 8 compiles shader/uniform code with `new Function` by default, which the
 // renderer's CSP (no 'unsafe-eval') forbids. This is Pixi's own supported
 // no-eval path; it must be imported before an Application is created.
@@ -9,29 +8,28 @@ import { TiledMapRenderer, type TiledMap, type Point } from './TiledMapRenderer'
 import { buildMapBorder, DEFAULT_GARDEN_BORDER } from './mapBorder';
 import { DayNightOverlay } from './DayNightOverlay';
 import { Camera } from './Camera';
-import { SeatPool } from './SeatPool';
-import { Walker } from './Walker';
+import type { Walker } from './Walker';
 import { loadGardenTilesets } from './gardenArt';
 import { loadPokemonAnimations, type PokemonAnimation } from './showdownArt';
 import { AIR_ONLY_SPAWNS, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
 import { loadLazyAnimation, placeholderAnimation } from './lazySprites';
 import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { initShinyConfig } from './shiny';
-import { randomAnimatedSpecies, speciesEntry } from './dexData';
+import { speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
 import { AdvisorManager } from './battle/AdvisorManager';
 import { GardenCharm } from './gardenCharm';
 import { ClosingRitual } from './ClosingRitual';
 import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
-import { clearBattleFx, hasActiveFx, spawnShinySparkle, spawnSparkleBurst } from './battle/battleFx';
-import { playSpawnCry, playSelectCry } from '@/audio/audioEngine';
+import { clearBattleFx, hasActiveFx } from './battle/battleFx';
+import { playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { stopSession } from '@/sessions';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
-import { useStore, type LiveBattler, type Session } from '@/store/store';
+import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
@@ -42,55 +40,12 @@ import { resolveEffectiveTheme } from '@/design/theme';
 import { formatBubbleLabel } from '@/design/toolTargetLabel';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter, markRendererTick } from '@/diagnosticsCounters';
-import { isClosingTimeActive } from '@/closingTime';
 import { markDirty, consumeDirty } from './renderDirty';
+import { GardenRebuildController } from './gardenRebuild';
+import { createWalkerLifecycle, type Runtime } from './walkerLifecycle';
+import { attachGardenInput } from './gardenInput';
 
 const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
-
-/** Per-session bookkeeping the scene keeps outside the store. */
-interface Runtime {
-  walker: Walker;
-  /** The patch station this session claimed for its file work, or null when
-   *  every one of the 6 seats was already taken at spawn time (overflow) —
-   *  null must NOT be released back to the pool, since it was never reserved. */
-  homePatch: string | null;
-  /** This session's index into EVERY station list. Taken from the patch it
-   *  reserved (SeatPool already keeps those distinct), so two concurrent
-   *  sessions running Bash go to different logs instead of stacking on one.
-   *  An overflow session (no patch reservation) gets a distinct index from
-   *  `overflowSlot` instead, so it doesn't collide with every other overflow
-   *  session on the same wander spot. */
-  slot: number;
-  /** Last (station, tool, target) applied, so we don't restart the path every frame. */
-  lastStation: StationKind | null;
-  lastToolKey: string;
-  /** Mirrors session.status, refreshed each reconcile — the ticker's 1Hz
-   *  work-time accumulator reads this instead of hitting the store per frame. */
-  status: Session['status'];
-  /** The status this walker's session had on the PREVIOUS reconcile — the
-   *  edge detector for delegate battle parity (a delegate finishing is a
-   *  one-shot transition INTO 'done', but `applyState` re-runs on every store
-   *  change while it sits there). Same `rt.lastX`-diffed-each-pass convention
-   *  as `lastStation`/`lastToolKey`/`appliedPokemonId` above; seeded from the
-   *  session's CURRENT status at walker creation, like `appliedPokemonId`, so
-   *  a walker born into a state never reads as having just transitioned into
-   *  it. Distinct from `status` above, which is refreshed for the ticker's
-   *  own use and so can't double as a previous-value memory. */
-  lastStatus: Session['status'];
-  /** Working-ms accumulated since the last flush into the store. */
-  workAccumMs: number;
-  /** Set the instant a threshold crossing is noticed, cleared once evolve()
-   *  has actually been called (or abandoned) — guards against re-deciding to
-   *  evolve on every 1Hz tick while the next stage's art is still loading. */
-  evolvePending: boolean;
-  /** The species id currently reflected in this walker's sprite. Kept in
-   *  sync with `session.pokemon` by triggerEvolve's own ceremony swap AND by
-   *  applyManualSwap (the roster card's "change pokemon" action) — the
-   *  latter diffs against THIS, not `session.pokemon` read fresh, so a swap
-   *  is applied exactly once even though `session.pokemon` itself doesn't
-   *  change again until the next swap or evolution. */
-  appliedPokemonId: string;
-}
 
 export function GardenScene(): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -129,115 +84,24 @@ export function GardenScene(): JSX.Element {
     // Rebuild plumbing (garden-ui-crash triage, 2026-08-29): `mountScene`
     // below is exactly the old effect body (app init through the map/
     // walkers/battle setup) — unchanged except that it now assigns its own
-    // teardown to `currentCleanup` instead of a variable local to the
-    // effect, so it can be re-invoked to tear down a dead renderer and build
-    // a fresh one in its place without a second, parallel init path.
-    // `rebuild` is the ONE place that actually does that: it reuses
-    // `currentCleanup` (the same function component-unmount would call —
-    // detaches every listener/ticker on the OLD canvas, including the
-    // webglcontextlost/restored pair added below, since a rebuilt
-    // Application means a brand-new canvas needing its own) and then calls
-    // `mountScene` again for the fresh Application. `rebuildInFlight` caps
-    // it at one in-flight rebuild — a second signal (e.g. a stray restore
-    // event) while one is already running just logs and no-ops rather than
-    // racing a second teardown/rebuild against the first.
-    //
-    // `rebuildAttempts` caps how many times the 2s alarm may trigger this
-    // AUTOMATICALLY per context-loss EVENT before giving up and showing the
-    // crash overlay — a genuine crash loop (losses within
-    // REBUILD_BUDGET_RESET_MS of the last attempt) keeps counting toward the
-    // same budget, but a loss that lands well after the last attempt (the
-    // rebuilt renderer ran fine for a while, then something unrelated —
-    // sleep/wake, a driver reset — took it out again) reads as a NEW event
-    // and gets a fresh budget rather than inheriting a stale count. The
-    // overlay's manual "rebuild" button also resets it outright, since
-    // that's a deliberate user retry either way.
-    let currentCleanup: (() => void) | null = null;
-    let rebuildInFlight = false;
-    let rebuildAttempts = 0;
-    let lastRebuildAttemptAt = 0;
-    // A burst of subagent battler spawns can knock the context out more than
-    // twice within a single burst (each loss its own genuine event, not a
-    // rebuild failing to stick) — 2 was tight enough that a busy burst alone
-    // could exhaust the budget and land on the crash overlay. 4 gives a
-    // burst (the triage log showed several losses inside one minute) real
-    // room to breathe while still catching a genuine rebuild-fails-
-    // immediately loop (see REBUILD_BUDGET_RESET_MS below for how the budget
-    // stays bounded regardless).
-    const MAX_REBUILD_ATTEMPTS = 4;
-    const REBUILD_BUDGET_RESET_MS = 60_000;
-    // Cross-generation (survives a rebuild) so the "context lost" diagnostic
-    // row below can report how long it's been since the PREVIOUS loss, not
-    // just this generation's own downtime — that's what actually shows a
-    // burst in the log, one row at a time, versus several unrelated losses
-    // spread across a session.
-    let lastContextLossAt = 0;
-    // What `rebuild()` will treat `rebuildAttempts` as once it actually
-    // runs (it applies this same reset check itself, right before consulting
-    // the cap) — shared so the "context lost" row's own `attempt` field
-    // can't disagree with the "rebuilding renderer"/"attempts exhausted" row
-    // that follows it a couple seconds later.
-    const budgetAdjustedAttempts = (now: number): number =>
-      lastRebuildAttemptAt && now - lastRebuildAttemptAt > REBUILD_BUDGET_RESET_MS ? 0 : rebuildAttempts;
-    // Snapshot of the store's `battlers` slice taken right before teardown —
-    // `currentCleanup()` below tears down the old BattleManager, and its
-    // `destroyBattle` calls `onBattlerRemoved` for every live battler
-    // (GardenScene wires that to `removeBattler`), so by the time the fresh
-    // `mountScene()` reconciles, the store's own `battlers` array is already
-    // empty. This is what `respawnFromStore` (below, inside `mountScene`)
-    // actually reads instead.
-    let pendingRespawn: LiveBattler[] = [];
-    let pendingWalkerTiles = new Map<string, { x: number; y: number }>();
-    let snapshotWalkerTiles: () => Map<string, { x: number; y: number }> = () => new Map();
-
-    const rebuild = async (): Promise<void> => {
-      if (rebuildInFlight) {
-        safeLogDiagnostic('gpu', 'info', 'context-loss signal ignored — rebuild already in flight', {});
-        return;
-      }
-      rebuildAttempts = budgetAdjustedAttempts(Date.now());
-      if (rebuildAttempts >= MAX_REBUILD_ATTEMPTS) {
-        safeLogDiagnostic('gpu', 'error', 'garden rebuild attempts exhausted — showing crash overlay', {
-          attempts: rebuildAttempts
-        });
-        // Give up on this generation for real rather than leaving a dead
-        // renderer (and its ticker) running invisibly behind the overlay.
-        currentCleanup?.();
-        currentCleanup = null;
-        setCrashed(true);
-        return;
-      }
-      rebuildInFlight = true;
-      rebuildAttempts += 1;
-      lastRebuildAttemptAt = Date.now();
-      safeLogDiagnostic('gpu', 'error', 'webgl context not restored — rebuilding renderer', {
-        attempt: rebuildAttempts
-      });
-      try {
-        pendingRespawn = useStore.getState().battlers.slice();
-        pendingWalkerTiles = snapshotWalkerTiles();
-        currentCleanup?.();
-        currentCleanup = null;
-        await mountScene();
-        setCrashed(false);
-        safeLogDiagnostic('gpu', 'info', 'garden renderer rebuilt successfully', { attempt: rebuildAttempts });
-      } catch (e) {
-        safeLogDiagnostic('gpu', 'error', 'garden renderer rebuild failed', {
-          attempt: rebuildAttempts,
-          error: e instanceof Error ? (e.stack ?? e.message) : String(e)
-        });
-        setCrashed(true);
-      } finally {
-        rebuildInFlight = false;
-      }
-    };
+    // teardown to `rebuildController.currentCleanup` instead of a variable
+    // local to the effect, so it can be re-invoked to tear down a dead
+    // renderer and build a fresh one in its place without a second,
+    // parallel init path. `rebuildController.rebuild()` is the ONE place
+    // that actually does that — see gardenRebuild.ts for the full budget/
+    // in-flight/pending-respawn machinery, extracted verbatim out of this
+    // effect body.
+    const rebuildController = new GardenRebuildController({
+      setCrashed,
+      getBattlers: () => useStore.getState().battlers
+    });
     // The crash overlay's own button (JSX below) — a deliberate user retry,
     // so it gets a fresh automatic budget rather than staying permanently
-    // stuck at the cap from the earlier crash loop.
-    manualRebuildRef.current = (): void => {
-      rebuildAttempts = 0;
-      void rebuild();
-    };
+    // stuck at the cap from the earlier crash loop. `mountScene` is a
+    // forward reference (defined below) — safe here since this arrow
+    // function isn't invoked until the button is actually clicked, well
+    // after `mountScene` is assigned.
+    manualRebuildRef.current = (): void => rebuildController.manualRebuild(mountScene);
 
     const mountScene = async (): Promise<void> => {
       const sessionsAtMount = new Set(useStore.getState().sessions.map((session) => session.id));
@@ -249,7 +113,7 @@ export function GardenScene(): JSX.Element {
       // still reaches THIS generation's `destroyed`/`cleanup` — `cleanup`
       // itself stays null until `init` finishes setting it up, at which
       // point this closure already sees the live binding.
-      currentCleanup = (): void => {
+      rebuildController.currentCleanup = (): void => {
         destroyed = true;
         cleanup?.();
       };
@@ -295,72 +159,17 @@ export function GardenScene(): JSX.Element {
       host.appendChild(app.canvas);
 
       // WebGL/GPU context-loss instrumentation (garden-ui-crash triage,
-      // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md): a lost
-      // context used to leave the canvas silently dead with ZERO trace in
-      // harness.log — no renderer JS exception (nothing throws; lost-context
-      // GL calls are spec'd no-ops), no main-process signal, nothing. Pixi's
-      // own GlContextSystem already listens for these same two events on
-      // this canvas, calls `preventDefault()` on loss itself (required for
-      // the browser to ever restore it) and rebuilds every renderer system's
-      // GPU resources on restore, and the ticker below never stops ticking
-      // through any of this — so a context the BROWSER actually restores
-      // needs nothing further here beyond logging.
-      //
-      // CONFIRMED PRODUCTION FAILURE (2026-08-29, harness.log 10:59:53Z-
-      // 11:00:03Z): that assumption only covers the case the browser DOES
-      // restore it — here it never did, and Pixi's self-heal never got a
-      // chance to run, leaving a permanently dead canvas with nothing to
-      // recover it. The 2s alarm below now calls `rebuild()` (defined
-      // above this scene's mount function) instead of only logging.
-      const CONTEXT_RESTORE_TIMEOUT_MS = 2_000;
+      // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md) — the
+      // listener setup/rebuild-on-timeout machinery now lives in
+      // gardenRebuild.ts (GardenRebuildController.attachContextLossListeners),
+      // attached fresh here for THIS generation's own canvas since it closes
+      // over this generation's own `destroyed`/`canvas`.
       const canvas = app.canvas;
-      let contextLostAt = 0;
-      let contextRestoreTimer: ReturnType<typeof setTimeout> | null = null;
-      const onContextLost = (event: Event): void => {
-        if (destroyed) return; // this generation is already being torn down
-        event.preventDefault(); // required to allow the browser to restore it
-        contextLostAt = Date.now();
-        // Both surface a burst in the log even though each loss is its own
-        // row: `attempt` is what `rebuild()` (below) will treat the budget
-        // as once its own 2s alarm actually fires — via the same
-        // `budgetAdjustedAttempts` reset check `rebuild()` applies itself,
-        // so this can't log a stale pre-reset count that the very next row
-        // then contradicts. `secondsSinceLastLoss` is null the very first
-        // loss this session has ever seen.
-        const secondsSinceLastLoss = lastContextLossAt ? Math.round((contextLostAt - lastContextLossAt) / 1000) : null;
-        lastContextLossAt = contextLostAt;
-        safeLogDiagnostic('gpu', 'error', 'webgl context lost', {
-          statusMessage: (event as WebGLContextEvent).statusMessage || undefined,
-          attempt: budgetAdjustedAttempts(contextLostAt),
-          secondsSinceLastLoss
-        });
-        if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
-        contextRestoreTimer = setTimeout(() => {
-          contextRestoreTimer = null;
-          safeLogDiagnostic('gpu', 'error', 'webgl context lost, not restored after 2s', {});
-          void rebuild();
-        }, CONTEXT_RESTORE_TIMEOUT_MS);
-      };
-      const onContextRestored = (): void => {
-        if (destroyed) {
-          // Stale event from a generation already torn down (e.g. a rebuild
-          // already underway) — the listener normally can't outlive its own
-          // removeEventListener call in `cleanup`, but this is the same
-          // "subsequent signals no-op with a log row" guard `rebuild` itself
-          // uses, kept here too for defense-in-depth.
-          safeLogDiagnostic('gpu', 'info', 'context restored signal ignored — this generation already torn down', {});
-          return;
-        }
-        if (contextRestoreTimer) {
-          clearTimeout(contextRestoreTimer);
-          contextRestoreTimer = null;
-        }
-        safeLogDiagnostic('gpu', 'info', 'webgl context restored', {
-          downtimeMs: contextLostAt ? Date.now() - contextLostAt : null
-        });
-      };
-      canvas.addEventListener?.('webglcontextlost', onContextLost, false);
-      canvas.addEventListener?.('webglcontextrestored', onContextRestored, false);
+      const detachContextLossListeners = rebuildController.attachContextLossListeners({
+        canvas,
+        isDestroyed: () => destroyed,
+        mountScene
+      });
 
       // Idle-energy pass (2026-09-01, "Using Significant Energy" at idle
       // triage) — ProMotion displays otherwise drive this ticker at 120Hz for
@@ -599,138 +408,6 @@ export function GardenScene(): JSX.Element {
       });
       dayNight.mount(app.renderer, world);
 
-      // Free-look input (garden camera lock-on gap): `world` itself becomes
-      // the interactive "background" catch-all — Pixi's hit test always
-      // checks children first, so a click/drag that actually lands on a
-      // walker (Walker.ts sets its own container `eventMode: 'static'`) or a
-      // gardenCharm hotspot (well/signpost) still resolves `event.target` to
-      // THAT object, not `world`; only an otherwise-unclaimed point (bare
-      // ground, the decorative border) resolves to `world`. That's the
-      // signal every handler below uses to tell "empty ground" apart from
-      // "something already interactive".
-      world.eventMode = 'static';
-      world.hitArea = new Rectangle(0, 0, mapWidthPx, mapHeightPx);
-
-      // Drag-to-pan: a press that starts on empty ground (see the `world`
-      // hit-testing comment above) either pans the camera (moved past
-      // DRAG_THRESHOLD_PX) or, on release with no real movement, performs
-      // the view-mode-specific background-click action. Coordinates are tracked in canvas-space
-      // (CSS px, matching `camera`'s viewWidth/viewHeight) throughout: the
-      // drag start comes from Pixi's `event.global` (already canvas-space),
-      // continued tracking uses native `pointermove`/`pointerup` on
-      // `window` — not Pixi's own global-move events — so a drag that
-      // leaves the canvas mid-gesture (or ends there) is never silently
-      // dropped.
-      const DRAG_THRESHOLD_PX = 4;
-      let dragState: {
-        // Captured once at drag start, not re-read every move — a
-        // `getBoundingClientRect()` per pointermove would be a synchronous
-        // layout read at mouse-move frequency, exactly the kind of
-        // per-frame cost this app's CPU budget can't afford.
-        rect: DOMRect;
-        startX: number;
-        startY: number;
-        lastX: number;
-        lastY: number;
-        moved: boolean;
-      } | null = null;
-
-      const onWorldPointerDown = (e: FederatedPointerEvent): void => {
-        // Only the primary (left) button starts a pan/deselect gesture, and
-        // only when the press itself landed on `world` — a walker or charm
-        // hotspot handles its own click and this gesture stays out of it.
-        if (e.button !== 0 || e.target !== world) return;
-        dragState = {
-          rect: canvas.getBoundingClientRect(),
-          startX: e.global.x,
-          startY: e.global.y,
-          lastX: e.global.x,
-          lastY: e.global.y,
-          moved: false
-        };
-      };
-      world.on('pointerdown', onWorldPointerDown);
-
-      const onWindowPointerMove = (e: PointerEvent): void => {
-        if (!dragState) return;
-        // The button was released (or the gesture cancelled) without this
-        // window ever seeing the up event — e.g. released outside the app
-        // window. Without this check a stray hover afterward would pan with
-        // no button held.
-        if (e.buttons === 0) {
-          dragState = null;
-          return;
-        }
-        const x = e.clientX - dragState.rect.left;
-        const y = e.clientY - dragState.rect.top;
-        if (!dragState.moved) {
-          const totalDx = x - dragState.startX;
-          const totalDy = y - dragState.startY;
-          if (Math.hypot(totalDx, totalDy) < DRAG_THRESHOLD_PX) return;
-          dragState.moved = true;
-        }
-        const dx = x - dragState.lastX;
-        const dy = y - dragState.lastY;
-        dragState.lastX = x;
-        dragState.lastY = y;
-        const zoom = camera.getZoom();
-        camera.pan(-dx / zoom, -dy / zoom);
-      };
-      window.addEventListener('pointermove', onWindowPointerMove);
-
-      const endDrag = (e: PointerEvent): void => {
-        // Only a completed left-button press-then-release with no real
-        // movement counts as the empty-ground click gesture. In split view it
-        // enters fullscreen without changing selection; in fullscreen it
-        // deselects and restores free-look. A right-click release (which never
-        // started a drag) must not trigger either action.
-        if (dragState && !dragState.moved && e.button === 0) {
-          const { viewMode } = useStore.getState();
-          if (viewMode === 'garden') {
-            useStore.getState().setViewMode('gardenFull');
-          } else if (viewMode === 'gardenFull') {
-            // Breaks follow into free-look so the whole-map view isn't
-            // immediately re-overridden by the selected-session camera.
-            camera.setFreeLook(false);
-            useStore.getState().select(null);
-          }
-        }
-        dragState = null;
-      };
-      window.addEventListener('pointerup', endDrag);
-      window.addEventListener('pointercancel', endDrag);
-
-      // Wheel/trackpad-pinch zoom, centered on the cursor. `deltaY` sign:
-      // scrolling "up"/pinching out is negative — that should zoom IN, hence
-      // the negation in the exponent. Wheel events are far rarer than
-      // pointermove, so a fresh `getBoundingClientRect()` per event here
-      // isn't the cost the drag path above needs to avoid.
-      const WHEEL_ZOOM_SENSITIVITY = 0.0015;
-      const onWheel = (e: WheelEvent): void => {
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
-        camera.zoomAt(e.clientX - rect.left, e.clientY - rect.top, factor);
-      };
-      canvas.addEventListener('wheel', onWheel, { passive: false });
-
-      // Escape deselects (same free-look reset as a background click) while
-      // the garden is the visible view — 'terminal' mode hides the garden
-      // entirely, so Escape there has nothing to do here. Closing-time's own
-      // Escape handler (App.tsx) owns Escape while a closing ritual is
-      // active; this defers to it rather than double-handling the same key.
-      const onKeyDown = (e: KeyboardEvent): void => {
-        if (e.key !== 'Escape' || isClosingTimeActive()) return;
-        const { viewMode, selectedId } = useStore.getState();
-        if (viewMode !== 'garden' && viewMode !== 'gardenFull') return;
-        // Nothing selected AND not free-looking means the view is already at
-        // rest (fitToScreen) — nothing for Escape to do.
-        if (selectedId == null && !camera.isFreeLook()) return;
-        camera.setFreeLook(false);
-        useStore.getState().select(null);
-      };
-      window.addEventListener('keydown', onKeyDown);
-
       // The canvas/camera's ONE source of truth for "how big is the pane
       // right now" — re-measures `host.clientWidth/Height` fresh rather
       // than trusting `app.init()`'s reading (taken before this scene's own
@@ -782,17 +459,7 @@ export function GardenScene(): JSX.Element {
         if (!destroyed) syncCanvasToHost();
       });
 
-      const patchPool = new SeatPool(STATION_SPAWNS.patch);
       const runtimes = new Map<string, Runtime>();
-      // Shared counter for every session that couldn't claim one of the 6
-      // patch seats (all 6 already taken) — gives each overflow session its
-      // own distinct slot instead of every one of them landing on slot 0 and
-      // stacking on the same wander tile. Never reset, so overflow sessions
-      // across the whole scene lifetime keep spreading out rather than
-      // re-colliding once the count wraps past STATION_SPAWNS.wander.length.
-      let overflowSlot = 0;
-      snapshotWalkerTiles = () =>
-        new Map([...runtimes].map(([id, runtime]) => [id, runtime.walker.tile]));
 
       // Select-cry (Phase 8 §4): seeded from the CURRENT selection, not null,
       // so a restore-on-boot (or the initial `applyState()` call right after
@@ -838,6 +505,46 @@ export function GardenScene(): JSX.Element {
         }
         return placeholderAnimation(name);
       };
+
+      // Walker lifecycle (addWalker/removeWalker/applyManualSwap/
+      // triggerEvolve/upgradeIfLazy) — extracted verbatim into
+      // walkerLifecycle.ts, instantiated here (needs this generation's own
+      // map/layers/runtimes/animation resolvers). Constructed BEFORE
+      // `battleManager` on purpose: `battleManager`'s own `onBattleEnd`
+      // callback (below) needs `applyManualSwap` already defined, so this
+      // lifecycle takes a LAZY `getBattleManager` getter instead (the
+      // reverse of the forward-reference direction gardenInput.ts needs) —
+      // see walkerLifecycle.ts's own header for why.
+      const walkerLifecycle = createWalkerLifecycle({
+        map,
+        charLayer,
+        evolutionDimLayer,
+        evolutionFlashLayer,
+        evolutionCeremonyLayer,
+        runtimes,
+        pokemonAnimations,
+        resolveAnimation,
+        sessionsAtMount,
+        entrance,
+        spawnTileFor,
+        getPendingWalkerTile: (id) => rebuildController.pendingWalkerTiles.get(id),
+        getBattleManager: () => battleManager,
+        onWalkerClick: (id) => {
+          const store = useStore.getState();
+          if (store.viewMode === 'garden') {
+            store.select(id);
+            store.setViewMode('gardenFull');
+          } else if (store.viewMode === 'gardenFull') {
+            store.select(id);
+            store.setViewMode('garden');
+            store.setDrawerOpen(true);
+          }
+        },
+        pushToast: (message) => useStore.getState().pushToast(message),
+        updateSession: (id, patch) => useStore.getState().updateSession(id, patch)
+      });
+      rebuildController.snapshotWalkerTiles = walkerLifecycle.snapshotWalkerTiles;
+      const { addWalker, removeWalker, applyManualSwap, triggerEvolve } = walkerLifecycle;
 
       // Phase 4 Part B — subagent battles. Instantiated here (not module-level)
       // because it needs this scene's own map/charLayer/animation resolvers,
@@ -918,90 +625,33 @@ export function GardenScene(): JSX.Element {
         }
       });
 
-      // Click-resolution fix (v1.8.0 bug report — a battler click jumping
-      // to a DIFFERENT session's walker): both Walker and Battler give
-      // their `container` an explicit rectangular `hitArea` sized off the
-      // drawn sprite (generous — it covers transparent padding, not just
-      // opaque pixels), and both are direct children of `charLayer`
-      // (`sortableChildren = true`, zIndex = feet Y). Pixi's own
-      // `EventBoundary.hitTestRecursive` walks `charLayer.children` highest-
-      // zIndex-first and returns the FIRST container whose hitArea contains
-      // the point — so whichever walker/battler happens to be "in front"
-      // (bigger py) wins any overlap, even where its rectangle is empty air
-      // and the point is actually over a DIFFERENT, smaller-zIndex sprite's
-      // visible pixels standing just behind it. Battlers cluster near their
-      // parent (`pickRoamHome`) and idle walkers cluster near their own
-      // station, so this overlap is common with several sessions live.
-      //
-      // Fix: intercept every character click at `charLayer` during the
-      // CAPTURE phase (before Pixi's own bubbling reaches whichever
-      // container it picked). Only clicks Pixi ALREADY resolved to a
-      // walker or battler are touched — `charLayer` also parents
-      // GardenCharm's well/signpost hotspots (gardenCharm.ts's `well`/`hot`,
-      // also charLayer descendants with their own hitArea/zIndex), and
-      // those are left entirely alone so a walker overlapping a hotspot
-      // can't steal ITS click the same way. For a walker/battler `e.target`,
-      // independently re-test every walker and battler's own hitArea
-      // against the same point and redispatch to whichever one's FEET are
-      // nearest the click — not whichever Pixi's first-hit walk happened to
-      // reach first. `event.getLocalPosition(candidate)` conveniently
-      // returns the click in that candidate's own local space, i.e. exactly
-      // its (dx, dy) offset from its own feet (`container.x/y`), so no
-      // separate distance computation against a shared coordinate space is
-      // needed. `charLayer.eventMode = 'static'` is required for it to
-      // receive ANY event at all (`EventBoundary.notifyTarget` drops
-      // ancestors that aren't interactive) but, since `charLayer` itself
-      // has no `hitArea`/`containsPoint`, it never becomes a hit TARGET on
-      // its own — existing background hit-testing is unchanged (bare ground
-      // never reaches this handler at all: `world`'s own hitArea only
-      // resolves once every `content`/`charLayer` descendant fails ITS OWN
-      // test first).
-      charLayer.eventMode = 'static';
-      // A container Pixi itself would prune from hit-testing (hidden —
-      // GardenScene's reconcile sets an inactive-workspace walker's
-      // `container.visible = false`, and BattleManager.setVisible does the
-      // same for that parent's battlers — or otherwise non-renderable/
-      // non-interactive) must never win here: `hitTestRecursive`'s own
-      // `_interactivePrune` (EventBoundary.mjs) already keeps such a
-      // container from ever becoming `e.target`, but this manual re-scan
-      // bypasses that pruning entirely unless it's re-applied itself. A
-      // stale/hidden pokemon from another workspace could otherwise "win"
-      // nearest-feet and get the redispatched click, selecting a session
-      // from a garden the click never visually touched.
-      const isClickable = (c: Container): boolean =>
-        c.visible && c.renderable && c.eventMode !== 'none';
-      const resolveCharacterClick = (e: FederatedPointerEvent): void => {
-        const candidates: Container[] = [];
-        for (const rt of runtimes.values()) {
-          if (isClickable(rt.walker.container)) candidates.push(rt.walker.container);
-        }
-        for (const candidate of battleManager.getClickCandidates()) {
-          if (isClickable(candidate.container)) candidates.push(candidate.container);
-        }
-        for (const candidate of advisorManager.getClickCandidates()) {
-          if (isClickable(candidate.container)) candidates.push(candidate.container);
-        }
-        if (!(e.target instanceof Container) || !candidates.includes(e.target)) return;
-        let winner = e.target;
-        const targetLocal = e.getLocalPosition(winner);
-        let winnerDistSq = targetLocal.x * targetLocal.x + targetLocal.y * targetLocal.y;
-        for (const container of candidates) {
-          if (!container.hitArea) continue;
-          const local = e.getLocalPosition(container);
-          if (!container.hitArea.contains(local.x, local.y)) continue;
-          const distSq = local.x * local.x + local.y * local.y;
-          if (distSq < winnerDistSq) {
-            winner = container;
-            winnerDistSq = distSq;
-          }
-        }
-        // Pixi's own pick was already the nearest-feet winner — nothing to
-        // correct, leave normal propagation alone.
-        if (winner === e.target) return;
-        e.stopPropagation();
-        winner.emit('pointertap', e);
-      };
-      charLayer.addEventListener('pointertap', resolveCharacterClick, { capture: true });
+      // Garden input — pointer/drag/zoom/wheel/escape plus the click
+      // hit-test correction pass (v1.8.0 bug report — a battler click
+      // jumping to a DIFFERENT session's walker). Extracted verbatim into
+      // gardenInput.ts; wired up here, after `battleManager`/`advisorManager`
+      // both exist, since the click-correction half of it needs their
+      // `getClickCandidates()`. Moving this whole attach point later than
+      // the original inline `world.hitArea`/drag-pan/wheel/escape setup
+      // (which used to sit right after `dayNight.mount` above) changes
+      // nothing observable: everything from the tileset/animation load's
+      // `await` above through this generation's own `cleanup` assignment
+      // below runs as one synchronous span, so no input event can land
+      // in between either way.
+      const detachGardenInput = attachGardenInput({
+        canvas,
+        world,
+        charLayer,
+        camera,
+        mapWidthPx,
+        mapHeightPx,
+        runtimes,
+        battleManager,
+        advisorManager,
+        getViewMode: () => useStore.getState().viewMode,
+        getSelectedId: () => useStore.getState().selectedId,
+        setViewMode: (mode) => useStore.getState().setViewMode(mode),
+        select: (id) => useStore.getState().select(id)
+      });
 
       // Phase 8 §7 — garden charm: berry-bush errands, idle chatter, and the
       // signpost/well clickable props. Same instantiate-here/destroy-in-
@@ -1037,192 +687,6 @@ export function GardenScene(): JSX.Element {
         // that toasts + quits) — nothing for the scene to do with it, and
         // the overlay deliberately stays lit until the app actually quits.
       });
-
-      /** Bundled + not-shiny needs no fetch at all; everything else (any
-       *  lazy species, OR a shiny pick even of a bundled species — Phase 5
-       *  §2) resolves in place once loadLazyAnimation returns. A shiny
-       *  session's reveal sparkle + "Shiny!" text fires here, at the
-       *  moment its REAL sprite lands — not at addWalker time, when it's
-       *  still a pokeball placeholder — so the screenshot-worthy reveal
-       *  shows the actual shiny palette. Fires even if the fetch failed
-       *  (still a pokeball): the flag, and therefore the reveal, doesn't
-       *  depend on the sprite actually loading. */
-      /** `speciesId`/`shiny` are captured explicitly, not read off `session`
-       *  inside the `.then` — `session` there would be a stale closed-over
-       *  snapshot if the species changed again (another evolve, or a manual
-       *  swap) while this fetch was in flight. The `rt.appliedPokemonId`
-       *  check below is what actually guards against applying a
-       *  now-superseded species' art on top of whatever's current. */
-      const upgradeIfLazy = (
-        session: Session,
-        speciesId: string,
-        shiny: boolean,
-        walker: Walker,
-        rt: Runtime
-      ): void => {
-        if (!shiny && pokemonAnimations.has(speciesId)) return;
-        void loadLazyAnimation(speciesId, shiny).then((anim) => {
-          if (runtimes.get(session.id) !== rt) return; // session gone/replaced meanwhile
-          if (rt.appliedPokemonId !== speciesId) return; // superseded by a later evolve/swap meanwhile
-          if (anim) {
-            walker.setAnimation(anim);
-          } else {
-            const label = speciesEntry(speciesId)?.name ?? speciesId;
-            useStore.getState().pushToast(`couldn't load ${label}'s sprite — offline or not found.`);
-          }
-          if (shiny) {
-            spawnShinySparkle(walker.container, -walker.spriteHeight - 8);
-            walker.showFloatingText('Shiny!');
-          }
-        });
-      };
-
-      const addWalker = (session: Session): Runtime => {
-        const reservedHomePatch = patchPool.reserveNext();
-        // No `?? STATION_SPAWNS.patch[0]` fallback here on purpose: forging an
-        // overflow session onto slot 0's tile without actually reserving it
-        // is exactly the double-booking bug this fixes (see `homePatch`'s own
-        // comment on Runtime and `removeWalker` below).
-        const homePatch = reservedHomePatch;
-        const slot = reservedHomePatch ? STATION_SPAWNS.patch.indexOf(reservedHomePatch) : overflowSlot++;
-        const animation = resolveAnimation(session.pokemon, session.shiny);
-        const restored = sessionsAtMount.has(session.id);
-        const restoredTile = pendingWalkerTiles.get(session.id);
-        // Restored idle walkers are already home; live sessions still walk in from the entrance.
-        const startTile =
-          restoredTile ??
-          (restored && session.status !== 'working'
-            ? reservedHomePatch
-              ? spawnTileFor('patch', slot, animation.info.locomotion !== 'walk')
-              : spawnTileFor('wander', slot, animation.info.locomotion !== 'walk')
-            : entrance);
-        const walker = new Walker({
-          sessionId: session.id,
-          map,
-          animation,
-          startTile,
-          accentColor: session.accent,
-          label: session.title,
-          dimLayer: evolutionDimLayer,
-          flashLayer: evolutionFlashLayer,
-          ceremonyLayer: evolutionCeremonyLayer,
-          onClick: (id) => {
-            const store = useStore.getState();
-            if (store.viewMode === 'garden') {
-              store.select(id);
-              store.setViewMode('gardenFull');
-            } else if (store.viewMode === 'gardenFull') {
-              store.select(id);
-              store.setViewMode('garden');
-              store.setDrawerOpen(true);
-            }
-          }
-        });
-        charLayer.addChild(walker.container);
-        charLayer.addChild(walker.bubbleContainer);
-        walker.showText(session.title);
-        walker.lingerBubble();
-        const rt: Runtime = {
-          walker,
-          homePatch,
-          slot,
-          lastStation: null,
-          lastToolKey: '',
-          status: session.status,
-          lastStatus: session.status,
-          workAccumMs: 0,
-          evolvePending: false,
-          appliedPokemonId: session.pokemon
-        };
-        runtimes.set(session.id, rt);
-        upgradeIfLazy(session, session.pokemon, session.shiny, walker, rt);
-        playSpawnCry(session.pokemon); // this session's walker's first spawn (Phase 7)
-        return rt;
-      };
-
-      /** Evolve `session`'s walker to a random member of its current
-       *  species' evolvesTo, loading that species' art first (bundled: instant;
-       *  lazy: fetched, falling back to a pokeball + toast on failure).
-       *  Static (Gen 6-9) targets are excluded from the random draw (Phase 6
-       *  §4) — if every branch is static, the species just doesn't evolve
-       *  further here; it's still reachable by picking it directly. */
-      const triggerEvolve = (session: Session, rt: Runtime): void => {
-        const entry = speciesEntry(session.pokemon);
-        if (!entry || entry.evolvesTo.length === 0) return;
-        const nextId = randomAnimatedSpecies(entry.evolvesTo);
-        if (!nextId) return;
-        rt.evolvePending = true;
-        // Shiny stays shiny through evolution (Phase 5 §5): bundled sheets
-        // are never shiny, so a shiny session's next stage always goes
-        // through the lazy fetch too, exactly like resolveAnimation above.
-        const bundled = session.shiny ? undefined : pokemonAnimations.get(nextId);
-
-        const proceed = (anim: PokemonAnimation, failed: boolean): void => {
-          rt.evolvePending = false;
-          if (runtimes.get(session.id) !== rt) return; // session gone meanwhile
-          if (failed) {
-            const label = speciesEntry(nextId)?.name ?? nextId;
-            useStore.getState().pushToast(`couldn't load ${label}'s sprite — evolving with a placeholder.`);
-          }
-          const nextLabel = speciesEntry(nextId)?.name ?? nextId;
-          rt.walker.evolve(anim, entry.name, nextLabel, nextId, () => {
-            rt.appliedPokemonId = nextId;
-            useStore.getState().updateSession(session.id, { pokemon: nextId });
-          });
-        };
-
-        if (bundled) {
-          proceed(bundled, false);
-        } else {
-          void loadLazyAnimation(nextId, session.shiny).then((anim) => {
-            proceed(anim ?? placeholderAnimation(nextId), !anim);
-          });
-        }
-      };
-
-      /** Roster card's "change pokemon" action (sessions.ts's
-       *  `swapSessionPokemon` already updated `session.pokemon`/`.line` in
-       *  the store) — brings the walker's SPRITE in line: an instant swap
-       *  (setAnimation, no flash/ceremony — the store's `pokemon` already
-       *  accounts for earned stage, so evolution's own 1Hz threshold check
-       *  won't fire a ceremony for it), a poof, and the new species' cry.
-       *  Skipped while a ceremony or a battle owns this session's walker;
-       *  the caller retries on the next reconcile (applyState fires on
-       *  every store change, and onBattleEnd calls this directly the moment
-       *  a deferred swap becomes safe). */
-      const applyManualSwap = (session: Session, rt: Runtime): void => {
-        if (rt.appliedPokemonId === session.pokemon) return;
-        if (rt.walker.isEvolving || battleManager.isBattling(session.id)) return;
-        rt.appliedPokemonId = session.pokemon;
-        rt.walker.setAnimation(resolveAnimation(session.pokemon, session.shiny));
-        spawnSparkleBurst(rt.walker.container);
-        playSpawnCry(session.pokemon);
-        upgradeIfLazy(session, session.pokemon, session.shiny, rt.walker, rt);
-      };
-
-      const removeWalker = (id: string): void => {
-        const rt = runtimes.get(id);
-        if (!rt) return;
-        // Delegate battle parity — FIRST, before anything below destroys the
-        // walker: if this session is a delegate currently entered as a
-        // challenger, BattleManager is holding a `WalkerChallenger` over the
-        // very walker this function is about to destroy. Dropping it here
-        // force-concludes any wave it was mid-way through (freeing the global
-        // battle lock and releasing the parent's stance/mega) instead of
-        // leaving a sub choreographing a destroyed sprite. A no-op for every
-        // ordinary session. `forceEnd` below is the mirror for this session's
-        // own role as a PARENT and can't cover this: it's keyed by parent id.
-        battleManager.dropChallenger(id);
-        battleManager.forceEnd(id);
-        // Only release a seat this session actually reserved — an overflow
-        // session's `homePatch` is null (see Runtime's own comment), and
-        // releasing patch[0] on its behalf would free a seat a different,
-        // still-live session legitimately owns.
-        if (rt.homePatch) patchPool.release(rt.homePatch);
-        rt.walker.destroy();
-        runtimes.delete(id);
-        markDirty(); // a walker disappearing is a visible change with no other hook covering it
-      };
 
       /** Done first-class delegates are ordinary session walkers, not
        *  BattleManager battlers. Start the shared pokéball recall at the
@@ -1529,12 +993,13 @@ export function GardenScene(): JSX.Element {
       applyState();
 
       // Context-loss recovery (garden-ui-crash triage, 2026-08-29): on a
-      // normal first mount `pendingRespawn` is always empty (nothing has
-      // battled yet), so this is a no-op then — it only does real work
-      // coming out of `rebuild()`, which snapshots the store's `battlers`
-      // slice into `pendingRespawn` BEFORE tearing down the old
-      // BattleManager (whose teardown removes every one of them from the
-      // store as a side effect — see `pendingRespawn`'s own comment above).
+      // normal first mount `rebuildController.pendingRespawn` is always
+      // empty (nothing has battled yet), so this is a no-op then — it only
+      // does real work coming out of `rebuild()`, which snapshots the
+      // store's `battlers` slice into `pendingRespawn` BEFORE tearing down
+      // the old BattleManager (whose teardown removes every one of them
+      // from the store as a side effect — see `pendingRespawn`'s own
+      // comment in gardenRebuild.ts).
       // Reuses BattleManager's own spawn machinery (`respawnFromStore`)
       // rather than a parallel one; species/parent is preserved, lifecycle
       // resets to roaming — or, done/retired follow-up, to 'retired' when
@@ -1549,8 +1014,8 @@ export function GardenScene(): JSX.Element {
       // subagent card's elapsed-time readout restarts from this rebuild,
       // not the battler's original spawn — `done`/`doneAt` pass through
       // unchanged either way, straight from the snapshot).
-      const toRespawn = pendingRespawn;
-      pendingRespawn = [];
+      const toRespawn = rebuildController.pendingRespawn;
+      rebuildController.pendingRespawn = [];
       const unrespawnable = new Set(battleManager.respawnFromStore(toRespawn));
       for (const battler of toRespawn) {
         if (unrespawnable.has(battler.key)) {
@@ -1913,16 +1378,8 @@ export function GardenScene(): JSX.Element {
         // (`if (!this.started)`) — a no-op when it was already running,
         // e.g. an ordinary unmount while visible.
         Ticker.shared.start();
-        canvas.removeEventListener?.('webglcontextlost', onContextLost);
-        canvas.removeEventListener?.('webglcontextrestored', onContextRestored);
-        if (contextRestoreTimer) clearTimeout(contextRestoreTimer);
-        world.off('pointerdown', onWorldPointerDown);
-        charLayer.removeEventListener('pointertap', resolveCharacterClick, { capture: true });
-        window.removeEventListener('pointermove', onWindowPointerMove);
-        window.removeEventListener('pointerup', endDrag);
-        window.removeEventListener('pointercancel', endDrag);
-        canvas.removeEventListener('wheel', onWheel);
-        window.removeEventListener('keydown', onKeyDown);
+        detachContextLossListeners();
+        detachGardenInput();
         unsubscribe();
         unsubscribeWorkspace();
         offRitual();
@@ -1942,7 +1399,7 @@ export function GardenScene(): JSX.Element {
     void mountScene();
 
     return () => {
-      currentCleanup?.();
+      rebuildController.currentCleanup?.();
     };
   }, []);
 
