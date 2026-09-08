@@ -51,6 +51,39 @@ const viewCache = new Map<string, Promise<FrameSet | null>>();
 const animationCache = new Map<string, Promise<PokemonAnimation | null>>();
 const thumbnailCache = new Map<string, Promise<string | null>>();
 
+/** Synchronously-readable mirror of `viewCache`/`animationCache`'s resolved
+ *  (non-null) values — lets a cache-HIT `loadView`/`loadLazyAnimation` call
+ *  touch the LRU (see `touchView`/`touchAnimation`) in the SAME synchronous
+ *  tick as the call, instead of deferring into a `.then()`. That deferral is
+ *  what used to make eviction racy: `evictViewOverflow` also destroys inside
+ *  a deferred `.then()` on the same already-resolved promise, and whichever
+ *  `.then()` was ATTACHED FIRST runs first — if eviction's destroy got
+ *  attached before a same-tick caller's touch, the destroy could run before
+ *  the touch, handing that caller an already-destroyed FrameSet. Touching
+ *  synchronously on a hit closes that window: by the time any previously
+ *  scheduled eviction's deferred `.then()` actually runs (next microtask at
+ *  the earliest), the touch — and the `viewTouchStamp`/`animationTouchStamp`
+ *  bump below that eviction re-checks before destroying — has already
+ *  happened. Entries are added the moment a promise resolves non-null (same
+ *  place `touchView`/`touchAnimation` were already called from) and removed
+ *  wherever the backing cache entry is removed, so `resolvedViews`/
+ *  `resolvedAnimations` never point at a FrameSet/animation this file has
+ *  already destroyed or dropped. */
+const resolvedViews = new Map<string, FrameSet>();
+const resolvedAnimations = new Map<string, PokemonAnimation>();
+
+/** Per-key counters bumped every time `touchView`/`touchAnimation` actually
+ *  touches the LRU for that key (see those functions). `evictViewOverflow`/
+ *  `evictAnimationOverflow` capture a key's current count at the moment they
+ *  SCHEDULE its deferred destroy, then re-check it once that `.then()`
+ *  finally runs: if the count has changed, something touched (i.e. actively
+ *  reused) this key since eviction was scheduled — most commonly the
+ *  same-tick race this whole mechanism exists to close (see `resolvedViews`
+ *  above) — so eviction bails instead of destroying a FrameSet/animation
+ *  that's back in active use. */
+const viewTouchStamp = new Map<string, number>();
+const animationTouchStamp = new Map<string, number>();
+
 /** How many resolved `viewCache`/`animationCache`/`thumbnailCache` entries
  *  may sit around UNPINNED (see pinAnimation/unpinAnimation below) before the
  *  oldest-accessed ones get evicted — otherwise every species a session ever
@@ -167,14 +200,17 @@ function destroyFrameSet(frameSet: FrameSet): void {
 }
 
 /** Records which key resolved to `frameSet` (for pinFrameSet/unpinFrameSet,
- *  above) and, unless it's currently pinned, brings `key` to the MRU end of
- *  `viewCache`'s eviction order and runs an eviction pass. Only ever called
- *  from a `.then()` on an already-settled, non-null promise (see loadView)
- *  — an in-flight fetch's key never enters `viewOrder` at all, so it can
- *  never be picked for eviction mid-flight. */
+ *  above), bumps `viewTouchStamp` for `key`, and, unless it's currently
+ *  pinned, brings `key` to the MRU end of `viewCache`'s eviction order and
+ *  runs an eviction pass. Called both from a `.then()` on an already-settled,
+ *  non-null promise (a fresh resolve, or an in-flight hit — see loadView)
+ *  AND synchronously from loadView's cache-hit path via `resolvedViews` — an
+ *  in-flight fetch's key never enters `viewOrder` at all, so it can never be
+ *  picked for eviction mid-flight. */
 function touchView(key: string, frameSet: FrameSet): void {
   frameSetViewKey.set(frameSet, key);
   if (isPinned(frameSet)) return; // pinFrameSet already keeps it out of viewOrder
+  viewTouchStamp.set(key, (viewTouchStamp.get(key) ?? 0) + 1);
   viewOrder.touch(key);
   evictViewOverflow();
 }
@@ -190,9 +226,21 @@ function evictViewOverflow(): void {
     // comment), so this `.then()` runs on the next microtask, not after some
     // later, unrelated fetch — the identity check below still guards against
     // the rare case where `key` was deleted and re-fetched in between.
+    // Captured now, at scheduling time, so the re-check inside the `.then()`
+    // below can tell whether `key` was touched again in the meantime (a
+    // same-tick `loadView(key)` hit — see `resolvedViews`'s doc comment).
+    const stampAtSchedule = viewTouchStamp.get(key) ?? 0;
     void pending.then((frameSet) => {
       if (!frameSet) {
         viewOrder.forget(key);
+        return;
+      }
+      if ((viewTouchStamp.get(key) ?? 0) !== stampAtSchedule) {
+        // Touched again since this eviction was scheduled — back in active
+        // use (the exact race `resolvedViews`/`viewTouchStamp` exist to
+        // close). Leave it cached; the touch already re-added it to
+        // `viewOrder`'s MRU end, so a later eviction pass reconsiders it
+        // fairly on its own merits.
         return;
       }
       if (isPinned(frameSet)) {
@@ -203,13 +251,19 @@ function evictViewOverflow(): void {
         return;
       }
       viewOrder.forget(key);
+      viewTouchStamp.delete(key);
       if (viewCache.get(key) === pending) viewCache.delete(key);
+      if (resolvedViews.get(key) === frameSet) resolvedViews.delete(key);
       destroyFrameSet(frameSet);
     });
   }
 }
 
+/** Same stamp-bump-then-evict shape as `touchView` above — see that
+ *  function's doc comment and `resolvedViews`/`animationTouchStamp`'s own
+ *  comments for why. */
 function touchAnimation(key: string): void {
+  animationTouchStamp.set(key, (animationTouchStamp.get(key) ?? 0) + 1);
   animationOrder.touch(key);
   evictAnimationOverflow();
 }
@@ -221,9 +275,18 @@ function evictAnimationOverflow(): void {
       animationOrder.forget(key);
       continue;
     }
+    // Captured at scheduling time — same race-closing re-check evictViewOverflow
+    // does, see its own comment.
+    const stampAtSchedule = animationTouchStamp.get(key) ?? 0;
     void pending.then((anim) => {
       if (!anim) {
         animationOrder.forget(key);
+        return;
+      }
+      if ((animationTouchStamp.get(key) ?? 0) !== stampAtSchedule) {
+        // Touched again since scheduling — back in active use; leave it
+        // cached (see evictViewOverflow's identical check for the full
+        // reasoning).
         return;
       }
       if (isPinned(anim.front)) {
@@ -231,7 +294,9 @@ function evictAnimationOverflow(): void {
         return;
       }
       animationOrder.forget(key);
+      animationTouchStamp.delete(key);
       if (animationCache.get(key) === pending) animationCache.delete(key);
+      if (resolvedAnimations.get(key) === anim) resolvedAnimations.delete(key);
       // No destroy here, deliberately: `front`/`back` are the exact FrameSet
       // objects `viewCache` owns and independently LRU-bounds/destroys (see
       // evictViewOverflow above) — this cache is only a thin
@@ -446,9 +511,17 @@ async function loadView(
   const key = `${id}:${view}:${shiny ? 'shiny' : 'normal'}`;
   const existing = viewCache.get(key);
   if (existing) {
-    void existing.then((result) => {
-      if (result) touchView(key, result);
-    });
+    // A resolved hit touches synchronously (see `resolvedViews`'s doc
+    // comment for why this is what actually closes the eviction race) — an
+    // in-flight fetch still has nothing to touch yet, so it defers as before.
+    const resolved = resolvedViews.get(key);
+    if (resolved) {
+      touchView(key, resolved);
+    } else {
+      void existing.then((result) => {
+        if (result) touchView(key, result);
+      });
+    }
     return existing;
   }
 
@@ -493,7 +566,10 @@ async function loadView(
     });
   }
   void promise.then((result) => {
-    if (result) touchView(key, result);
+    if (result) {
+      resolvedViews.set(key, result);
+      touchView(key, result);
+    }
   });
   return promise;
 }
@@ -547,9 +623,15 @@ export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAni
   const key = shiny ? `${id}:shiny` : id;
   const existing = animationCache.get(key);
   if (existing) {
-    void existing.then((result) => {
-      if (result) touchAnimation(key);
-    });
+    // Synchronous touch on a resolved hit — same race-closing reasoning as
+    // loadView's own resolvedViews check above.
+    if (resolvedAnimations.has(key)) {
+      touchAnimation(key);
+    } else {
+      void existing.then((result) => {
+        if (result) touchAnimation(key);
+      });
+    }
     return existing;
   }
 
@@ -590,7 +672,10 @@ export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAni
     if (result === null) animationCache.delete(key);
   });
   void promise.then((result) => {
-    if (result) touchAnimation(key);
+    if (result) {
+      resolvedAnimations.set(key, result);
+      touchAnimation(key);
+    }
   });
   return promise;
 }
