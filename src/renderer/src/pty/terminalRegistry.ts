@@ -535,6 +535,35 @@ export function hasTerminal(sessionId: string): boolean {
   return entries.has(sessionId);
 }
 
+/** Dispose and recreate a terminal entry under the SAME id, then re-attach it
+ *  wherever it was currently mounted (if anywhere). For a RESPAWN under an id
+ *  that already has a live entry — arceus.ts's `tryResumeArceus` (a mid-run
+ *  Arceus resume) and sessions.ts's `restartSessionFresh` (the "start fresh
+ *  here" recovery action) both need this rather than a plain disposeTerminal
+ *  + createTerminal: a shell-fallback exit permanently nulls that id's
+ *  regex-fallback `parser` (see the `fallback` branch in `createTerminal`'s
+ *  own `onPtyExit` handler above), so respawning into the SAME entry would
+ *  leave the new process running with a dead parser. A bare dispose+create
+ *  fixes the parser but drops the DOM host: `createTerminal` builds a fresh,
+ *  unattached host div, and TerminalDrawer.tsx's attach effect is keyed on
+ *  `[open, selectedId]` only (deliberately — see that effect's own comment),
+ *  so replacing the entry underneath an UNCHANGED `selectedId` never
+ *  re-triggers it on its own. Capturing the outgoing entry's host's current
+ *  DOM parent before disposing it, then re-attaching the new entry there,
+ *  closes that gap without touching React state at all; a session that
+ *  wasn't currently attached (drawer closed, or a different tab selected)
+ *  simply finds no parent and skips the re-attach, same as a normal
+ *  createTerminal call would. */
+export function recreateTerminal(sessionId: string, provider: AgentProviderId): void {
+  const parent = entries.get(sessionId)?.host.parentElement ?? null;
+  if (hasTerminal(sessionId)) disposeTerminal(sessionId);
+  createTerminal(sessionId, provider);
+  if (parent) {
+    attachTerminal(sessionId, parent);
+    focusTerminal(sessionId);
+  }
+}
+
 /** First-class delegate sessions (shared/delegateSpawn.ts) — writes a replay
  *  snapshot into an ALREADY-created (already-subscribed) terminal, unlike
  *  `createTerminal`'s own `replay` param (written before its live listener
