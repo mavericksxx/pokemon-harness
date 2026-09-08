@@ -10,8 +10,9 @@
  */
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { writeJsonAtomic } from './atomicWrite';
 import { DEFAULT_AUDIO_SETTINGS, type AudioSettings } from '../shared/audioTypes';
 
 function settingsPath(): string {
@@ -32,7 +33,5 @@ export async function loadAudioSettings(): Promise<AudioSettings> {
 }
 
 export async function saveAudioSettings(settings: AudioSettings): Promise<void> {
-  const p = settingsPath();
-  await mkdir(join(app.getPath('userData')), { recursive: true });
-  await writeFile(p, JSON.stringify(settings));
+  await writeJsonAtomic(settingsPath(), settings);
 }

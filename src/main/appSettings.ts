@@ -6,8 +6,9 @@
  */
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { writeJsonAtomic } from './atomicWrite';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER } from '../shared/agentProvider';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../shared/appSettingsTypes';
 
@@ -33,7 +34,5 @@ export async function loadAppSettings(): Promise<AppSettings> {
 }
 
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
-  const p = settingsPath();
-  await mkdir(join(app.getPath('userData')), { recursive: true });
-  await writeFile(p, JSON.stringify(settings));
+  await writeJsonAtomic(settingsPath(), settings);
 }

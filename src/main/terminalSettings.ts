@@ -6,8 +6,9 @@
  */
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { writeJsonAtomic } from './atomicWrite';
 import { clampTerminalSettings, DEFAULT_TERMINAL_SETTINGS, type TerminalSettings } from '../shared/terminalTypes';
 
 function settingsPath(): string {
@@ -26,7 +27,5 @@ export async function loadTerminalSettings(): Promise<TerminalSettings> {
 }
 
 export async function saveTerminalSettings(settings: TerminalSettings): Promise<void> {
-  const p = settingsPath();
-  await mkdir(join(app.getPath('userData')), { recursive: true });
-  await writeFile(p, JSON.stringify(clampTerminalSettings(settings)));
+  await writeJsonAtomic(settingsPath(), clampTerminalSettings(settings));
 }
