@@ -29,9 +29,8 @@
  *    it — see `stopMusicPrefetch`, called from audioEngine.ts's
  *    `disableMusic`.
  */
-import { BROWSABLE_TRACK_IDS, MUSIC_CATALOG_BY_ID } from '@shared/musicCatalog';
 import { useAudioStore } from './audioStore';
-import { peekUpcoming } from './audioEngine';
+import { loadMusicCatalog, peekUpcoming, type MusicCatalogModule } from './audioEngine';
 
 const DEBOUNCE_MS = 1500;
 const BETWEEN_FETCHES_MS = 400;
@@ -45,14 +44,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function idsForGen(gen: string): string[] {
+function idsForGen(gen: string, catalog: MusicCatalogModule): string[] {
+  const { BROWSABLE_TRACK_IDS, MUSIC_CATALOG_BY_ID } = catalog;
   if (gen === 'all') return [...BROWSABLE_TRACK_IDS];
   return BROWSABLE_TRACK_IDS.filter((id) => MUSIC_CATALOG_BY_ID.get(id)?.gen === gen);
 }
 
 async function runTrickle(myToken: number, gen: string): Promise<void> {
+  const catalog = await loadMusicCatalog();
+  if (myToken !== token) return; // superseded while the catalog was loading
   const upcoming = peekUpcoming(QUEUE_AHEAD_COUNT);
-  const rest = idsForGen(gen).filter((id) => !upcoming.includes(id));
+  const rest = idsForGen(gen, catalog).filter((id) => !upcoming.includes(id));
   const ids = [...upcoming, ...rest];
   if (ids.length === 0) return;
 
