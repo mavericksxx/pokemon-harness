@@ -141,6 +141,12 @@ import type { SessionRecord } from '../shared/types';
  *  (some platforms/network filesystems) — see this file's header. */
 const FALLBACK_POLL_MS = 30_000;
 
+/** Per-session cap on `TrackedTranscript.notified` (a long-lived session's
+ *  dedupe set would otherwise grow for as long as the transcript keeps
+ *  producing task-notifications) — mirrors BattleManager.ts's
+ *  `RETIRED_TASK_INFO_CAP`. */
+const NOTIFIED_CAP = 2000;
+
 /** `message.content` on a transcript entry is either a plain string (both
  *  real captures — the task-notification injection) or an array of content
  *  blocks (costWatcher.ts/arceusRelay.ts's own header notes this shape is
@@ -232,7 +238,9 @@ interface TrackedTranscript {
   pending: Set<string>;
   /** CLI-internal task ids already reported terminal — guards the "same
    *  task-id may notify more than once" case (a resumed async agent) from
-   *  emitting a second completion for one subagent. */
+   *  emitting a second completion for one subagent. Capped at NOTIFIED_CAP —
+   *  see `rememberNotified`, the bounded-insert helper every write goes
+   *  through. */
   notified: Set<string>;
 }
 
@@ -486,6 +494,17 @@ export class TaskNotificationWatcher {
     }
   }
 
+  /** Bounded insert for `t.notified` (NOTIFIED_CAP) — mirrors
+   *  BattleManager.ts's `rememberRetiredTask`. Eviction drops the single
+   *  oldest entry, since a Set iterates in insertion order. */
+  private rememberNotified(t: TrackedTranscript, taskId: string): void {
+    t.notified.add(taskId);
+    if (t.notified.size > NOTIFIED_CAP) {
+      const oldest = t.notified.values().next().value;
+      if (oldest !== undefined) t.notified.delete(oldest);
+    }
+  }
+
   private applyLine(agentId: string, t: TrackedTranscript, line: string): void {
     let entry: TranscriptEntry;
     try {
@@ -528,7 +547,7 @@ export class TaskNotificationWatcher {
     const text = extractUserContentText(entry.message?.content);
     for (const taskId of extractTaskNotificationIds(text)) {
       if (t.notified.has(taskId)) continue; // already-consumed completion for this task-id — dedupe
-      t.notified.add(taskId);
+      this.rememberNotified(t, taskId);
       t.pending.delete(taskId);
       this.emit('battle:subagentTaskNotification', agentId, taskId);
     }
