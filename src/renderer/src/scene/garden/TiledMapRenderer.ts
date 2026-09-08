@@ -101,6 +101,9 @@ const STRUCTURE_ZONE_TYPE = 'structure';
  *  zone, and the time constant (ms) of the tween toward that target. */
 const STRUCTURE_FADE_ALPHA = 0.3;
 const STRUCTURE_FADE_MS = 250;
+/** Structure occupancy doesn't need rescanning every frame — this throttles
+ *  `updateStructureFade`'s walker scan to roughly this often (ms). */
+const STRUCTURE_FADE_SCAN_MS = 100;
 
 export class TiledMapRenderer {
   readonly width: number;
@@ -135,6 +138,12 @@ export class TiledMapRenderer {
   /** Canopy sprites this renderer added to `characterContainer` itself (tree
    *  foliage) — excluded when scanning that container for walker occupants. */
   private canopySprites: Set<Sprite> = new Set();
+  /** Reused across `updateStructureFade` calls instead of allocating a fresh
+   *  array each frame — cleared via `.length = 0` and refilled every scan. */
+  private readonly structureFadeOccupantTiles: Point[] = [];
+  /** Time (ms) accumulated since the last occupancy scan; see
+   *  `STRUCTURE_FADE_SCAN_MS`. */
+  private structureFadeScanElapsedMs = 0;
 
   /** Spawn points whose tile is forced walkable even if the art under them is
    *  solid — a walker must be able to path ONTO its station. findPath() returns
@@ -494,7 +503,15 @@ export class TiledMapRenderer {
   private updateStructureFade(deltaMs: number): boolean {
     if (this.structureZones.size === 0) return false;
 
-    const occupantTiles: Point[] = [];
+    // Occupancy doesn't need rescanning every frame (STRUCTURE_FADE_SCAN_MS)
+    // — skip the scan+tween entirely until enough real time has accumulated.
+    this.structureFadeScanElapsedMs += deltaMs;
+    if (this.structureFadeScanElapsedMs < STRUCTURE_FADE_SCAN_MS) return false;
+    const elapsedMs = this.structureFadeScanElapsedMs;
+    this.structureFadeScanElapsedMs = 0;
+
+    const occupantTiles = this.structureFadeOccupantTiles;
+    occupantTiles.length = 0;
     for (const child of this.characterContainer.children) {
       // Every tile sprite this renderer put here itself is in canopySprites;
       // skip it. Whatever's left is a walker's body or bubble container.
@@ -508,7 +525,7 @@ export class TiledMapRenderer {
     }
 
     let changed = false;
-    const rate = Math.min(1, deltaMs / STRUCTURE_FADE_MS);
+    const rate = Math.min(1, elapsedMs / STRUCTURE_FADE_MS);
     for (const [name, rect] of this.structureZones) {
       const occupied = occupantTiles.some(
         (t) => t.x >= rect.x && t.x < rect.x + rect.width && t.y >= rect.y && t.y < rect.y + rect.height
