@@ -30,6 +30,7 @@ import {
 import { useStore, type Session } from '@/store/store';
 import { createTerminal, disposeTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
+import { RESUME_GRACE_MS } from '@shared/resumeTiming';
 
 export interface SummonArceusRequest {
   cwd: string;
@@ -83,6 +84,11 @@ async function spawnArceus(
   if (existing) useStore.getState().removeSession(existing.id);
   if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
 
+  // Mirrors sessions.ts's `startSession`: `addSession` below selects Arceus
+  // by default, so a failed summon must not leave whatever was selected
+  // before this call permanently swapped out for a session that's about to
+  // be torn down again in the catch block.
+  const previousSelectedId = useStore.getState().selectedId;
   let sessionAdded = false;
   try {
     createTerminal(ARCEUS_SESSION_ID, provider);
@@ -114,7 +120,12 @@ async function spawnArceus(
     useStore.getState().updateSession(ARCEUS_SESSION_ID, { status: 'idle', cwd: res.cwd ?? req.cwd });
   } catch (err) {
     if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
-    if (sessionAdded) useStore.getState().removeSession(ARCEUS_SESSION_ID);
+    if (sessionAdded) {
+      useStore.getState().removeSession(ARCEUS_SESSION_ID);
+      if (previousSelectedId && useStore.getState().sessions.some((session) => session.id === previousSelectedId)) {
+        useStore.getState().select(previousSelectedId);
+      }
+    }
     throw err instanceof Error ? err : new Error(String(err));
   }
 }
@@ -140,9 +151,10 @@ const FIRST_PROMPT_FALLBACK_MS = 10_000;
  *  constant's own comment describes it as a rare-path backstop, and reusing
  *  it would make a codex persona wait a claude-sized 10s for a signal that
  *  will NEVER arrive. Picked as a short, plausible CLI-startup delay (same
- *  ballpark as this file's own `RESUME_GRACE_MS`, used elsewhere for a
- *  similar "give the process a moment" wait) — UNVERIFIED against a real
- *  codex spawn, same caveat `wrapBracketedPaste` below already carries; if
+ *  ballpark as `shared/resumeTiming.ts`'s `RESUME_GRACE_MS`, used further
+ *  down in this file for a similar "give the process a moment" wait) —
+ *  UNVERIFIED against a real codex spawn, same caveat `wrapBracketedPaste`
+ *  below already carries; if
  *  codex's TUI takes longer than this to accept input, the persona paste
  *  lands too early and this is the first place to look. */
 const CODEX_FIRST_PROMPT_DELAY_MS = 3_000;
@@ -332,14 +344,6 @@ export function resetArceusSummonConfig(): Promise<void> {
 }
 
 export type AutoSummonOutcome = 'summoned' | 'no-config' | 'failed';
-
-/** Grace period a mid-run `--resume` gets before this app trusts it really
- *  landed — mirrors main's own `sessionRespawn.ts` `RESUME_GRACE_MS`, used
- *  there for the identical reason (an invalid/expired session id makes the
- *  CLI print an error and exit almost immediately, which a bare successful
- *  spawn can't detect). Duplicated as a plain constant rather than shared:
- *  `sessionRespawn.ts` is main-only. */
-const RESUME_GRACE_MS = 4000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

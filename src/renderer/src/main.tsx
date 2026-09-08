@@ -297,7 +297,17 @@ async function boot(): Promise<void> {
     useAppSettingsStore.getState().hydrate(appSettings);
     useAppSettingsStore.getState().hydrateHarnessHomePath(harnessHomePath);
     useWorkspaceStore.getState().hydrate(workspaceSnapshot);
-    useUsageStore.getState().hydrate(usageSnapshot);
+    // Bug fix: this used to hydrate unconditionally, which could clobber a
+    // fresher push `onUsageSnapshot` (registered above, before boot() ever
+    // ran) already delivered while this cache read was still in flight —
+    // nothing synchronizes the two, so a live push landing first would get
+    // silently overwritten by this now-stale boot-time snapshot. `updatedAt`
+    // (usageTypes.ts) is the last poll ATTEMPT's timestamp for either
+    // payload, so only hydrate here when this snapshot is at least as fresh
+    // as whatever's already in the store.
+    if (usageSnapshot.updatedAt >= useUsageStore.getState().snapshot.updatedAt) {
+      useUsageStore.getState().hydrate(usageSnapshot);
+    }
     const effectiveTheme = resolveEffectiveTheme(appSettings.theme);
     applyTheme(effectiveTheme);
     // Primes the terminal registry's own theme BEFORE the createTerminal

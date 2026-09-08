@@ -11,14 +11,7 @@ import { buildProviderArgs } from '../shared/agentProvider';
 import type { PtyManager } from './pty';
 import type { SessionRecord } from '../shared/types';
 import { log } from './diagnostics';
-
-/** Grace period a `claude --resume` respawn gets before it's trusted to
- *  actually be alive — an invalid/expired session id makes the CLI print an
- *  error and exit almost immediately, which a bare successful spawn() can't
- *  detect (the binary itself started fine). Only the resume path waits this
- *  out; a fresh respawn of a plain command has no equivalent failure mode to
- *  guard against. */
-export const RESUME_GRACE_MS = 4000;
+import { RESUME_GRACE_MS } from '../shared/resumeTiming';
 
 export interface RespawnOutcome {
   ok: boolean;

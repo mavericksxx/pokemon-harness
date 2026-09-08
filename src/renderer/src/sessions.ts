@@ -5,7 +5,7 @@ import type { DelegateSessionSpawned } from '@shared/delegateSpawn';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
-import { createTerminal, disposeTerminal, hasTerminal, writeReplayNow } from '@/pty/terminalRegistry';
+import { createTerminal, disposeTerminal, hasTerminal, recreateTerminal, writeReplayNow } from '@/pty/terminalRegistry';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, speciesEntry } from '@/scene/garden/dexData';
 import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
@@ -311,6 +311,19 @@ export async function stopSession(id: string): Promise<void> {
 export async function restartSessionFresh(id: string): Promise<void> {
   const session = useStore.getState().sessions.find((s) => s.id === id);
   if (!session) return;
+  // A session showing this banner got here via a shell-fallback exit under
+  // its id, which permanently nulls this id's terminal entry's regex-fallback
+  // `parser` (terminalRegistry.ts's `createTerminal` — see the `fallback`
+  // branch of its `onPtyExit` handler). Respawning straight into that entry
+  // (as this used to) would leave the fresh process running with a dead
+  // parser, so its status can freeze the moment hooks go quiet
+  // (hookRouter.ts's HOOK_SILENCE_MS) with no regex fallback left to catch
+  // it. `recreateTerminal` mirrors arceus.ts's `tryResumeArceus` (its own
+  // mid-run resume hits the identical hazard) — dispose + recreate the entry,
+  // re-attaching it if this session's terminal is the one currently open in
+  // the drawer — and runs BEFORE the respawn below so the fresh pty's
+  // earliest output is never missed, same ordering `startSession` uses.
+  recreateTerminal(id, session.provider);
   const res = await window.api.spawnPty({
     id,
     cwd: session.cwd,
@@ -375,7 +388,16 @@ export function startCompletionToasts(): void {
   // consumed — rebuilding the map only after the loop would instead let the
   // nested call see the stale pre-transition value and toast a second time.
   const prevStatus = new Map<string, SessionStatus>();
+  // Same reference-equality short-circuit `startRegistrySync` below already
+  // uses: this subscribes without a selector, so it re-runs on EVERY store
+  // mutation, not just a session-list change — zustand's `set` only replaces
+  // the top-level keys a mutation actually touches, so an unrelated change
+  // (toasts, a garden-only field, ...) leaves `state.sessions` as the exact
+  // same array reference and this loop has nothing new to find.
+  let lastSessions: ReturnType<typeof useStore.getState>['sessions'] | null = null;
   useStore.subscribe((state) => {
+    if (state.sessions === lastSessions) return;
+    lastSessions = state.sessions;
     for (const session of state.sessions) {
       const was = prevStatus.get(session.id);
       prevStatus.set(session.id, session.status);
