@@ -12,13 +12,19 @@ import { useEffectiveLayout } from '@/effectiveLayout';
  *
  *  The tab strip (`.drawer-tabs`) is scoped to the ACTIVE workspace's
  *  sessions (Phase 8.7); the currently-open terminal itself is looked up
- *  against the FULL session list below (`allSessions`) rather than the
+ *  against the FULL session list (`selectedSession`, below) rather than the
  *  scoped one, so a `selectedId` that's momentarily out of sync with the
  *  active workspace (there shouldn't be one — the workspace switch itself
  *  re-points selection — but this is the cheap belt-and-braces read) still
- *  resolves instead of silently rendering the empty state. */
+ *  resolves instead of silently rendering the empty state.
+ *
+ *  `selectedSession` selects only the one session this component actually
+ *  reads (not the whole `s.sessions` array — that would re-render this
+ *  drawer on every OTHER session's tick too) — its identity only changes
+ *  when the selected session itself changes, or a genuine patch lands on it
+ *  (see store.ts's `updateSession` no-op guard). */
 export function TerminalDrawer(): JSX.Element | null {
-  const allSessions = useStore((s) => s.sessions);
+  const selectedSession = useStore((s) => s.sessions.find((x) => x.id === s.selectedId) ?? undefined);
   const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const drawerOpenPref = useStore((s) => s.drawerOpen);
@@ -64,12 +70,12 @@ export function TerminalDrawer(): JSX.Element | null {
   // terminal instead of merely hiding its tab while still displaying it.
   useEffect(() => {
     if (!selectedId) return;
-    const selected = allSessions.find((s) => s.id === selectedId);
-    if (!selected?.delegateParentId || selected.status !== 'done') return;
+    if (!selectedSession?.delegateParentId || selectedSession.status !== 'done') return;
     const next =
-      tabSessions.find((s) => s.id === selected.delegateParentId) ?? tabSessions.find((s) => s.id !== selectedId);
+      tabSessions.find((s) => s.id === selectedSession.delegateParentId) ??
+      tabSessions.find((s) => s.id !== selectedId);
     select(next?.id ?? null);
-  }, [allSessions, selectedId, tabSessions, select]);
+  }, [selectedSession, selectedId, tabSessions, select]);
 
   // Cmd/Ctrl+F opens the find bar instead of the OS/browser's own find —
   // only while a terminal is actually mounted here.
@@ -87,7 +93,7 @@ export function TerminalDrawer(): JSX.Element | null {
 
   if (!open) return null;
 
-  const session = allSessions.find((s) => s.id === selectedId);
+  const session = selectedSession;
 
   // The draggable split (GardenSplitHandle.tsx) only applies to the
   // side-by-side 'garden' layout — `wide` mode fills the row on its own via
