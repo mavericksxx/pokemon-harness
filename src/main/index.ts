@@ -777,6 +777,27 @@ function resolveSessionWorkspaceId(id: string | undefined): string {
   return workspaceRegistry.workspaces[0].id;
 }
 
+/** `shell.openExternal` hands `url` to the OS's own URL handler — a
+ *  `file:`/`javascript:`/custom-scheme URL there can do far more than open a
+ *  browser tab. Used by both the new-window handler below and
+ *  `app:openExternal`, so only ever call `shell.openExternal` through this.
+ *  `new URL()` throwing (a malformed url) is treated the same as a denied
+ *  scheme — deny either way, never let a parse failure fall through. */
+function openExternalIfSafe(url: string): void {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    log('main', 'warn', 'openExternal: could not parse url — denied', { url });
+    return;
+  }
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    log('main', 'warn', 'openExternal: denied non-http(s) scheme', { url, protocol });
+    return;
+  }
+  void shell.openExternal(url);
+}
+
 function createWindow(backgroundColor: string): void {
   const win = new BrowserWindow({
     width: 1440,
@@ -832,7 +853,7 @@ function createWindow(backgroundColor: string): void {
 
   // Never navigate the shell away from the app; open external links in the OS browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openExternalIfSafe(url);
     return { action: 'deny' };
   });
 
@@ -1537,7 +1558,7 @@ handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
 
 // ─── App version + updates (ship-cut item 4) ───────────────────────────────
 handle('app:getVersion', () => app.getVersion());
-handle('app:openExternal', (_e, url: string) => shell.openExternal(url));
+handle('app:openExternal', (_e, url: string) => openExternalIfSafe(url));
 // Settings panel's "check now" — unlike the background 24h check
 // (`scheduleUpdateChecks`), this reports its result either way (including
 // "you're up to date"), since a user who clicked the button is owed an
