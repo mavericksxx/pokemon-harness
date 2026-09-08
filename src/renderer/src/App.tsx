@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { GardenScene } from '@/scene/garden/GardenScene';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
 import { TerminalDrawer } from '@/components/TerminalDrawer';
@@ -52,6 +52,12 @@ const SHORTCUT_MODES: Record<string, ViewMode> = {
  *  SHORTCUT_MODES does above. */
 const DIGIT_CODE_RE = /^Digit([1-9])$/;
 
+/** Stable empty-array reference for the topbar chip list (App.tsx's own
+ *  `sessions` below) while chips are hidden — a fresh `[]` literal each
+ *  render would still be a new identity even though nothing reads it,
+ *  needlessly invalidating anything memoized off it. */
+const EMPTY_SESSIONS: Session[] = [];
+
 function renderSessionChip(s: Session, { selected, onSelect }: OverflowChipRenderContext): JSX.Element {
   return (
     <button
@@ -97,10 +103,21 @@ export function App(): JSX.Element {
   // ACTIVE workspace (Phase 8.7), same as the roster strip/overview. Arceus
   // is excluded (his topbar chip, SummonArceusButton, is his one home) —
   // same filter as RosterStrip/SessionsOverview.
-  const sessions = useActiveWorkspaceSessions().filter((s) => !s.isArceus && !(s.delegateParentId && s.status === 'done'));
+  const activeWorkspaceSessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const viewMode = useStore((s) => s.viewMode);
+  // Topbar chips only render when neither 'garden' nor 'terminal' owns its
+  // own roster UI (mirrors `hideTopbarChips` below) — skip the filter/
+  // allocation on every render while they're hidden instead of recomputing
+  // an array nothing reads on every session tick.
+  const sessions = useMemo(
+    () =>
+      viewMode === 'garden' || viewMode === 'terminal'
+        ? EMPTY_SESSIONS
+        : activeWorkspaceSessions.filter((s) => !s.isArceus && !(s.delegateParentId && s.status === 'done')),
+    [activeWorkspaceSessions, viewMode]
+  );
   // Still needed here for the split handle's mount condition — the terminal
   // panel TOGGLE moved into ViewModeSwitcher, but the divider only exists
   // when the drawer is actually showing.
