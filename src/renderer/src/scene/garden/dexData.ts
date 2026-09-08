@@ -77,11 +77,6 @@ export function speciesEntry(id: string): DexEntry | undefined {
   return DEX[id];
 }
 
-export function lineOf(id: string): DexLine | undefined {
-  const entry = DEX[id];
-  return entry ? LINES_BY_ID.get(entry.line) : undefined;
-}
-
 /** Every alt-battle-form of `baseId` (e.g. "zacian" -> Zacian-Crowned),
  *  sorted by id. Scans `forms.json` directly rather than the merged `DEX` —
  *  forms are a small, separate set and this is the picker's only way to

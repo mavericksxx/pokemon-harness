@@ -112,12 +112,20 @@ function frameTime(sheet: ManifestSheet, i: number): number {
 /** Fallback when a manifest entry omits per-frame durations. */
 const DEFAULT_FRAME_MS = 110;
 
+/** Cached result of `pokeballTexture()` — every caller wants the same 32x32
+ *  art, so building it once and reusing the Texture beats a fresh canvas +
+ *  `Texture.from` per lazy/shiny spawn. Nobody destroys this texture (grep
+ *  confirms no caller does), so it's safe to hand out the same instance
+ *  indefinitely. */
+let cachedPokeballTexture: Texture | undefined;
+
 /**
  * Stand-in for a species whose sheet is missing or fails to decode. A pokeball
  * reads as "art not here yet"; an untextured sprite reads as a rendering bug,
  * which is exactly the wrong impression when the cause is a missing file.
  */
 function pokeballTexture(size = 32): Texture {
+  if (cachedPokeballTexture) return cachedPokeballTexture;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -152,6 +160,7 @@ function pokeballTexture(size = 32): Texture {
   c.stroke();
   const texture = Texture.from(canvas);
   texture.source.scaleMode = 'nearest';
+  cachedPokeballTexture = texture;
   return texture;
 }
 

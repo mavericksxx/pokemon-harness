@@ -80,9 +80,17 @@ export class ClosingRitual {
     this.elapsedS += dt;
 
     let allWaved = true;
-    for (const state of this.states.values()) {
+    for (const [id, state] of this.states) {
+      const { walker } = state.entry;
+      // The session behind this walker was killed mid-ritual (removeWalker
+      // -> walker.destroy()) — stop driving a destroyed Pixi container
+      // (goTo/showFloatingText/bounce would otherwise keep firing on it for
+      // up to CAP_MS) and drop it from the count entirely.
+      if (walker.container.destroyed) {
+        this.states.delete(id);
+        continue;
+      }
       if (state.phase !== 'waved') {
-        const { walker } = state.entry;
         if (state.phase === 'pending') {
           state.retryTimer -= dt;
           if (state.retryTimer <= 0) {

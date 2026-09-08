@@ -40,9 +40,13 @@ export function findPath(
   const parent = new Map<string, Point>();
   const queue: Point[] = [start];
   visited.add(key(start));
+  // Head index instead of Array.shift(): shift() is O(n) per call (it
+  // re-indexes the whole array), which made this O(n^2) worst-case on the
+  // 48x32 map — called by every idle wanderer, up to 16 tries per wander.
+  let head = 0;
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
+  while (head < queue.length) {
+    const current = queue[head++];
 
     for (const dir of DIRECTIONS) {
       const next: Point = { x: current.x + dir.x, y: current.y + dir.y };

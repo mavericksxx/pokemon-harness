@@ -50,9 +50,6 @@ export const AIR_ONLY_SPAWNS: ReadonlySet<string> = new Set(['pond-island']);
 /** Where a walker enters the garden. */
 export const ENTRANCE_SPAWN = 'entrance';
 
-/** Station a walker heads for while blocked on the user. */
-export const BLOCKED_STATION: StationKind = 'signpost';
-
 export function stationForTool(tool: string | undefined): StationKind {
   if (!tool) return 'wander';
   return TOOL_TO_STATION[tool] ?? 'patch';
