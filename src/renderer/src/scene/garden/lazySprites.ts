@@ -35,6 +35,7 @@ import { pokeballFrameSet } from './showdownArt';
 import { frameRect, sliceFrames } from './spriteSheet';
 import { speciesEntry } from './dexData';
 import { loadPixelTexture } from './imageTexture';
+import { LruTracker } from './lruTracker';
 
 /** A sheet row may not exceed this many pixels wide (the bundled Blastoise
  *  sheet hit 10010px, which is exactly the mistake this guards against). */
@@ -49,6 +50,206 @@ const MAX_SHEET_WIDTH = 8192;
 const viewCache = new Map<string, Promise<FrameSet | null>>();
 const animationCache = new Map<string, Promise<PokemonAnimation | null>>();
 const thumbnailCache = new Map<string, Promise<string | null>>();
+
+/** How many resolved `viewCache`/`animationCache`/`thumbnailCache` entries
+ *  may sit around UNPINNED (see pinAnimation/unpinAnimation below) before the
+ *  oldest-accessed ones get evicted — otherwise every species a session ever
+ *  loads (picker churn, evolution chains, subagent battles rolling a random
+ *  species each, Arceus's 17 formes) accumulates GPU-backed textures for the
+ *  app's entire lifetime (see this file's header). Pinned entries — a
+ *  species some live walker/battler is actually showing right now — are
+ *  never evicted regardless of these budgets. Numbers are generous relative
+ *  to what a normal session actually keeps on screen at once, so eviction is
+ *  a rare-churn safety valve, not something that fires every pick. */
+const MAX_UNPINNED_VIEWS = 48;
+/** Budget for `animationCache`'s `{info, front, back}` wrapper objects. Much
+ *  cheaper to evict than a view — a wrapper owns no texture of its own (its
+ *  `front`/`back` are the exact FrameSet objects `viewCache` already tracks
+ *  and independently bounds/destroys, see `evictAnimationOverflow`) — so this
+ *  budget exists mainly to bound the map's own size. */
+const MAX_UNPINNED_ANIMATIONS = 24;
+/** `thumbnailCache` entries are plain data URL strings (see
+ *  `loadLazyThumbnail`), not Textures — nothing to destroy, just a map-size
+ *  cap so idle picker browsing doesn't grow this map forever either. */
+const MAX_THUMBNAILS = 200;
+
+const viewOrder = new LruTracker<string>(MAX_UNPINNED_VIEWS);
+const animationOrder = new LruTracker<string>(MAX_UNPINNED_ANIMATIONS);
+const thumbnailOrder = new LruTracker<string>(MAX_THUMBNAILS);
+
+/** How many live walkers/battlers currently have each FrameSet on screen
+ *  (front and/or back) — see pinAnimation/unpinAnimation. Keyed by the exact
+ *  FrameSet OBJECT `viewCache` resolved to, not a species/view/shiny string:
+ *  the front sheet's shiny->normal 404 fallback (see
+ *  `loadFrontWithShinyFallback`) makes "which string key actually holds the
+ *  sheet a caller is displaying" ambiguous from outside this file, but the
+ *  caller already holds the exact FrameSet reference `loadLazyAnimation`
+ *  handed it, so pinning by identity sidesteps the problem entirely. A
+ *  WeakMap so a caller that forgets to unpin (a bug elsewhere) merely leaves
+ *  that one FrameSet un-evictable rather than leaking the map entry too. */
+const pinCounts = new WeakMap<FrameSet, number>();
+
+/** The `viewCache` key that produced a given resolved FrameSet — set once,
+ *  in `touchView`, the moment a fetch or cache-hit resolves successfully.
+ *  Lets `pinFrameSet`/`unpinFrameSet` (below) pull a species OUT of
+ *  `viewOrder` entirely for as long as it's pinned, rather than merely
+ *  protecting-but-still-counting it — otherwise a handful of permanently-
+ *  pinned species (the walkers on screen right now) would each eat a
+ *  permanent slot out of `MAX_UNPINNED_VIEWS`'s budget instead of sitting
+ *  outside it, shrinking the headroom actually available to unpinned churn.
+ *  A FrameSet can end up referenced by more than one `animationCache` entry
+ *  (the shiny->normal front 404 fallback shares one FrameSet between the
+ *  shiny and normal animations) but is always produced by exactly one
+ *  `loadView` call, so this mapping is never ambiguous. */
+const frameSetViewKey = new WeakMap<FrameSet, string>();
+
+function isPinned(frameSet: FrameSet): boolean {
+  return (pinCounts.get(frameSet) ?? 0) > 0;
+}
+
+function pinFrameSet(frameSet: FrameSet): void {
+  const wasPinned = isPinned(frameSet);
+  pinCounts.set(frameSet, (pinCounts.get(frameSet) ?? 0) + 1);
+  if (wasPinned) return;
+  const key = frameSetViewKey.get(frameSet);
+  if (key) viewOrder.forget(key);
+}
+
+function unpinFrameSet(frameSet: FrameSet): void {
+  const count = pinCounts.get(frameSet) ?? 0;
+  if (count > 1) {
+    pinCounts.set(frameSet, count - 1);
+    return;
+  }
+  pinCounts.delete(frameSet);
+  const key = frameSetViewKey.get(frameSet);
+  if (key) {
+    // Re-enters the unpinned budget as most-recently-used — it was in
+    // active use until just now.
+    viewOrder.touch(key);
+    evictViewOverflow();
+  }
+}
+
+/** Protect every sheet `animation` is currently showing (front, and back
+ *  when it has one) from eviction — call once a caller (Walker/Battler)
+ *  actually puts this exact `PokemonAnimation` on screen. Safe to call on a
+ *  bundled or placeholder animation too: its FrameSets are never in
+ *  `viewCache`, so this just tracks an unused refcount for them. Reference-
+ *  counted, so two callers sharing the same species+shiny (two walkers, or a
+ *  walker and a still-staged evolution/mega target) don't fight over one
+ *  count — see Walker.ts. Always pair with `unpinAnimation`. */
+export function pinAnimation(animation: PokemonAnimation): void {
+  pinFrameSet(animation.front);
+  if (animation.back) pinFrameSet(animation.back);
+}
+
+/** Releases one `pinAnimation` call's hold on `animation`. */
+export function unpinAnimation(animation: PokemonAnimation): void {
+  unpinFrameSet(animation.front);
+  if (animation.back) unpinFrameSet(animation.back);
+}
+
+/** Frees the GPU texture(s) backing one resolved view/thumbnail sheet.
+ *  `sliceFrames` (spriteSheet.ts) gives every frame Texture in a FrameSet the
+ *  SAME shared TextureSource (one coalesced sheet, or one static PNG) — so
+ *  destroying frame 0's source once releases the whole sheet. The other
+ *  frames' Texture wrapper objects are left pointing at a now-destroyed
+ *  source, which is fine: this only ever runs on an UNPINNED, just-evicted
+ *  FrameSet (see evictViewOverflow below), so nothing should still be
+ *  rendering any of its frames. Bundled/static art from showdownArt.ts is
+ *  never wrapped in a FrameSet this function sees — it lives in a completely
+ *  separate map (`loadPokemonAnimations`'s return value), never in
+ *  viewCache/animationCache. */
+function destroyFrameSet(frameSet: FrameSet): void {
+  const source = frameSet.frames[0]?.texture.source;
+  if (source && !source.destroyed) source.destroy();
+}
+
+/** Records which key resolved to `frameSet` (for pinFrameSet/unpinFrameSet,
+ *  above) and, unless it's currently pinned, brings `key` to the MRU end of
+ *  `viewCache`'s eviction order and runs an eviction pass. Only ever called
+ *  from a `.then()` on an already-settled, non-null promise (see loadView)
+ *  — an in-flight fetch's key never enters `viewOrder` at all, so it can
+ *  never be picked for eviction mid-flight. */
+function touchView(key: string, frameSet: FrameSet): void {
+  frameSetViewKey.set(frameSet, key);
+  if (isPinned(frameSet)) return; // pinFrameSet already keeps it out of viewOrder
+  viewOrder.touch(key);
+  evictViewOverflow();
+}
+
+function evictViewOverflow(): void {
+  for (const key of viewOrder.overflow()) {
+    const pending = viewCache.get(key);
+    if (!pending) {
+      viewOrder.forget(key);
+      continue;
+    }
+    // `pending` is already resolved by construction (see touchView's own
+    // comment), so this `.then()` runs on the next microtask, not after some
+    // later, unrelated fetch — the identity check below still guards against
+    // the rare case where `key` was deleted and re-fetched in between.
+    void pending.then((frameSet) => {
+      if (!frameSet) {
+        viewOrder.forget(key);
+        return;
+      }
+      if (isPinned(frameSet)) {
+        // Belt-and-braces: pinFrameSet already removes a key from viewOrder
+        // the moment it's pinned, so `overflow()` shouldn't surface one that
+        // got pinned since — but never destroy a pinned entry regardless.
+        viewOrder.forget(key);
+        return;
+      }
+      viewOrder.forget(key);
+      if (viewCache.get(key) === pending) viewCache.delete(key);
+      destroyFrameSet(frameSet);
+    });
+  }
+}
+
+function touchAnimation(key: string): void {
+  animationOrder.touch(key);
+  evictAnimationOverflow();
+}
+
+function evictAnimationOverflow(): void {
+  for (const key of animationOrder.overflow()) {
+    const pending = animationCache.get(key);
+    if (!pending) {
+      animationOrder.forget(key);
+      continue;
+    }
+    void pending.then((anim) => {
+      if (!anim) {
+        animationOrder.forget(key);
+        return;
+      }
+      if (isPinned(anim.front)) {
+        animationOrder.touch(key);
+        return;
+      }
+      animationOrder.forget(key);
+      if (animationCache.get(key) === pending) animationCache.delete(key);
+      // No destroy here, deliberately: `front`/`back` are the exact FrameSet
+      // objects `viewCache` owns and independently LRU-bounds/destroys (see
+      // evictViewOverflow above) — this cache is only a thin
+      // {info, front, back} wrapper over those, so evicting it just forgets
+      // the wrapper object. A later `loadLazyAnimation` for the same species
+      // rebuilds it cheaply, straight from viewCache's still-resolved
+      // promises.
+    });
+  }
+}
+
+function touchThumbnail(key: string): void {
+  thumbnailOrder.touch(key);
+  for (const evictKey of thumbnailOrder.overflow()) {
+    thumbnailOrder.forget(evictKey);
+    thumbnailCache.delete(evictKey);
+  }
+}
 
 /** Composite a GIF's frames into full, disposal-correct images and lay them
  *  directly into one sheet canvas, matching how the bundled sheets were
@@ -244,7 +445,12 @@ async function loadView(
 ): Promise<FrameSet | null> {
   const key = `${id}:${view}:${shiny ? 'shiny' : 'normal'}`;
   const existing = viewCache.get(key);
-  if (existing) return existing;
+  if (existing) {
+    void existing.then((result) => {
+      if (result) touchView(key, result);
+    });
+    return existing;
+  }
 
   const promise = (async (): Promise<FrameSet | null> => {
     try {
@@ -286,6 +492,9 @@ async function loadView(
       if (result === null) viewCache.delete(key);
     });
   }
+  void promise.then((result) => {
+    if (result) touchView(key, result);
+  });
   return promise;
 }
 
@@ -337,7 +546,12 @@ export async function loadRawFrameSets(
 export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAnimation | null> {
   const key = shiny ? `${id}:shiny` : id;
   const existing = animationCache.get(key);
-  if (existing) return existing;
+  if (existing) {
+    void existing.then((result) => {
+      if (result) touchAnimation(key);
+    });
+    return existing;
+  }
 
   const promise = (async (): Promise<PokemonAnimation | null> => {
     try {
@@ -374,6 +588,9 @@ export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAni
   animationCache.set(key, promise);
   void promise.then((result) => {
     if (result === null) animationCache.delete(key);
+  });
+  void promise.then((result) => {
+    if (result) touchAnimation(key);
   });
   return promise;
 }
@@ -533,7 +750,12 @@ function cropFrame0(front: FrameSet): string | null {
 export function loadLazyThumbnail(id: string, shiny = false): Promise<string | null> {
   const key = shiny ? `${id}:shiny` : id;
   const existing = thumbnailCache.get(key);
-  if (existing) return existing;
+  if (existing) {
+    void existing.then((result) => {
+      if (result) touchThumbnail(key);
+    });
+    return existing;
+  }
 
   const promise = thumbnailGate(async (): Promise<string | null> => {
     try {
@@ -563,6 +785,9 @@ export function loadLazyThumbnail(id: string, shiny = false): Promise<string | n
   thumbnailCache.set(key, promise);
   void promise.then((result) => {
     if (result === null) thumbnailCache.delete(key);
+  });
+  void promise.then((result) => {
+    if (result) touchThumbnail(key);
   });
   return promise;
 }
