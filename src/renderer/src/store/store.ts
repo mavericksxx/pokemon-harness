@@ -384,8 +384,18 @@ export const useStore = create<HarnessState>((set, get) => ({
     set((st) => {
       const i = st.sessions.findIndex((s) => s.id === id);
       if (i === -1) return st;
+      const current = st.sessions[i];
+      // No-op guard (hot path: ptyParser.ts's per-chunk `update({status:
+      // 'working'})`, hookRouter.ts's PreToolUse/PostToolUse, terminalRegistry
+      // .ts's per-chunk cost updates all call this far more often than the
+      // session actually changes) — skip the allocation entirely when every
+      // patched key is already Object.is-equal on the current session. A key
+      // explicitly patched to `undefined` still counts as a change if it's
+      // currently defined (Object.is(defined, undefined) is false).
+      const keys = Object.keys(patch) as Array<keyof Session>;
+      if (keys.every((k) => Object.is(current[k], patch[k]))) return st;
       const next = st.sessions.slice();
-      next[i] = { ...next[i], ...patch };
+      next[i] = { ...current, ...patch };
       return { sessions: next };
     }),
 
