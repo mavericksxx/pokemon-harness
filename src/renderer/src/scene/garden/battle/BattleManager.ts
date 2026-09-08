@@ -355,6 +355,17 @@ const MAX_RING = 1;
  *  just unhurried. Total: FACEOFF_MS + WAVE_ATTACKS * ATTACK_TOTAL_MS +
  *  ENDING_MS = 550 + 8*900 + 550 = 8300ms, inside the 8-10s target. */
 const WAVE_ATTACKS = 8;
+/** Combo-coalescing pin fix (2026-09-08): `handleAttack` restarts the
+ *  current beat's timeline (elapsedMs/hitApplied) when a rapid tool event
+ *  arrives before the hit has landed, so a fast burst of calls still reads
+ *  as one coalesced combo instead of a queued replay per event (see
+ *  handleAttack's own comment). Without a cap, a subagent calling faster
+ *  than ATTACK_TOTAL_MS apart could restart that same beat indefinitely —
+ *  waveAttacks would never increment, and the wave would only ever end via
+ *  WAVE_HARD_CAP_MS's force-conclude, which skips beginEnding's victory
+ *  pose. This caps how many times ONE beat may restart before it's just
+ *  left to finish on its own clock. */
+const MAX_COMBO_RESTARTS = 3;
 
 /** Minimum face-off gap, in tiles, between the parent and a battler — chosen
  *  so two average-sized sprites (2-2.5 drawn tiles tall) read as clearly
@@ -429,6 +440,13 @@ const MIN_ROAM_MS = 15_000;
  *  can't close — failure mode (1) above, or any battler whose correlation
  *  never arrived at all — not a replacement for it. */
 const MAX_ROAM_MS = 30 * 60_000;
+
+/** Cap on `retiredTaskInfo`'s size (2026-09-08 fix — see that field's own
+ *  comment): a generously large bound, well past how many subagents even a
+ *  very long-running or heavily-resumed session would realistically
+ *  complete, so eviction is a genuine backstop rather than something that
+ *  routinely trims real resume memory. */
+const RETIRED_TASK_INFO_CAP = 500;
 
 /** Gap enforced, in ms, between the end of one completion battle and the
  *  start of the next — GLOBALLY, across every parent (the queue in
@@ -599,10 +617,9 @@ interface SubBattler {
    *  instead of only inferable from frozen counter snapshots after the
    *  fact. */
   visibleLogged: boolean;
-  /** State for the intermittent roaming label and its live-tool override. */
+  /** State for the intermittent roaming label. */
   roamLabelElapsedMs: number;
   roamLabelCycleMs: number;
-  toolBubbleRemainingMs: number;
   roamBubbleMode: 'hidden' | 'label' | 'tool';
 }
 
@@ -613,6 +630,9 @@ interface Attack {
   combo: number;
   elapsedMs: number;
   hitApplied: boolean;
+  /** How many times `handleAttack` has restarted THIS beat's timeline —
+   *  capped at MAX_COMBO_RESTARTS (see that constant's own comment). */
+  restarts: number;
 }
 
 interface ParentBattle {
@@ -790,9 +810,12 @@ export class BattleManager {
    *  internal task-id. Consulted by `handleCorrelate` when a task-id
    *  dispatches async again with no live battler carrying it: a RESUME,
    *  which should poof the same pokemon back in rather than staying
-   *  invisible (BACKLOG "resumed agents are invisible"). Never pruned —
-   *  bounded by how many subagents a session actually completes, not by
-   *  anything unbounded. */
+   *  invisible (BACKLOG "resumed agents are invisible"). UPDATE (2026-09-08):
+   *  this comment used to claim it's "never pruned — bounded by how many
+   *  subagents a session actually completes", which isn't actually a bound
+   *  at all for a session that runs (or is resumed) for a very long time —
+   *  see `rememberRetiredTask`, the bounded-insert helper every write now
+   *  goes through, capped at RETIRED_TASK_INFO_CAP. */
   private retiredTaskInfo = new Map<string, { species: string; label?: string }>();
   /** Cross-manager mis-recall fix — task-ids `handleCorrelate` has confirmed
    *  don't belong to this manager's domain at all (an advisor consult, or any
@@ -1104,13 +1127,31 @@ export class BattleManager {
         visibleLogged: false,
         roamLabelElapsedMs: bubbleTiming.elapsedMs,
         roamLabelCycleMs: bubbleTiming.cycleMs,
-        toolBubbleRemainingMs: 0,
         roamBubbleMode: 'hidden'
       };
       pb.subs.push(sub);
+      // nextSeq collision fix (2026-09-08): `createBattle` always starts a
+      // fresh `pb` at `nextSeq: 0`, but this respawned sub keeps its OLD
+      // `${parentId}#${n}` key — without advancing `nextSeq` past every key
+      // recovered here, the next `handleSpawn` for this parent would mint
+      // `${parentId}#0` again and collide with whatever respawned sub
+      // already holds that exact key.
+      const seqNum = Number(entry.key.slice(entry.key.lastIndexOf('#') + 1));
+      if (Number.isInteger(seqNum)) pb.nextSeq = Math.max(pb.nextSeq, seqNum + 1);
       if (!isBundled(species.id)) {
+        // Destroyed/identity guard (2026-09-08, see startMega's own comment
+        // for the full reasoning) — `pb!.subs.includes(sub)` already goes
+        // false the instant this sub is dropped (every destroy path in this
+        // file clears it from `pb.subs` before or in the same synchronous
+        // step as the actual `.destroy()` call), but the identity/container
+        // checks are cheap belt-and-braces against a `pb` this exact closure
+        // still references having been torn down and replaced wholesale.
         void this.deps.loadLazyAnimation(species.id, false).then((real) => {
-          if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+          if (!real) return;
+          if (this.battles.get(entry.parentId) !== pb) return;
+          if (!pb!.subs.includes(sub)) return;
+          if (battler.container.destroyed) return;
+          battler.setAnimation(real);
         });
       }
     }
@@ -1380,7 +1421,17 @@ export class BattleManager {
     }
 
     const species = this.pickSpecies();
-    if (!species) return; // dex exhausted — extremely unlikely; just drop
+    if (!species) {
+      // Dex exhausted — extremely unlikely, and previously a silent drop.
+      // Logged now (2026-09-08) so a real repro (e.g. the collectExcludedLines
+      // retired-lifecycle leak this same fix addresses) is findable in
+      // harness.log instead of only inferable from a spawn that never
+      // materialized. No dedicated counter exists for this in
+      // diagnosticsCounters.ts — not adding one here, out of scope for this
+      // file-only fix.
+      safeLogDiagnostic('battle', 'warn', 'spawn dropped — dex exhausted (no eligible species)', { parentId });
+      return;
+    }
 
     // A wild challenger is a fresh roll every spawn — same odds as a session
     // (Phase 5 §5), independent of it (battlers never evolve, so there's no
@@ -1388,7 +1439,13 @@ export class BattleManager {
     const shiny = rollShiny();
     const animation = this.deps.resolveAnimation(species.id, shiny);
     const home = this.pickRoamHome(pb, pb.parentWalker.tile);
-    const key = `${parentId}#${pb.nextSeq++}`;
+    let key = `${parentId}#${pb.nextSeq++}`;
+    // Defensive uniqueness guard (2026-09-08, companion to respawnFromStore's
+    // nextSeq fix above) — `nextSeq` is the normal source of truth for
+    // uniqueness, but a stray minted key colliding with a live sub's key
+    // would silently overwrite that sub's roster entry rather than fail
+    // loudly, so this keeps bumping until the key is actually free.
+    while (pb.subs.some((s) => s.key === key)) key = `${parentId}#${pb.nextSeq++}`;
     const battler = new Battler({
       map: this.deps.map,
       animation,
@@ -1419,7 +1476,6 @@ export class BattleManager {
       visibleLogged: false,
       roamLabelElapsedMs: bubbleTiming.elapsedMs,
       roamLabelCycleMs: bubbleTiming.cycleMs,
-      toolBubbleRemainingMs: 0,
       roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
@@ -1445,8 +1501,14 @@ export class BattleManager {
     // A shiny pick always needs the lazy fetch too (see resolveAnimation),
     // even for an otherwise-bundled species.
     if (!isBundled(species.id) || shiny) {
+      // Destroyed/identity guard — see respawnFromStore's own comment on this
+      // exact pattern.
       void this.deps.loadLazyAnimation(species.id, shiny).then((real) => {
-        if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+        if (!real) return;
+        if (this.battles.get(parentId) !== pb) return;
+        if (!pb!.subs.includes(sub)) return;
+        if (battler.container.destroyed) return;
+        battler.setAnimation(real);
       });
     }
   }
@@ -1542,7 +1604,6 @@ export class BattleManager {
       visibleLogged: true,
       roamLabelElapsedMs: 0,
       roamLabelCycleMs: ROAM_LABEL_CYCLE_MIN_MS,
-      toolBubbleRemainingMs: 0,
       roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
@@ -1620,12 +1681,24 @@ export class BattleManager {
     for (const sub of pb.waveRing) sub.battler.showAttack(tool);
     if (pb.currentAttack) {
       // Coalesce rapid events into the current beat instead of queuing a
-      // replay per event — restart its timeline so the hit/text re-fires
-      // with the bumped combo count.
+      // replay per event. Combo-coalescing pin fix (2026-09-08): only
+      // RESTART the beat's timeline (elapsedMs/hitApplied, implicitly —
+      // hitApplied is already false whenever this branch is taken) while the
+      // hit hasn't landed yet AND under MAX_COMBO_RESTARTS. Once a hit has
+      // applied, restarting elapsedMs back to 0 would re-run the whole
+      // lunge/hold/return cycle — for a chatty subagent calling faster than
+      // ATTACK_TOTAL_MS apart, that could pin this exact beat indefinitely:
+      // waveAttacks never increments, and the wave only ends via
+      // WAVE_HARD_CAP_MS's force-conclude, which skips beginEnding's victory
+      // pose entirely. The combo count and displayed tool still update every
+      // time either way — only the timeline restart is gated, so the wave
+      // always progresses.
       pb.currentAttack.combo++;
       pb.currentAttack.tool = tool;
-      pb.currentAttack.elapsedMs = 0;
-      pb.currentAttack.hitApplied = false;
+      if (!pb.currentAttack.hitApplied && pb.currentAttack.restarts < MAX_COMBO_RESTARTS) {
+        pb.currentAttack.elapsedMs = 0;
+        pb.currentAttack.restarts++;
+      }
     }
     // Between scripted beats there's nothing to coalesce into — the wave's
     // own scripted progression (not real signals) decides when it's done.
@@ -1693,6 +1766,21 @@ export class BattleManager {
    *  sufficient to close the race). Bypasses `MIN_ROAM_MS` either way — this
    *  signal names one specific subagent's real completion, not a coarse
    *  per-turn proxy, so there's nothing to guard against. */
+  /** Bounded insert for `retiredTaskInfo` (2026-09-08 fix — see that field's
+   *  own comment and RETIRED_TASK_INFO_CAP). Deletes-then-sets so a re-set of
+   *  an already-present taskId moves it to the end of the Map's insertion
+   *  order rather than counting as a fresh entry toward the cap while also
+   *  leaving a stale position behind; eviction (once over the cap) drops the
+   *  single oldest entry, since a Map iterates in insertion order. */
+  private rememberRetiredTask(taskId: string, info: { species: string; label?: string }): void {
+    this.retiredTaskInfo.delete(taskId);
+    this.retiredTaskInfo.set(taskId, info);
+    if (this.retiredTaskInfo.size > RETIRED_TASK_INFO_CAP) {
+      const oldest = this.retiredTaskInfo.keys().next().value;
+      if (oldest !== undefined) this.retiredTaskInfo.delete(oldest);
+    }
+  }
+
   private handleEnd(parentId: string, taskId?: string): void {
     if (taskId && this.foreignTaskIds.has(taskId)) {
       // Confirmed foreign by a prior `handleCorrelate` miss (an advisor
@@ -1708,7 +1796,7 @@ export class BattleManager {
     if (taskId) {
       const stamped = pb.subs.find((s) => s.taskId === taskId && s.lifecycle === 'roaming');
       if (stamped) {
-        this.retiredTaskInfo.set(taskId, { species: stamped.battler.species.id, label: stamped.label });
+        this.rememberRetiredTask(taskId, { species: stamped.battler.species.id, label: stamped.label });
         this.queueForBattle(stamped);
         return;
       }
@@ -1728,7 +1816,7 @@ export class BattleManager {
       // species if `oldest` isn't actually the sub that finished (possible
       // under concurrency) — accepted, since the alternative is certain
       // invisibility rather than a possibly-wrong pokemon on resume.
-      if (taskId) this.retiredTaskInfo.set(taskId, { species: oldest.battler.species.id, label: oldest.label });
+      if (taskId) this.rememberRetiredTask(taskId, { species: oldest.battler.species.id, label: oldest.label });
       this.queueForBattle(oldest);
     }
   }
@@ -1809,7 +1897,7 @@ export class BattleManager {
       // via a path other than handleEnd (handleEndAll, forceConcludeWave,
       // the MAX_ROAM_MS age-out self-queue) still leaves resume-respawn
       // memory behind.
-      this.retiredTaskInfo.set(taskId, { species: bySpawn.battler.species.id, label: bySpawn.label });
+      this.rememberRetiredTask(taskId, { species: bySpawn.battler.species.id, label: bySpawn.label });
       return;
     }
 
@@ -1870,7 +1958,6 @@ export class BattleManager {
       visibleLogged: false,
       roamLabelElapsedMs: bubbleTiming.elapsedMs,
       roamLabelCycleMs: bubbleTiming.cycleMs,
-      toolBubbleRemainingMs: 0,
       roamBubbleMode: 'hidden'
     };
     pb.subs.push(sub);
@@ -1883,8 +1970,14 @@ export class BattleManager {
       tile: home
     });
     if (!isBundled(species.id)) {
+      // Destroyed/identity guard — see respawnFromStore's own comment on this
+      // exact pattern.
       void this.deps.loadLazyAnimation(species.id, false).then((real) => {
-        if (real && pb!.subs.includes(sub)) battler.setAnimation(real);
+        if (!real) return;
+        if (this.battles.get(parentId) !== pb) return;
+        if (!pb!.subs.includes(sub)) return;
+        if (battler.container.destroyed) return;
+        battler.setAnimation(real);
       });
     }
   }
@@ -1919,7 +2012,6 @@ export class BattleManager {
     sub.lifecycle = 'queued';
     sub.queuedSince = Date.now();
     sub.queueEligibleAt = null;
-    sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.showBubbleLabel();
   }
@@ -1954,7 +2046,6 @@ export class BattleManager {
       // `isPoofedOut` that can never become true.
       if (this.isDelegateSub(sub)) continue;
       sub.lifecycle = 'leaving';
-      sub.toolBubbleRemainingMs = 0;
       sub.roamBubbleMode = 'hidden';
       sub.battler.hideBubble();
       sub.battler.startPoofOut();
@@ -1988,7 +2079,16 @@ export class BattleManager {
   private collectExcludedLines(): Set<string> {
     const set = new Set(this.deps.activeSessionLines());
     for (const pb of this.battles.values()) {
-      for (const sub of pb.subs) set.add(sub.battler.species.line);
+      for (const sub of pb.subs) {
+        // Retired-lifecycle exclusion fix (2026-09-08): a retired battler
+        // stays in `pb.subs` (by design — see file header's "DONE POKEMON
+        // STAY UNTIL DISMISSED") until a player explicitly despawns it, so
+        // leaving its line excluded here would reserve that line forever
+        // even once it's off-duty. Over a long session the exclusion set
+        // only grows, and `pickSpecies`'s pools eventually run dry.
+        if (sub.lifecycle === 'retired') continue;
+        set.add(sub.battler.species.line);
+      }
     }
     return set;
   }
@@ -2414,10 +2514,25 @@ export class BattleManager {
       // the same reason the 'ending' case already was: a mega that lands
       // after the fight reads as over is worse than no mega at all. The
       // `admitBattle` prefetch (#1 above) is what keeps this the rare path.
+      //
+      // Destroyed/torn-down-parent fix (2026-09-08): none of the staleness
+      // checks above notice a hard teardown (`forceEnd`/`destroyBattle`) that
+      // happened while this fetch was still in flight — `destroyBattle` now
+      // resets `pb.wave` back to 'idle' (see its own comment), which the
+      // `pb.wave !== 'faceoff'` check above already catches for the common
+      // case, but a torn-down `pb` could in principle be replaced by a BRAND
+      // NEW `ParentBattle` for the same `parentId` (a fresh spawn) that
+      // happens to reach 'faceoff' again before this promise resolves — the
+      // identity check below is what actually distinguishes "this exact
+      // wave, still tracked" from "some other wave that reused the same
+      // parentId". The walker's own `container.destroyed` is the last-resort
+      // backstop for a teardown this file doesn't yet reset `pb` for.
       if (pb.megaActive) return;
       if (pb.waveStartedAt !== token) return;
       if (pb.wave !== 'faceoff') return;
       if (pb.parentWalker.isEvolving) return;
+      if (this.battles.get(pb.parentId) !== pb) return;
+      if (pb.parentWalker.container.destroyed) return;
       if (!anim) {
         safeLogDiagnostic('battle', 'warn', 'mega evolve failed — sprite unavailable', { speciesId, megaId, shiny });
         return;
@@ -2438,6 +2553,23 @@ export class BattleManager {
       // was instant, there is no ceremony to wait for).
       pb.megaHold = pb.parentWalker.isMegaCeremonyActive;
       safeLogDiagnostic('battle', 'info', 'mega evolve started', { speciesId, megaId, shiny, held: pb.megaHold });
+    }).catch((err) => {
+      // Belt-and-braces try/catch (2026-09-08): this whole callback used to
+      // run as a bare `.then()` with nothing catching a synchronous throw
+      // from deep inside `startMegaCeremony` (e.g. the reduced-motion path's
+      // `setTemporaryForm` -> `applyTempForm` -> `sprite.configure` on an
+      // already-destroyed Graphics — see file header's CRITICAL fix). An
+      // uncaught throw here is a floating rejection outside any try/catch
+      // this app's own error boundaries cover (GardenScene.tsx's ticker
+      // catch only wraps the SYNCHRONOUS per-frame call, not a `.then()`
+      // firing on its own microtask later).
+      bumpCounter('battleSignalErrors');
+      safeLogDiagnostic('battle', 'error', 'startMega post-await apply threw', {
+        parentId: pb.parentId,
+        speciesId,
+        megaId,
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err)
+      });
     });
   }
 
@@ -2518,7 +2650,8 @@ export class BattleManager {
       tool,
       combo: 1,
       elapsedMs: 0,
-      hitApplied: false
+      hitApplied: false,
+      restarts: 0
     };
     // Give the beat an immediate visual even when the hook signal that
     // supplies a more specific tool name arrives a frame later. The signal
@@ -2709,7 +2842,6 @@ export class BattleManager {
    *  removes it. */
   private retireSub(sub: SubBattler): void {
     sub.lifecycle = 'retired';
-    sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
     // Battle stance is released for EVERY sub here, delegate included —
@@ -2761,7 +2893,6 @@ export class BattleManager {
     const bubbleTiming = roamingBubbleTiming(sub.key);
     sub.roamLabelElapsedMs = bubbleTiming.elapsedMs;
     sub.roamLabelCycleMs = bubbleTiming.cycleMs;
-    sub.toolBubbleRemainingMs = 0;
     sub.roamBubbleMode = 'hidden';
     sub.roamingSince = Date.now();
     sub.queueEligibleAt = null;
@@ -2826,17 +2957,12 @@ export class BattleManager {
     }
   }
 
-  /** Drive Tier 1's intermittent label cadence. The Tier 2 tool-bubble
-   *  takeover this once guarded is now dead (nothing sets
-   *  toolBubbleRemainingMs above 0 anymore — see showSubagentTool), so this
-   *  guard is a permanent no-op kept only because the field/type it reads
-   *  are still declared. */
+  /** Drive Tier 1's intermittent label cadence. (The Tier 2 tool-bubble
+   *  takeover this once guarded — a countdown field this sub carried — was
+   *  dead code, removed 2026-09-08: nothing ever set it above 0, see
+   *  showSubagentTool.) */
   private updateRoamingBubble(sub: SubBattler, dt: number): void {
     sub.roamLabelElapsedMs = (sub.roamLabelElapsedMs + dt * 1000) % sub.roamLabelCycleMs;
-    if (sub.toolBubbleRemainingMs > 0) {
-      sub.toolBubbleRemainingMs = Math.max(0, sub.toolBubbleRemainingMs - dt * 1000);
-      if (sub.toolBubbleRemainingMs > 0) return;
-    }
 
     const shouldShowLabel = !!sub.label && sub.roamLabelElapsedMs < ROAM_LABEL_VISIBLE_MS;
     const nextMode: SubBattler['roamBubbleMode'] = shouldShowLabel ? 'label' : 'hidden';
@@ -2911,6 +3037,14 @@ export class BattleManager {
     for (const sub of pb.subs) (sub.battler.destroyed ? dropped : kept).push(sub);
     pb.subs = kept;
     pb.waveRing = pb.waveRing.filter((s) => !s.battler.destroyed);
+    // Dangling currentAttack fix (2026-09-08): a dropped sub can be the
+    // in-flight attack's own attacker or defender — without this,
+    // advanceAttack/applyPositions would keep reading a destroyed battler's
+    // container every tick until the beat naturally finishes on its own
+    // clock (or the wave's hard cap eventually trips).
+    if (pb.currentAttack && dropped.some((s) => s === pb.currentAttack?.attacker || s === pb.currentAttack?.defender)) {
+      pb.currentAttack = null;
+    }
     for (const sub of dropped) {
       safeLogDiagnostic('battle', 'error', 'sub battler already destroyed — dropping to break crash loop', {
         parentId: pb.parentId,
@@ -3000,6 +3134,19 @@ export class BattleManager {
       bumpCounter('subagentsCleanedUp');
       this.deps.onBattlerRemoved(sub.key);
     }
+    // Stale-wave-state fix (2026-09-08): this method used to leave
+    // `pb.wave`/`pb.currentAttack` exactly as they were at the moment of
+    // teardown — every OTHER conclusion path (`concludeWave`,
+    // `forceConcludeWave`) resets both, but `forceEnd`/`dispose` only delete
+    // `pb` from `this.battles` afterward, which does nothing to the `pb`
+    // object itself. A late-resolving `startMega` promise (or anything else
+    // still holding a reference to this exact `pb`) would then find every one
+    // of its own staleness guards (`pb.wave !== 'faceoff'`, `megaActive`)
+    // still reading as if the fight were live, and run its post-await body
+    // against a walker whose container this loop (or `forceEnd`'s own
+    // teardown of `pb.parentWalker`) may already have destroyed.
+    pb.wave = 'idle';
+    pb.currentAttack = null;
     pb.parentWalker.setForcedBackView(false);
     this.revertMega(pb);
   }
