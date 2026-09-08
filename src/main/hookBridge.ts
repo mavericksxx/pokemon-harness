@@ -82,6 +82,13 @@ export const CODEX_SHIM_FILENAME = 'cth-hook-codex.cjs';
  *  own Bash tool to ask the app to spawn a real `codex exec` pty session. */
 export const DELEGATE_CLI_FILENAME = 'poke-delegate.cjs';
 
+/** Cap on one UDS connection's buffered-so-far line (`bind()`'s
+ *  `conn.on('data')`, below) — the shim always writes one JSON line then
+ *  waits for a reply, so a legitimate payload never approaches this, but
+ *  nothing previously stopped `buf` from growing unbounded if a line's
+ *  newline never arrived (a wedged/misbehaving client). */
+const MAX_HOOK_LINE_BYTES = 1024 * 1024; // 1 MiB
+
 const CLI_JSON_HELPER = `#!/usr/bin/env node
 'use strict';
 const fs = require('node:fs');
@@ -487,6 +494,16 @@ export class HookBridge {
       let buf = '';
       conn.on('data', (d) => {
         buf += d.toString();
+        if (buf.length > MAX_HOOK_LINE_BYTES) {
+          log('hooks', 'warn', 'hook connection exceeded max line size — dropped', {
+            length: buf.length,
+            remoteAddress: conn.remoteAddress,
+            remotePort: conn.remotePort
+          });
+          conn.destroy();
+          buf = '';
+          return;
+        }
         const nl = buf.indexOf('\n');
         if (nl === -1) return;
         let parsed: unknown = {};
