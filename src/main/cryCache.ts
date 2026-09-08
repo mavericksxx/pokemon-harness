@@ -9,31 +9,18 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { log } from './diagnostics';
-// Plain data import (JSON), same as spriteCache.ts — this file is keyed by
-// the same Showdown-style dex id (see this file's header), so an unknown id
-// must be rejected here too before it ever reaches `join()`.
-import dexIndex from '../../assets/dex/dexIndex.json';
-import forms from '../../assets/dex/forms.json';
+import { isValidSpeciesId } from './spriteIds';
 
 const CRY_BASE = 'https://play.pokemonshowdown.com/audio/cries';
 const FETCH_TIMEOUT_MS = 8_000;
 
 // audioEngine.ts's `playCry` (the only caller, via `ensureCry`/`getCachedCry`)
 // is always given a `session.pokemon` — a real dex/form id (see
-// spriteCache.ts's own DEX comment; Arceus's synthetic forme ids never reach
-// here, only spriteCache.ts's sprite fetch).
-const VALID_CRY_IDS: ReadonlySet<string> = new Set([
-  ...Object.keys(dexIndex as Record<string, unknown>),
-  ...Object.keys(forms as Record<string, unknown>)
-]);
-/** Belt-and-braces alongside `VALID_CRY_IDS` — every real id is lowercase
- *  alphanumeric-with-hyphens, so this also rejects a path-traversal attempt
- *  (`/`, `\`, `..`) or an embedded NUL outright. */
-const VALID_ID_PATTERN = /^[a-z0-9-]+$/;
-
-function isValidCryId(id: string): boolean {
-  return VALID_ID_PATTERN.test(id) && VALID_CRY_IDS.has(id);
-}
+// spriteIds.ts's own DEX comment; mega/Arceus-forme ids never reach here,
+// only spriteCache.ts's sprite fetch) — but sharing `isValidSpeciesId` with
+// spriteCache.ts rather than a separate exact-match set keeps the two id
+// validators from drifting apart again.
+const isValidCryId = isValidSpeciesId;
 
 function cacheDir(): string {
   return join(app.getPath('userData'), 'audio', 'cries');
