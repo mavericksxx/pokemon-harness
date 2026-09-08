@@ -441,6 +441,13 @@ const MIN_ROAM_MS = 15_000;
  *  never arrived at all — not a replacement for it. */
 const MAX_ROAM_MS = 30 * 60_000;
 
+/** Cap on `retiredTaskInfo`'s size (2026-09-08 fix — see that field's own
+ *  comment): a generously large bound, well past how many subagents even a
+ *  very long-running or heavily-resumed session would realistically
+ *  complete, so eviction is a genuine backstop rather than something that
+ *  routinely trims real resume memory. */
+const RETIRED_TASK_INFO_CAP = 500;
+
 /** Gap enforced, in ms, between the end of one completion battle and the
  *  start of the next — GLOBALLY, across every parent (the queue in
  *  `pickNextQueued`/`nextBattleEarliestAt` is what makes the lock global,
@@ -804,9 +811,12 @@ export class BattleManager {
    *  internal task-id. Consulted by `handleCorrelate` when a task-id
    *  dispatches async again with no live battler carrying it: a RESUME,
    *  which should poof the same pokemon back in rather than staying
-   *  invisible (BACKLOG "resumed agents are invisible"). Never pruned —
-   *  bounded by how many subagents a session actually completes, not by
-   *  anything unbounded. */
+   *  invisible (BACKLOG "resumed agents are invisible"). UPDATE (2026-09-08):
+   *  this comment used to claim it's "never pruned — bounded by how many
+   *  subagents a session actually completes", which isn't actually a bound
+   *  at all for a session that runs (or is resumed) for a very long time —
+   *  see `rememberRetiredTask`, the bounded-insert helper every write now
+   *  goes through, capped at RETIRED_TASK_INFO_CAP. */
   private retiredTaskInfo = new Map<string, { species: string; label?: string }>();
   /** Cross-manager mis-recall fix — task-ids `handleCorrelate` has confirmed
    *  don't belong to this manager's domain at all (an advisor consult, or any
@@ -1760,6 +1770,21 @@ export class BattleManager {
    *  sufficient to close the race). Bypasses `MIN_ROAM_MS` either way — this
    *  signal names one specific subagent's real completion, not a coarse
    *  per-turn proxy, so there's nothing to guard against. */
+  /** Bounded insert for `retiredTaskInfo` (2026-09-08 fix — see that field's
+   *  own comment and RETIRED_TASK_INFO_CAP). Deletes-then-sets so a re-set of
+   *  an already-present taskId moves it to the end of the Map's insertion
+   *  order rather than counting as a fresh entry toward the cap while also
+   *  leaving a stale position behind; eviction (once over the cap) drops the
+   *  single oldest entry, since a Map iterates in insertion order. */
+  private rememberRetiredTask(taskId: string, info: { species: string; label?: string }): void {
+    this.retiredTaskInfo.delete(taskId);
+    this.retiredTaskInfo.set(taskId, info);
+    if (this.retiredTaskInfo.size > RETIRED_TASK_INFO_CAP) {
+      const oldest = this.retiredTaskInfo.keys().next().value;
+      if (oldest !== undefined) this.retiredTaskInfo.delete(oldest);
+    }
+  }
+
   private handleEnd(parentId: string, taskId?: string): void {
     if (taskId && this.foreignTaskIds.has(taskId)) {
       // Confirmed foreign by a prior `handleCorrelate` miss (an advisor
@@ -1775,7 +1800,7 @@ export class BattleManager {
     if (taskId) {
       const stamped = pb.subs.find((s) => s.taskId === taskId && s.lifecycle === 'roaming');
       if (stamped) {
-        this.retiredTaskInfo.set(taskId, { species: stamped.battler.species.id, label: stamped.label });
+        this.rememberRetiredTask(taskId, { species: stamped.battler.species.id, label: stamped.label });
         this.queueForBattle(stamped);
         return;
       }
@@ -1795,7 +1820,7 @@ export class BattleManager {
       // species if `oldest` isn't actually the sub that finished (possible
       // under concurrency) — accepted, since the alternative is certain
       // invisibility rather than a possibly-wrong pokemon on resume.
-      if (taskId) this.retiredTaskInfo.set(taskId, { species: oldest.battler.species.id, label: oldest.label });
+      if (taskId) this.rememberRetiredTask(taskId, { species: oldest.battler.species.id, label: oldest.label });
       this.queueForBattle(oldest);
     }
   }
@@ -1876,7 +1901,7 @@ export class BattleManager {
       // via a path other than handleEnd (handleEndAll, forceConcludeWave,
       // the MAX_ROAM_MS age-out self-queue) still leaves resume-respawn
       // memory behind.
-      this.retiredTaskInfo.set(taskId, { species: bySpawn.battler.species.id, label: bySpawn.label });
+      this.rememberRetiredTask(taskId, { species: bySpawn.battler.species.id, label: bySpawn.label });
       return;
     }
 
