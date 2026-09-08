@@ -2,9 +2,11 @@
  * TaskNotificationWatcher — Bug B fix (2026-08-29): a real, per-subagent
  * completion signal for ASYNC `Task`/`Agent` dispatches, read from the
  * parent session's own transcript. Same tailing mechanism as costWatcher.ts/
- * arceusRelay.ts (poll by byte offset, carry a torn trailing line to the next
- * poll, restart from scratch if the file shrinks) — see costWatcher.ts's
- * header for why polling instead of `fs.watch`.
+ * arceusRelay.ts (tail by byte offset, carry a torn trailing line to the next
+ * read, restart from scratch if the file shrinks). Same primarily-`fs.watch`,
+ * slow-poll-as-safety-net read trigger as costWatcher.ts too — see that
+ * file's header for why: `fs.watch` is the fast path, FALLBACK_POLL_MS below
+ * only exists to catch a missed watch event.
  *
  * WHY THIS EXISTS: BattleManager.ts's `handleParentDone` (fed by hookRouter's
  * `Stop` case) assumed a `Task` tool call blocks the parent's own turn until
@@ -104,8 +106,9 @@
  *     completion would be silently deduped and the re-materialized battler
  *     would roam forever (BACKLOG "resumed agents are invisible").
  *
- * Cadence gating (2026-09-01): the POLL_MS timer only runs while there's
- * outstanding work for it to catch, i.e. for at least one tracked parent:
+ * Cadence gating (2026-09-01): the FALLBACK_POLL_MS timer only runs while
+ * there's outstanding work for it to catch, i.e. for at least one tracked
+ * parent:
  *   (a) it's `'working'` right now (a Task/Agent dispatch only ever happens
  *       mid-turn, so this is when a NEW async-launch line can appear), OR
  *   (b) its `pending` set is non-empty (an already-launched async subagent
@@ -128,11 +131,15 @@
  * agent); this app spawns no battler for a grandchild, so a notification
  * living only on a sidechain must never surface here.
  */
-import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, openSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
 import type { WebContents } from 'electron';
 import type { SessionRecord } from '../shared/types';
 
-const POLL_MS = 2_000;
+/** Safety-net poll cadence — `fs.watch` (set up per tracked transcript in
+ *  `registerSession`) is the primary trigger; this interval only exists to
+ *  cover the known cases where `fs.watch` silently misses a change event
+ *  (some platforms/network filesystems) — see this file's header. */
+const FALLBACK_POLL_MS = 30_000;
 
 /** `message.content` on a transcript entry is either a plain string (both
  *  real captures — the task-notification injection) or an array of content
@@ -232,6 +239,11 @@ interface TrackedTranscript {
 export class TaskNotificationWatcher {
   private tracked = new Map<string, TrackedTranscript>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Per-tracked-transcript `fs.watch` handle — the primary read trigger
+   *  (see this file's header). Kept in lockstep with `tracked`: set up in
+   *  `registerSession`, torn down in `unregisterSession` and on a reset
+   *  (path change) in `registerSession`. */
+  private watchers = new Map<string, FSWatcher>();
   /** Whether `start()`/`stop()` currently permit the timer to run at all —
    *  the app-lifecycle on/off switch, orthogonal to the outstanding-work
    *  cadence gate below. */
@@ -251,6 +263,14 @@ export class TaskNotificationWatcher {
     this.armed = false;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    for (const watcher of this.watchers.values()) {
+      try {
+        watcher.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    this.watchers.clear();
   }
 
   /** Fed from main/index.ts's `sessions:checkpoint` handler on every
@@ -269,16 +289,16 @@ export class TaskNotificationWatcher {
     return false;
   }
 
-  /** Resumes/pauses the POLL_MS timer to match `hasOutstandingWork()` — see
-   *  this file's header for why both transitions poll immediately (`doPoll`,
-   *  never the recursive `pollAll`/timer-tick wrapper, to avoid re-entering
-   *  this same method). */
+  /** Resumes/pauses the FALLBACK_POLL_MS timer to match
+   *  `hasOutstandingWork()` — see this file's header for why both
+   *  transitions poll immediately (`doPoll`, never the recursive
+   *  `pollAll`/timer-tick wrapper, to avoid re-entering this same method). */
   private reconcileTimer(): void {
     if (!this.armed) return;
     if (this.hasOutstandingWork()) {
       if (!this.timer) {
         this.doPollAll(); // fire immediately on resume — never wait out a stale tick
-        this.timer = setInterval(() => this.pollAll(), POLL_MS);
+        this.timer = setInterval(() => this.pollAll(), FALLBACK_POLL_MS);
       }
       return;
     }
@@ -349,12 +369,44 @@ export class TaskNotificationWatcher {
       pending: new Set(),
       notified: new Set()
     });
+    this.watchPath(agentId, transcriptPath);
     this.reconcileTimer(); // covers the rare case this session is already 'working'
   }
 
   unregisterSession(agentId: string): void {
     this.tracked.delete(agentId);
+    this.unwatchPath(agentId);
     this.reconcileTimer(); // may have been the last session with outstanding work
+  }
+
+  /** Sets up (or replaces) the `fs.watch` for a tracked transcript path.
+   *  Best-effort, same as costWatcher.ts's own `watchPath`: `fs.watch` can
+   *  throw synchronously (path not there yet) or emit an `error` event later
+   *  (e.g. the file gets removed) — either case just leaves reads to the
+   *  FALLBACK_POLL_MS safety net for that transcript. */
+  private watchPath(agentId: string, path: string): void {
+    this.unwatchPath(agentId);
+    try {
+      const watcher = watch(path, () => {
+        this.pollOne(agentId);
+        this.reconcileTimer(); // a watch-triggered read can itself clear outstanding work
+      });
+      watcher.on('error', () => this.unwatchPath(agentId));
+      this.watchers.set(agentId, watcher);
+    } catch {
+      /* file not there yet, or platform can't watch it — fallback poll covers it */
+    }
+  }
+
+  private unwatchPath(agentId: string): void {
+    const watcher = this.watchers.get(agentId);
+    if (!watcher) return;
+    try {
+      watcher.close();
+    } catch {
+      /* already closed */
+    }
+    this.watchers.delete(agentId);
   }
 
   /** Hook payload observer — see hookBridge.ts's `onRawPayload` constructor

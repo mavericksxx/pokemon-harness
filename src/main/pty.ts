@@ -34,6 +34,12 @@ function hookTmpDir(): string {
  *  backfill. */
 const REPLAY_MAX_CHARS = 200_000;
 
+/** Hard cap on concurrently live sessions (`this.sessions.size`) — a runaway
+ *  loop or scripted spam of `spawn()` calls would otherwise exhaust OS
+ *  file descriptors/PTYs with no limit at all. Comfortably above any real
+ *  usage (garden + delegates) while still bounding worst case. */
+const MAX_CONCURRENT_SESSIONS = 64;
+
 interface PtySession {
   id: string;
   proc: pty.IPty;
@@ -189,6 +195,18 @@ export class PtyManager {
     if (this.sessions.has(opts.id)) this.kill(opts.id);
     this.delegateExits.delete(opts.id);
     this.lastExitCodes.delete(opts.id);
+
+    // Cap checked AFTER the reused-id kill above, so a respawn under an
+    // existing id (net-zero session count) never gets rejected by its own
+    // prior occupant. Fails clearly rather than letting an unbounded number
+    // of node-pty children pile up.
+    if (this.sessions.size >= MAX_CONCURRENT_SESSIONS) {
+      log('pty', 'error', 'spawn failed: max concurrent sessions reached', {
+        id: opts.id,
+        max: MAX_CONCURRENT_SESSIONS
+      });
+      return { ok: false, error: `too many concurrent sessions (max ${MAX_CONCURRENT_SESSIONS})` };
+    }
 
     const { path: file, found } = resolveCommand(opts.command);
     if (!found) {

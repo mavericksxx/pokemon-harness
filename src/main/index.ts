@@ -983,7 +983,18 @@ app.whenReady().then(async () => {
   // creating the window, so the first renderer replay has real data when the
   // toggle is on. Disabled boots deliberately skip the disk read entirely.
   await usageService.init(appSettings.usageLimitsEnabled);
-hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
+  // Perf — create the window here, as soon as the above (theme + usage
+  // snapshot) is ready, instead of after the entire init chain below.
+  // show:false + ready-to-show already hide the empty-window flash; this
+  // additionally lets the renderer bundle start loading/mounting concurrently
+  // with the rest of boot instead of waiting for all of it first. Everything
+  // still below either doesn't affect window/renderer readiness (background
+  // watchers already started above, diagnostics, update checks) or only
+  // needs to be settled by the time a real user-triggered pty spawn can
+  // happen (harness instructions/advisor model/shell-fallback wiring, codex
+  // hooks) — which in practice is far later than window/bundle load takes.
+  createWindow(resolveWindowBg(appSettings.theme));
+  hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   ptyManager.setShellFallbackEnabled(appSettings.shellFallbackEnabled);
   // External-codex-delegate feature's missing first hop — only when the user
   // hasn't opted out AND codex is actually installed (never write config for
@@ -1025,7 +1036,6 @@ hookBridge.setHideStatusline(appSettings.hideClaudeStatusline);
   // panel's "open logs" button isn't a no-op on a fresh install.
   log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
   Menu.setApplicationMenu(buildApplicationMenu());
-  createWindow(resolveWindowBg(appSettings.theme));
   ensureClaudeTheme(() => {
     // Pull the toast after renderer boot so its listener is guaranteed ready.
     claudeThemeNoticePending = "set claude's theme to auto so it follows pokéharness — change it any time with /theme";
