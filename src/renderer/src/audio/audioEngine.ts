@@ -28,7 +28,6 @@
  */
 import { Howl, Howler } from 'howler';
 import type { MusicTrackId } from '@shared/audioTypes';
-import { BATTLE_CATALOG_IDS, MUSIC_CATALOG_BY_ID, PEACEFUL_CATALOG_IDS } from '@shared/musicCatalog';
 import { useAudioStore } from './audioStore';
 import { sfxUrl, type SfxKey } from './sfxAssets';
 import { sfxKeyForTool, VICTORY_SFX, EVOLUTION_RISER_SFX } from './toolSounds';
@@ -44,6 +43,27 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  *  read as louder than the music/attack-sfx around them. */
 const CRY_VOLUME_MUL = 0.6;
 const RISER_VOLUME_MUL = 0.8;
+
+// --- lazy-loaded catalog -----------------------------------------------
+// `@shared/musicCatalog` pulls in the 324 KB track-index JSON, so the
+// renderer only imports it dynamically, on first actual use (music enabled,
+// prefetch started, or the mini-player mounted) rather than at bundle-eval
+// time. `catalogModule` is a permanent cache once resolved — the loader is
+// idempotent and cheap to call again.
+export type MusicCatalogModule = typeof import('@shared/musicCatalog');
+let catalogModule: MusicCatalogModule | null = null;
+let catalogPromise: Promise<MusicCatalogModule> | null = null;
+
+export function loadMusicCatalog(): Promise<MusicCatalogModule> {
+  if (catalogModule) return Promise.resolve(catalogModule);
+  if (!catalogPromise) {
+    catalogPromise = import('@shared/musicCatalog').then((m) => {
+      catalogModule = m;
+      return m;
+    });
+  }
+  return catalogPromise;
+}
 
 type MusicMode = 'none' | 'player' | 'battle' | 'ceremony';
 
@@ -116,8 +136,18 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// `trackTitle`/`effectivePool`/`battlePool` are called from many sync call
+// sites (some of them exported functions other modules call fire-and-forget,
+// like the ceremony/battle notifiers) and read the lazy-loaded catalog
+// module directly rather than awaiting it — callers that can await do so via
+// `loadMusicCatalog()` first (see startBattleMusic/resumePlayer below; the
+// mini-player transport functions don't need to, since MiniPlayer.tsx only
+// renders its buttons once its own catalog load has resolved), so in
+// practice `catalogModule` is already populated by the time these run; the
+// null-safe fallbacks below only matter for the brief window before the very
+// first load resolves.
 function trackTitle(id: string): string {
-  return MUSIC_CATALOG_BY_ID.get(id)?.title ?? id;
+  return catalogModule?.MUSIC_CATALOG_BY_ID.get(id)?.title ?? id;
 }
 
 /** The pool next/prev, auto-shuffle and prefetch all draw from: the
@@ -128,6 +158,8 @@ function trackTitle(id: string): string {
  *  pick (search + click, `playerPickTrack`) plays whatever the user chose,
  *  battle track or not, and isn't routed through this pool at all. */
 function effectivePool(): string[] {
+  if (!catalogModule) return [];
+  const { PEACEFUL_CATALOG_IDS, MUSIC_CATALOG_BY_ID } = catalogModule;
   const gen = useAudioStore.getState().settings.genFilter;
   if (!gen || gen === 'all') return PEACEFUL_CATALOG_IDS as string[];
   const filtered = PEACEFUL_CATALOG_IDS.filter((id) => MUSIC_CATALOG_BY_ID.get(id)?.gen === gen);
@@ -139,6 +171,8 @@ function effectivePool(): string[] {
  *  generation otherwise (e.g. a gen filter with few/no battle tracks of its
  *  own, or 'all'). */
 function battlePool(): string[] {
+  if (!catalogModule) return [];
+  const { BATTLE_CATALOG_IDS, MUSIC_CATALOG_BY_ID } = catalogModule;
   const gen = useAudioStore.getState().settings.genFilter;
   if (gen && gen !== 'all') {
     const filtered = BATTLE_CATALOG_IDS.filter((id) => MUSIC_CATALOG_BY_ID.get(id)?.gen === gen);
@@ -358,8 +392,10 @@ function advancePlayer(): void {
  *  filter doesn't apply here (see effectivePool's doc comment). A
  *  *persisted* `lastTrackId` from a previous launch IS treated as the
  *  initial pick, and stays pool-filtered. */
-function resumePlayer(): void {
+async function resumePlayer(): Promise<void> {
   currentMusicMode = 'player';
+  await loadMusicCatalog();
+  if (currentMusicMode !== 'player') return; // superseded (battle/ceremony) while loading
   const pool = effectivePool();
   if (pool.length === 0) return;
   const { settings } = useAudioStore.getState();
@@ -383,8 +419,11 @@ const BATTLE_FALLBACK_IDS: readonly MusicTrackId[] = ['battleWild', 'battleTrain
 async function startBattleMusic(): Promise<void> {
   cancelPlayerTimer();
   currentMusicMode = 'battle';
+  await loadMusicCatalog();
+  if (currentMusicMode !== 'battle') return; // superseded (ceremony/battle-end) while loading
   const pool = battlePool();
-  const candidates = [pool[Math.floor(Math.random() * pool.length)], ...BATTLE_FALLBACK_IDS];
+  const candidates =
+    pool.length > 0 ? [pool[Math.floor(Math.random() * pool.length)], ...BATTLE_FALLBACK_IDS] : [...BATTLE_FALLBACK_IDS];
   for (const id of candidates) {
     if (currentMusicMode !== 'battle') return; // superseded (ceremony/battle-end) while fetching
     useAudioStore.getState().setNowPlaying({ id, title: trackTitle(id), mode: 'battle' });
@@ -401,7 +440,7 @@ function recomputeDesiredMode(): void {
   const desired: MusicMode = activeBattles.size > 0 ? 'battle' : 'player';
   if (desired === currentMusicMode) return;
   if (desired === 'battle') void startBattleMusic();
-  else resumePlayer();
+  else void resumePlayer();
 }
 
 // --- exported: mini-player transport (called from AudioPopover.tsx) --------
@@ -478,6 +517,7 @@ async function enableMusic(): Promise<void> {
   }
   store.setMusicUnavailable(false);
   consecutiveFailures = 0;
+  void loadMusicCatalog(); // kick off the catalog fetch as soon as music is turned on
 
   if (ceremonyActiveCount > 0 && lastCeremonyTrackId) {
     // recomputeDesiredMode() deliberately no-ops while a ceremony owns the

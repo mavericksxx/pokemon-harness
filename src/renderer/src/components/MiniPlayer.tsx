@@ -1,12 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAudioStore } from '@/audio/audioStore';
-import { playerNext, playerPickTrack, playerPrev, playerTogglePause } from '@/audio/audioEngine';
-import { GEN_LABELS, GEN_ORDER, MUSIC_CATALOG, MUSIC_CATALOG_BY_ID, type MusicGen } from '@shared/musicCatalog';
+import {
+  loadMusicCatalog,
+  playerNext,
+  playerPickTrack,
+  playerPrev,
+  playerTogglePause,
+  type MusicCatalogModule
+} from '@/audio/audioEngine';
+import type { MusicGen } from '@shared/musicCatalog';
 
 /** Cap on rendered rows in the mini-player's track list. */
 const MAX_LIST_ROWS = 150;
-
-const BROWSABLE = MUSIC_CATALOG.filter((t) => !t.jingle);
 
 /**
  * The mini-player itself — now-playing label, transport, gen filter, search,
@@ -21,6 +26,11 @@ const BROWSABLE = MUSIC_CATALOG.filter((t) => !t.jingle);
  */
 export function MiniPlayer(): JSX.Element {
   const [search, setSearch] = useState('');
+  // The 324 KB track-index JSON only loads once the mini-player actually
+  // mounts (it's only ever rendered while `settings.musicOn`, so this is
+  // effectively the "music/mini-player in use" trigger the catalog split is
+  // gated on — see audioEngine.ts's `loadMusicCatalog`).
+  const [catalog, setCatalog] = useState<MusicCatalogModule | null>(null);
   const settings = useAudioStore((s) => s.settings);
   const nowPlaying = useAudioStore((s) => s.nowPlaying);
   const trackLoading = useAudioStore((s) => s.trackLoading);
@@ -29,21 +39,42 @@ export function MiniPlayer(): JSX.Element {
   const warmingProgress = useAudioStore((s) => s.warmingProgress);
   const setGenFilter = useAudioStore((s) => s.setGenFilter);
 
+  useEffect(() => {
+    let alive = true;
+    void loadMusicCatalog().then((m) => {
+      if (alive) setCatalog(m);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const genFilter = settings.genFilter;
+  const browsable = useMemo(() => catalog?.MUSIC_CATALOG.filter((t) => !t.jingle) ?? [], [catalog]);
   const filtered = useMemo(() => {
-    const byGen = genFilter === 'all' ? BROWSABLE : BROWSABLE.filter((t) => t.gen === genFilter);
+    const byGen = genFilter === 'all' ? browsable : browsable.filter((t) => t.gen === genFilter);
     const q = search.trim().toLowerCase();
     return q ? byGen.filter((t) => t.title.toLowerCase().includes(q)) : byGen;
-  }, [genFilter, search]);
+  }, [browsable, genFilter, search]);
 
   const nowPlayingGenLabel =
-    nowPlaying.mode === 'player' && nowPlaying.id
-      ? GEN_LABELS[MUSIC_CATALOG_BY_ID.get(nowPlaying.id)?.gen as MusicGen]
-      : nowPlaying.mode === 'battle'
-        ? 'battle'
-        : nowPlaying.mode === 'ceremony'
-          ? 'evolution'
-          : '';
+    !catalog
+      ? ''
+      : nowPlaying.mode === 'player' && nowPlaying.id
+        ? catalog.GEN_LABELS[catalog.MUSIC_CATALOG_BY_ID.get(nowPlaying.id)?.gen as MusicGen]
+        : nowPlaying.mode === 'battle'
+          ? 'battle'
+          : nowPlaying.mode === 'ceremony'
+            ? 'evolution'
+            : '';
+
+  if (!catalog) {
+    return (
+      <div className="mini-player" data-testid="mini-player">
+        <div className="audio-status">loading music catalog…</div>
+      </div>
+    );
+  }
 
   return (
     <div className="mini-player" data-testid="mini-player">
@@ -74,7 +105,8 @@ export function MiniPlayer(): JSX.Element {
       {trackError && <div className="audio-status audio-error">{trackError}</div>}
       {warmingGen && warmingProgress && (
         <div className="audio-status">
-          warming {GEN_LABELS[warmingGen as MusicGen] ?? warmingGen}… {warmingProgress.done}/{warmingProgress.total}
+          warming {catalog.GEN_LABELS[warmingGen as MusicGen] ?? warmingGen}… {warmingProgress.done}/
+          {warmingProgress.total}
         </div>
       )}
 
@@ -85,9 +117,9 @@ export function MiniPlayer(): JSX.Element {
         aria-label="generation filter"
       >
         <option value="all">all gens</option>
-        {GEN_ORDER.map((g) => (
+        {catalog.GEN_ORDER.map((g) => (
           <option key={g} value={g}>
-            {GEN_LABELS[g]}
+            {catalog.GEN_LABELS[g]}
           </option>
         ))}
       </select>
