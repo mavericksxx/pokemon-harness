@@ -93,6 +93,21 @@ export class Walker {
   private badgePulse = 0;
   private accentColor: number;
 
+  /** How often the 'blocked' badge pulse and the napping "z z z" float (both
+   *  below, in update()) actually mark the scene dirty, in ticker frames —
+   *  every frame still advances badgePulse/zzzT underneath, so the pulse/
+   *  float animation itself never stutters; only the render REQUEST is
+   *  throttled, down to roughly the same "handful of frames/sec" idle rate
+   *  WalkerSprite's STILL_BOB_DIRTY_EVERY_N_FRAMES already uses for the
+   *  levitate/fly idle bob (see WalkerSprite.ts, issue #33). Both states can
+   *  persist indefinitely (a walker can sit 'blocked' or napping for the
+   *  whole session), so left unthrottled either one alone pins the whole
+   *  garden-wide dirty flag at full tick rate forever, same failure shape as
+   *  #33's bob. */
+  private static readonly IDLE_ANIM_DIRTY_EVERY_N_FRAMES = 6;
+  private blockedBadgeFrame = 0;
+  private nappingZzzFrame = 0;
+
   /** Party-screen-style select hop (Phase 8 §4) — seconds into the hop, or
    *  null when idle. Offsets the sprite's own sub-container (never otherwise
    *  repositioned — see WalkerSprite; Walker's own `container` is what
@@ -761,13 +776,15 @@ export class Walker {
       this.zzzT += dt;
       this.zzz.y = -this.sprite.drawnHeight - 6 - Math.sin(this.zzzT * 1.6) * 2;
       this.zzz.alpha = 0.65 + 0.35 * Math.sin(this.zzzT * 1.6);
-      markDirty();
+      this.nappingZzzFrame = (this.nappingZzzFrame + 1) % Walker.IDLE_ANIM_DIRTY_EVERY_N_FRAMES;
+      if (this.nappingZzzFrame === 0) markDirty();
     }
 
     if (this.status === 'blocked') {
       this.badgePulse += dt;
       this.badge.alpha = 0.55 + 0.45 * Math.sin(this.badgePulse * 6);
-      markDirty();
+      this.blockedBadgeFrame = (this.blockedBadgeFrame + 1) % Walker.IDLE_ANIM_DIRTY_EVERY_N_FRAMES;
+      if (this.blockedBadgeFrame === 0) markDirty();
     }
 
     this.bubble.update(dt); // ToolBubble marks dirty itself on any visible change — see ToolBubble.ts
