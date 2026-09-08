@@ -355,6 +355,17 @@ const MAX_RING = 1;
  *  just unhurried. Total: FACEOFF_MS + WAVE_ATTACKS * ATTACK_TOTAL_MS +
  *  ENDING_MS = 550 + 8*900 + 550 = 8300ms, inside the 8-10s target. */
 const WAVE_ATTACKS = 8;
+/** Combo-coalescing pin fix (2026-09-08): `handleAttack` restarts the
+ *  current beat's timeline (elapsedMs/hitApplied) when a rapid tool event
+ *  arrives before the hit has landed, so a fast burst of calls still reads
+ *  as one coalesced combo instead of a queued replay per event (see
+ *  handleAttack's own comment). Without a cap, a subagent calling faster
+ *  than ATTACK_TOTAL_MS apart could restart that same beat indefinitely —
+ *  waveAttacks would never increment, and the wave would only ever end via
+ *  WAVE_HARD_CAP_MS's force-conclude, which skips beginEnding's victory
+ *  pose. This caps how many times ONE beat may restart before it's just
+ *  left to finish on its own clock. */
+const MAX_COMBO_RESTARTS = 3;
 
 /** Minimum face-off gap, in tiles, between the parent and a battler — chosen
  *  so two average-sized sprites (2-2.5 drawn tiles tall) read as clearly
@@ -613,6 +624,9 @@ interface Attack {
   combo: number;
   elapsedMs: number;
   hitApplied: boolean;
+  /** How many times `handleAttack` has restarted THIS beat's timeline —
+   *  capped at MAX_COMBO_RESTARTS (see that constant's own comment). */
+  restarts: number;
 }
 
 interface ParentBattle {
@@ -1661,12 +1675,24 @@ export class BattleManager {
     for (const sub of pb.waveRing) sub.battler.showAttack(tool);
     if (pb.currentAttack) {
       // Coalesce rapid events into the current beat instead of queuing a
-      // replay per event — restart its timeline so the hit/text re-fires
-      // with the bumped combo count.
+      // replay per event. Combo-coalescing pin fix (2026-09-08): only
+      // RESTART the beat's timeline (elapsedMs/hitApplied, implicitly —
+      // hitApplied is already false whenever this branch is taken) while the
+      // hit hasn't landed yet AND under MAX_COMBO_RESTARTS. Once a hit has
+      // applied, restarting elapsedMs back to 0 would re-run the whole
+      // lunge/hold/return cycle — for a chatty subagent calling faster than
+      // ATTACK_TOTAL_MS apart, that could pin this exact beat indefinitely:
+      // waveAttacks never increments, and the wave only ends via
+      // WAVE_HARD_CAP_MS's force-conclude, which skips beginEnding's victory
+      // pose entirely. The combo count and displayed tool still update every
+      // time either way — only the timeline restart is gated, so the wave
+      // always progresses.
       pb.currentAttack.combo++;
       pb.currentAttack.tool = tool;
-      pb.currentAttack.elapsedMs = 0;
-      pb.currentAttack.hitApplied = false;
+      if (!pb.currentAttack.hitApplied && pb.currentAttack.restarts < MAX_COMBO_RESTARTS) {
+        pb.currentAttack.elapsedMs = 0;
+        pb.currentAttack.restarts++;
+      }
     }
     // Between scripted beats there's nothing to coalesce into — the wave's
     // own scripted progression (not real signals) decides when it's done.
@@ -2606,7 +2632,8 @@ export class BattleManager {
       tool,
       combo: 1,
       elapsedMs: 0,
-      hitApplied: false
+      hitApplied: false,
+      restarts: 0
     };
     // Give the beat an immediate visual even when the hook signal that
     // supplies a more specific tool name arrives a frame later. The signal
