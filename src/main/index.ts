@@ -17,6 +17,7 @@ import { handle } from './ipc/handle';
 import { registerPtyIpc } from './ipc/pty';
 import { registerSessionsIpc } from './ipc/sessions';
 import { registerWorkspacesIpc } from './ipc/workspaces';
+import { registerSettingsIpc } from './ipc/settings';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { CODEX_HOOKS_NOTICE_TEXT, ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
@@ -27,12 +28,11 @@ import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from './spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from './musicCache';
 import { ensureCry } from './cryCache';
-import { loadAudioSettings, saveAudioSettings } from './audioSettings';
+import { loadAudioSettings } from './audioSettings';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
 import { respawnSession } from './sessionRespawn';
 import { ensureClaudeTheme } from './claudeTheme';
-import { loadTerminalSettings, saveTerminalSettings } from './terminalSettings';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
 import { ensureArceusSystemPrompt } from './arceusPrompt';
@@ -55,9 +55,7 @@ import type {
   SessionStatus,
   SpriteView
 } from '../shared/types';
-import type { AudioSettings } from '../shared/audioTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
-import type { TerminalSettings } from '../shared/terminalTypes';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
@@ -1210,17 +1208,6 @@ handle(
     saveCachedSprite(id, view, shiny, png, meta)
 );
 
-// ─── Audio (Phase 7) ────────────────────────────────────────────────────────
-// Same rationale as the sprite cache above: the renderer's CSP has no
-// connect-src beyond self, so main is the only actor that can reach khinsider
-// or Showdown's cry endpoint; it also owns the userData disk cache and the
-// settings JSON (see audioSettings.ts — no other persistence precedent
-// existed in this app to follow instead).
-handle('audio:getSettings', () => loadAudioSettings());
-handle('audio:saveSettings', async (_e, settings: AudioSettings) => {
-  audioMasterMuted = settings.masterMuted;
-  await saveAudioSettings(settings);
-});
 // `id` is any mini-player catalog id (musicCatalog.ts), not just the 9
 // original curated MusicTrackIds — see musicCache.ts's header.
 handle('audio:ensureTrack', (_e, id: string) => ensureMusicTrack(id));
@@ -1231,69 +1218,30 @@ handle('audio:prefetchTrack', (_e, id: string) => prefetchTrack(id));
 handle('audio:cancelPrefetch', () => cancelPrefetch());
 handle('audio:cacheStatus', () => getCacheStatus());
 
-// ─── General app settings (parity sweep: theme, auto-permission mode,
-// keep-awake, recent folders) — same rationale as audio settings above.
-handle('appSettings:getSettings', () => loadAppSettings());
-handle('appSettings:saveSettings', async (_e, settings: AppSettings) => {
-  activeTheme = settings.theme;
-  ptyManager.setTerminalAppearance(resolveTerminalAppearance(settings.theme));
-  keepAwakeEnabled = settings.keepAwake;
-  syncKeepAwake();
-hookBridge.setHideStatusline(settings.hideClaudeStatusline);
-  ptyManager.setShellFallbackEnabled(settings.shellFallbackEnabled);
-  // Usage-limits toggle (BACKLOG "next up" item 1) — the ONLY place a save
-  // reaches usageService, so flipping it off here is what makes "toggle off
-  // = zero credential access" true the instant the user unchecks it, not
-  // just on next launch. Per-provider exclusion (feedback: "let the user
-  // pick which providers to include") goes first, same ordering rationale as
-  // the boot path above.
-  usageService.setExcludedProviders(settings.usageExcludedProviders);
-  usageService.setEnabled(settings.usageLimitsEnabled);
-  // Diagnostics opt-in (BACKLOG friend-testing readiness) — takes effect on
-  // this very save, same immediacy as the usage-limits toggle above.
-  setDiagnosticsLoggingEnabled(settings.diagnosticsLoggingEnabled);
-
-  // Harness home directory (Phase 8.7) — only re-resolves/re-ensures when it
-  // actually changed, and never touches anything at the OLD location (the
-  // Settings copy says changing this "moves nothing automatically"). Writing
-  // the in-memory workspace registry to the NEW location right away is a
-  // future write, same as any other mutation below — not a migration of
-  // existing files — but it's what keeps "just point future writes at a new
-  // folder" from silently losing the workspace list on next launch (that
-  // folder has no workspaces.json of its own yet).
-  const nextHarnessHomeDir = resolveHarnessHomeDir(settings);
-  if (nextHarnessHomeDir !== harnessHomeDir) {
-    harnessHomeDir = nextHarnessHomeDir;
-    await ensureHarnessHome(harnessHomeDir);
-    await ensureHarnessInstructions(harnessHomeDir);
-    saveWorkspaceRegistry(harnessHomeDir, workspaceRegistry);
-    initDiagnostics(harnessHomeDir); // future log writes only — see its own comment
+registerSettingsIpc({
+  ptyManager,
+  hookBridge,
+  usageService,
+  resolveTerminalAppearance,
+  syncKeepAwake,
+  setActiveTheme: (theme) => {
+    activeTheme = theme;
+  },
+  setKeepAwakeEnabled: (enabled) => {
+    keepAwakeEnabled = enabled;
+  },
+  setCodexDelegateModel: (model) => {
+    codexDelegateModel = model;
+  },
+  getHarnessHomeDir: () => harnessHomeDir,
+  setHarnessHomeDir: (dir) => {
+    harnessHomeDir = dir;
+  },
+  getWorkspaceRegistry: () => workspaceRegistry,
+  setAudioMasterMuted: (muted) => {
+    audioMasterMuted = muted;
   }
-  // Harness-owned instructions file (HARNESS.md) — reached on every save
-  // (not just a dir change) so flipping the toggle off takes effect on the
-  // very next spawn, same immediacy as shellFallbackEnabled above. Re-reads
-  // the path off the (possibly just-updated) harnessHomeDir.
-  ptyManager.setHarnessInstructions(settings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
-  ptyManager.setAdvisorModel(settings.advisorModel);
-  codexDelegateModel = settings.codexDelegateModel;
-
-  await saveAppSettings(settings);
-  return harnessHomeDir;
 });
-
-// ─── Harness home directory (Phase 8.7) ────────────────────────────────────
-// Pulled once at boot (main.tsx) to display the CURRENT resolved path in
-// Settings even when the setting itself is null (i.e. "use the default") —
-// only main can resolve that default (needs os.homedir()).
-handle('harnessHome:getResolvedPath', () => harnessHomeDir);
-
-// ─── Harness-owned instructions file (HARNESS.md) ──────────────────────────
-// Resolved path only (the file is seeded/ensured at boot and on every
-// harness-home-dir change above — see ensureHarnessInstructions' two call
-// sites) — Settings' "harness instructions" row displays this and its "open
-// file" button shells out to it, same shape as diagnostics:openLogs below.
-handle('harness:instructionsPath', () => harnessInstructionsPath(harnessHomeDir));
-handle('harness:openInstructions', () => shell.openPath(harnessInstructionsPath(harnessHomeDir)));
 
 // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────────
 // Ensures agents/arceus/SYSTEM.md exists (seeding it from the template on
@@ -1430,12 +1378,6 @@ handle('diagnostics:exportBundle', async (): Promise<ExportDiagnosticsResult> =>
     return { ok: false, error: message };
   }
 });
-
-// ─── Terminal settings (Phase 8.5 Wave B item 3) ───────────────────────────
-handle('terminal:getSettings', () => loadTerminalSettings());
-handle('terminal:saveSettings', (_e, settings: TerminalSettings) =>
-  saveTerminalSettings(settings)
-);
 
 // ─── Cost & context HUD (Phase 8.5 Wave B item 1) ──────────────────────────
 // Test-only escape hatch: registers a session id against an arbitrary
