@@ -303,6 +303,7 @@
  * source fix, not a substitute for it — see its own doc comment.
  */
 import type { Walker } from '../Walker';
+import type { PokemonAnimation } from '../showdownArt';
 import { DEX_LIST, isBundled, type DexEntry } from '../dexData';
 import { onBattleSignal, type BattleSignal } from './battleBus';
 import { Battler } from './Battler';
@@ -656,43 +657,22 @@ export class BattleManager {
       // in this recovery path's fidelity.
       const animation = this.deps.resolveAnimation(species.id, false);
       const home = pickRoamHome(this.deps.map, pb.parentWalker.tile, pb.parentWalker.tile, this.claimedWanderHomes());
-      const battler = new Battler({
-        map: this.deps.map,
-        animation,
+      // No correlation survives a renderer rebuild — this sub falls back to
+      // handleEnd's oldest-roaming heuristic if its real completion
+      // notification arrives after recovery, same as any other never-stamped
+      // battler.
+      const { battler, sub } = this.createRoamingSub(
+        entry.parentId,
         species,
-        spawnTile: home,
-        label: entry.label,
-        onClick: () => this.handleBattlerClick(entry.parentId, entry.key)
-      });
-      pinAnimation(animation);
-      this.deps.charLayer.addChild(battler.container);
-      this.deps.charLayer.addChild(battler.bubbleContainer);
-      const bubbleTiming = roamingBubbleTiming(entry.key);
-      const sub: SubBattler = {
-        key: entry.key,
-        battler,
-        pinnedAnimation: animation,
-        lifecycle: entry.done ? 'retired' : 'roaming',
-        label: entry.label,
-        // No correlation survives a renderer rebuild — this sub falls back
-        // to handleEnd's oldest-roaming heuristic if its real completion
-        // notification arrives after recovery, same as any other never-
-        // stamped battler.
-        toolUseId: null,
-        taskId: null,
-        subagentId: null,
-        delegateSessionId: null,
-        wanderHome: home,
-        wanderTimer: 0,
-        wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
-        roamingSince: Date.now(),
-        queuedSince: 0,
-        queueEligibleAt: null,
-        visibleLogged: false,
-        roamLabelElapsedMs: bubbleTiming.elapsedMs,
-        roamLabelCycleMs: bubbleTiming.cycleMs,
-        roamBubbleMode: 'hidden'
-      };
+        animation,
+        home,
+        entry.label,
+        entry.key,
+        null,
+        null,
+        entry.done ? 'retired' : 'roaming',
+        false
+      );
       pb.subs.push(sub);
       // nextSeq collision fix (2026-09-08): `createBattle` always starts a
       // fresh `pb` at `nextSeq: 0`, but this respawned sub keeps its OLD
@@ -1013,40 +993,18 @@ export class BattleManager {
     // would silently overwrite that sub's roster entry rather than fail
     // loudly, so this keeps bumping until the key is actually free.
     while (pb.subs.some((s) => s.key === key)) key = `${parentId}#${pb.nextSeq++}`;
-    const battler = new Battler({
-      map: this.deps.map,
-      animation,
+    const { battler, sub } = this.createRoamingSub(
+      parentId,
       species,
-      spawnTile: home,
+      animation,
+      home,
       label,
-      onClick: () => this.handleBattlerClick(parentId, key)
-    });
-    pinAnimation(animation);
-    this.deps.charLayer.addChild(battler.container);
-    this.deps.charLayer.addChild(battler.bubbleContainer);
-    const bubbleTiming = roamingBubbleTiming(key);
-
-    const sub: SubBattler = {
       key,
-      battler,
-      pinnedAnimation: animation,
-      lifecycle: 'roaming',
-      label,
-      toolUseId: toolUseId ?? null,
-      taskId: null,
-      subagentId: null,
-      delegateSessionId: null,
-      wanderHome: home,
-      wanderTimer: 0,
-      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
-      roamingSince: Date.now(),
-      queuedSince: 0,
-      queueEligibleAt: null,
-      visibleLogged: false,
-      roamLabelElapsedMs: bubbleTiming.elapsedMs,
-      roamLabelCycleMs: bubbleTiming.cycleMs,
-      roamBubbleMode: 'hidden'
-    };
+      toolUseId ?? null,
+      null,
+      'roaming',
+      false
+    );
     pb.subs.push(sub);
     this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label });
     // "Materialized" (vs. hookRouter.ts's "spawned" bump on the Task tool
@@ -1083,6 +1041,69 @@ export class BattleManager {
         battler.setAnimation(real);
       });
     }
+  }
+
+  /**
+   * Builds a fresh roaming `SubBattler` — the `Battler` instance, its
+   * charLayer placement, and the `SubBattler` record itself — the ~20-field
+   * construction that `handleSpawn`, `respawnFromStore`, and
+   * `handleCorrelate`'s RESUME branch each used to hand-roll separately.
+   * Every parameter here is a genuine per-site difference (see each call
+   * site); everything else below was identical across all three and is
+   * fixed here instead. Does NOT push the returned sub onto `pb.subs` or
+   * call `onBattlerSpawned`/`bumpCounter`/log — those differ enough per site
+   * (or don't apply at all, e.g. `respawnFromStore`) to stay at the call
+   * site. Returns the concrete `Battler` alongside the `SubBattler` record
+   * (whose own `.battler` is the same instance, just widened to the narrow
+   * `Challenger` interface) — every call site's own lazy-load `.then`
+   * callback needs the concrete type for `setAnimation`, which isn't on
+   * `Challenger` (see that interface's own comment on why). */
+  private createRoamingSub(
+    parentId: string,
+    species: DexEntry,
+    animation: PokemonAnimation,
+    home: { x: number; y: number },
+    label: string | undefined,
+    key: string,
+    toolUseId: string | null,
+    taskId: string | null,
+    lifecycle: SubBattler['lifecycle'],
+    visibleLogged: boolean
+  ): { battler: Battler; sub: SubBattler } {
+    const battler = new Battler({
+      map: this.deps.map,
+      animation,
+      species,
+      spawnTile: home,
+      label,
+      onClick: () => this.handleBattlerClick(parentId, key)
+    });
+    pinAnimation(animation);
+    this.deps.charLayer.addChild(battler.container);
+    this.deps.charLayer.addChild(battler.bubbleContainer);
+    const bubbleTiming = roamingBubbleTiming(key);
+    const sub: SubBattler = {
+      key,
+      battler,
+      pinnedAnimation: animation,
+      lifecycle,
+      label,
+      toolUseId,
+      taskId,
+      subagentId: null,
+      delegateSessionId: null,
+      wanderHome: home,
+      wanderTimer: 0,
+      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
+      roamingSince: Date.now(),
+      queuedSince: 0,
+      queueEligibleAt: null,
+      visibleLogged,
+      roamLabelElapsedMs: bubbleTiming.elapsedMs,
+      roamLabelCycleMs: bubbleTiming.cycleMs,
+      roamBubbleMode: 'hidden'
+    };
+    return { battler, sub };
   }
 
   // --- delegate battle parity ---------------------------------------------
@@ -1516,39 +1537,18 @@ export class BattleManager {
     const animation = this.deps.resolveAnimation(species.id, false);
     const home = pickRoamHome(this.deps.map, pb.parentWalker.tile, pb.parentWalker.tile, this.claimedWanderHomes());
     const key = `${parentId}#${pb.nextSeq++}`;
-    const battler = new Battler({
-      map: this.deps.map,
-      animation,
+    const { battler, sub } = this.createRoamingSub(
+      parentId,
       species,
-      spawnTile: home,
-      label: info.label,
-      onClick: () => this.handleBattlerClick(parentId, key)
-    });
-    pinAnimation(animation);
-    this.deps.charLayer.addChild(battler.container);
-    this.deps.charLayer.addChild(battler.bubbleContainer);
-    const bubbleTiming = roamingBubbleTiming(key);
-    const sub: SubBattler = {
+      animation,
+      home,
+      info.label,
       key,
-      battler,
-      pinnedAnimation: animation,
-      lifecycle: 'roaming',
-      label: info.label,
       toolUseId,
       taskId,
-      subagentId: null,
-      delegateSessionId: null,
-      wanderHome: home,
-      wanderTimer: 0,
-      wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
-      roamingSince: Date.now(),
-      queuedSince: 0,
-      queueEligibleAt: null,
-      visibleLogged: false,
-      roamLabelElapsedMs: bubbleTiming.elapsedMs,
-      roamLabelCycleMs: bubbleTiming.cycleMs,
-      roamBubbleMode: 'hidden'
-    };
+      'roaming',
+      false
+    );
     pb.subs.push(sub);
     this.deps.onBattlerSpawned({ key: sub.key, parentId, species: species.id, label: info.label });
     bumpCounter('subagentsMaterialized');
