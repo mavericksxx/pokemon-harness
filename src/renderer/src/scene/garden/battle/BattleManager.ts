@@ -1128,6 +1128,32 @@ export class BattleManager {
     }
   }
 
+  /** Hands a delegate's walker back to GardenScene/its own session CLEAN,
+   *  without destroying or poofing it — this manager never owns that
+   *  `Walker` (see `isDelegateSub`), so every site that stops choreographing
+   *  a delegate mid-battle (`dropChallenger`'s still-queued case,
+   *  `handleEndAll`'s coarse cleanup, `destroyBattle`'s teardown) must undo
+   *  whatever the wave left on it instead of just letting go:
+   *   - `hideBubble()` — the battle label/attack bubble would otherwise sit
+   *     over that walker indefinitely; GardenScene's own bubble reconcile
+   *     only writes when `toolKey` changes, which a frozen 'done' walker
+   *     never does again.
+   *   - `update(0)` — the adapter's position RESYNC (ignores `dt` entirely —
+   *     see `WalkerChallenger.update`), undoing any lunge/mega offset a wave
+   *     interrupted mid-attack would otherwise leave baked into the
+   *     container forever: this sub stops being ticked here, and a
+   *     stationary `Walker` never calls `syncPosition` on its own.
+   *   - `clearBattleStance()` — releases the forced back view (if this
+   *     species ever got one); without it, the walker's own idle-facing bias
+   *     logic stays skipped forever (see Walker.ts's own update guard),
+   *     leaving it stuck facing away from the camera for the rest of its
+   *     life. */
+  private releaseDelegate(sub: SubBattler): void {
+    sub.battler.hideBubble();
+    sub.battler.update(0);
+    sub.battler.clearBattleStance();
+  }
+
   /**
    * A `poke-delegate` session finished successfully — enter its OWN walker in
    * the very same completion-battle queue a Claude subagent's `Battler` uses
@@ -1251,21 +1277,12 @@ export class BattleManager {
       if (pb.waveRing.includes(sub)) this.forceConcludeWave(pb);
       pb.waveRing = pb.waveRing.filter((s) => s !== sub);
       pb.subs = pb.subs.filter((s) => s !== sub);
-      // Hand the walker back clean, exactly as `destroyBattle` does for the
-      // parent-killed case — see its own comment for all three reasons.
-      // `update(0)` is the adapter's position resync (it ignores `dt`),
-      // undoing any lunge offset a wave interrupted mid-attack would
-      // otherwise leave baked in once this sub stops being ticked.
-      // `clearBattleStance()` releases the forced back view (if this species
-      // ever got one) — without it, this walker's own idle-facing bias logic
-      // stays skipped forever (see Walker.ts's own update guard), leaving a
-      // delegate that lost its battle stuck facing away from the camera for
-      // the rest of its life. `forceConcludeWave` above already hid the
-      // bubble via `retireSub` when there WAS a wave; this covers the
-      // still-'queued' case, where nothing has.
-      sub.battler.hideBubble();
-      sub.battler.update(0);
-      sub.battler.clearBattleStance();
+      // Hand the walker back clean via `releaseDelegate` — see that method's
+      // own comment for why each of its three calls matters.
+      // `forceConcludeWave` above already hid the bubble via `retireSub`
+      // when there WAS a wave; this covers the still-'queued' case, where
+      // nothing has (a harmless redundant `hideBubble()` when there was).
+      this.releaseDelegate(sub);
       return;
     }
   }
@@ -1647,13 +1664,11 @@ export class BattleManager {
       // A delegate mid-wave was skipped by the loop above (never marked
       // 'leaving', never retired) — it's the one waveRing member this coarse
       // cleanup can otherwise strand in battle stance forever, since nothing
-      // else releases it until `dropChallenger`. Same "hand back clean" trio
-      // `destroyBattle`'s delegate branch uses.
+      // else releases it until `dropChallenger`. See `releaseDelegate`'s own
+      // comment for why each of its three calls matters.
       for (const sub of pb.waveRing) {
         if (!this.isDelegateSub(sub)) continue;
-        sub.battler.hideBubble();
-        sub.battler.update(0);
-        sub.battler.clearBattleStance();
+        this.releaseDelegate(sub);
       }
       pb.wave = 'idle';
       pb.waveRing = [];
@@ -2533,26 +2548,10 @@ export class BattleManager {
       // But it must be HANDED BACK CLEAN, not merely let go — this is the one
       // teardown path where the delegate's own session outlives the battle
       // (a PARENT killed mid-fight, or a renderer rebuild), so nothing else
-      // ever tidies up after it:
-      //  - `hideBubble()` because the battle label/attack bubble would
-      //    otherwise sit over that walker until it's recalled. GardenScene's
-      //    bubble reconcile can't clear it: that only writes when its
-      //    `toolKey` changes, and every part of it is frozen at 'done'.
-      //  - `update(0)` is the adapter's position RESYNC (it ignores `dt`
-      //    entirely — see WalkerChallenger.update). Without it, a wave killed
-      //    mid-lunge leaves that frame's `applyPositions` `+=` offset baked
-      //    into the container forever: this sub is about to stop existing, so
-      //    its own per-tick resync never runs again, and a stationary `Walker`
-      //    never calls `syncPosition` on its own.
-      //  - `clearBattleStance()` releases the forced back view (if this
-      //    species ever got one) — the walker's own idle-facing bias logic
-      //    stays skipped for as long as that's set (see Walker.ts's own
-      //    update guard), and this sub is about to outlive the battle for
-      //    good, so nothing else will ever release it.
+      // ever tidies up after it. See `releaseDelegate`'s own comment for why
+      // each of its three calls matters.
       if (this.isDelegateSub(sub)) {
-        sub.battler.hideBubble();
-        sub.battler.update(0);
-        sub.battler.clearBattleStance();
+        this.releaseDelegate(sub);
         continue;
       }
       sub.battler.destroy();
