@@ -14,11 +14,26 @@
  * Usage:
  *   node tools/release.cjs [patch|minor|major|<x.y.z>]   # default: patch
  *   node tools/release.cjs [patch|minor|major|<x.y.z>] --publish
+ *   node tools/release.cjs --dry-run                      # preflight + build only
+ *   node tools/release.cjs --no-install                    # skip the preflight npm ci
  *
  * Without --publish: bumps + commits + tags locally, builds, prints the
  * exact `git push` + `gh release create` commands to run when ready.
  * With --publish: also runs those commands for you (still requires `gh` to
  * be authenticated — this script never handles credentials itself).
+ *
+ * Before touching any git state, a preflight guards against shipping a
+ * stale Electron: electron-builder packages whatever is currently sitting
+ * in node_modules, so a node_modules that predates a devDependency bump
+ * would silently ship the wrong Electron labeled as the new version. The
+ * preflight runs `npm ci` (skip with --no-install for local iteration) and
+ * asserts the installed electron package version matches the one resolved
+ * in package-lock.json. With --publish, it also confirms `gh auth status`
+ * succeeds before doing any work, not just that `gh` is on PATH.
+ *
+ * --dry-run runs the preflight and the build but skips the version bump,
+ * commit, tag, and publish — useful for proving the pipeline is healthy
+ * without touching git state or GitHub.
  *
  * Special case: if the requested version already equals package.json's
  * current version (e.g. cutting v1.0.0 itself, right after hand-setting
@@ -32,7 +47,7 @@
  * get swept into the version-bump commit) and the `gh` CLI on PATH.
  */
 const { execSync } = require('node:child_process');
-const { existsSync, readdirSync } = require('node:fs');
+const { existsSync, readdirSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 const REPO_ROOT = join(__dirname, '..');
@@ -55,7 +70,9 @@ function fail(msg) {
 
 const args = process.argv.slice(2);
 const publish = args.includes('--publish');
-const bumpArg = args.find((a) => a !== '--publish') || 'patch';
+const dryRun = args.includes('--dry-run');
+const noInstall = args.includes('--no-install');
+const bumpArg = args.find((a) => !['--publish', '--dry-run', '--no-install'].includes(a)) || 'patch';
 
 if (!['patch', 'minor', 'major'].includes(bumpArg) && !/^\d+\.\d+\.\d+$/.test(bumpArg)) {
   fail(`bad version argument "${bumpArg}" — expected patch, minor, major, or an explicit x.y.z`);
@@ -78,6 +95,50 @@ if (branch !== 'master' && branch !== 'main') {
   console.warn(`[release] warning: releasing from branch "${branch}", not master/main.`);
 }
 
+if (dryRun && publish) {
+  console.warn('[release] warning: --dry-run passed with --publish — publish is skipped under --dry-run.');
+}
+
+// ---- preflight: guard against shipping a stale Electron ----
+// electron-builder packages whatever is currently installed in
+// node_modules — if that's out of sync with package-lock.json (e.g. leftover
+// node_modules from before a devDependency bump), `npm run dist` would
+// silently produce an artifact labeled vX.Y.Z but running a different
+// Electron entirely. Catch that here, before any version bump/commit/tag.
+if (noInstall) {
+  console.log('[release] preflight: --no-install passed — skipping npm ci.');
+} else {
+  console.log('[release] preflight: npm ci (pass --no-install to skip for local iteration)…');
+  runLoud('npm ci');
+}
+
+{
+  const lockfile = JSON.parse(readFileSync(join(REPO_ROOT, 'package-lock.json'), 'utf8'));
+  const lockedElectron = lockfile.packages && lockfile.packages['node_modules/electron'] && lockfile.packages['node_modules/electron'].version;
+  if (!lockedElectron) fail('could not resolve node_modules/electron version from package-lock.json.');
+
+  const installedElectronPkg = join(REPO_ROOT, 'node_modules/electron/package.json');
+  if (!existsSync(installedElectronPkg)) fail(`electron is not installed at ${installedElectronPkg} — run npm ci.`);
+  const installedElectron = require(installedElectronPkg).version;
+
+  if (installedElectron !== lockedElectron) {
+    fail(
+      `installed Electron (${installedElectron}) does not match package-lock.json (${lockedElectron}) — ` +
+      'node_modules is out of sync with the lockfile. Run npm ci (or drop --no-install).'
+    );
+  }
+  console.log(`[release] preflight: installed Electron ${installedElectron} matches package-lock.json.`);
+}
+
+if (publish) {
+  console.log('[release] preflight: --publish passed — checking gh auth…');
+  try {
+    run('gh auth status');
+  } catch {
+    fail('`gh auth status` failed — run `gh auth login` before releasing with --publish.');
+  }
+}
+
 // ---- version bump (npm handles package.json + package-lock.json + the
 // git commit + the vX.Y.Z tag together — no reason to hand-roll any of
 // that) ----
@@ -88,7 +149,9 @@ if (branch !== 'master' && branch !== 'main') {
 // one case; every other path (patch/minor/major, or an explicit version
 // that's actually different) still goes through `npm version` as before.
 let version = PKG.version;
-if (bumpArg === version) {
+if (dryRun) {
+  console.log(`[release] --dry-run passed — skipping version bump, commit, and tag. Building v${version} as-is.`);
+} else if (bumpArg === version) {
   console.log(`[release] requested version v${version} matches package.json already — skipping bump.`);
   const existingTag = (() => {
     try {
@@ -130,6 +193,12 @@ if (artifacts.length === 0) {
 }
 console.log('[release] artifacts:');
 for (const a of artifacts) console.log(`  ${a}`);
+
+if (dryRun) {
+  console.log('');
+  console.log(`[release] --dry-run: preflight and build succeeded for v${version}. No version bump, commit, tag, or publish performed.`);
+  process.exit(0);
+}
 
 // ---- the gh command ----
 const tag = `v${version}`;
