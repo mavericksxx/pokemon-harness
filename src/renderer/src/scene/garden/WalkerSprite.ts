@@ -191,18 +191,39 @@ export class WalkerSprite {
     this.moving = moving;
   }
 
+  /** How often a STATIONARY float-locomotion walker's continuous bob (see
+   *  `bob.whileStill` below) actually marks the scene dirty, in ticker
+   *  frames — every frame still advances `bobPhase`/`body.y` underneath, so
+   *  the motion itself never stutters or jumps once a throttled frame does
+   *  render; only the render REQUEST is throttled, down to roughly the same
+   *  "handful of frames/sec" a texture-driven idle animation already renders
+   *  at (see diagnosticsCounters.ts's `renderedFrames` doc comment). Fixes
+   *  issue #33: a single un-despawned roaming/retired battler (or an actual
+   *  session's walker) on levitate/fly locomotion — sitting perfectly still,
+   *  nothing else in the garden animating — used to call `markDirty()`
+   *  unconditionally on every tick forever, since "floating Pokemon never
+   *  stop bobbing" was true regardless of whether it was actually moving.
+   *  Because renderDirty.ts is one shared, garden-wide flag, that alone was
+   *  enough to pin the WHOLE scene at full ~60fps tick rate indefinitely. */
+  private static readonly STILL_BOB_DIRTY_EVERY_N_FRAMES = 6;
+  private stillBobFrame = 0;
+
   update(dt: number): void {
     const bob = BOB[this.locomotion];
-    if (this.moving || bob.whileStill) {
+    if (this.moving) {
       this.bobPhase += dt * bob.rate;
       this.applyTransform();
+    } else if (bob.whileStill) {
+      this.bobPhase += dt * bob.rate;
+      this.stillBobFrame = (this.stillBobFrame + 1) % WalkerSprite.STILL_BOB_DIRTY_EVERY_N_FRAMES;
+      this.applyTransform(this.stillBobFrame === 0);
     } else if (this.body.y !== -LIFT[this.locomotion]) {
       this.bobPhase = 0;
       this.applyTransform();
     }
   }
 
-  private applyTransform(): void {
+  private applyTransform(markSceneDirty = true): void {
     const bob = BOB[this.locomotion];
     const riding = this.moving || bob.whileStill;
     this.body.y = -LIFT[this.locomotion] - (riding ? Math.abs(Math.sin(this.bobPhase)) * bob.amplitude : 0);
@@ -212,8 +233,11 @@ export class WalkerSprite {
     // (above) can't see them — this is the dirty-flag source for bob and
     // left/right mirroring. Called from update() every frame this sprite is
     // moving or float-locomotion (whileStill), and once more when it settles
-    // back to rest — see update()'s own branches.
-    markDirty();
+    // back to rest — see update()'s own branches. `markSceneDirty` defaults
+    // true for every discrete call site (setFacing, configure, setBackView,
+    // update()'s own moving/settle branches) — only the stationary-bob branch
+    // above throttles it, per `STILL_BOB_DIRTY_EVERY_N_FRAMES`'s comment.
+    if (markSceneDirty) markDirty();
   }
 
   /** Drawn size in world pixels, for hit areas and bubble placement. */
