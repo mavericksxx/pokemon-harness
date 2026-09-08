@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useStore } from '@/store/store';
 import type { LiveBattler, Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
@@ -158,7 +159,7 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
                 strip reads as one consistent row shape rather than singling
                 this card out with a shorter box. */}
             <div className="hp-bar roster-card-ctx-sliver">
-              <div className="hp-bar-fill" style={{ width: '100%' }} />
+              <div className="hp-bar-fill" style={{ '--fill': 1 } as CSSProperties} />
             </div>
           </>
         ) : (

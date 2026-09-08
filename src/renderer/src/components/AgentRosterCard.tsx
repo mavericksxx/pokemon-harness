@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useStore, type Session } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
 import { PokemonPicker } from '@/components/PokemonPicker';
@@ -174,7 +175,7 @@ export const AgentRosterCard = memo(function AgentRosterCard({
             <div className="hp-bar roster-card-ctx-sliver">
               <div
                 className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-                style={{ width: `${cost ? contextPct : 0}%` }}
+                style={{ '--fill': (cost ? contextPct : 0) / 100 } as CSSProperties}
               />
             </div>
           </>
@@ -228,7 +229,7 @@ export const AgentRosterCard = memo(function AgentRosterCard({
               >
                 <div
                   className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-                  style={{ width: `${cost ? contextPct : 0}%` }}
+                  style={{ '--fill': (cost ? contextPct : 0) / 100 } as CSSProperties}
                 />
               </div>
               <span className={cost ? 'roster-card-ctx-label' : 'roster-card-ctx-label roster-card-row-hidden'}>
@@ -314,7 +315,7 @@ export const AgentRosterCard = memo(function AgentRosterCard({
               <div className="hp-bar">
                 <div
                   className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-                  style={{ width: `${cost ? contextPct : 0}%` }}
+                  style={{ '--fill': (cost ? contextPct : 0) / 100 } as CSSProperties}
                 />
               </div>
               <span className="roster-card-ctx-label">{cost ? `${contextPct}%` : ' '}</span>

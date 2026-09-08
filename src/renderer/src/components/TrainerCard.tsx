@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useStore } from '@/store/store';
 import type { Session } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
@@ -40,11 +41,11 @@ interface Anchor {
  *  measure time, not for layout; doesn't need to be exact. */
 const PANEL_MAX_HEIGHT = 300;
 
-function hpBarStyle(usedPercent: number): { className: string; width: string } {
+function hpBarStyle(usedPercent: number): { className: string; fill: number } {
   const tone = gaugeTone(usedPercent);
   return {
     className: `hp-bar-fill${tone !== 'normal' ? ` ${tone}` : ''}`,
-    width: `${Math.round(usedPercent)}%`
+    fill: Math.round(usedPercent) / 100
   };
 }
 
@@ -61,7 +62,7 @@ function TrainerGaugeRow({ label, window: w }: { label: string; window: UsageWin
         <span>{Math.round(w.usedPercent)}%</span>
       </div>
       <div className="hp-bar">
-        <div className={bar.className} style={{ width: bar.width }} />
+        <div className={bar.className} style={{ '--fill': bar.fill } as CSSProperties} />
       </div>
     </div>
   );
@@ -159,7 +160,7 @@ function TrainerCardPanel({
                 </span>
               </div>
               <div className="hp-bar">
-                <div className={contextBar.className} style={{ width: contextBar.width }} />
+                <div className={contextBar.className} style={{ '--fill': contextBar.fill } as CSSProperties} />
               </div>
             </div>
           )}

@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useStore } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
 import { arceusIsLive, autoSummonArceus, selectArceus } from '@/arceus';
@@ -127,7 +128,7 @@ export function ArceusRosterCard({ variant = 'compact' }: Props): JSX.Element {
           <div className="hp-bar roster-card-ctx-sliver">
             <div
               className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-              style={{ width: `${contextPct}%` }}
+              style={{ '--fill': contextPct / 100 } as CSSProperties}
             />
           </div>
         )}
@@ -170,7 +171,7 @@ export function ArceusRosterCard({ variant = 'compact' }: Props): JSX.Element {
               <div className="hp-bar roster-card-ctx-sliver-md">
                 <div
                   className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-                  style={{ width: `${cost ? contextPct : 0}%` }}
+                  style={{ '--fill': (cost ? contextPct : 0) / 100 } as CSSProperties}
                 />
               </div>
               <span className="roster-card-ctx-label">{cost ? `${contextPct}%` : ' '}</span>
