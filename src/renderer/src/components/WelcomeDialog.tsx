@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AGENT_PROVIDERS, type AgentProviderId } from '@shared/agentProvider';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 
@@ -34,9 +34,26 @@ export function WelcomeDialog({ onSummonArceus }: Props): JSX.Element {
   const configuredProvider = useAppSettingsStore((s) => s.settings.defaultAgentProvider);
   const setDefaultAgentProvider = useAppSettingsStore((s) => s.setDefaultAgentProvider);
   const setOnboardingDone = useAppSettingsStore((s) => s.setOnboardingDone);
+  const harnessHomePath = useAppSettingsStore((s) => s.harnessHomePath);
+  const setHarnessHomeDir = useAppSettingsStore((s) => s.setHarnessHomeDir);
   const [provider, setProvider] = useState<AgentProviderId>(
     WELCOME_PROVIDERS.includes(configuredProvider) ? configuredProvider : 'claude'
   );
+  // null while resolving, same as SummonArceusDialog — avoids flashing the
+  // error before the IPC round-trip settles.
+  const [cliAvailable, setCliAvailable] = useState<boolean | null>(null);
+
+  // Re-checked on every provider switch — a claude machine may not have
+  // codex on PATH, or vice versa.
+  useEffect(() => {
+    setCliAvailable(null);
+    void window.api.isCommandAvailable(AGENT_PROVIDERS[provider].defaultCommand).then(setCliAvailable);
+  }, [provider]);
+
+  const pickHarnessHome = async (): Promise<void> => {
+    const picked = await window.api.chooseFolder();
+    if (picked) setHarnessHomeDir(picked);
+  };
 
   // Setting `onboardingDone` true here is what unmounts this dialog — App.tsx
   // renders it off `!appSettings.onboardingDone` directly, no local "open"
@@ -72,11 +89,29 @@ export function WelcomeDialog({ onSummonArceus }: Props): JSX.Element {
           <p className="hint">the default for new agents and for arceus — change it anytime in settings.</p>
         </label>
 
+        {cliAvailable === false && (
+          <p className="error">
+            the <code>{AGENT_PROVIDERS[provider].defaultCommand}</code> CLI isn&apos;t on your PATH — install{' '}
+            {AGENT_PROVIDERS[provider].label}, or pick a different provider above.
+          </p>
+        )}
+
+        <label>
+          harness home
+          <div className="row">
+            <input value={harnessHomePath} readOnly spellCheck={false} title={harnessHomePath} />
+            <button type="button" onClick={() => void pickHarnessHome()}>
+              choose…
+            </button>
+          </div>
+          <p className="hint">where the harness keeps agent-facing files — change it anytime in settings.</p>
+        </label>
+
         <div className="modal-actions">
           <button type="button" onClick={commit}>
             not now
           </button>
-          <button type="button" className="primary" onClick={summon}>
+          <button type="button" className="primary" onClick={summon} disabled={cliAvailable === false}>
             summon arceus
           </button>
         </div>
