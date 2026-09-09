@@ -122,7 +122,7 @@ export function QuitDialog(): JSX.Element | null {
           </div>
           <div className="quit-dialog-action">
             <button type="button" onClick={leaveRunningAndQuit}>
-              leave them running
+              quit, leave running
             </button>
             <span className="hint quit-dialog-action-hint">
               quit now — sessions keep going in the background until they finish on their own.
