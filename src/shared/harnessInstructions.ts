@@ -33,6 +33,10 @@ This section is for the top-level session the harness launched. If you are a sub
 - Before committing to an architecture decision, data migration, API design, or refactor touching 3+ files — and always once before reporting any deliverable done — consult the advisor subagent (\`Agent({subagent_type: "advisor"})\`) and act on its verdict or say plainly why you disagree.
 - **This advisor-consultation rule applies only to you, the top-level session — never to a subagent you dispatch via the Agent tool** (implementer, investigator, or any other spawned agent). If you write a task spec for a subagent, do not instruct it to consult the advisor itself, and do not let it do so even if its own task touches architecture or 3+ files — each nested advisor call is a real, separate cost that compounds fast under fan-out. If a dispatched task genuinely needs advisor-level judgment, make that call yourself — before dispatching (to firm up the plan) or after reviewing the subagent's diff (before merging) — never inside the subagent's own run.
 
+## Coordination
+
+- Sessions on this machine can talk to each other directly — \`ListAgents\` lists other live sessions, \`SendMessage\` reaches them. If you notice you might be touching the same files or branch as another live session, check \`ListAgents\` and give them a heads-up (or coordinate ordering) via \`SendMessage\` rather than silently colliding or waiting for the user to broker it.
+
 ## Hygiene
 
 - Commit and push at every step. Keep the changelog and backlog current.

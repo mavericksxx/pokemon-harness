@@ -41,22 +41,12 @@ function miniGauges(providers: UsageProviderSnapshot[], mainUsageProvider: Usage
 
 /** Per-window identity color for the mini-gauge LABEL only (user feedback:
  *  "hard to distinguish the three bars" — a fixed color by window label, not
- *  urgency). Deliberately exempt from the level-3 muted-gauge rule: the
- *  bar fill and % follow `CHIP_GAUGE_HOT_THRESHOLD` below, but the label
- *  keeps its window color at every urgency level. */
+ *  urgency; `gaugeTone` below still owns the %/fill color unchanged). */
 function usageWindowClass(label: string): 'w5h' | 'wfable' | 'w7d' {
   if (label === '5h') return 'w5h';
   if (label === '7d fable') return 'wfable';
   return 'w7d';
 }
-
-/** The chip's mini-gauge tint threshold (one control grammar pass) — the
- *  topbar chip is a level-3 GAUGE (muted by default, never boxed); unlike
- *  the popover's own bars below (still the full 3-tier `gaugeTone`), a mini
- *  gauge here only breaks from muted once a window is actually in the
- *  danger band, not merely "caution" — so this checks `>= 80`, not
- *  `gaugeTone(...) !== 'normal'`. */
-const CHIP_GAUGE_HOT_THRESHOLD = 80;
 
 /** Below this viewport width the chip collapses to just the single tightest
  *  (highest used%) of its up-to-three mini gauges — the rest stay reachable
@@ -309,15 +299,15 @@ export function UsageChip(): JSX.Element | null {
         {gauges.length > 0 && (
           <span className="usage-chip-gauges">
             {gauges.map((w) => {
-              const hot = w.usedPercent >= CHIP_GAUGE_HOT_THRESHOLD;
+              const gaugeToneValue = gaugeTone(w.usedPercent);
               return (
                 <span
                   key={w.label}
-                  className={`usage-chip-gauge usage-chip-gauge--${usageWindowClass(w.label)}${hot ? ' usage-chip-gauge--danger' : ''}`}
+                  className={`usage-chip-gauge usage-chip-gauge--${gaugeToneValue} usage-chip-gauge--${usageWindowClass(w.label)}`}
                 >
                   <span className="hp-bar">
                     <span
-                      className={hot ? 'hp-bar-fill danger' : 'hp-bar-fill'}
+                      className={`hp-bar-fill${gaugeToneValue !== 'normal' ? ` ${gaugeToneValue}` : ''}`}
                       style={{ '--fill': Math.round(w.usedPercent) / 100 } as CSSProperties}
                     />
                   </span>
