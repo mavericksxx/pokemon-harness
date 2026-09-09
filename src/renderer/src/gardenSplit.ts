@@ -85,8 +85,18 @@ export const GARDEN_SPLIT_DRAG_END_EVENT = 'poke:garden-split-dragend';
  *  ratio's own percentage in between. Expressing it this way (rather than a
  *  plain percentage) means a window resize re-applies both floors for
  *  free — no resize listener of its own needed — the same way the drawer's
- *  old fixed `46%` already resolved against `.body-row`'s width. */
+ *  old fixed `46%` already resolved against `.body-row`'s width.
+ *
+ *  `100%` here resolves against `.body-row`'s content box, which (party-rail
+ *  refactor) now also includes the rail — so the upper bound subtracts
+ *  `var(--party-rail-w)` (index.css, declared on `.body-row` and overridden
+ *  to 56px inside its own `@media (max-width: 1100px)` block) rather than
+ *  the `PARTY_RAIL_PX` constant, which doesn't track that collapse. This is
+ *  only ever applied to `.drawer` in the side-by-side 'garden' layout
+ *  (TerminalDrawer.tsx's `splitStyle`, gated on `!wide`), where the rail is
+ *  always mounted (App.tsx's `showRosterRail`) — so the variable is never
+ *  read against a row that lacks the rail it's describing. */
 export function terminalWidthCss(ratio: number): string {
   const terminalPercent = (1 - ratio) * 100;
-  return `clamp(${TERMINAL_MIN_PX}px, ${terminalPercent}%, calc(100% - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
+  return `clamp(${TERMINAL_MIN_PX}px, ${terminalPercent}%, calc(100% - var(--party-rail-w) - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
 }

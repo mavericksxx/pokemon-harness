@@ -94,7 +94,17 @@ export function GardenSplitHandle(): JSX.Element {
     if (!rowRect) return useStore.getState().gardenSplit;
     const handleLeft = clientX - grabOffsetRef.current;
     const drawerWidth = rowRect.right - (handleLeft + HANDLE_PX);
-    const maxDrawerWidth = Math.max(TERMINAL_MIN_PX, rowRect.width - HANDLE_PX - GARDEN_MIN_PX);
+    // Subtracts the rail's width too (issue #34) — same railWidthRef the
+    // center-snap math below already reads, not a second measurement.
+    // Reading it once per drag (captured alongside rowRect in
+    // onPointerDown) rather than live is fine here for the same reason
+    // rowRect itself is: both are fixed for the drag's duration, and a rail
+    // collapse mid-drag (window resize while dragging) is a narrower edge
+    // case than the rowRect staleness this file already tolerates.
+    const maxDrawerWidth = Math.max(
+      TERMINAL_MIN_PX,
+      rowRect.width - railWidthRef.current - HANDLE_PX - GARDEN_MIN_PX
+    );
     const clampedDrawerWidth = Math.min(Math.max(drawerWidth, TERMINAL_MIN_PX), maxDrawerWidth);
     // True-center drawer width sits inside [TERMINAL_MIN_PX,
     // maxDrawerWidth] for basically every real row width — center >=
