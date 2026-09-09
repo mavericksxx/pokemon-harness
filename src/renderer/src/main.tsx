@@ -369,7 +369,7 @@ async function boot(): Promise<void> {
     if (!arceusRestoredLive && appSettings.onboardingDone) {
       void autoSummonArceus().then((outcome) => {
         if (outcome === 'failed') {
-          useStore.getState().pushToast("arceus couldn't return — click his chip to re-summon.");
+          useStore.getState().pushToast("arceus couldn't return — click his rail card to re-summon.");
         }
       });
     }

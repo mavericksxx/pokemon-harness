@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useStore } from '@/store/store';
 import { PokemonFace } from '@/components/PokemonFace';
@@ -9,67 +10,83 @@ import { LoopIcon, StarIcon } from '@/components/icons';
 import { gaugeTone } from '@/design/gaugeTone';
 import { ModelBadge } from '@/components/ModelBadge';
 import { formatContextCompact } from '@/components/CostGauge';
+import { SummonArceusDialog } from '@/components/SummonArceusDialog';
 
 interface Props {
-  /** The strip expands the selected card in place. Arceus uses the same
+  /** The rail expands the selected card in place. Arceus uses the same
    *  compact/medium states as an ordinary session, with his medium state
    *  carrying the live status/model/context/cost HUD. */
   variant?: 'compact' | 'medium';
+  /** 'terminal' view mode has no garden pane of its own drawing his cosmic
+   *  ascent, so RosterStrip.tsx forces `variant="medium"` there regardless
+   *  of selection — this flag layers a little extra weight on top (heavier
+   *  gold edge, more breathing room) so that forced-medium state still
+   *  reads as a distinct, ceremonial entry rather than just another agent
+   *  card that happens to be expanded. Reuses the existing Arceus tokens
+   *  (`--arceus-gold*`) rather than inventing a second look. */
+  ceremonial?: boolean;
 }
 
 /**
- * Arceus's own permanent card in the bottom roster strip — unlike every
- * ordinary `AgentRosterCard`, this one isn't backed by a session that may or
- * may not exist: it renders unconditionally (RosterStrip prepends it ahead
- * of the filtered session list), so the god of the garden is always visible,
+ * Arceus's own permanent card in the party rail (RosterStrip.tsx) — unlike
+ * every ordinary `AgentRosterCard`, this one isn't backed by a session that
+ * may or may not exist: it renders unconditionally, pinned first ahead of
+ * the filtered session list, so the god of the garden is always visible,
  * even in a workspace with no sessions at all. A gold frame (`.roster-card-
  * arceus`, index.css) is the only thing that marks it as different from an
  * ordinary card — everything else (face, name, selected ring) matches.
  *
- * Click behavior deliberately mirrors `SummonArceusButton`'s core logic
- * (select if he's already live, otherwise try the silent auto-summon from
- * saved config) rather than duplicating its dialog/toast handling here too
- * — a first-ever summon (no saved config yet) still has exactly one home,
- * the topbar chip, so this card doesn't open a second summon flow; it just
- * points the user at that chip via a toast (same toast mechanism
- * SummonArceusButton already uses for its own 'failed' outcome). That keeps
- * this card cheap and dumb, matching the "presentation only" ask.
+ * Now that the rail guarantees an Arceus card in EVERY view mode, this card
+ * carries his FULL summon flow itself (SummonArceusButton, formerly the
+ * topbar's one home for it, is retired): live selects him; not live tries
+ * the silent auto-summon from saved config, opening `SummonArceusDialog` on
+ * a genuine first run (`'no-config'`) and pushing the existing "couldn't
+ * return" toast on `'failed'`.
  *
- * Garden-split roster-strip rework — Arceus only ever renders here (neither
- * FocusSidebar nor SessionsOverview render him at all, both filter him out
- * of their own session lists), so there is no 'full' size to preserve. The
- * strip supplies the same compact/medium selection states as an ordinary
- * session. Sized ~1.3× an ordinary compact card when unselected, and the
- * ordinary medium width when selected so his telemetry has room to breathe.
+ * Garden-split roster-strip rework — Arceus only ever renders here
+ * (SessionsOverview still filters him out of its own session list), so
+ * there is no 'full' size to preserve. The rail supplies the same
+ * compact/medium selection states as an ordinary session. Sized ~1.3× an
+ * ordinary compact card when unselected, and the ordinary medium width when
+ * selected (or forced via `ceremonial`) so his telemetry has room to
+ * breathe.
  */
-export function ArceusRosterCard({ variant = 'compact' }: Props): JSX.Element {
+export function ArceusRosterCard({ variant = 'compact', ceremonial = false }: Props): JSX.Element {
   const session = useStore((s) => s.sessions.find((x) => x.id === ARCEUS_SESSION_ID));
   const live = !!session && session.status !== 'done';
   const selected = useStore((s) => s.selectedId === ARCEUS_SESSION_ID);
   const pushToast = useStore((s) => s.pushToast);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [summoning, setSummoning] = useState(false);
 
-  const onClick = (): void => {
+  const onClick = async (): Promise<void> => {
     if (arceusIsLive()) {
       selectArceus();
       return;
     }
-    void autoSummonArceus().then((outcome) => {
-      if (outcome === 'no-config') pushToast('arceus needs a one-time setup — click his chip in the topbar.');
-      else if (outcome === 'failed') pushToast("arceus couldn't return — click his chip to re-summon.");
-    });
+    if (summoning) return;
+    setSummoning(true);
+    const outcome = await autoSummonArceus();
+    setSummoning(false);
+    if (outcome === 'no-config') setDialogOpen(true);
+    else if (outcome === 'failed') pushToast("arceus couldn't return — click his card to re-summon.");
   };
 
-  const classes = ['roster-card', 'roster-card-arceus', `roster-card-${variant}`, selected && 'selected']
-    .filter(Boolean)
-    .join(' ');
-
-  const wrapClasses = [
-    'roster-card-wrap',
-    'roster-card-wrap-arceus',
-    variant === 'medium' && 'roster-card-wrap-medium'
+  const classes = [
+    'roster-card',
+    'roster-card-arceus',
+    `roster-card-${variant}`,
+    ceremonial && 'roster-card-arceus-ceremonial',
+    selected && 'selected'
   ]
     .filter(Boolean)
     .join(' ');
+
+  // The rail gives every card the same full row width regardless of
+  // compact/medium (unlike the old horizontal strip, where those variants
+  // also meant different WIDTHS) — no wrap modifier class needed here
+  // beyond the plain shared one.
+  const wrapClasses = 'roster-card-wrap';
 
   // Same context sliver an ordinary compact card shows — Arceus is a real
   // claude session under the hood, so `session.cost` populates the same way.
@@ -92,8 +109,15 @@ export function ArceusRosterCard({ variant = 'compact' }: Props): JSX.Element {
       <button
         type="button"
         className={classes}
-        onClick={onClick}
-        title={live && session ? `select arceus — ${sessionStatusLabel(session)}` : 'summon arceus'}
+        onClick={() => void onClick()}
+        disabled={summoning}
+        title={
+          live && session
+            ? `select arceus — ${sessionStatusLabel(session)}`
+            : summoning
+              ? 'summoning…'
+              : 'summon arceus'
+        }
       >
         <span className="roster-card-arceus-cosmic" aria-hidden="true">
           <span className="roster-card-arceus-pixels" />
@@ -179,6 +203,7 @@ export function ArceusRosterCard({ variant = 'compact' }: Props): JSX.Element {
           </>
         )}
       </button>
+      {dialogOpen && <SummonArceusDialog onClose={() => setDialogOpen(false)} />}
     </div>
   );
 }

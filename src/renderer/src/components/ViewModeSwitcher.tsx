@@ -30,16 +30,11 @@ import { TreeIcon, SessionsIcon } from '@/components/icons';
  *  label), so every one still carries a `.tip`/`data-tip` tooltip spelling
  *  out what it does in words.
  *
- *  The terminal-panel show/hide toggle that used to live here (parity sweep,
- *  a prior pass) is gone as of item 4's fix — user report: a lone topbar
- *  icon was too easy to lose track of, and losing the terminal pane read as
- *  losing the split view entirely. It's replaced by an in-place `«`/`»` tab
- *  riding the garden/terminal divider itself (GardenSplitHandle.tsx) or
- *  docked to the row's edge when the pane is hidden (GardenDrawerEdgeTab.tsx)
- *  — right where the pane actually is, so hiding and unhiding is one obvious
- *  click instead of a hunt through the topbar. `drawerOpen`/`setDrawerOpen`
- *  (store.ts) are untouched — TerminalDrawer.tsx's own `×` in `.drawer-head`
- *  still uses them too. */
+ *  The terminal-panel show/hide toggle used to live here too, then moved out
+ *  to a topbar chevron (App.tsx, `.topbar-icon-btn` in the system zone) for
+ *  "hide", plus GardenDrawerEdgeTab.tsx for "show" once the drawer is
+ *  closed — `drawerOpen`/`setDrawerOpen` (store.ts) are shared by both, and
+ *  by TerminalDrawer.tsx's own `×` in `.drawer-head`. */
 const MODES: { mode: ViewMode; label: string; glyph?: string; key: string; showLabel?: boolean }[] = [
   { mode: 'garden', label: 'garden view', key: '1', showLabel: true },
   { mode: 'terminal', label: 'terminal view', glyph: '☰', key: '2', showLabel: true },

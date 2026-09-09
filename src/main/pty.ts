@@ -504,8 +504,8 @@ export class PtyManager {
       // exact same drop-to-shell behavior as any other session. His own
       // resume/re-summon flow (arceus.ts's `tryResumeArceus`/
       // `autoSummonArceus`) still owns re-summoning him, but only ever
-      // runs from an explicit user action (his topbar chip/roster card, or
-      // once at boot) — never from this pty's own exit — so a fallback
+      // runs from an explicit user action (his rail card, or once at boot)
+      // — never from this pty's own exit — so a fallback
       // shell riding under his id has nothing auto-re-summoning out from
       // under it while the user types into it. A later re-summon still
       // replaces that shell cleanly: spawn()'s reused-id kill (below in

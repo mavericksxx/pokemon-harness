@@ -17,29 +17,40 @@ import { swapSessionPokemon } from '@/sessions';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
  *  status, current tool, an evolution progress hint, and a shiny star.
- *  Used both in the terminal-focus sidebar and the sessions overview grid. */
+ *  Used both in the party rail (RosterStrip.tsx) and the sessions overview
+ *  grid. */
 interface Props {
   session: Session;
   selected: boolean;
   onSelect: (id: string) => void;
   /** Garden-split roster-strip rework — a card's SIZE, not a different
-   *  component: FocusSidebar's vertical list and SessionsOverview's grid
-   *  never pass this (default 'full', today's card unchanged, every row
-   *  intact). RosterStrip.tsx is the only caller that ever passes
-   *  'compact'/'medium' — 'compact' for every unselected card (sprite,
-   *  truncated title, status dot, thin context sliver — nothing else),
-   *  'medium' for the currently selected one (adds a "provider · species"
-   *  line and a model-badge/context row, but deliberately NOT the live tool
-   *  line or the "working…" status pill — user decision, see BACKLOG). */
-  variant?: 'full' | 'compact' | 'medium';
-  /** Count of this session's own subagent battlers currently hidden by the
-   *  global `subagentCardsHidden` toggle (store.ts) — computed by the PARENT
-   *  (RosterStrip/FocusSidebar, which already subscribe to `battlers`) and
-   *  passed down as a plain number so this component doesn't need its own
-   *  `battlers` subscription (perf-sensitive: see TrainerCard.tsx's own
-   *  comment on why this card avoids extra re-render sources). `undefined`
-   *  or 0 renders no badge. */
-  hiddenSubagentCount?: number;
+   *  component: SessionsOverview's grid never passes this (default 'full',
+   *  today's card unchanged, every row intact). RosterStrip.tsx (the party
+   *  rail) is the only caller that ever passes 'medium' — adds a "provider ·
+   *  species" line and a model-badge/context row, but deliberately NOT the
+   *  live tool line or the "working…" status pill — user decision, see
+   *  BACKLOG. The old 'compact' variant (every unselected rail card, before
+   *  selection changed a card's own size) is retired along with it — the
+   *  rail's fixed 200px width has no room to grow a card on select the way
+   *  the old horizontal strip did, so every rail card is 'medium' now and
+   *  `.selected` is a border/glow only. */
+  variant?: 'full' | 'medium';
+  /** This session's own live subagent battler count (party-rail rework) —
+   *  computed by the PARENT (RosterStrip, which already subscribes to
+   *  `battlers`) and passed down as a plain number so this component doesn't
+   *  need its own `battlers` subscription (perf-sensitive: see
+   *  TrainerCard.tsx's own comment on why this card avoids extra re-render
+   *  sources). `undefined` or 0 renders no disclosure control. */
+  childCount?: number;
+  /** Whether THIS session's own subagent cards are currently collapsed
+   *  under it (`collapsedParentIds`, store.ts) — replaces the old global
+   *  `subagentCardsHidden` boolean. Only meaningful alongside `childCount`. */
+  collapsed?: boolean;
+  /** Fired by the disclosure control's click — `altKey` is threaded through
+   *  so the caller can implement the "⌥-click collapses/expands every
+   *  parent at once" modifier (RosterStrip.tsx) without this component
+   *  needing to know about any session other than its own. */
+  onToggleCollapse?: (altKey: boolean) => void;
 }
 
 /** `undefined` when the session's current species has no further evolution
@@ -62,8 +73,8 @@ function SessionFace({ session, box }: { session: Session; box: number }): JSX.E
   return <PokemonFace name={session.pokemon} shiny={session.shiny} box={box} />;
 }
 
-// Wrapped in `memo` (garden-split roster-strip rework perf pass) — RosterStrip
-// /FocusSidebar re-render their whole list whenever the filtered session
+// Wrapped in `memo` (garden-split roster-strip rework perf pass) —
+// RosterStrip re-renders its whole list whenever the filtered session
 // array's identity changes (any one session's tick), but each card's own
 // props (`session`, `onSelect`, ...) only change when THAT session actually
 // changes (store.ts's `updateSession` no-op guard keeps other sessions'
@@ -74,7 +85,9 @@ export const AgentRosterCard = memo(function AgentRosterCard({
   selected,
   onSelect,
   variant = 'full',
-  hiddenSubagentCount
+  childCount,
+  collapsed,
+  onToggleCollapse
 }: Props): JSX.Element {
   // "Change pokemon" (roster card affordance) — not offered for Arceus, who
   // is fixed. Opens the same full-dex picker NewSessionDialog uses;
@@ -86,7 +99,6 @@ export const AgentRosterCard = memo(function AgentRosterCard({
   // this component's first mount.
   const [freezeStage, setFreezeStage] = useState(!!session.evolutionFrozen);
   const providerLabel = AGENT_PROVIDERS[session.provider]?.label ?? session.provider;
-  const providerShortLabel = AGENT_PROVIDERS[session.provider]?.shortLabel ?? session.provider;
   // First-class delegate sessions (shared/delegateSpawn.ts) — a "↳ <parent>"
   // link, same affordance SubagentRosterCard.tsx already uses for a battler.
   // Resolved here (rather than threaded through as a prop from every one of
@@ -96,7 +108,6 @@ export const AgentRosterCard = memo(function AgentRosterCard({
     session.delegateParentId ? s.sessions.find((p) => p.id === session.delegateParentId)?.title : undefined
   );
   const requestRecallDelegate = useStore((s) => s.requestRecallDelegate);
-  const setSubagentCardsHidden = useStore((s) => s.setSubagentCardsHidden);
   const speciesLower = session.isPlainTerminal
     ? 'terminal'
     : (speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase();
@@ -120,15 +131,11 @@ export const AgentRosterCard = memo(function AgentRosterCard({
   const classes = ['roster-card', variant !== 'full' && `roster-card-${variant}`, selected && 'selected']
     .filter(Boolean)
     .join(' ');
-  // Width lives on the WRAP (`.roster-strip .roster-card-wrap` below), not
-  // the button — 'compact' is that selector's own default (every unselected
-  // strip card), so only 'medium' needs an override class here. 'full'
-  // (FocusSidebar/SessionsOverview) never mounts inside `.roster-strip` at
-  // all, so neither class ever applies there — same DOM as before this prop
-  // existed.
-  const wrapClasses = ['roster-card-wrap', variant === 'medium' && 'roster-card-wrap-medium']
-    .filter(Boolean)
-    .join(' ');
+  // Rail-specific sizing (full width, natural height, disclosure control)
+  // is scoped off the ancestor `.party-rail` in index.css rather than a
+  // modifier class here — 'medium' only ever mounts inside the rail now, so
+  // there's no other context this wrap needs to distinguish itself from.
+  const wrapClasses = 'roster-card-wrap';
 
   return (
     // Wrapper, not the card `<button>` itself, owns the swap button and its
@@ -137,7 +144,8 @@ export const AgentRosterCard = memo(function AgentRosterCard({
     // (a transformed ancestor becomes the containing block for a `position:
     // fixed` descendant, which would break the swap dialog's backdrop).
     // (Arceus never renders here — RosterStrip/SessionsOverview filter him
-    // out; his one home is the topbar chip.)
+    // out; his one home is his own permanent, gold-framed ArceusRosterCard,
+    // pinned first in the party rail.)
     <div className={wrapClasses}>
       <button
         className={classes}
@@ -149,38 +157,6 @@ export const AgentRosterCard = memo(function AgentRosterCard({
             : `${session.command} — ${session.cwd}`
         }
       >
-        {variant === 'compact' && (
-          <>
-            {/* Compact strip card (garden-split roster-strip rework) —
-                sprite, truncated title, provider tag, a status dot, and a
-                thin context sliver. Delegate sessions add their parent line
-                while staying inside the fixed strip band. */}
-            <div className="roster-card-top-compact">
-              <span className="roster-card-face">
-                <SessionFace session={session} box={18} />
-                {!session.isPlainTerminal && session.shiny && (
-                  <span className="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">
-                    ★
-                  </span>
-                )}
-              </span>
-              <span className="roster-card-title-compact">{session.title}</span>
-              <span className="roster-card-provider-compact">{providerShortLabel}</span>
-              <span
-                className={session.napping ? 'roster-card-dot napping' : `roster-card-dot ${session.status}`}
-                aria-hidden="true"
-              />
-            </div>
-            {delegateParentTitle && <div className="roster-card-parent-compact">↳ {delegateParentTitle}</div>}
-            <div className="hp-bar roster-card-ctx-sliver">
-              <div
-                className={`hp-bar-fill${cost && contextTone !== 'normal' ? ` ${contextTone}` : ''}`}
-                style={{ '--fill': (cost ? contextPct : 0) / 100 } as CSSProperties}
-              />
-            </div>
-          </>
-        )}
-
         {variant === 'medium' && (
           <>
             {/* Medium strip card (selection expands, garden-split rework) —
@@ -330,21 +306,21 @@ export const AgentRosterCard = memo(function AgentRosterCard({
           its own stopPropagation so opening it never also selects the card. */}
       {!session.isPlainTerminal && <TrainerCard session={session} />}
 
-      {/* Hidden-subagents count badge (subagent expand/collapse toggle) —
-          same mounting reasoning as `TrainerCard` above (a sibling of the
-          card `<button>`, not nested inside it), mirrored to the TOP-RIGHT
-          corner instead of that trigger's bottom-left. Clicking it expands
-          every subagent card back into view (`setSubagentCardsHidden(false)`)
-          rather than toggling just this one session — there's no per-session
-          collapse state, only the one global flag. */}
-      {!!hiddenSubagentCount && hiddenSubagentCount > 0 && (
+      {/* Per-parent subagent disclosure (party-rail rework, replaces the old
+          global "hidden subagents" count badge) — same mounting reasoning as
+          `TrainerCard` above (a sibling of the card `<button>`, not nested
+          inside it), TOP-RIGHT corner. Carries this parent's OWN child
+          count, not a global one — ⌥-click threads `altKey` up to
+          RosterStrip.tsx, which is the one place that knows every OTHER
+          parent's id and can collapse/expand them all at once. */}
+      {!!childCount && childCount > 0 && (
         <button
           type="button"
-          className="roster-card-hidden-badge"
-          title={`${hiddenSubagentCount} hidden subagent${hiddenSubagentCount === 1 ? '' : 's'} — click to show`}
-          onClick={() => setSubagentCardsHidden(false)}
+          className="roster-card-disclosure"
+          title={`${childCount} subagent${childCount === 1 ? '' : 's'} — click to ${collapsed ? 'show' : 'hide'} (⌥-click toggles every agent)`}
+          onClick={(e) => onToggleCollapse?.(e.altKey)}
         >
-          {hiddenSubagentCount}
+          {collapsed ? '▸' : '▾'} {childCount}
         </button>
       )}
 

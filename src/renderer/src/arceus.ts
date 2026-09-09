@@ -261,10 +261,10 @@ function armFirstPromptDelivery(provider: AgentProviderId, personaText: string, 
 /** Serializes every fresh-summon call (`summonArceus` and its dev-standin
  *  sibling below) against one another. Without this, two overlapping callers
  *  — e.g. `main.tsx`'s boot-time `autoSummonArceus()` (fired but not
- *  awaited, so the topbar chip and roster card are already clickable while
- *  it's still in flight) racing a user's own click, or the chip and roster
- *  card clicked in quick succession — can both pass the "arceus isn't live
- *  yet" check before either one's `addSession` lands, then both call
+ *  awaited, so his rail card is already clickable while it's still in
+ *  flight) racing a user's own click, or two clicks on that card in quick
+ *  succession — can both pass the "arceus isn't live yet" check before
+ *  either one's `addSession` lands, then both call
  *  `spawnArceus`: the second one's `existing` cleanup tears down the first's
  *  terminal/session and spawns its own pty under the same `ARCEUS_SESSION_ID`
  *  out from under the first call's still-armed `armFirstPromptDelivery`
@@ -315,7 +315,7 @@ export async function summonArceusDevStandin(req: SummonArceusRequest): Promise<
 // "arceus should only have to be onboarded the first time" — the ORIGINAL
 // summon (below, from SummonArceusDialog) stays explicit/user-initiated and
 // is the only thing that WRITES agents/arceus/summon.json. Every later
-// launch (main.tsx boot(), and the topbar chip if he's ever not live) reads
+// launch (main.tsx boot(), and his rail card if he's ever not live) reads
 // it back and re-summons him silently. Note (BACKLOG item 3): this silent
 // re-summon is only free when it resumes an existing conversation — a
 // disk-persisted session at app boot (sessionRespawn.ts's `--resume`,
@@ -421,8 +421,8 @@ async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<bo
 
 /** Summons Arceus from the saved config, picking real vs. dev-standin the
  *  same way SummonArceusDialog does. Used both at launch (main.tsx boot(),
- *  when he isn't among the restored sessions) and from the topbar chip
- *  (SummonArceusButton, when he's saved-but-not-live). Never throws —
+ *  when he isn't among the restored sessions) and from his party-rail card
+ *  (ArceusRosterCard.tsx, when he's saved-but-not-live). Never throws —
  *  `'failed'` covers the config's provider CLI missing from PATH, a dead
  *  `--resume` AND a failed fresh spawn, or any other spawn error; the
  *  caller turns that into a quiet toast, never a dialog.
@@ -431,8 +431,8 @@ async function tryResumeArceus(cwd: string, claudeSessionId: string): Promise<bo
  *  back to a fresh summon — the not-live record already in the store (if
  *  any) is the one source of truth for whether a resumable conversation
  *  exists, same signal main's own boot-time restore keys off, so the
- *  decision never depends on which caller (chip, roster card, or boot)
- *  reached here. Claude-only in practice: `tryResumeArceus` needs a
+ *  decision never depends on which caller (rail card or boot) reached here.
+ *  Claude-only in practice: `tryResumeArceus` needs a
  *  `claudeSessionId`, which nothing else ever captures (hookRouter.ts's
  *  SessionStart case is claude-only). A codex Arceus therefore ALWAYS falls
  *  through to a genuinely fresh `summonArceus(config)` here — persona

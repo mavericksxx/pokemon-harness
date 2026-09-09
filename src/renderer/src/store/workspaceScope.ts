@@ -1,8 +1,8 @@
 /** Sessions belonging to the currently active workspace (Phase 8.7) — the
- *  scoping the roster strip, sessions overview, terminal drawer tab strip,
- *  and the topbar's legacy session-chips fallback all use, so the garden
- *  (GardenScene, which reads the stores imperatively rather than through a
- *  hook) is the only place this filter is duplicated instead of shared. */
+ *  scoping the party rail, sessions overview, and terminal drawer tab strip
+ *  all use, so the garden (GardenScene, which reads the stores imperatively
+ *  rather than through a hook) is the only place this filter is duplicated
+ *  instead of shared. */
 import { useShallow } from 'zustand/react/shallow';
 import { useStore, type Session } from '@/store/store';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';

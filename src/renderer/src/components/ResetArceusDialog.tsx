@@ -9,11 +9,11 @@ interface Props {
 /** Settings' "reset arceus" confirm (Phase 8.9) — styled like
  *  DeleteWorkspaceDialog (warm copy, a plain "cancel" beside a `.danger`
  *  destructive action). Deletes agents/arceus/summon.json, the file whose
- *  mere existence gates the summon dialog (SummonArceusButton) — this is
- *  the only UI path back to first-run behavior short of wiping the harness
- *  home folder by hand. Does NOT touch a currently-live Arceus session, if
- *  any; it only means the NEXT time he isn't live, the setup dialog shows
- *  again instead of a silent auto-summon. */
+ *  mere existence gates the summon dialog (ArceusRosterCard.tsx's own summon
+ *  flow) — this is the only UI path back to first-run behavior short of
+ *  wiping the harness home folder by hand. Does NOT touch a currently-live
+ *  Arceus session, if any; it only means the NEXT time he isn't live, the
+ *  setup dialog shows again instead of a silent auto-summon. */
 export function ResetArceusDialog({ onClose }: Props): JSX.Element {
   const [busy, setBusy] = useState(false);
 

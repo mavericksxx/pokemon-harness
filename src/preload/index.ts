@@ -230,7 +230,8 @@ const api = {
 
   // ─── Arceus summon-once (Phase 8.9) — arceusSummonConfig.ts ─────────────
   /** Null if Arceus has never been summoned (or the file was reset) — the
-   *  signal SummonArceusButton uses to decide dialog vs. silent auto-summon. */
+   *  signal ArceusRosterCard.tsx's own summon flow uses to decide dialog vs.
+   *  silent auto-summon (also read by `autoSummonArceus`, arceus.ts). */
   getArceusSummonConfig: (): Promise<ArceusSummonConfig | null> =>
     ipcRenderer.invoke('arceus:loadSummonConfig'),
   /** Written once, after the FIRST successful summon (SummonArceusDialog) —
