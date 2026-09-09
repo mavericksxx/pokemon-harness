@@ -129,8 +129,14 @@ export function App(): JSX.Element {
   // `.garden-column` child, present in 'garden' mode only ('terminal' had
   // its own separate sidebar, FocusSidebar.tsx; 'gardenFull' kept the
   // topbar's session chips instead). It's now a fixed-width `.body-row`
-  // child of its OWN, rendered unconditionally below — present in every
-  // view mode, replacing both of those and absorbing the topbar's chips too.
+  // child of its OWN, rendered below in 'garden' and 'terminal' — replacing
+  // both of those and absorbing the topbar's chips for them — but NOT in
+  // 'gardenFull': that mode's own ViewModeSwitcher entry is labelled "garden
+  // only — no chrome", and a permanent 200px rail is chrome. This means
+  // gardenFull has no roster surface and no Arceus card at all (deliberate —
+  // ⌘1/⌘2 is the way back to a mode where either is reachable; NOT a gap to
+  // patch with a floating overlay or a mini-roster).
+  const showRosterRail = viewMode === 'garden' || viewMode === 'terminal';
   // The topbar's own "+ new agent" button is redundant with the party
   // rail's footer whenever a view mode's rail is at its full 200px width
   // ('garden'/'terminal' — 'gardenFull' keeps it, same as before the rail
@@ -234,9 +240,14 @@ export function App(): JSX.Element {
       <main className="body">
         <div className="body-row">
           {/* Party rail — a fixed-width `.body-row` child of its own, first
-              so it reads as the app's one permanent left rail across every
-              view mode (see its own header comment for what it replaces). */}
-          <RosterStrip onNewSession={() => setDialogOpen(true)} />
+              so it reads as the app's one permanent left rail. Shown in
+              'garden' and 'terminal' only (see `showRosterRail`'s own
+              comment above for why 'gardenFull' — a deliberately chrome-
+              free mode — is excluded); simply omitting it here is enough to
+              give `.garden-column` the row's full width in that mode, no
+              extra CSS needed (it's already a flex child with no rail
+              sibling to share space with). */}
+          {showRosterRail && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
           <div
             className="garden-column"
             data-view-mode={viewMode}

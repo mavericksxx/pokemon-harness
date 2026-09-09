@@ -13,14 +13,20 @@ interface Props {
 
 /**
  * The party rail — a 200px fixed-width vertical rail on the LEFT of
- * `.body-row`, present in EVERY view mode (garden split's side-by-side pane,
- * plain 'terminal', and full-bleed 'gardenFull' alike). Replaces three
- * things that each used to own a slice of session-switching UI: this
- * component's own former horizontal `.roster-strip` band (garden mode
- * only), the separate vertical sidebar `FocusSidebar.tsx` used to own
- * ('terminal' mode only, now retired), and the topbar's `OverflowChipRow`
- * session chips (App.tsx, 'gardenFull' only, now retired too) — one roster
- * UI everywhere instead of three different ones per view mode.
+ * `.body-row`, mounted in 'garden' and 'terminal' view modes (App.tsx's own
+ * `showRosterRail`) — NOT 'gardenFull', whose ViewModeSwitcher entry is
+ * explicitly labelled "garden only — no chrome"; a permanent rail there
+ * would be exactly the chrome that mode exists to shed. That leaves
+ * gardenFull with no roster surface and no Arceus card at all — deliberate,
+ * not a gap: ⌘1/⌘2 is the way back to a mode where either is reachable.
+ *
+ * Replaces two things that each used to own a slice of session-switching UI
+ * in the two modes THIS component actually mounts in: this component's own
+ * former horizontal `.roster-strip` band ('garden' only) and the separate
+ * vertical sidebar `FocusSidebar.tsx` used to own ('terminal' only, now
+ * retired) — one roster UI for both instead of two different ones. The
+ * topbar's `OverflowChipRow` session chips (App.tsx, 'gardenFull' only) are
+ * simply retired, with nothing replacing them in that mode.
  *
  * Structure, top to bottom: a header (active garden's name + live/total
  * counts), a scrolling list (Arceus pinned first with no heading, then an

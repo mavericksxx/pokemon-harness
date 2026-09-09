@@ -31,7 +31,16 @@ export const DEFAULT_GARDEN_SPLIT = 0.54;
  *  source of truth for the actual rendered box (56px once the rail itself
  *  collapses, see its "party rail" section); this is only read here to keep
  *  the narrow-layout threshold honest against the WORST case (rail still at
- *  its full width). */
+ *  its full width).
+ *
+ *  The rail itself is only ever mounted in 'garden'/'terminal' (App.tsx's
+ *  `showRosterRail` — never 'gardenFull', a deliberately chrome-free mode),
+ *  but `NARROW_LAYOUT_MAX_PX` below only ever matters for 'garden' mode's
+ *  split anyway (`effectiveLayout.ts`'s `splitActive`/`gardenVisible` never
+ *  read `narrowLayout` for 'gardenFull' at all — that mode has no split to
+ *  invalidate), so assuming the rail's width unconditionally here is exactly
+ *  right for the one mode this constant actually governs, not an oversight
+ *  that forgot gardenFull excludes it. */
 export const PARTY_RAIL_PX = 200;
 
 /** Row width below which the garden/terminal split stops being structurally
