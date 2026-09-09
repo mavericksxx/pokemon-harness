@@ -1,13 +1,13 @@
 // Pokéharness app icon — production generator.
 //
-// Based on the user-approved mockup recipe (round 4 of the icon-mockup
-// exploration, candidate 35): a real Pokemon Showdown Garchomp sprite
-// (assets/garchomp-front.png, 96x96, gen5 static front sheet) centered on a
-// 128-unit grid, deep-indigo ground with three dithered nebula clusters, a
-// sparse gold star field, and a solid gold ">" caret top-left — the same
-// drawing primitives (Float64Array pixel grid, hand-rolled zlib PNG
-// encoder, nearest-neighbor upscale / box-average downscale) as the mockup
-// toolkit it's ported from.
+// Ported from the user-approved mockup recipe (round 4 of the icon-mockup
+// exploration, candidate 35), since replaced with a flat-white Charizard
+// variant: a real Pokemon Showdown Charizard sprite
+// (assets/charizard-front.png, 96x96, gen5 static front sheet) centered on a
+// 128-unit grid, a flat off-white ground with no texture of any kind, and a
+// solid gold ">" caret top-left — the same drawing primitives (Float64Array
+// pixel grid, hand-rolled zlib PNG encoder, nearest-neighbor upscale /
+// box-average downscale) as the mockup toolkit it's ported from.
 //
 // Full-bleed background: the ground fills the entire square canvas
 // edge-to-edge with no drawn corner rounding and no transparent margin.
@@ -29,9 +29,7 @@
 // redrawn at the exact target scale; sprite resized straight from its own
 // 96x96 original with a matched filter) keeps every size a single resample
 // from source, so the caret and sprite hold the legible footprint the
-// mockup sheets validated down to 16px — nebula texture is the one thing
-// deliberately allowed to soften away first (it's flat dithered color, not
-// a shape the icon depends on for recognizability).
+// mockup sheets validated down to 16px.
 //
 // Requires on PATH: `magick` (ImageMagick — sprite resize/composite) and
 // `iconutil` (macOS-only — .iconset -> .icns). Both are one-time build
@@ -52,7 +50,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
-const SPRITE = join(HERE, 'assets', 'garchomp-front.png');
+const SPRITE = join(HERE, 'assets', 'charizard-front.png');
 const TMP = join(HERE, '_tmp');
 const ICONSET = join(HERE, '_tmp', 'icon.iconset');
 
@@ -213,8 +211,13 @@ function savePNG(grid, path) {
 
 // ---------- candidate-35 recipe (round4.mjs), adapted for a full-bleed background ----------
 
-const P = { gold: '#E8B740' };
-const GROUND = '#171233';
+// The original recipe's gold (#E8B740) was picked for contrast against a
+// deep-indigo ground; against the new near-white GROUND it measures well
+// under a 3:1 contrast ratio (WCAG's own floor for graphical/UI elements)
+// and reads washed-out. Darkened to #A67C00 (~3.5:1 against #f7f5ee) —
+// still a clear gold/amber, not brown, but legible at 16px.
+const P = { gold: '#A67C00' };
+const GROUND = '#f7f5ee';
 const BASE4 = 128;
 // Apple's icon guidelines treat the middle ~80% of the canvas as the safe
 // area a squircle mask won't clip — roughly a 10%-per-side inset. SAFE4 is
@@ -237,73 +240,38 @@ const CARET_MASK = [
   '0100000',
   '0000000'
 ];
-const NEBULA_CLUSTERS = [
-  { cx: 30, cy: 90, r: 30, color: '#7A2E6E', seed: 2, density: 0.45 },
-  { cx: 95, cy: 35, r: 26, color: '#5A3A9E', seed: 5, density: 0.4 },
-  { cx: 100, cy: 100, r: 22, color: '#8C3AA0', seed: 9, density: 0.35 }
-];
-const STAR_SEED = 11;
-const STAR_COUNT = 8;
 // BIG_CENTER — native 96x96 sprite, centered in the 128 grid (round4.mjs)
 const SPRITE_X = (128 - 96) / 2; // 16
 const SPRITE_Y = (128 - 96) / 2; // 16
 
-function prand(x, y, seed) {
-  const v = Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453;
-  return v - Math.floor(v);
-}
-
-function nebulaClouds(grid, clusters) {
-  for (const { cx, cy, r, color, seed, density } of clusters) {
-    const [cr, cg, cb] = hex(color);
-    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
-      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
-        const d = Math.hypot(x - cx, y - cy) / r;
-        if (d > 1) continue;
-        if (prand(x, y, seed) > density * (1 - d)) continue;
-        const a = 35 + prand(x + 90, y + 90, seed + 3) * 90;
-        blend(grid, x, y, [cr, cg, cb, Math.round(a)]);
-      }
-    }
-  }
-}
-
-function starsField(grid, { count, seed, color }) {
-  const [r, g, b] = hex(color);
-  for (let i = 0; i < count; i++) {
-    const x = Math.floor(prand(i, 0, seed) * BASE4);
-    const y = Math.floor(prand(0, i, seed) * BASE4);
-    blend(grid, x, y, [r, g, b, 210]);
-  }
-}
-
-/** Draws the 128-unit backdrop (full-bleed ground, nebula, stars, caret) —
- *  everything EXCEPT the real sprite, which ImageMagick composites in
- *  separately (see compositeSprite below). The ground fills the entire
- *  canvas edge-to-edge (no drawn corner rounding) — macOS applies its own
- *  squircle mask, so a self-drawn rounded tile would leave a transparent
- *  margin that gets composited onto the system's light icon backing plate. */
+/** Draws the 128-unit backdrop (full-bleed ground, caret) — everything
+ *  EXCEPT the real sprite, which ImageMagick composites in separately (see
+ *  compositeSprite below). The ground fills the entire canvas edge-to-edge
+ *  (no drawn corner rounding) — macOS applies its own squircle mask, so a
+ *  self-drawn rounded tile would leave a transparent margin that gets
+ *  composited onto the system's light icon backing plate. The ground is a
+ *  flat, unbroken fill — no dithered texture, no star field — a deliberate
+ *  design decision made after several busier/textured versions were
+ *  rejected, not an oversight. */
 function drawBackdrop128() {
   const g = makeGrid(BASE4, BASE4);
   fillRect(g, 0, 0, BASE4, BASE4, GROUND);
-  nebulaClouds(g, NEBULA_CLUSTERS);
-  starsField(g, { count: STAR_COUNT, seed: STAR_SEED, color: P.gold });
   stampMask(g, CARET_XY4[0], CARET_XY4[1], CARET_MASK, P.gold, 255, CARET_SOLID);
   return g;
 }
 
 /** Backdrop, resampled to `size` actual pixels — nearestUpscale for size >=
  *  128 (clean integer multiples: 256, 512, 1024), boxDownscale for size <
- *  128 (64, 32, 16) so nebula dither box-averages into a soft flat tone
- *  instead of aliasing, while the solid-color caret/squircle edges stay
- *  crisp either way. */
+ *  128 (64, 32, 16). The ground is a flat fill so both paths render it
+ *  identically; boxDownscale is kept for the caret/squircle edges, which
+ *  still benefit from box-averaging instead of aliasing at small sizes. */
 function backdropAt(size) {
   const base = drawBackdrop128();
   if (size === BASE4) return base;
   return size > BASE4 ? nearestUpscale(base, size / BASE4) : boxDownscale(base, BASE4 / size);
 }
 
-/** Composites the real Garchomp sprite onto a backdrop PNG at `size` actual
+/** Composites the real Charizard sprite onto a backdrop PNG at `size` actual
  *  pixels. Resized straight from the 96x96 source at scale F = size/128 —
  *  point filter (crisp, nearest-neighbor) for F >= 1, box filter (averaged)
  *  for F < 1 — the same filter pairing round4.mjs used for the 512 render,
