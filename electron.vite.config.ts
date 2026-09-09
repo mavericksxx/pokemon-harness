@@ -12,7 +12,13 @@ export default defineConfig({
         // entry, not an import of index's own code: it's spawned as its own
         // OS process (ELECTRON_RUN_AS_NODE) via the built `ptyKeeper.js`
         // sibling this produces, never required by index.js at runtime.
-        input: { index: resolve(__dirname, 'src/main/index.ts'), ptyKeeper: resolve(__dirname, 'src/main/ptyKeeper.ts') }
+        // `costHistoryScan` is the same detached-helper-process pattern, for
+        // the tray popover's cost-history scan (src/main/costHistoryScan.ts).
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          ptyKeeper: resolve(__dirname, 'src/main/ptyKeeper.ts'),
+          costHistoryScan: resolve(__dirname, 'src/main/costHistoryScan.ts')
+        }
       }
     }
   },
@@ -20,7 +26,13 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/preload/index.ts') }
+        // `trayPopoverPreload` — the tray popover's own (much narrower)
+        // preload, a second BrowserWindow that isn't the main renderer (see
+        // src/main/tray.ts's header).
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          trayPopoverPreload: resolve(__dirname, 'src/preload/trayPopoverPreload.ts')
+        }
       }
     }
   },

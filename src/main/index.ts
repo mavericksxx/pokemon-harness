@@ -21,8 +21,10 @@ import { registerAppIpc } from './ipc/app';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
+import { CostHistoryService } from './costHistory';
 import { SessionTitleWatcher } from './sessionTitleWatcher';
 import { UsageService } from './usageService';
+import { TrayController } from './tray';
 import { ArceusRelayWatcher } from './arceusRelay';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { loadAudioSettings } from './audioSettings';
@@ -219,6 +221,20 @@ const sessionTitleWatcher = new SessionTitleWatcher(
 // guarantee this constructor call does NOT itself violate (constructing the
 // service performs no I/O).
 const usageService = new UsageService(() => mainWindow?.webContents ?? null);
+// Tray popover's cost-history section (issue #17) — a scan of every
+// ~/.claude/projects/**/*.jsonl transcript over the last 30 days, cached
+// with a TTL (see costHistory.ts's own header). Independent of costWatcher
+// above: that one only tracks currently-registered LIVE sessions in memory.
+const costHistoryService = new CostHistoryService();
+// macOS menu-bar item (issue #17) — custom popover panel, not a native
+// `Menu`; see tray.ts's own header for the presentation decision and each
+// section's data source. `() => sessionRegistry` is the same forward-
+// reference trick `arceusRelay` below uses.
+const trayController = new TrayController({
+  usageService,
+  costHistory: costHistoryService,
+  getSessionRegistry: () => sessionRegistry
+});
 // BACKLOG "next up" item 3 — watches Arceus's own transcript (registered off
 // the same onRawPayload hook chained below) for a relay directive and types
 // it into the named session's pty. Constructed before `ptyManager` so its
@@ -1047,6 +1063,8 @@ app.whenReady().then(async () => {
   // shows up in harness.log rather than needing to be re-derived by hand.
   log('hooks', 'info', 'delegate CLI installed', { command: hookBridge.delegateCliCommand() });
   costWatcher.start();
+  costHistoryService.start();
+  trayController.init();
   arceusRelay.start();
   taskNotificationWatcher.start();
   sessionTitleWatcher.start();
@@ -1170,6 +1188,8 @@ app.on('before-quit', (e) => {
   }
   hookBridge.stop();
   costWatcher.stop();
+  costHistoryService.stop();
+  trayController.destroy();
   usageService.shutdown();
   arceusRelay.stop();
   taskNotificationWatcher.stop();
