@@ -910,6 +910,13 @@ button.icon:active {
    * viewport regardless (fixed positioning isn't affected by an ancestor's
    * plain `position: relative`, only by a transformed/filtered one). */
   position: relative;
+  /* The party rail's current rendered width — `.party-rail` below reads
+   * this for its own `width`, and gardenSplit.ts's `terminalWidthCss` reads
+   * it too (via `var()` inside a CSS `calc()`) so the drawer's clamped
+   * width tracks the rail's ~1100px collapse (below) with no resize
+   * listener or measurement of its own. Overridden to `56px` inside that
+   * same media query. */
+  --party-rail-w: 200px;
 }
 
 /* The garden pane's own column (App.tsx's `.garden-column`) — a `.body-row`
@@ -2777,7 +2784,7 @@ body.garden-lowres .garden canvas {
  * name + counts), a scrolling list, and a footer "+ new agent" tile. */
 .party-rail {
   flex: none;
-  width: 200px;
+  width: var(--party-rail-w);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2933,8 +2940,8 @@ body.garden-lowres .garden canvas {
  * for why the garden/terminal split's own narrow-layout threshold had to
  * learn this rail's width too. */
 @media (max-width: 1100px) {
-  .party-rail {
-    width: 56px;
+  .body-row {
+    --party-rail-w: 56px;
   }
 
   .party-rail-header {
