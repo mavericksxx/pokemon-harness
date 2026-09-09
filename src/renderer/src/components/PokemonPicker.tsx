@@ -50,6 +50,14 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
   }, [query]);
 
   const results: readonly DexEntry[] = debouncedQuery.trim() ? searchDex(debouncedQuery, 30) : DEX_LIST;
+  // True for the 200ms window between a keystroke and its debounced result
+  // set landing — the grid on screen is still the PREVIOUS query's, so a
+  // click right now would silently commit whatever species used to be at
+  // that position rather than what the user just searched for. Disabling
+  // clicks during this window (rather than, say, re-filtering immediately)
+  // is what the debounce comment above already asks for: no per-keystroke
+  // PokemonFace fetches, but no stale-click footgun either.
+  const resultsStale = query.trim() !== debouncedQuery.trim();
 
   // Alt-battle-form sub-panel (e.g. Zacian's Crowned Sword form) — the base
   // species id currently showing its form options below the grid, or null.
@@ -116,7 +124,7 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
           // the Smogon Sprite Project has no art for this species (Phase 6
           // §2) — grey it out rather than let a pick fail at fetch time.
           const noSprite = entry.hasSprite === false;
-          const disabled = isTaken || noSprite;
+          const disabled = isTaken || noSprite || resultsStale;
           const optionTitle = noSprite
             ? `no sprite available for ${entry.name}`
             : isTaken
