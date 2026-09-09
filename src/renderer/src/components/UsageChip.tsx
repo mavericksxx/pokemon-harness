@@ -41,7 +41,9 @@ function miniGauges(providers: UsageProviderSnapshot[], mainUsageProvider: Usage
 
 /** Per-window identity color for the mini-gauge LABEL only (user feedback:
  *  "hard to distinguish the three bars" — a fixed color by window label, not
- *  urgency; `gaugeTone` below still owns the %/fill color unchanged). */
+ *  urgency). Deliberately exempt from the level-3 muted-gauge rule: the
+ *  bar fill and % follow `CHIP_GAUGE_HOT_THRESHOLD` below, but the label
+ *  keeps its window color at every urgency level. */
 function usageWindowClass(label: string): 'w5h' | 'wfable' | 'w7d' {
   if (label === '5h') return 'w5h';
   if (label === '7d fable') return 'wfable';
