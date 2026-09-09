@@ -1052,14 +1052,15 @@ button.icon:active {
  * `.garden-frame-shadow`), so this is just the plain flex slot around it:
  * no padding (the bezel IS the border now — a 32px neutral margin would
  * leave the map floating away from its own frame) and `border-radius: 0`
- * (a hard bezel can't have a rounded corner clip). */
+ * (a hard bezel can't have a rounded corner clip). No border here either —
+ * with the padding gone, a `--line` hairline would sit directly outside the
+ * gold bezel and read as a muddy fringe; the bezel is the only frame now. */
 .garden-mat {
   position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
   background: var(--panel);
-  border: 1px solid var(--line);
   border-radius: 0;
 }
 
@@ -2482,6 +2483,23 @@ body.garden-lowres .garden canvas {
 
 .usage-chip-gauge--danger .hp-bar-fill {
   background-color: var(--status-blocked);
+}
+
+/* Per-window identity color, LABEL ONLY — deliberately exempt from the
+ * level-3 "muted gauge" rule above (user feedback: "hard to distinguish the
+ * three bars"): the %/fill stay on the muted-until-80% rule, but the label
+ * keeps a fixed, always-on color by window so the three gauges stay
+ * tellable apart at a glance regardless of urgency state. */
+.usage-chip-gauge--w5h .usage-chip-gauge-label {
+  color: var(--accent-sky);
+}
+
+.usage-chip-gauge--w7d .usage-chip-gauge-label {
+  color: var(--gold);
+}
+
+.usage-chip-gauge--wfable .usage-chip-gauge-label {
+  color: var(--accent-lilac);
 }
 
 .usage-provider {
