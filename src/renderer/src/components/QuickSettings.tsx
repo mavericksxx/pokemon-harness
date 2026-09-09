@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useAudioStore } from '@/audio/audioStore';
+import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
 import { showUpdateToast } from '@/updateNotifier';
+import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '@shared/terminalTypes';
 
 /**
  * Topbar "quick settings" popover — the handful of things worth reaching
@@ -39,6 +41,9 @@ export function QuickSettings(): JSX.Element {
   const setMasterMuted = useAudioStore((s) => s.setMasterMuted);
   const setMusicOn = useAudioStore((s) => s.setMusicOn);
   const setMusicVolume = useAudioStore((s) => s.setMusicVolume);
+
+  const terminalFontSize = useTerminalSettingsStore((s) => s.settings.fontSize);
+  const setTerminalFontSize = useTerminalSettingsStore((s) => s.setFontSize);
 
   const [updateCheckStatus, setUpdateCheckStatus] = useState<
     'idle' | 'checking' | 'up to date' | 'checked — offline?'
@@ -178,6 +183,31 @@ export function QuickSettings(): JSX.Element {
               </span>
             </span>
           </label>
+
+          <div className="audio-row">
+            <span>terminal font size</span>
+            <div className="terminal-panel-fontstep">
+              <button
+                type="button"
+                className="terminal-panel-fontstep-btn"
+                onClick={() => setTerminalFontSize(terminalFontSize - 1)}
+                disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
+                aria-label="decrease terminal font size"
+              >
+                −
+              </button>
+              <span className="terminal-panel-fontstep-value">{terminalFontSize}px</span>
+              <button
+                type="button"
+                className="terminal-panel-fontstep-btn"
+                onClick={() => setTerminalFontSize(terminalFontSize + 1)}
+                disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}
+                aria-label="increase terminal font size"
+              >
+                +
+              </button>
+            </div>
+          </div>
 
           <div className="quick-settings-update">
             <button
