@@ -34,6 +34,23 @@ function hookTmpDir(): string {
  *  backfill. */
 const REPLAY_MAX_CHARS = 200_000;
 
+/** Session-identity env vars the Claude Code CLI stamps onto its own child
+ *  processes. If pokeharness's own env carries these (e.g. the app was
+ *  launched from inside an existing Claude Code session), they'd otherwise
+ *  leak into every spawned agent via the process.env spread in
+ *  `buildBaseEnv`, making the CLI mistake a fresh top-level agent for a
+ *  nested child/subagent session. Mirrors Claude Code's own denylist for
+ *  spawning a clean top-level session from inside an existing one. */
+const CLEAN_LAUNCH_ENV_DENYLIST = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_CHROME_MCP_ORG_DENIED',
+  'CLAUDE_CODE_EVAL_INTERVIEW_SESSION',
+  'CLAUDE_CODE_BRIDGE_SESSION_ID',
+  'CLAUDE_PID'
+] as const;
+
 /** Hard cap on concurrently live sessions (`this.sessions.size`) — a runaway
  *  loop or scripted spam of `spawn()` calls would otherwise exhaust OS
  *  file descriptors/PTYs with no limit at all. Comfortably above any real
@@ -491,13 +508,14 @@ export class PtyManager {
     };
     // Every agent this app spawns is a real top-level session, never a
     // subagent — but if the app itself was launched from inside an existing
-    // Claude Code session, CLAUDE_CODE_CHILD_SESSION leaks through the
-    // process.env spread above and makes the CLI wrongly treat the spawned
-    // agent as a child session, disabling transcript persistence for it.
-    // Strip it and force persistence back on, unless the caller's overrides
-    // explicitly say otherwise.
-    delete env.CLAUDE_CODE_CHILD_SESSION;
-    env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1';
+    // Claude Code session, identity/session markers leak through the
+    // process.env spread above (e.g. CLAUDE_CODE_CHILD_SESSION makes the CLI
+    // wrongly treat the spawned agent as a child session and disables
+    // transcript persistence for it). This mirrors Claude Code's own
+    // clean-launch denylist for spawning a fresh top-level session from
+    // inside an existing one — keep it in sync with that list, don't trim it
+    // back down to a single var.
+    for (const key of CLEAN_LAUNCH_ENV_DENYLIST) delete env[key];
     Object.assign(env, overrides ?? {});
     return env;
   }
