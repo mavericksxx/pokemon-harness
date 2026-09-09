@@ -10,6 +10,17 @@ import {
 
 const DRAG_THRESHOLD_PX = 4;
 
+/** Magnetic snap radius for the true-50/50 point, in px of drawer width —
+ *  not a ratio delta, so the feel is identical on a cramped and a huge
+ *  window instead of the same ratio delta meaning a hair-trigger snap on a
+ *  wide row and an unreachable one on a narrow row. 10px is small enough
+ *  that nudging the handle a centimeter past center still tracks the
+ *  cursor normally (this is a "wants to rest here" pull, not a dead zone
+ *  the user has to fight through), but comfortably bigger than a stray
+ *  trackpad jitter, so it reads as "the handle found the middle" rather
+ *  than an accidental snap. */
+const CENTER_SNAP_PX = 10;
+
 /** Draggable divider between the garden and the terminal drawer, mounted by
  *  App.tsx between them in `.body-row` only in 'garden' view mode with the
  *  drawer open (the one layout with a split at all — 'terminal'/
@@ -43,6 +54,15 @@ export function GardenSplitHandle(): JSX.Element {
   const setGardenSplit = useStore((s) => s.setGardenSplit);
   const draggingRef = useRef(false);
   const rowRectRef = useRef<DOMRect | null>(null);
+  // The party rail's live rendered width (0 once split-inactive edge cases
+  // are excluded by App.tsx never mounting this handle in 'gardenFull') —
+  // captured alongside rowRectRef on pointerdown rather than hardcoded to
+  // PARTY_RAIL_PX, because the rail collapses to 56px below ~1100px
+  // (index.css's "Collapsed rail" block) and "50/50" has to mean the
+  // midpoint of the garden+terminal area alone, not 50% of the whole row
+  // (which would silently shift off-center by however wide the rail
+  // currently is).
+  const railWidthRef = useRef(0);
   const grabOffsetRef = useRef(0);
   const downXRef = useRef(0);
   const latestXRef = useRef(0);
@@ -58,7 +78,17 @@ export function GardenSplitHandle(): JSX.Element {
   /** Garden's fraction of the row for pointer position `clientX`, clamped
    *  to both floors — the one calculation both the rAF tick and
    *  pointerup's final commit use, so releasing the pointer never persists
-   *  a stale, pre-last-move ratio (see the rAF-cancel in stopDragging). */
+   *  a stale, pre-last-move ratio (see the rAF-cancel in stopDragging).
+   *
+   *  Also where the magnetic 50/50 snap lives, so it applies identically to
+   *  every live drag tick and the final pointerup commit for free, instead
+   *  of needing a parallel code path. `rowRect` is the whole `.body-row`
+   *  (party rail included, see onPointerDown), so true center of the
+   *  garden+terminal area alone is computed the same way `terminalWidthCss`
+   *  reasons about drawer width: the garden+terminal area is
+   *  `rowRect.width - railWidthRef.current` wide, split evenly around the
+   *  handle means each side gets half of what's left after the handle's
+   *  own width comes out. */
   const ratioFor = (clientX: number): number => {
     const rowRect = rowRectRef.current;
     if (!rowRect) return useStore.getState().gardenSplit;
@@ -66,7 +96,23 @@ export function GardenSplitHandle(): JSX.Element {
     const drawerWidth = rowRect.right - (handleLeft + HANDLE_PX);
     const maxDrawerWidth = Math.max(TERMINAL_MIN_PX, rowRect.width - HANDLE_PX - GARDEN_MIN_PX);
     const clampedDrawerWidth = Math.min(Math.max(drawerWidth, TERMINAL_MIN_PX), maxDrawerWidth);
-    return 1 - clampedDrawerWidth / rowRect.width;
+    // True-center drawer width sits inside [TERMINAL_MIN_PX,
+    // maxDrawerWidth] for basically every real row width — center >=
+    // TERMINAL_MIN_PX needs rowRect.width >= 2*TERMINAL_MIN_PX + HANDLE_PX +
+    // railWidth, which the split-active threshold (NARROW_LAYOUT_MAX_PX,
+    // ~1020px) only clears with the rail already collapsed to 56px (its own
+    // ~1100px breakpoint in index.css) — two constants tuned independently,
+    // not one derived from the other, so the clamp below is cheap insurance
+    // rather than provably dead code if either one ever drifts.
+    const centerDrawerWidth = Math.min(
+      Math.max((rowRect.width - railWidthRef.current - HANDLE_PX) / 2, TERMINAL_MIN_PX),
+      maxDrawerWidth
+    );
+    const snappedDrawerWidth =
+      Math.abs(clampedDrawerWidth - centerDrawerWidth) <= CENTER_SNAP_PX
+        ? centerDrawerWidth
+        : clampedDrawerWidth;
+    return 1 - snappedDrawerWidth / rowRect.width;
   };
 
   const stopDragging = (persistRatio: boolean): void => {
@@ -95,6 +141,11 @@ export function GardenSplitHandle(): JSX.Element {
     const row = e.currentTarget.parentElement;
     if (!row) return;
     rowRectRef.current = row.getBoundingClientRect();
+    // The rail is always `.body-row`'s first child whenever this handle is
+    // mounted (both require 'garden'/'terminal' view mode — see App.tsx's
+    // `showRosterRail` and `splitActive`) — the `?? 0` fallback is only for
+    // the unreachable case of this handle somehow mounting without it.
+    railWidthRef.current = row.querySelector('.party-rail')?.getBoundingClientRect().width ?? 0;
     grabOffsetRef.current = e.clientX - e.currentTarget.getBoundingClientRect().left;
     downXRef.current = e.clientX;
     latestXRef.current = e.clientX;
