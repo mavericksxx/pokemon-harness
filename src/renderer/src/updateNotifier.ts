@@ -22,9 +22,23 @@ export function showUpdateToast(result: UpdateCheckResult): void {
   });
 }
 
-/** Call once, at boot (main.tsx) — mirrors closingTime.ts's
- *  `startQuitInterceptListener` shape (a single always-on IPC subscription
- *  wired before the async boot-recovery work). */
+/** Call once, at boot (main.tsx) — a single always-on IPC subscription wired
+ *  before the async boot-recovery work, same shape as
+ *  `startQuitInterceptListener` below. */
 export function startUpdateCheckListener(): void {
   window.api.onUpdateAvailable((result) => showUpdateToast(result));
+}
+
+/**
+ * Quit-intercept dialog (parity sweep item 2) — main asks the renderer to
+ * show the "N agents still running" dialog whenever a close/quit was
+ * prevented because sessions are live (see main/index.ts's `close` and
+ * `before-quit` guards). Call once, at boot — same wiring as
+ * `startUpdateCheckListener` above. Moved here (its original home guarded
+ * against a since-removed sunset-ritual feature that no longer exists).
+ */
+export function startQuitInterceptListener(): void {
+  window.api.onQuitRequested((count) => {
+    useStore.getState().setQuitDialogOpen(true, count);
+  });
 }

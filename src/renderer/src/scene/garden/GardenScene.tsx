@@ -19,8 +19,6 @@ import { speciesEntry } from './dexData';
 import { BattleManager } from './battle/BattleManager';
 import { AdvisorManager } from './battle/AdvisorManager';
 import { GardenCharm } from './gardenCharm';
-import { ClosingRitual } from './ClosingRitual';
-import { emitClosingRitualSignal, onClosingRitualSignal } from './closingRitualBus';
 import { clearBattleFx, hasActiveFx } from './battle/battleFx';
 import { playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
@@ -49,14 +47,6 @@ const gardenMap = JSON.parse(gardenMapRaw) as TiledMap;
 
 export function GardenScene(): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
-  // Closing-time sunset overlay (Phase 8.5 Wave B item 2) — a CSS layer on
-  // `.garden-mat` (not a Pixi layer: it needs to cover the whole mat,
-  // including the letterbox, and mustn't scale with the camera or be
-  // crushed by an in-flight evolution ceremony's own dim overlay). Plain
-  // React state is fine here even though the rest of this component is
-  // imperative Pixi: this is the one piece of UI actually in the React tree
-  // (see the JSX return below).
-  const [ritualActive, setRitualActive] = useState(false);
   // WebGL context-loss recovery (garden-ui-crash triage,
   // 2026-08-29 — docs/triage/2026-08-29-garden-ui-crash.md): flips true only
   // once the auto-rebuild attempt cap (below) is exhausted, showing a plain
@@ -68,13 +58,12 @@ export function GardenScene(): JSX.Element {
   const [crashed, setCrashed] = useState(false);
   const manualRebuildRef = useRef<() => void>(() => {});
   // The cosmos warp — active (target = cosmos) exactly when Arceus is the
-  // selected session. A pure derived value (no lifecycle to manage, unlike
-  // `ritualActive` above), so it reads straight off the store rather than
-  // being toggled from inside the imperative Pixi effect below — that
-  // effect never needs to know about it at all: the warp is entirely owned
-  // by ArceusWarp.tsx's own JSX/inline styles, separate from the
-  // simulation running underneath (which keeps going, unaffected, while
-  // the garden host is warped away).
+  // selected session. A pure derived value (no lifecycle to manage), so it
+  // reads straight off the store rather than being toggled from inside the
+  // imperative Pixi effect below — that effect never needs to know about it
+  // at all: the warp is entirely owned by ArceusWarp.tsx's own JSX/inline
+  // styles, separate from the simulation running underneath (which keeps
+  // going, unaffected, while the garden host is warped away).
   const ascended = useStore((s) => s.selectedId === ARCEUS_SESSION_ID);
 
   useEffect(() => {
@@ -664,30 +653,6 @@ export function GardenScene(): JSX.Element {
         onOpenSettings: () => useStore.getState().setSettingsOpen(true)
       });
 
-      // Closing-time sunset ritual (Phase 8.5 Wave B item 2) — see
-      // ClosingRitual.ts and closingRitualBus.ts. 'start'/'cancel' arrive
-      // from closingTime.ts (settings button / Cmd+Shift+Q / Escape); this
-      // is the only place a walker's own goTo is called for the ritual —
-      // 'complete' flows back out so closingTime.ts can toast + quit.
-      const closingRitual = new ClosingRitual(map);
-      const offRitual = onClosingRitualSignal((signal) => {
-        if (signal.type === 'start') {
-          setRitualActive(true);
-          const entries = new Map(
-            [...runtimes].map(([id, rt]) => [id, { walker: rt.walker }])
-          );
-          closingRitual.start(entries, (wrappedCount) => {
-            emitClosingRitualSignal({ type: 'complete', wrappedCount });
-          });
-        } else if (signal.type === 'cancel') {
-          closingRitual.cancel();
-          setRitualActive(false);
-        }
-        // 'complete' is closingTime.ts's own signal to itself (it's the one
-        // that toasts + quits) — nothing for the scene to do with it, and
-        // the overlay deliberately stays lit until the app actually quits.
-      });
-
       /** Done first-class delegates are ordinary session walkers, not
        *  BattleManager battlers. Start the shared pokéball recall at the
        *  walker's current position, and only then use the normal session
@@ -1160,20 +1125,6 @@ export function GardenScene(): JSX.Element {
             });
           }
         }
-        // Checked before, not after, update() — same reasoning as
-        // `battleOrFxWasActive` above: `finish()` can flip `isActive` false
-        // as part of THIS call (every walker arrived/waved, or the 15s cap
-        // hit), and the pre-tick read still correctly marks dirty for that
-        // last frame's own goTo/bounce/floating-text changes. In practice
-        // this is close to a no-op today — every walker mutation the ritual
-        // makes (goTo/bounce/showFloatingText) already marks dirty on its
-        // own via Walker.ts's own hooks — kept anyway as the explicit,
-        // provable "ritual active" source the task calls for, and as a
-        // backstop if the ritual ever grows a visual of its own outside the
-        // walkers it drives.
-        const ritualWasActive = closingRitual.isActive;
-        closingRitual.update(dt);
-        if (ritualWasActive) markDirty();
         dayNight.update(dt);
         if (dayNight.isAnimating) markDirty(); // lamp flicker/sway — no-op (and thus no-op here) by day
         // gardenCharm's well-hotspot "breathe" pulse used to be its own
@@ -1382,7 +1333,6 @@ export function GardenScene(): JSX.Element {
         detachGardenInput();
         unsubscribe();
         unsubscribeWorkspace();
-        offRitual();
         for (const id of [...runtimes.keys()]) removeWalker(id);
         battleManager.dispose();
         advisorManager.dispose();
@@ -1449,7 +1399,6 @@ export function GardenScene(): JSX.Element {
           </div>
         )}
       </div>
-      <div className={ritualActive ? 'garden-sunset-overlay active' : 'garden-sunset-overlay'} aria-hidden="true" />
     </div>
   );
 }

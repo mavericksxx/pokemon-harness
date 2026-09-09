@@ -5,7 +5,6 @@ import { MiniPlayer } from '@/components/MiniPlayer';
 import { shinyConfig } from '@/scene/garden/shiny';
 import { evolutionConfig } from '@/scene/garden/evolution';
 import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
-import { startClosingTime } from '@/closingTime';
 import {
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
@@ -53,11 +52,10 @@ const ADVISOR_MODEL_OPTIONS: { value: string; label: string }[] = [
 /**
  * Left-rail section list for the settings dialog. Order matches the brief
  * ("appearance, automation, harness home, arceus, sound, diagnostics") with
- * the panel's other pre-existing sections (terminal, config, closing time,
- * about) kept in their original relative position between "sound" and
- * "diagnostics" — nothing dropped, just re-housed. Change this array to
- * reorder/merge sections; both the rail and the content switch below read
- * off it.
+ * the panel's other pre-existing sections (terminal, config, about) kept in
+ * their original relative position between "sound" and "diagnostics" —
+ * nothing dropped, just re-housed. Change this array to reorder/merge
+ * sections; both the rail and the content switch below read off it.
  */
 const SECTIONS = [
   { id: 'appearance', label: 'appearance' },
@@ -68,7 +66,6 @@ const SECTIONS = [
   { id: 'sound', label: 'sound' },
   { id: 'terminal', label: 'terminal' },
   { id: 'config', label: 'config' },
-  { id: 'closing-time', label: 'closing time' },
   { id: 'about', label: 'about' },
   { id: 'diagnostics', label: 'diagnostics' }
 ] as const;
@@ -662,17 +659,6 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                     <dt>evolve to stage 3</dt>
                     <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
                   </dl>
-                </div>
-              )}
-
-              {activeSection === 'closing-time' && (
-                <div className="settings-card">
-                  <p className="hint">
-                    every session's Pokémon heads for the garden gate and waves out, then the app quits. esc cancels.
-                  </p>
-                  <button type="button" onClick={() => startClosingTime()}>
-                    wrap up &amp; quit <span className="hint">⌘⇧Q</span>
-                  </button>
                 </div>
               )}
 

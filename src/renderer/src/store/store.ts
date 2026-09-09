@@ -215,7 +215,7 @@ interface HarnessState {
   settingsOpen: boolean;
   /** Quit-intercept dialog (parity sweep item 2) — opened when main prevents
    *  a close/quit because sessions are still live; `quitDialogCount` is
-   *  main's own authoritative live-session count (see closingTime.ts's
+   *  main's own authoritative live-session count (see updateNotifier.ts's
    *  `startQuitInterceptListener`). */
   quitDialogOpen: boolean;
   quitDialogCount: number;

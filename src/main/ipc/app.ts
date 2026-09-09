@@ -209,22 +209,8 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   );
 
   // ─── App lifecycle ──────────────────────────────────────────────────────────
-  // Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called once the
-  // renderer's own walk/wave/toast/audio-fade sequence finishes (see
-  // src/renderer/src/closingTime.ts). `before-quit` (above) already kills
-  // every PTY and stops the hook/cost-watcher servers. This is always a
-  // CONFIRMED quit (the ritual is its only caller) — sets `quitConfirmed`
-  // first so it passes through the quit-intercept guard uninterrupted, even if
-  // sessions are still technically live (the ritual doesn't itself kill them;
-  // `before-quit`'s existing `ptyManager.killAll()` does).
-  handle('app:quit', () => {
-    setQuitConfirmed(true);
-    app.quit();
-  });
-
   // "kill it & quit" — the quit dialog's destructive action (parity sweep item
-  // 2). Bypasses the sunset ritual entirely; `before-quit`'s existing flush +
-  // killAll still runs.
+  // 2). `before-quit`'s existing flush + killAll still runs.
   handle('app:forceQuit', () => {
     setQuitConfirmed(true);
     app.quit();

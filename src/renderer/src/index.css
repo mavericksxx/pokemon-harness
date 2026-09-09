@@ -1063,29 +1063,6 @@ button.icon:active {
   border-radius: 0;
 }
 
-/* Closing-time sunset ritual (Phase 8.5 Wave B item 2) — a warm overlay on
- * the MAT (covers the letterbox too, unlike a Pixi layer inside `world`
- * which is in map coordinates and would scale with the camera / sit under
- * an evolution ceremony's own dim). Opacity-only transition so `.active`
- * toggling on/off (start/cancel) both animate at the same ~4s rate. */
-.garden-sunset-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(232, 150, 64, 0) 0%,
-    rgba(224, 92, 58, 0.32) 55%,
-    rgba(107, 41, 61, 0.52) 100%
-  );
-  transition: opacity 4000ms linear;
-}
-
-.garden-sunset-overlay.active {
-  opacity: 1;
-}
-
 /* Arceus's cosmos warp — `.garden-warp-frame` is `.garden`'s OLD flex:1
  * slot in `.garden-mat`, now a clipped viewport holding stacked full-size
  * layers: `.garden` (the Pixi canvas host, unchanged simulation

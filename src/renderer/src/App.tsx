@@ -32,7 +32,6 @@ import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 import { sessionStatusLabel } from '@/design/sessionLabel';
-import { cancelClosingTime, isClosingTimeActive, startClosingTime } from '@/closingTime';
 import { OverflowChipRow, type OverflowChipRenderContext } from '@/components/OverflowChipRow';
 import type { Session } from '@/store/store';
 
@@ -143,27 +142,11 @@ export function App(): JSX.Element {
 
   // Global Cmd/Ctrl+1..4 (discoverable copy also lives in ViewModeSwitcher's
   // tooltips). Ctrl on top of Cmd so it also works un-remapped on Linux/Win,
-  // even though this app currently only ships for macOS. Also: Cmd/Ctrl+
-  // Shift+Q starts the closing-time ritual (Phase 8.5 Wave B item 2), and a
-  // bare Escape cancels it — checked here, not inside closingTime.ts, so it
-  // only fires while THIS app has focus, same as every other global shortcut
-  // in this effect. SettingsPanel's own Escape handler is neutralized by
-  // startClosingTime() closing that panel up front (see that function's own
-  // comment), so this is the only live Escape handler once a ritual starts.
+  // even though this app currently only ships for macOS.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && isClosingTimeActive()) {
-        e.preventDefault();
-        cancelClosingTime();
-        return;
-      }
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.shiftKey) {
-        if (e.key.toLowerCase() === 'q') {
-          e.preventDefault();
-          startClosingTime();
-          return;
-        }
         // Cmd/Ctrl+Shift+1..9 — switch workspace (Phase 8.7). Reads the
         // workspace store directly (not a hook) since this effect has no
         // reason to re-subscribe to the workspace list just for a shortcut.

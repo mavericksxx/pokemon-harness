@@ -111,10 +111,6 @@ const api = {
   chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:chooseFolder'),
   resolveTerminalCwd: (candidates: string[]): Promise<string> => ipcRenderer.invoke('paths:resolveTerminalCwd', candidates),
 
-  /** Closing-time sunset ritual (Phase 8.5 Wave B item 2) — called after the
-   *  renderer's own walk/wave/toast/audio-fade sequence finishes. */
-  quitApp: (): Promise<void> => ipcRenderer.invoke('app:quit'),
-
   getCachedSprite: (id: string, view: SpriteView, shiny: boolean): Promise<CachedSprite | null> =>
     ipcRenderer.invoke('sprites:getCached', id, view, shiny),
   fetchSpriteGif: (id: string, view: SpriteView, shiny: boolean, explicitKind?: 'animated' | 'static'): Promise<ArrayBuffer | null> =>
@@ -277,15 +273,14 @@ const api = {
     ipcRenderer.on('app:quitRequested', listener);
     return () => ipcRenderer.removeListener('app:quitRequested', listener);
   },
-  /** "kill it & quit" — bypasses the sunset ritual, quits immediately. */
+  /** "kill it & quit" — quits immediately. */
   forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit'),
-  /** "leave them running" — bypasses the sunset ritual, quits immediately,
-   *  but detaches every live session's CLI to a background "keeper" process
-   *  instead of killing it; a later relaunch reattaches to whatever's still
-   *  going. */
+  /** "quit, leave running" — quits immediately, but detaches every live
+   *  session's CLI to a background "keeper" process instead of killing it;
+   *  a later relaunch reattaches to whatever's still going. */
   leaveRunningAndQuit: (): Promise<void> => ipcRenderer.invoke('app:leaveRunningAndQuit'),
-  /** "clear & quit" — bypasses the sunset ritual, wipes the session registry,
-   *  and quits: the next launch opens to an empty garden (nothing resumes). */
+  /** "clear & quit" — wipes the session registry and quits: the next launch
+   *  opens to an empty garden (nothing resumes). */
   wipeGardenAndQuit: (): Promise<void> => ipcRenderer.invoke('app:wipeGardenAndQuit'),
 
   /** macOS fullscreen state — fires on enter/leave-full-screen plus once per

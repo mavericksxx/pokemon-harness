@@ -834,7 +834,7 @@ export class Walker {
       // flash-out, see EvolutionCeremony.ts) with no single property worth
       // instrumenting piecemeal; "a ceremony is running" is itself a clear
       // enough active flag to mark dirty every frame it's true, same
-      // shortcut BattleManager/ClosingRitual take below in GardenScene.tsx.
+      // shortcut BattleManager takes below in GardenScene.tsx.
       markDirty();
       if (this.ceremony.done) this.ceremony = null;
     } else {

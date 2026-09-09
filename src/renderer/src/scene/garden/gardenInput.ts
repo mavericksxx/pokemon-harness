@@ -4,7 +4,6 @@ import type { Camera } from './Camera';
 import type { Runtime } from './walkerLifecycle';
 import type { BattleManager } from './battle/BattleManager';
 import type { AdvisorManager } from './battle/AdvisorManager';
-import { isClosingTimeActive } from '@/closingTime';
 import type { ViewMode } from '@/store/store';
 
 /** Dependencies `attachGardenInput` needs from its owning `mountScene`
@@ -156,11 +155,9 @@ export function attachGardenInput(ctx: GardenInputCtx): () => void {
 
   // Escape deselects (same free-look reset as a background click) while
   // the garden is the visible view — 'terminal' mode hides the garden
-  // entirely, so Escape there has nothing to do here. Closing-time's own
-  // Escape handler (App.tsx) owns Escape while a closing ritual is
-  // active; this defers to it rather than double-handling the same key.
+  // entirely, so Escape there has nothing to do here.
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key !== 'Escape' || isClosingTimeActive()) return;
+    if (e.key !== 'Escape') return;
     const viewMode = ctx.getViewMode();
     const selectedId = ctx.getSelectedId();
     if (viewMode !== 'garden' && viewMode !== 'gardenFull') return;

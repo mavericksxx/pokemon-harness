@@ -172,13 +172,13 @@ app.on('second-instance', () => {
 });
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
-// Set once a quit is CONFIRMED — either the sunset ritual's own final quit
-// (the `app:quit` handler below, which the ritual is the only caller of) or
-// the quit dialog's "kill it & quit" action (`app:forceQuit`). While false,
-// both a window close and an app quit are intercepted whenever a session is
-// still live, and the renderer is asked to show the quit dialog instead.
+// Set once a quit is CONFIRMED — either the quit dialog's "kill it & quit"
+// action (`app:forceQuit`) or its "leave them running" action
+// (`app:leaveRunningAndQuit`). While false, both a window close and an app
+// quit are intercepted whenever a session is still live, and the renderer is
+// asked to show the quit dialog instead.
 let quitConfirmed = false;
-/** "Leave them running" quit path (QuitDialog.tsx's 5th action) — set ONLY
+/** "Leave them running" quit path (QuitDialog.tsx's 3rd action) — set ONLY
  *  by the `app:leaveRunningAndQuit` handler (app.ts), alongside
  *  `quitConfirmed`, same pattern as that flag. `before-quit`'s finalization
  *  block below reads this to decide `ptyManager.detachAllToKeepers()` vs.
@@ -1153,9 +1153,10 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (e) => {
   // Cmd+Q / Dock quit / app-menu Quit — see the window's own `close` handler
   // in createWindow() for the OTHER entry point (the traffic-light button),
-  // which this does not cover. Never fires a second dialog while the sunset
-  // ritual itself is mid-flight: the ritual's own final quit routes through
-  // the `app:quit` handler below, which sets `quitConfirmed` first.
+  // which this does not cover. Never fires a second dialog once a quit is
+  // already confirmed — `quitConfirmed` is set by the quit dialog's own
+  // `app:forceQuit`/`app:leaveRunningAndQuit` handlers before either calls
+  // `app.quit()`.
   if (!quitConfirmed && hasLiveSessions()) {
     e.preventDefault();
     requestQuitConfirmation();

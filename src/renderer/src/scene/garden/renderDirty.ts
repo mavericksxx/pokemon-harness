@@ -22,8 +22,8 @@
  * "cheap global signal, no plumbing" shape diagnosticsCounters.ts already
  * uses for `markRendererTick`. A handful of subsystems with a single, clear
  * "is this currently animating" flag (an in-flight battle, an evolution
- * ceremony, the closing ritual) mark dirty once per frame while that flag is
- * true instead of instrumenting every internal write — see each call site's
+ * ceremony) mark dirty once per frame while that flag is true instead of
+ * instrumenting every internal write — see each call site's
  * own comment for which shortcut it's taking and why it's safe.
  */
 
