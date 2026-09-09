@@ -1404,23 +1404,21 @@ export function GardenScene(): JSX.Element {
   }, []);
 
   // The map is the game screen; this pane is its console shell. `.garden-mat`
-  // is the lifted bezel (margin + border); `.garden-warp-frame` is its
-  // clipped interior — `.garden` (the Pixi host) plus `ArceusWarp`'s layers
-  // are stacked full-size panes; ArceusWarp.tsx drives them all via a
-  // single JS progress value, not a CSS class, so the warp can reverse
-  // mid-flight — the simulation inside `.garden` keeps running the whole
-  // time it's warped away.
-  // `.garden-frame-shadow` is a plain absolutely-positioned sibling of the
-  // canvas (appended imperatively, below) — being positioned, it always
-  // paints above the non-positioned canvas regardless of DOM order, which is
-  // what lets an inset shadow show up ON TOP of the map instead of being
-  // painted underneath it.
+  // is the plain flex slot; `.garden-warp-frame` is its clipped interior —
+  // `.garden` (the Pixi host) plus `ArceusWarp`'s layers are stacked
+  // full-size panes; ArceusWarp.tsx drives them all via a single JS progress
+  // value, not a CSS class, so the warp can reverse mid-flight — the
+  // simulation inside `.garden` keeps running the whole time it's warped
+  // away. The gold bezel (index.css) hangs off `.garden-warp-frame` itself,
+  // not `.garden` — `.garden` is what ArceusWarp transforms every frame
+  // during the cosmos ascent, and the bezel is a fixed console shell that
+  // must NOT warp away with the map. (`.garden-frame-shadow`, the old inset-
+  // shadow sibling this used to hold, is gone — the bezel's own inner seat
+  // line replaces it.)
   return (
     <div className="garden-mat">
       <div className="garden-warp-frame">
-        <div className="garden" ref={hostRef}>
-          <div className="garden-frame-shadow" />
-        </div>
+        <div className="garden" ref={hostRef} />
         <ArceusWarp hostRef={hostRef} ascended={ascended} />
         {crashed && (
           // Auto-rebuild attempt cap hit (garden-ui-crash triage,

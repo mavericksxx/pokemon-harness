@@ -39,13 +39,37 @@ function miniGauges(providers: UsageProviderSnapshot[], mainUsageProvider: Usage
   return gauges;
 }
 
-/** Per-window identity color for the mini-gauge LABEL only (user feedback:
- *  "hard to distinguish the three bars" — a fixed color by window label, not
- *  urgency; `gaugeTone` below still owns the %/fill color unchanged). */
-function usageWindowClass(label: string): 'w5h' | 'wfable' | 'w7d' {
-  if (label === '5h') return 'w5h';
-  if (label === '7d fable') return 'wfable';
-  return 'w7d';
+/** The chip's mini-gauge tint threshold (one control grammar pass) — the
+ *  topbar chip is a level-3 GAUGE (muted by default, never boxed); unlike
+ *  the popover's own bars below (still the full 3-tier `gaugeTone`), a mini
+ *  gauge here only breaks from muted once a window is actually in the
+ *  danger band, not merely "caution" — so this checks `>= 80`, not
+ *  `gaugeTone(...) !== 'normal'`. */
+const CHIP_GAUGE_HOT_THRESHOLD = 80;
+
+/** Below this viewport width the chip collapses to just the single tightest
+ *  (highest used%) of its up-to-three mini gauges — the rest stay reachable
+ *  through the existing popover. Same breakpoint the topbar already drops
+ *  other right-cluster controls at (index.css's `@media (max-width: 820px)`
+ *  block) would be too late for a three-gauge row specifically, since it's
+ *  wider than any single icon-only control in that list; 1100px is this
+ *  component's own, earlier threshold. */
+const NARROW_CHIP_MAX_PX = 1100;
+
+/** Mirrors App.tsx's own `matchMedia` narrow-layout listener pattern (see
+ *  its `NARROW_LAYOUT_MAX_PX` effect) — local to this component since the
+ *  breakpoint above is this chip's own, not the app-wide narrow-layout one. */
+function useNarrowChip(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${NARROW_CHIP_MAX_PX}px)`).matches
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${NARROW_CHIP_MAX_PX}px)`);
+    const onChange = (e: MediaQueryListEvent): void => setNarrow(e.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
 }
 
 /** The single tightest (highest used%) window across every provider that
@@ -198,6 +222,7 @@ export function UsageChip(): JSX.Element | null {
   const usageLimitsEnabled = useAppSettingsStore((s) => s.settings.usageLimitsEnabled);
   const mainUsageProvider = useAppSettingsStore((s) => s.settings.mainUsageProvider);
   const snapshot = useUsageStore((s) => s.snapshot);
+  const narrowChip = useNarrowChip();
 
   useEffect(() => {
     if (!open) return;
@@ -246,7 +271,14 @@ export function UsageChip(): JSX.Element | null {
   // to (the user's pick, else auto: Claude, else Codex), and to icon-only
   // when neither has a numeric window (mirrors the old `{tightest && ...}`
   // gate exactly).
-  const gauges = miniGauges(snapshot.providers, mainUsageProvider);
+  const allGauges = miniGauges(snapshot.providers, mainUsageProvider);
+  // Below `NARROW_CHIP_MAX_PX`, collapse to just the tightest of the up-to-
+  // three windows — the rest stay reachable in the popover this same button
+  // opens, so nothing becomes unreachable, just narrower.
+  const gauges =
+    narrowChip && allGauges.length > 1
+      ? [allGauges.reduce((tightestSoFar, w) => (w.usedPercent > tightestSoFar.usedPercent ? w : tightestSoFar))]
+      : allGauges;
 
   return (
     <div className="usage-popover" ref={wrapperRef}>
@@ -266,15 +298,12 @@ export function UsageChip(): JSX.Element | null {
         {gauges.length > 0 && (
           <span className="usage-chip-gauges">
             {gauges.map((w) => {
-              const gaugeToneValue = gaugeTone(w.usedPercent);
+              const hot = w.usedPercent >= CHIP_GAUGE_HOT_THRESHOLD;
               return (
-                <span
-                  key={w.label}
-                  className={`usage-chip-gauge usage-chip-gauge--${gaugeToneValue} usage-chip-gauge--${usageWindowClass(w.label)}`}
-                >
+                <span key={w.label} className={hot ? 'usage-chip-gauge usage-chip-gauge--danger' : 'usage-chip-gauge'}>
                   <span className="hp-bar">
                     <span
-                      className={`hp-bar-fill${gaugeToneValue !== 'normal' ? ` ${gaugeToneValue}` : ''}`}
+                      className={hot ? 'hp-bar-fill danger' : 'hp-bar-fill'}
                       style={{ '--fill': Math.round(w.usedPercent) / 100 } as CSSProperties}
                     />
                   </span>

@@ -18,7 +18,16 @@ import { TrashIcon } from '@/components/icons';
  *  folder for the CURRENT garden (was the hover-revealed icon trio). All the
  *  underlying handlers are unchanged from that version — only how they're
  *  triggered moved. Cmd/Ctrl+Shift+1..9 (App.tsx) still switches gardens
- *  directly without touching this component at all. */
+ *  directly without touching this component at all.
+ *
+ *  One control grammar pass: this is one of only two level-1 BORDERED
+ *  controls in the topbar (the other is the view-mode segmented group) — it
+ *  holds state (which garden is active), so it keeps a permanent panel-2/
+ *  hairline box rather than the ghost treatment. Moved from the topbar's
+ *  left end (next to `SummonArceusButton`) to the right cluster, beside
+ *  HARNESS.md; the trigger now reads `▣ <name> ▾` — the caret is new, since
+ *  nothing used to announce that this button opens a menu rather than just
+ *  switching gardens directly. */
 export function WorkspaceSwitcher(): JSX.Element {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
@@ -122,12 +131,21 @@ export function WorkspaceSwitcher(): JSX.Element {
           title={i >= 0 && i < 9 ? `${activeWorkspace.primaryFolder} (⌘⇧${i + 1})` : activeWorkspace.primaryFolder}
           onClick={() => setMenuOpen((v) => !v)}
         >
-          {activeWorkspace.name}
+          <span aria-hidden="true">▣</span>
+          <span className="garden-picker-trigger-name">{activeWorkspace.name}</span>
+          <span aria-hidden="true">▾</span>
         </button>
       )}
 
       {menuOpen && (
         <div className="garden-picker-menu" role="menu" aria-label="gardens">
+          <div className="garden-picker-menu-header">
+            <div className="garden-picker-menu-name">{activeWorkspace.name}</div>
+            <div className="garden-picker-menu-path" title={activeWorkspace.primaryFolder}>
+              {activeWorkspace.primaryFolder}
+            </div>
+          </div>
+
           {otherWorkspaces.length > 0 && (
             <div className="garden-picker-menu-list">
               {otherWorkspaces.map((w) => (

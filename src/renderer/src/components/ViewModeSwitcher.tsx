@@ -15,11 +15,20 @@ import { TreeIcon, SessionsIcon } from '@/components/icons';
  *  terminal the whole body; the only difference was where session-switching
  *  UI lived). 'terminal' is the one kept — see store.ts's ViewMode comment.
  *
- *  "All sessions" joined this group in the topbar-consolidation pass (parity
- *  sweep) — was a standalone labeled button floating next to this group.
- *  Every icon here is icon-only, so every one carries a `.tip`/`data-tip`
- *  tooltip spelling out what it does in words — this group is the one place
- *  in the topbar where a glyph alone has to stand in for a whole action.
+ *  One control grammar pass — `showLabel` marks the two modes ("garden" /
+ *  "terminal") that now carry a text label beside their glyph, so the
+ *  segmented group reads without relying on a tooltip; "⛶" (gardenFull)
+ *  stays icon-only (a full-bleed toggle needs no name, and adding one here
+ *  would make the group's narrowest, least-used button its widest).
+ *
+ *  "All sessions" (▦) LEFT this group again in the same pass — it opens an
+ *  overlay, it was never a fourth exclusive view mode, and folding it into
+ *  the segmented control read as one. It renders as a standalone level-2
+ *  ghost button just after the group instead (still owned by this
+ *  component, so it stays reachable — there's no keyboard shortcut for
+ *  `setSessionsOverviewOpen`). Every icon here is icon-only (or icon-plus-
+ *  label), so every one still carries a `.tip`/`data-tip` tooltip spelling
+ *  out what it does in words.
  *
  *  The terminal-panel show/hide toggle that used to live here (parity sweep,
  *  a prior pass) is gone as of item 4's fix — user report: a lone topbar
@@ -31,9 +40,9 @@ import { TreeIcon, SessionsIcon } from '@/components/icons';
  *  click instead of a hunt through the topbar. `drawerOpen`/`setDrawerOpen`
  *  (store.ts) are untouched — TerminalDrawer.tsx's own `×` in `.drawer-head`
  *  still uses them too. */
-const MODES: { mode: ViewMode; label: string; glyph?: string; key: string }[] = [
-  { mode: 'garden', label: 'garden view', key: '1' },
-  { mode: 'terminal', label: 'terminal view', glyph: '☰', key: '2' },
+const MODES: { mode: ViewMode; label: string; glyph?: string; key: string; showLabel?: boolean }[] = [
+  { mode: 'garden', label: 'garden view', key: '1', showLabel: true },
+  { mode: 'terminal', label: 'terminal view', glyph: '☰', key: '2', showLabel: true },
   { mode: 'gardenFull', label: 'garden only — no chrome', glyph: '⛶', key: '3' }
 ];
 
@@ -43,32 +52,31 @@ export function ViewModeSwitcher(): JSX.Element {
   const setSessionsOverviewOpen = useStore((s) => s.setSessionsOverviewOpen);
 
   return (
-    <div className="view-switcher" role="group" aria-label="view mode">
-      {MODES.map(({ mode, label, glyph, key }) => (
-        <button
-          key={mode}
-          className={
-            mode === viewMode
-              ? 'topbar-icon-btn view-switcher-btn active tip'
-              : 'topbar-icon-btn view-switcher-btn tip'
-          }
-          onClick={() => setViewMode(mode)}
-          data-tip={`${label} (⌘${key})`}
-          aria-label={label}
-          aria-pressed={mode === viewMode}
-        >
-          {glyph ?? <TreeIcon />}
-        </button>
-      ))}
+    <>
+      <div className="view-switcher" role="group" aria-label="view mode">
+        {MODES.map(({ mode, label, glyph, key, showLabel }) => (
+          <button
+            key={mode}
+            className={mode === viewMode ? 'view-switcher-btn active tip' : 'view-switcher-btn tip'}
+            onClick={() => setViewMode(mode)}
+            data-tip={`${label} (⌘${key})`}
+            aria-label={label}
+            aria-pressed={mode === viewMode}
+          >
+            {glyph ?? <TreeIcon />}
+            {showLabel && mode}
+          </button>
+        ))}
+      </div>
       <button
         type="button"
-        className="topbar-icon-btn view-switcher-btn tip"
+        className="topbar-icon-btn tip"
         data-tip="all sessions"
         aria-label="all sessions"
         onClick={() => setSessionsOverviewOpen(true)}
       >
         <SessionsIcon />
       </button>
-    </div>
+    </>
   );
 }
