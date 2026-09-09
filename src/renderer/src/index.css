@@ -112,10 +112,12 @@
   --font-mono-md-line: 20px;
   --font-mono-sm-size: 13px;
   --font-mono-sm-line: 18px;
-  /* Fixed square box for the topbar's right-cluster icon-only buttons (view
-   * mode group, audio, theme, settings) — one size so glyphs land optically
-   * centered and nothing shifts as the row's content changes. */
-  --topbar-icon-size: 30px;
+  /* One control-height band for every interactive topbar control (one
+   * control grammar pass) — not just the icon-only squares (audio, theme,
+   * settings, the standalone "all sessions" button) but also the bordered
+   * level-1 controls (garden picker, view-mode segmented group) and the
+   * gauge/chip rows that share the row's height without a fixed width. */
+  --topbar-icon-size: 28px;
 
   font-family: var(--font-ui);
   font-size: var(--font-body-md-size);
@@ -226,19 +228,21 @@ body {
   flex: 0 0 auto;
 }
 
-/* 16px, not `.brand`'s own 12px type-scale step or `.topbar-icon-btn`'s 15px:
- * a 16px box against this icon's 16-unit viewBox is an exact 1:1 unit-to-
- * pixel mapping, so every pixel-grid row lands on a whole device pixel
- * instead of being smeared by `crispEdges` rounding at a fractional scale. */
+/* 20px, matching `.brand`'s display-lg step below (one control grammar pass
+ * — was a 16px box against this icon's 16-unit viewBox, an exact 1:1
+ * unit-to-pixel mapping; growing the wordmark to display-lg without growing
+ * this would leave the pokeball reading small next to it, so this now scales
+ * with it at a 1.25x fraction instead — `crispEdges` still keeps the shapes
+ * hard-edged, just no longer landing every row on a whole device pixel). */
 .brand-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
 .brand {
   font-family: var(--font-display);
-  font-size: var(--font-display-md-size);
-  line-height: var(--font-display-md-line);
+  font-size: var(--font-display-lg-size);
+  line-height: var(--font-display-lg-line);
   color: var(--text);
   white-space: nowrap;
   /* Never shrink, never wrap — a flex-shrink:1 default with a nowrap text
@@ -254,12 +258,39 @@ body {
 }
 
 /* The right-cluster wrapper (App.tsx) — pinned, never shrinks/reflows; see
- * `.topbar-icon-btn`'s own comment further down for the full rationale. */
+ * `.topbar-icon-btn`'s own comment further down for the full rationale.
+ * One control grammar pass: `gap: 12px` is the "between groups" spacing
+ * between each of its zone children (`.topbar-zone-*` below, plus the bare
+ * `UsageChip` between "stage" and "garden" — a level-3 gauge never gets a
+ * zone wrapper of its own, see App.tsx's comment). */
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   flex: none;
+}
+
+/* One zone = one group, per the control grammar's "4px inside a group"
+ * rule — `.view-switcher` (level-1) already sets its own internal gap, so
+ * this is really only exercised by the "stage" zone (the segmented group +
+ * the standalone "all sessions" ghost button beside it) and the "garden"/
+ * "system" zones below. */
+.topbar-zone {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/* Hairline rule at these two zone boundaries only (see App.tsx's comment on
+ * `.topbar-actions` for why the other boundaries are a plain gap) — the
+ * `.topbar-actions` gap already puts 12px before this zone's border, and
+ * this padding puts another 12px after it, so the rule sits visually
+ * centered in a 24px gap rather than flush against either neighbor. */
+.topbar-zone-garden,
+.topbar-zone-system {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
 }
 
 .new-agent-icon {
@@ -293,9 +324,9 @@ body {
 }
 
 /* Priority-tier hiding (issue #2 pt.1 + narrow-window support): below this,
- * `.topbar-actions`' full icon cluster plus the garden/terminal drawer
- * toggle no longer fits without clipping, down toward the window's new
- * 640px floor (main/index.ts). Rather than generalizing OverflowChipRow's
+ * `.topbar-actions`' full icon cluster no longer fits without clipping, down
+ * toward the window's new 640px floor (main/index.ts). Rather than
+ * generalizing OverflowChipRow's
  * hidden-measurement-row pattern here — several of these components
  * (UsageChip, AudioPopover, NotificationBell, QuickSettings) each own a
  * `position: fixed`/absolute popover with a document-level outside-click
@@ -308,9 +339,10 @@ body {
  * QuickSettings' own popover too, HARNESS.md's toggle is in both
  * QuickSettings and the full SettingsPanel, usage limits are a SettingsPanel
  * section, and AudioPopover's mute-all/music-on-off (not its transport/
- * track-search) are in QuickSettings as well. ViewModeSwitcher, QuickSettings
- * itself, and the drawer toggle (App.tsx's `topbar-actions`, needed for the
- * narrow single-pane switch — see effectiveLayout.ts) stay put.
+ * track-search) are in QuickSettings as well. ViewModeSwitcher and
+ * QuickSettings itself stay put — the garden/terminal drawer toggle that
+ * used to live in `.topbar-actions` too is gone entirely now (moved to
+ * GardenSplitHandle/GardenDrawerEdgeTab; see ViewModeSwitcher's own comment).
  *
  * Same breakpoint as gardenSplit.ts's NARROW_LAYOUT_MAX_PX (a plain `@media`
  * query, not that store value — this bar has no reason to react any later
@@ -545,9 +577,11 @@ body {
  * target: a button showing just the active garden's name. Clicking it opens
  * one anchored popover holding everything that row used to spread across
  * several controls — same anchored-popover shape as `.audio-popover` above
- * (document-level pointerdown outside-click dismissal, `--shadow-hard`,
- * left-anchored here since the trigger sits near the topbar's LEFT end,
- * unlike the right-anchored popovers further down). */
+ * (document-level pointerdown outside-click dismissal, `--shadow-hard`).
+ * One control grammar pass: this control MOVED from the topbar's left end
+ * to the right cluster (as a level-1 `▣ <name> ▾` control, next to
+ * HARNESS.md), so the menu below is now right-anchored like every other
+ * popover in this cluster — see `.garden-picker-menu`'s own comment. */
 .garden-picker {
   position: relative;
   flex: 0 0 auto;
@@ -555,10 +589,18 @@ body {
 }
 
 .garden-picker-trigger {
-  max-width: 160px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--topbar-icon-size);
+  max-width: 200px;
+}
+
+.garden-picker-trigger-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .garden-picker-rename {
@@ -576,7 +618,11 @@ body {
 .garden-picker-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  /* Right-anchored, not left (was `left: 0`, correct while the trigger sat
+   * at the topbar's left end) — the trigger now sits in the right cluster,
+   * where a left-anchored menu growing rightward from it would overflow the
+   * window edge. */
+  right: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -592,6 +638,30 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-hard);
   -webkit-app-region: no-drag;
+}
+
+/* Header (one control grammar pass): names the garden and its folder — the
+ * trigger only ever shows the name, and rename/change-folder below act on
+ * the folder path with nothing else in this popover announcing it. */
+.garden-picker-menu-header {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--muted-dim);
+}
+
+.garden-picker-menu-name {
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
+  color: var(--text);
+}
+
+.garden-picker-menu-path {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
 }
 
 .garden-picker-menu-list {
@@ -976,19 +1046,21 @@ button.icon:active {
   margin: 0 auto;
 }
 
-/* Diorama mat: the garden is the game screen, this is its console shell —
- * a lifted bezel (panel surface, hairline border, corner clip matching the
- * modal treatment) matting the bright map on neutral chrome ground, with a
- * consistent margin on every side instead of an edge-to-edge letterbox. */
+/* Diorama mat: the garden is the game screen, this is its console shell.
+ * Gold-bezel pass — the actual bezel now lives on `.garden-warp-frame::after`
+ * below (see that rule's own comment for why it can't live here or on
+ * `.garden-frame-shadow`), so this is just the plain flex slot around it:
+ * no padding (the bezel IS the border now — a 32px neutral margin would
+ * leave the map floating away from its own frame) and `border-radius: 0`
+ * (a hard bezel can't have a rounded corner clip). */
 .garden-mat {
   position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
-  padding: var(--space-6);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  border-radius: 0;
 }
 
 /* Closing-time sunset ritual (Phase 8.5 Wave B item 2) — a warm overlay on
@@ -1032,6 +1104,47 @@ button.icon:active {
   overflow: hidden;
 }
 
+/* Gold bezel (gold-bezel pass) — a thin hard console-shell frame around the
+ * garden VIEWPORT, in both 'garden' (split) and 'gardenFull' modes. Lives on
+ * `.garden-warp-frame::after`, not on `.garden-mat` (an inset shadow there
+ * would paint UNDER the canvas, which is a later sibling) and not on
+ * `.garden-frame-shadow`/`.garden` (ArceusWarp.tsx transforms `.garden`
+ * every frame during the cosmos ascent — a bezel there would warp away with
+ * the map instead of staying put as a fixed shell). `pointer-events: none`
+ * so it never intercepts clicks meant for the map underneath.
+ *
+ * The inset box-shadow stack reads outside-in as: 1px seat line (dark gold),
+ * 2px bright gold body, 1px dark-gold outer line against the chrome ground —
+ * a hard offset, no blur, per tokens.ts's own shadow rule. Two of these
+ * pseudo-elements can't exist on one node, so the top-corner light accents
+ * ride the same `::after` as a pair of small background rectangles rather
+ * than a second pseudo-element.
+ *
+ * `mapBorder.ts`'s Pixi bush-hedge ring is a completely separate layer, one
+ * ring outside garden.tmj's `walls` fence, in MAP space (it scales with the
+ * camera) — this bezel is CHROME, fixed regardless of pan/zoom, and simply
+ * encompasses it visually. Untouched by this pass. */
+.garden-warp-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px var(--arceus-gold-deep),
+    inset 0 0 0 3px var(--gold),
+    inset 0 0 0 4px var(--arceus-gold-deep);
+  background-image:
+    linear-gradient(var(--arceus-gold-bright), var(--arceus-gold-bright)),
+    linear-gradient(var(--arceus-gold-bright), var(--arceus-gold-bright));
+  background-repeat: no-repeat;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-position:
+    top left,
+    top right;
+}
+
 .garden {
   position: absolute;
   inset: 0;
@@ -1047,15 +1160,6 @@ button.icon:active {
  * it pairs with only actually changes on the next scene rebuild. */
 body.garden-lowres .garden canvas {
   image-rendering: pixelated;
-}
-
-/* Whisper of inset shadow where the bright map settles into the mat — kept
- * to a small blur radius so it doesn't read as a haze over the pixel art. */
-.garden-frame-shadow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
 }
 
 /* The warp-streak burst (warpStreaks.ts) — a short sequence of small,
@@ -2326,21 +2430,24 @@ body.garden-lowres .garden canvas {
   box-shadow: var(--shadow-hard);
 }
 
+/* Level-3 GAUGE weight (one control grammar pass) — read-only, never
+ * interactive-looking: no fill, no border, ever, muted mono text by default.
+ * `min-width` still pins to the row's shared band so the cluster doesn't
+ * jump when the chip's icon-only fallback state (no numeric window) swaps in
+ * for the wider gauge row; width itself stays auto either way. */
 .usage-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  /* Not `.topbar-icon-btn` (see that class's comment) — this can carry a
-   * variable-width usage readout, so only height/min-width are pinned to
-   * match the rest of the right cluster's row rhythm; width stays auto. */
   height: var(--topbar-icon-size);
   min-width: var(--topbar-icon-size);
   padding: 3px 8px;
+  font-family: var(--font-mono);
   font-size: var(--font-body-sm-size);
-  color: var(--gold);
+  color: var(--muted);
   background: none;
-  border: 1px solid transparent;
+  border: none;
 }
 
 .usage-chip--warn {
@@ -2351,12 +2458,13 @@ body.garden-lowres .garden canvas {
   color: var(--status-blocked);
 }
 
-/* HARNESS.md indicator pill (HARNESS.md follow-up item 3) — same row-height
- * token as the rest of `.topbar-actions`, but a visible muted border (unlike
- * `.usage-chip`'s transparent one) since this one has no icon to anchor it,
- * just mono text. Only rendered while the harness-instructions toggle is on
- * (see HarnessInstructionsChip.tsx) so it never contributes to the
- * cluster's fixed `flex: none` width otherwise. */
+/* HARNESS.md indicator pill (HARNESS.md follow-up item 3; one control
+ * grammar pass: now level-2 GHOST weight — fires an action (opens the file),
+ * doesn't hold state, so it matches audio/bell/theme/gear: transparent at
+ * rest, border + fill only on hover, muted text by default instead of a
+ * permanent border and accent text). Only rendered while the
+ * harness-instructions toggle is on (see HarnessInstructionsChip.tsx) so it
+ * never contributes to the cluster's fixed `flex: none` width otherwise. */
 .harness-instructions-chip {
   display: inline-flex;
   align-items: center;
@@ -2364,26 +2472,32 @@ body.garden-lowres .garden canvas {
   padding: 3px 8px;
   font-family: var(--font-mono);
   font-size: var(--font-body-sm-size);
-  color: var(--accent-text);
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
   white-space: nowrap;
 }
 
 .harness-instructions-chip:hover {
-  border-color: var(--accent-text);
+  color: var(--accent-text);
+  background: var(--panel-2);
+  border-color: var(--line);
 }
 
-/* Chip-form mini gauges (session-status composite design, item 1) — up to
- * three "[hp-bar] label N%" chips (5h / 7d / 7d fable) inside the SAME
- * `.usage-chip` button as before, replacing its old plain-text readout; the
- * button itself stays the one click target that opens `.usage-popover-panel`
- * below, unchanged. */
+/* Chip-form mini gauges (session-status composite design, item 1; one
+ * control grammar pass) — all three windows (5h / 7d / 7d fable) stay
+ * visible, per-window identity coloring is gone (was a fixed sky/gold/lilac
+ * per label — read as boxed/decorated for a Level-3 control that should
+ * never compete with the bordered controls). Muted by default; a window
+ * only tints (existing `gaugeTone` danger red) once it crosses ~80% used —
+ * below that, "warn" (50-79%) reads the same muted as "normal" here, unlike
+ * the full 3-tier treatment the popover's own bars below still use. Tight
+ * 2px gap is what visually groups the three now that the vertical rules
+ * between them are gone. */
 .usage-chip-gauges {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 2px;
 }
 
 .usage-chip-gauge {
@@ -2392,50 +2506,35 @@ body.garden-lowres .garden canvas {
   gap: 4px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--muted);
 }
 
-/* Separator between adjacent gauges (user feedback: "hard to distinguish the
- * three bars") — same border token as `.usage-provider + .usage-provider`'s
- * own rule-between-repeated-items pattern above, just vertical here. */
 .usage-chip-gauge + .usage-chip-gauge {
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
+  padding-left: 6px;
 }
 
 .usage-chip-gauge .hp-bar {
   width: 22px;
 }
 
+/* Muted by default (Level-3 gauge) — only the `--danger` tint below (a
+ * window at/over ~80% used) breaks from this. */
+.usage-chip-gauge .hp-bar-fill {
+  background-color: var(--muted);
+}
+
 .usage-chip-gauge b {
   font-family: var(--font-mono);
   font-weight: 600;
+  color: inherit;
 }
 
-.usage-chip-gauge--warn b {
-  color: var(--status-working);
-}
-
-.usage-chip-gauge--danger b {
+.usage-chip-gauge--danger {
   color: var(--status-blocked);
 }
 
-.usage-chip-gauge--normal b {
-  color: var(--status-done);
-}
-
-/* Per-window identity color, LABEL ONLY — the %/fill above stay on the
- * urgency tone system (`gaugeTone`); this is a separate, fixed-by-label
- * color so the three gauges are visually distinguishable at a glance. */
-.usage-chip-gauge--w5h .usage-chip-gauge-label {
-  color: var(--accent-sky);
-}
-
-.usage-chip-gauge--w7d .usage-chip-gauge-label {
-  color: var(--gold);
-}
-
-.usage-chip-gauge--wfable .usage-chip-gauge-label {
-  color: var(--accent-lilac);
+.usage-chip-gauge--danger .hp-bar-fill {
+  background-color: var(--status-blocked);
 }
 
 .usage-provider {
@@ -2739,10 +2838,21 @@ body.garden-lowres .garden canvas {
   padding: 6px 10px;
 }
 
-/* ── View mode switcher (Phase 8 §1) ─────────────────────────────────────── */
+/* ── View mode switcher (Phase 8 §1; one control grammar pass) ───────────────
+ * Level-1 bordered group (one of only two — the other is the garden picker):
+ * fixed `--topbar-icon-size` band, `.segmented`'s own panel-2/hairline/active
+ * recipe (same as the theme picker in QuickSettings). `align-items: stretch`
+ * (flex default) is what makes the buttons fill that band without each
+ * needing its own height rule. "garden"/"terminal" carry a text label beside
+ * their glyph now (not `.topbar-icon-btn`'s fixed-square 28x28 — a labeled
+ * button needs to grow with its text); "⛶" (gardenFull) stays icon-only and
+ * auto-width here too, for the same reason none of the three use that class
+ * any more — a fixed 28px width doesn't share this row's height with an
+ * auto-width sibling inside the same bordered group. */
 .view-switcher {
   display: flex;
-  gap: 2px;
+  gap: 4px;
+  height: var(--topbar-icon-size);
   padding: 2px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -2750,28 +2860,35 @@ body.garden-lowres .garden canvas {
 }
 
 .view-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  font-size: var(--font-body-sm-size);
+  line-height: 1;
   background: none;
 }
 
 .view-switcher-btn.active {
-  background: var(--panel-2);
+  background: var(--bg);
   border-color: var(--line);
   color: var(--text);
 }
 
 /* ── Topbar right-cluster icon buttons (topbar overhaul, BACKLOG.md phase B
- * "icon group" item) ────────────────────────────────────────────────────
+ * "icon group" item; one control grammar pass) ─────────────────────────────
  * `.topbar-actions` (App.tsx) is the whole cluster after `.spacer` — pinned
  * with `flex: none` so only the spacer (and the scrollable chip rows before
  * it) absorb width changes; this cluster never reflows or shifts position.
- * `.topbar-icon-btn` gives every icon-only control in it (the view-mode
- * group's buttons, audio, theme, settings) the SAME fixed square box,
- * border, and hover treatment, so glyphs land optically centered and stop
- * drifting between components. Layered onto `.view-switcher-btn` above
- * (which now only carries the segmented group's own `.active` fill) rather
- * than replacing it. `UsageChip.tsx`'s trigger is deliberately NOT in this
- * class — it can carry a variable-width usage readout next to its icon — but
- * shares this box's height so the row still lines up (see `.usage-chip`). */
+ * `.topbar-icon-btn` is level-2 GHOST weight — every control that fires an
+ * action rather than holding state (audio, bell, theme, gear, the standalone
+ * "all sessions" button) shares this: transparent fill/border and muted text
+ * at rest, a border + fill only on hover, so it never competes visually with
+ * the level-1 bordered controls (garden picker, view-mode group). No longer
+ * layered onto the view-mode group's own buttons ("garden"/"terminal"/"⛶") —
+ * those moved to `.view-switcher-btn` alone once two of them grew a text
+ * label and could no longer share this class's fixed square box. */
 .topbar-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -2781,14 +2898,16 @@ body.garden-lowres .garden canvas {
   padding: 0;
   font-size: 15px;
   line-height: 1;
-  color: var(--text);
-  background: none;
+  color: var(--muted);
+  background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
 }
 
 .topbar-icon-btn:hover {
-  border-color: var(--accent-text);
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line);
 }
 
 .topbar-icon-btn:active {

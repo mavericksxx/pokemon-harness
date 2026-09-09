@@ -12,7 +12,7 @@ import { WorkspaceSwitcher } from '@/components/WorkspaceSwitcher';
 import { SummonArceusButton } from '@/components/SummonArceusButton';
 import { SummonArceusDialog } from '@/components/SummonArceusDialog';
 import { WelcomeDialog } from '@/components/WelcomeDialog';
-import { DoubleChevronLeftIcon, DoubleChevronRightIcon, PokeballIcon, TerminalIcon } from '@/components/icons';
+import { PokeballIcon, TerminalIcon } from '@/components/icons';
 import { PokemonFace } from '@/components/PokemonFace';
 import { Toasts } from '@/components/Toasts';
 import { UsageChip } from '@/components/UsageChip';
@@ -119,10 +119,10 @@ export function App(): JSX.Element {
     [activeWorkspaceSessions, viewMode]
   );
   // Still needed here for the split handle's mount condition — the terminal
-  // panel TOGGLE moved into ViewModeSwitcher, but the divider only exists
-  // when the drawer is actually showing.
+  // panel toggle itself lives on GardenSplitHandle/GardenDrawerEdgeTab now
+  // (see ViewModeSwitcher's own comment), but the divider only exists when
+  // the drawer is actually showing.
   const drawerOpen = useStore((s) => s.drawerOpen);
-  const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const setViewMode = useStore((s) => s.setViewMode);
   const isFullScreen = useStore((s) => s.isFullScreen);
   const setNarrowLayout = useStore((s) => s.setNarrowLayout);
@@ -249,10 +249,12 @@ export function App(): JSX.Element {
           <span className="brand">pokéharness</span>
         </span>
         {/* Arceus first (Phase 8.8/8.9/parity sweep) — he's global, not
-            scoped to any one garden, so his chip leads the workspace row
-            rather than sitting inside it. */}
+            scoped to any one garden, so his chip leads the row rather than
+            sitting inside the (now-relocated) workspace picker. Left as-is
+            by the one control grammar pass (BACKLOG.md item 7) — its `.chip`/
+            `.summon-arceus` CSS is slated for deletion in a follow-up PR once
+            every view mode has a roster rail, so restyling it now is waste. */}
         <SummonArceusButton />
-        <WorkspaceSwitcher />
         {!hideTopbarChips && (
           <>
             <button
@@ -282,39 +284,43 @@ export function App(): JSX.Element {
           </>
         )}
         <div className="spacer" />
-        {/* Right-cluster (topbar overhaul, BACKLOG.md phase B) — pinned via
-            `.topbar-actions` (index.css) so only the spacer/chip rows before
-            it absorb width changes; this group never reflows. View-mode
-            toggles, terminal-panel visibility, and the sessions overview
-            live together as one icon group (parity sweep) — see
-            ViewModeSwitcher's own comment for why "all sessions" and the
-            terminal-panel toggle joined it instead of floating separately.
-            QuickSettings is the settings entry point itself (its gear
-            trigger opens the quick-settings popover, whose "all settings…"
-            row opens SettingsPanel; the old standalone gear button that
-            opened SettingsPanel directly is gone, merged into this one). The
-            garden-only terminal visibility toggle sits immediately to its
-            right. */}
+        {/* Right-cluster (topbar overhaul, BACKLOG.md phase B; one control
+            grammar pass) — pinned via `.topbar-actions` (index.css) so only
+            the spacer/chip rows before it absorb width changes; this group
+            never reflows. Four zones, left to right: "stage" (view-mode
+            group + the standalone "all sessions" button, both rendered by
+            ViewModeSwitcher — see its own comment for why "all sessions"
+            isn't a fourth exclusive mode), "budget gauges" (UsageChip — a
+            level-3 gauge, so it's a bare child here with no zone wrapper:
+            "no container at all, ever" per the grammar, and it can render
+            null so a wrapper would leave a stray empty gap), "garden picker +
+            harness.md" (WorkspaceSwitcher moved here from the topbar's left
+            end — parity with the other state-holding/action controls in this
+            cluster — plus HarnessInstructionsChip), and "system icons"
+            (audio/bell/theme/gear). `.topbar-zone` + `.topbar-actions`'s own
+            gap (index.css) give the 4px-inside/12px-between-groups rhythm;
+            the garden and system zones each add a hairline rule via their
+            own `border-left`.
+            The garden-only terminal show/hide toggle that used to live here
+            is gone — ViewModeSwitcher's own comment covers why (moved to
+            GardenSplitHandle/GardenDrawerEdgeTab, right where the pane
+            actually is); this was the one topbar control left off the
+            unified 28px band. */}
         <div className="topbar-actions">
-          <ViewModeSwitcher />
-          <HarnessInstructionsChip />
+          <div className="topbar-zone topbar-zone-stage">
+            <ViewModeSwitcher />
+          </div>
           <UsageChip />
-          <AudioPopover />
-          <NotificationBell />
-          <ThemeToggle />
-          <QuickSettings />
-          {viewMode === 'garden' && (
-            <button
-              type="button"
-              className="topbar-icon-btn tip"
-              data-tip={drawerOpen ? 'hide terminal' : 'show terminal'}
-              aria-label={drawerOpen ? 'hide terminal' : 'show terminal'}
-              aria-pressed={drawerOpen}
-              onClick={() => setDrawerOpen(!drawerOpen)}
-            >
-              {drawerOpen ? <DoubleChevronRightIcon /> : <DoubleChevronLeftIcon />}
-            </button>
-          )}
+          <div className="topbar-zone topbar-zone-garden">
+            <WorkspaceSwitcher />
+            <HarnessInstructionsChip />
+          </div>
+          <div className="topbar-zone topbar-zone-system">
+            <AudioPopover />
+            <NotificationBell />
+            <ThemeToggle />
+            <QuickSettings />
+          </div>
         </div>
       </header>
 
