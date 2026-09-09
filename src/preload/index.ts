@@ -141,6 +141,15 @@ const api = {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
+  /** SessionTitleWatcher — a real Claude Code `/rename` picked up from
+   *  `custom-title.json` (see main/sessionTitleWatcher.ts's header). Same
+   *  per-id channel shape as `onCostUpdate` above. */
+  onTitleUpdate: (id: string, cb: (title: string) => void): (() => void) => {
+    const channel = `session:title:${id}`;
+    const listener = (_e: IpcRendererEvent, title: string): void => cb(title);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
   /** Test-only — see main/index.ts's `cost:registerTestPath` handler. */
   registerCostTestPath: (agentId: string, transcriptPath: string): Promise<void> =>
     ipcRenderer.invoke('cost:registerTestPath', agentId, transcriptPath),

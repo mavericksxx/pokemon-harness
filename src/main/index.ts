@@ -21,6 +21,7 @@ import { registerAppIpc } from './ipc/app';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
+import { SessionTitleWatcher } from './sessionTitleWatcher';
 import { UsageService } from './usageService';
 import { ArceusRelayWatcher } from './arceusRelay';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
@@ -197,6 +198,21 @@ function requestQuitConfirmation(): void {
 // `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
 // of any one hook event.
 const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
+// Picks up Claude Code's own `/rename` slash command (custom-title.json,
+// written one directory level below the session's own transcript file —
+// see sessionTitleWatcher.ts's header) and pushes it into `session.title`.
+// Registered off the same onRawPayload hook chain as costWatcher/
+// arceusRelay/taskNotificationWatcher below. Second constructor arg is the
+// same forward-reference trick `arceusRelay`'s own `() => sessionRegistry`
+// below uses (`sessionRegistry` isn't declared until later in this file, but
+// this arrow function only evaluates it once a hook payload actually needs a
+// session's current title — long after `sessionRegistry` is live) — scoped
+// to just the one field this watcher needs (see its own constructor
+// comment).
+const sessionTitleWatcher = new SessionTitleWatcher(
+  () => mainWindow?.webContents ?? null,
+  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.title
+);
 // In-app provider usage-limits panel (BACKLOG "next up" item 1) — off until
 // `setEnabled(true)` is called below with the persisted setting; see
 // usageService.ts's own header for the "zero credential access while off"
@@ -230,6 +246,7 @@ const hookBridge: HookBridge = new HookBridge(
     costWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
     arceusRelay.onHookPayload(agentId, transcriptPath);
     taskNotificationWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
+    sessionTitleWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
   },
   // External-codex-delegate feature — same forward-reference trick as
   // `arceusRelay` above: `ptyManager` isn't constructed until the next line,
@@ -327,9 +344,10 @@ const hookBridge: HookBridge = new HookBridge(
 // own, handled entirely inside pty.ts). Without it, a parent that exits
 // naturally while it still has `pending > 0` async subagents keeps the
 // watcher's 2s poll cadence alive for that dead session id forever.
-const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake(), (id) =>
-  taskNotificationWatcher.unregisterSession(id)
-);
+const ptyManager = new PtyManager(hookBridge, () => syncKeepAwake(), (id) => {
+  taskNotificationWatcher.unregisterSession(id);
+  sessionTitleWatcher.unregisterSession(id);
+});
 let activeTheme: AppSettings['theme'] = 'system';
 /** `appSettings.codexDelegateModel` (BACKLOG advisor/delegate model
  *  settings) — set at boot and on every settings save, same module-level
@@ -1031,6 +1049,7 @@ app.whenReady().then(async () => {
   costWatcher.start();
   arceusRelay.start();
   taskNotificationWatcher.start();
+  sessionTitleWatcher.start();
   const appSettings = await loadAppSettings();
   audioMasterMuted = (await loadAudioSettings()).masterMuted;
   activeTheme = appSettings.theme;
@@ -1153,9 +1172,10 @@ app.on('before-quit', (e) => {
   usageService.shutdown();
   arceusRelay.stop();
   taskNotificationWatcher.stop();
+  sessionTitleWatcher.stop();
 });
 
-registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher });
+registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher, sessionTitleWatcher });
 
 registerSessionsIpc({
   ptyManager,

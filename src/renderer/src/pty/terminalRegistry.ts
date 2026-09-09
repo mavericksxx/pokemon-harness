@@ -169,6 +169,7 @@ interface Entry {
   offExit: () => void;
   offHook: () => void;
   offCost: () => void;
+  offTitle: () => void;
   resizeObserver: ResizeObserver | null;
   /** Set exactly while attached (alongside `resizeObserver`) — removed on
    *  detach. See the `GARDEN_SPLIT_DRAG_END_EVENT` listener in
@@ -396,6 +397,14 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     useStore.getState().updateSession(sessionId, { cost: update, modelChangedFrom });
   });
 
+  // SessionTitleWatcher — a real Claude Code `/rename` picked up from
+  // custom-title.json. Same no-op-for-non-claude shape as offHook/offCost
+  // above: main only ever registers a transcript (and therefore only ever
+  // emits on this channel) for a claude-provider session.
+  const offTitle = window.api.onTitleUpdate(sessionId, (title) => {
+    useStore.getState().updateSession(sessionId, { title });
+  });
+
   entries.set(sessionId, {
     id: sessionId,
     term,
@@ -410,6 +419,7 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     offExit,
     offHook,
     offCost,
+    offTitle,
     resizeObserver: null,
     offDragEnd: null
   });
@@ -525,6 +535,7 @@ export function disposeTerminal(sessionId: string): void {
   e.offExit();
   e.offHook();
   e.offCost();
+  e.offTitle();
   e.parser?.dispose();
   e.term.dispose();
   entries.delete(sessionId);

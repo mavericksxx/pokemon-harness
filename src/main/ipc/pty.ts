@@ -5,16 +5,18 @@ import { handle } from './handle';
 import type { PtyManager } from '../pty';
 import type { CostWatcher } from '../costWatcher';
 import type { TaskNotificationWatcher } from '../taskNotificationWatcher';
+import type { SessionTitleWatcher } from '../sessionTitleWatcher';
 import type { SpawnPtyOptions } from '../../shared/types';
 
 export interface PtyIpcDeps {
   ptyManager: PtyManager;
   costWatcher: CostWatcher;
   taskNotificationWatcher: TaskNotificationWatcher;
+  sessionTitleWatcher: SessionTitleWatcher;
 }
 
 export function registerPtyIpc(deps: PtyIpcDeps): void {
-  const { ptyManager, costWatcher, taskNotificationWatcher } = deps;
+  const { ptyManager, costWatcher, taskNotificationWatcher, sessionTitleWatcher } = deps;
 
   // ─── PTY IPC ────────────────────────────────────────────────────────────────
   handle('pty:spawn', (_e, opts: SpawnPtyOptions) => ptyManager.spawn(opts, true));
@@ -25,6 +27,7 @@ export function registerPtyIpc(deps: PtyIpcDeps): void {
   handle('pty:kill', (_e, id: string) => {
     costWatcher.unregisterSession(id);
     taskNotificationWatcher.unregisterSession(id);
+    sessionTitleWatcher.unregisterSession(id);
     return ptyManager.kill(id);
   });
   handle('pty:list', () => ptyManager.list());
