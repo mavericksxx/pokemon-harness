@@ -1155,12 +1155,34 @@ app.whenReady().then(async () => {
   });
   diskRestorePromise = restoreFromDisk(appSettings);
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(resolveWindowBg(appSettings.theme));
+    // `mainWindow` directly, NOT `BrowserWindow.getAllWindows().length === 0`
+    // — the tray popover (tray.ts) is its own `BrowserWindow`, created once
+    // (lazily, on the first-ever tray click) and hidden/shown thereafter,
+    // never destroyed until quit. Once it exists, `getAllWindows()` never
+    // returns 0 again even with the garden window closed, so that count
+    // used to leave a Dock click permanently inert after closing the garden
+    // window via its traffic light — found and fixed post-merge (tray
+    // popover shipped in the same release as this check, so it was never
+    // exercised before). `mainWindow` is nulled in createWindow()'s own
+    // `closed` handler, so this is the direct, correct signal.
+    if (!mainWindow) createWindow(resolveWindowBg(appSettings.theme));
   });
   scheduleUpdateChecks();
 });
 
 app.on('window-all-closed', () => {
+  // Same underlying fact as the `activate` handler's comment above: once
+  // the tray popover window has ever been created, it's hidden rather than
+  // closed, so Electron's own "all windows closed" condition this event is
+  // named for basically never becomes true again on this app's one
+  // supported platform (darwin) — the flush()/killAll() below effectively
+  // stopped firing on the "close the garden window, no live sessions"
+  // path the moment the tray shipped. Left as-is (advisor-reviewed,
+  // documented rather than fixed): the darwin branch never called
+  // `app.quit()` here anyway, and `before-quit` below already owns the
+  // real flush/kill-or-detach decision for every path that actually quits
+  // the app. Revisit if a mac-only assumption here ever changes.
+  //
   // Flush BEFORE killing — see sessionPersistence.ts's SessionPersistence.flush()
   // doc comment for why the order matters.
   sessionPersistence.flush();

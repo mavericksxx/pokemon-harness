@@ -2,8 +2,10 @@
  * CostHistoryService — tray popover's cost-history section (GitHub issue
  * #17's locked-in scope addition; see that issue's design-decision
  * comment). Owns the cache/TTL/lifecycle around costHistoryScan.ts, the
- * actual scan (spawned as a detached helper process — see that file's own
- * header for why it isn't done inline on this process's thread).
+ * actual scan (spawned as its own short-lived child process — NOT a
+ * `detached: true`/outlives-the-app-quit process like ptyKeeper.ts; see
+ * that file's own header for the distinction, and this file's own
+ * `runScan` for why it isn't done inline on this process's thread).
  *
  * Cheap by construction: a scan is only ever spawned once at boot (`start()`
  * — to warm the cache before the tray popover can possibly be opened) and
@@ -48,8 +50,10 @@ function emptySnapshot(): CostHistorySnapshot {
   };
 }
 
-/** Spawns costHistoryScan.js (ELECTRON_RUN_AS_NODE, same launcher pattern as
- *  pty.ts's `detachToKeeper`), collects its one JSON stdout payload, and
+/** Spawns costHistoryScan.js (ELECTRON_RUN_AS_NODE — the same launcher
+ *  mechanism pty.ts's `detachToKeeper` uses, but plain `spawn()`, not
+ *  `detached: true`: this child lives and dies with the main process, it
+ *  isn't meant to survive it), collects its one JSON stdout payload, and
  *  resolves it. Rejects — never crashes this process — on a non-zero exit,
  *  unparseable output, or the timeout guard. */
 function runScan(root: string, lookbackDays: number): Promise<CostHistorySnapshot> {
@@ -58,8 +62,13 @@ function runScan(root: string, lookbackDays: number): Promise<CostHistorySnapsho
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['ignore', 'pipe', 'pipe']
     });
-    let stdout = '';
-    let stderr = '';
+    // Buffers collected and concatenated once at the end, not decoded
+    // per-chunk — a per-chunk `chunk.toString('utf8')` can split a
+    // multibyte UTF-8 character (a session's cwd/model text, this scan's
+    // own JSON string values — plenty of non-ASCII in a real
+    // `~/.claude/projects` tree) across two `data` events, mangling it.
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
@@ -68,10 +77,10 @@ function runScan(root: string, lookbackDays: number): Promise<CostHistorySnapsho
       reject(new Error('cost history scan timed out'));
     }, SCAN_TIMEOUT_MS);
     child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8');
+      stdoutChunks.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+      stderrChunks.push(chunk);
     });
     child.on('error', (err) => {
       if (settled) return;
@@ -84,11 +93,11 @@ function runScan(root: string, lookbackDays: number): Promise<CostHistorySnapsho
       settled = true;
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(`cost history scan exited ${code}: ${stderr.trim()}`));
+        reject(new Error(`cost history scan exited ${code}: ${Buffer.concat(stderrChunks).toString('utf8').trim()}`));
         return;
       }
       try {
-        resolve(JSON.parse(stdout) as CostHistorySnapshot);
+        resolve(JSON.parse(Buffer.concat(stdoutChunks).toString('utf8')) as CostHistorySnapshot);
       } catch (e) {
         reject(e instanceof Error ? e : new Error(String(e)));
       }
@@ -98,7 +107,13 @@ function runScan(root: string, lookbackDays: number): Promise<CostHistorySnapsho
 
 export class CostHistoryService {
   private cached: CostHistorySnapshot | null = null;
-  private cachedAt = 0;
+  /** Epoch ms of the last scan ATTEMPT — success or failure — not just the
+   *  last successful one. Gates `getSnapshot()`'s TTL check on its own, so a
+   *  persistently failing scan (huge install, slow disk, the child process
+   *  itself broken) still only retries once per `TTL_MS` instead of
+   *  respawning — and blocking on the full `SCAN_TIMEOUT_MS` — on every
+   *  single popover open. */
+  private lastAttemptAt = 0;
   private inFlight: Promise<CostHistorySnapshot> | null = null;
 
   /** Kicks off ONE background scan at boot — so the cache is warm by the
@@ -122,13 +137,15 @@ export class CostHistoryService {
     /* nothing to tear down */
   }
 
-  /** Current snapshot: the cache as-is when still within TTL, otherwise a
-   *  fresh scan (joining one already in flight rather than starting a
-   *  second). Falls back to the last good cache (or an empty snapshot if
-   *  there's never been one) on a scan failure — the popover shows stale or
-   *  zeroed numbers, never an error state, for this section. */
+  /** Current snapshot: the cache as-is when the last ATTEMPT (success or
+   *  failure — see `lastAttemptAt`) is still within TTL, otherwise a fresh
+   *  scan (joining one already in flight rather than starting a second).
+   *  Falls back to the last good cache (or an empty snapshot if there's
+   *  never been one) whether that's because of a scan failure or just an
+   *  in-TTL read — the popover shows stale or zeroed numbers, never an
+   *  error state, for this section. */
   async getSnapshot(): Promise<CostHistorySnapshot> {
-    if (this.cached && Date.now() - this.cachedAt < TTL_MS) return this.cached;
+    if (Date.now() - this.lastAttemptAt < TTL_MS) return this.cached ?? emptySnapshot();
     return this.refresh();
   }
 
@@ -138,13 +155,17 @@ export class CostHistoryService {
     this.inFlight = runScan(root, LOOKBACK_DAYS)
       .then((snapshot) => {
         this.cached = snapshot;
-        this.cachedAt = Date.now();
+        this.lastAttemptAt = Date.now();
         return snapshot;
       })
       .catch((e) => {
         log('costHistory', 'warn', 'cost history scan failed', {
           message: e instanceof Error ? e.message : String(e)
         });
+        // Record the attempt even though it failed — see `lastAttemptAt`'s
+        // own comment for why this still has to gate the NEXT attempt by
+        // TTL rather than leaving the door open to retry every call.
+        this.lastAttemptAt = Date.now();
         return this.cached ?? emptySnapshot();
       })
       .finally(() => {

@@ -101,10 +101,18 @@ export class TrayController {
 
   /** Creates the tray icon (idempotent — a second call is a no-op). Safe to
    *  call even where `Tray` isn't meaningfully supported; Electron no-ops
-   *  gracefully on unsupported platforms rather than throwing. */
+   *  gracefully on unsupported platforms rather than throwing. Skips
+   *  creating the `Tray` entirely if the icon image failed to load (e.g.
+   *  `extraResources` didn't land `tray/pokeballTemplate.png` in a packaged
+   *  build) — an invisible-but-clickable blank slot in the real macOS menu
+   *  bar would be worse than no tray item at all. */
   init(): void {
     if (this.tray) return;
     const icon = loadTemplateIcon();
+    if (icon.isEmpty()) {
+      log('tray', 'warn', 'tray icon image failed to load — skipping tray item');
+      return;
+    }
     const tray = new Tray(icon);
     tray.setToolTip('Pokéharness');
     tray.on('click', () => this.toggle());
@@ -171,6 +179,16 @@ export class TrayController {
     this.positionUnderTray(win);
     win.show();
     win.focus();
+    // OPEN QUESTION (flagged, not fixed here): `show()`+`focus()` activates
+    // the app on macOS, which can raise the main garden window above
+    // whatever app/Space the user was actually in — not ideal for a
+    // glanceable menu-bar popover. The conventional fix is a NON-ACTIVATING
+    // panel window (`type: 'panel'` on the BrowserWindow constructor
+    // options), but this app's installed Electron (44.2.0 — see
+    // node_modules/electron/electron.d.ts) has no `type` constructor option
+    // at all; it isn't available to try here. Left as the standard
+    // show()+focus() behavior; revisit if/when Electron ships it.
+    //
     // No data push here — see `init()`'s `tray:getData` handler comment. The
     // page's own `visibilitychange` listener does the pulling once `show()`
     // actually makes it visible.

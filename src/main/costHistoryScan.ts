@@ -2,10 +2,14 @@
  * costHistoryScan — standalone helper process for the tray popover's cost-
  * history section (GitHub issue #17's locked-in scope addition).
  *
- * Spawned via ELECTRON_RUN_AS_NODE (same launcher pattern as ptyKeeper.ts —
- * see pty.ts's `detachToKeeper` and this feature's own costHistory.ts),
- * NOT part of the normal main-process bundle's runtime flow: this is its
- * own electron-vite entry (electron.vite.config.ts), built to a sibling
+ * Spawned via ELECTRON_RUN_AS_NODE — the SAME launcher mechanism ptyKeeper.ts
+ * uses (see pty.ts's `detachToKeeper`), but NOT detached the way ptyKeeper
+ * is: this is a plain `spawn()` (costHistory.ts's `runScan`), tied to the
+ * main process's own lifecycle like any other child process, not a
+ * `detached: true` process meant to outlive it. It only ever needs to run
+ * for a few seconds while main is already up. NOT part of the normal
+ * main-process bundle's runtime flow either way: this is its own
+ * electron-vite entry (electron.vite.config.ts), built to a sibling
  * `out/main/costHistoryScan.js`, and only ever imported by costHistory.ts as
  * a path string to spawn, never as a module.
  *
@@ -25,6 +29,16 @@
  * tolerance as costWatcher.ts's own transcript parsing) — only a fatal error
  * before any output (e.g. the root directory doesn't exist) exits non-zero,
  * which costHistory.ts treats as "no data this scan", not a crash.
+ *
+ * Unlike costWatcher.ts, this DOES count `isSidechain: true` (subagent)
+ * turns — a deliberate product decision, not an oversight: this project's
+ * own workflow runs almost all real work through subagents, so excluding
+ * them (costWatcher's own choice, made for a context-occupancy reason that
+ * doesn't apply to a total-spend figure) would badly understate "cost".
+ * Doing that correctly needs real dedup first — see `scan()`'s own comment
+ * for the two duplicate-JSONL-line shapes a real transcript tree actually
+ * has, verified directly against this machine's own history before this
+ * shipped, not assumed.
  */
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
@@ -66,9 +80,21 @@ function dayKey(d: Date): string {
 
 interface TranscriptLine {
   type?: string;
-  isSidechain?: boolean;
   timestamp?: string;
-  message?: { model?: string; usage?: Record<string, number> };
+  requestId?: string;
+  message?: { id?: string; model?: string; usage?: Record<string, number> };
+}
+
+/** Raw per-turn usage, already resolved (placeholder model substituted) —
+ *  one per UNIQUE message, after dedup. See `scan()`'s own comment on why
+ *  dedup is necessary at all before this shape is ever built. */
+interface DedupedTurn {
+  ts: number;
+  inputTok: number;
+  cacheCreate: number;
+  cacheRead: number;
+  outputTok: number;
+  model: string | null;
 }
 
 function scan(root: string, lookbackDays: number): CostHistorySnapshot {
@@ -103,10 +129,41 @@ function scan(root: string, lookbackDays: number): CostHistorySnapshot {
   const files: string[] = [];
   collectJsonlFiles(root, files);
 
-  let last30dTokens = 0;
-  let latestTurnTokens: number | null = null;
-  let latestTurnAt = -Infinity;
-  const tokensByModel = new Map<string, number>();
+  // ─── Pass 1: collect every qualifying assistant turn, deduped by message
+  // identity, across EVERY file — not per-file. Two real duplication shapes
+  // exist in a real `~/.claude/projects` tree (verified directly against
+  // this machine's own transcripts before this shipped, per the product
+  // decision to include subagent spend):
+  //
+  //  1. WITHIN one file, Claude Code writes one JSONL line per completed
+  //     CONTENT BLOCK of a turn (thinking/tool_use/text/...), not one line
+  //     per turn — a multi-block turn repeats the same `message.id` across
+  //     several lines, each carrying that message's usage AS OF that block
+  //     (`output_tokens` verified strictly non-decreasing across 2120 real
+  //     duplicate-id groups sampled off this machine; `input`/cache tokens
+  //     can also jump mid-message for a message that made a server-side
+  //     tool call and kept generating after the result came back — that
+  //     jump is real re-processed context, not an artifact). Summing every
+  //     line for such a turn overcounts it several times over — sampled at
+  //     ~65% of top-level turns on this machine having 2+ lines. This was
+  //     already a real, shipped bug before subagent-inclusion was even a
+  //     factor: only IGNORING it made the original per-line-sum look
+  //     plausible.
+  //  2. ACROSS files, the exact same message (same `message.id` AND
+  //     `requestId`) can appear BOTH in a session's main transcript
+  //     (`isSidechain: false` — the orchestrator's own turn that dispatched
+  //     a subagent) and again inside that subagent's own
+  //     `subagents/*.jsonl` file (`isSidechain: true` there) — confirmed on
+  //     3 real occurrences directly. Deduping only within one file's own
+  //     loop would still double-count these.
+  //
+  // The fix for both: key every turn on `message.id` (falling back to
+  // `requestId` if that's ever missing — matches the two identifiers a real
+  // transcript actually carries, checked directly rather than assumed), and
+  // keep only the occurrence with the LATEST timestamp for that key — the
+  // final, most-complete usage snapshot for that message, wherever in the
+  // scan it's encountered.
+  const dedup = new Map<string, DedupedTurn>();
 
   for (const path of files) {
     // A file's mtime is (at most microseconds after) its last-written
@@ -133,9 +190,18 @@ function scan(root: string, lookbackDays: number): CostHistorySnapshot {
     // Per-file "last real model" carry — mirrors costWatcher.ts's
     // TrackedSession.lastModel: a placeholder model id (e.g. `<synthetic>`)
     // on one line must resolve to the nearest earlier real model in the
-    // SAME transcript, not a global fallback.
+    // SAME transcript, not a global fallback. Deliberately still per-file
+    // (not part of the cross-file dedup above) — it's resolving what the
+    // real model WAS for a given raw line, before that line's turn is ever
+    // looked up in the global dedup map.
     let lastModel: string | null = null;
 
+    // Deliberately NOT excluding `isSidechain: true` here (product decision:
+    // subagent turns are real spend, and for this project's own
+    // orchestrator-only workflow they're MOST of the spend — excluding them
+    // would make "cost" badly understate reality, unlike costWatcher.ts's
+    // own exclusion of the same field, which exists for a context-occupancy
+    // reason that doesn't apply to a total-spend figure).
     for (const line of content.split('\n')) {
       if (!line || line.indexOf('"type":"assistant"') === -1) continue; // cheap pre-filter before JSON.parse
       let entry: TranscriptLine;
@@ -144,34 +210,53 @@ function scan(root: string, lookbackDays: number): CostHistorySnapshot {
       } catch {
         continue; // torn line (read mid-write) — skip
       }
-      if (entry.type !== 'assistant' || entry.isSidechain === true) continue;
+      if (entry.type !== 'assistant') continue;
       const usage = entry.message?.usage;
       if (!usage) continue;
       const ts = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
       if (!Number.isFinite(ts) || ts < cutoffMs) continue;
 
+      const key = entry.message?.id || (entry.requestId ? `req:${entry.requestId}` : null);
+      if (!key) continue; // no stable identity to dedup on — skip rather than risk overcounting
+
       const parsedModel: string | null = entry.message?.model ?? null;
       const model: string | null = isPlaceholderModel(parsedModel) ? lastModel : parsedModel;
       lastModel = model;
 
-      const inputTok = usage.input_tokens ?? 0;
-      const cacheCreate = usage.cache_creation_input_tokens ?? 0;
-      const cacheRead = usage.cache_read_input_tokens ?? 0;
-      const outputTok = usage.output_tokens ?? 0;
-      const turnTokens = inputTok + cacheCreate + cacheRead + outputTok;
+      const existing = dedup.get(key);
+      if (existing && existing.ts >= ts) continue; // an already-seen, later-or-equal snapshot for this same message wins
 
-      const cost = costForUsage({ inputTok, cacheCreate, cacheRead, outputTok }, model);
-      const key = dayKey(new Date(ts));
-      const existing = costByDay.get(key);
-      if (existing !== undefined) costByDay.set(key, existing + cost);
+      dedup.set(key, {
+        ts,
+        inputTok: usage.input_tokens ?? 0,
+        cacheCreate: usage.cache_creation_input_tokens ?? 0,
+        cacheRead: usage.cache_read_input_tokens ?? 0,
+        outputTok: usage.output_tokens ?? 0,
+        model
+      });
+    }
+  }
 
-      last30dTokens += turnTokens;
-      if (model) tokensByModel.set(model, (tokensByModel.get(model) ?? 0) + turnTokens);
+  // ─── Pass 2: aggregate the deduped set — exactly one entry per real
+  // message now, so this is a plain sum with no further identity reasoning.
+  let last30dTokens = 0;
+  let latestTurnTokens: number | null = null;
+  let latestTurnAt = -Infinity;
+  const tokensByModel = new Map<string, number>();
 
-      if (ts > latestTurnAt) {
-        latestTurnAt = ts;
-        latestTurnTokens = turnTokens;
-      }
+  for (const turn of dedup.values()) {
+    const turnTokens = turn.inputTok + turn.cacheCreate + turn.cacheRead + turn.outputTok;
+    const cost = costForUsage(turn, turn.model);
+    const key = dayKey(new Date(turn.ts));
+    const existing = costByDay.get(key);
+    if (existing !== undefined) costByDay.set(key, existing + cost);
+
+    last30dTokens += turnTokens;
+    if (turn.model) tokensByModel.set(turn.model, (tokensByModel.get(turn.model) ?? 0) + turnTokens);
+
+    if (turn.ts > latestTurnAt) {
+      latestTurnAt = turn.ts;
+      latestTurnTokens = turnTokens;
     }
   }
 
