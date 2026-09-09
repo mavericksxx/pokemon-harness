@@ -2434,14 +2434,12 @@ body.garden-lowres .garden canvas {
 
 /* Chip-form mini gauges (session-status composite design, item 1; one
  * control grammar pass) — all three windows (5h / 7d / 7d fable) stay
- * visible, per-window identity coloring is gone (was a fixed sky/gold/lilac
- * per label — read as boxed/decorated for a Level-3 control that should
- * never compete with the bordered controls). Muted by default; a window
- * only tints (existing `gaugeTone` danger red) once it crosses ~80% used —
- * below that, "warn" (50-79%) reads the same muted as "normal" here, unlike
- * the full 3-tier treatment the popover's own bars below still use. Tight
- * 2px gap is what visually groups the three now that the vertical rules
- * between them are gone. */
+ * visible, unboxed (no border, no panel fill — never competes with the
+ * bordered controls), and fully tone-colored: the bar fill and the
+ * percentage number both follow the same 3-tier `gaugeTone` urgency scale
+ * the popover's own bars below use, so the gauge still conveys urgency at
+ * a glance. Tight 2px gap is what visually groups the three now that the
+ * vertical rules between them are gone. */
 .usage-chip-gauges {
   display: inline-flex;
   align-items: center;
@@ -2454,7 +2452,6 @@ body.garden-lowres .garden canvas {
   gap: 4px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  color: var(--muted);
 }
 
 .usage-chip-gauge + .usage-chip-gauge {
@@ -2465,31 +2462,27 @@ body.garden-lowres .garden canvas {
   width: 22px;
 }
 
-/* Muted by default (Level-3 gauge) — only the `--danger` tint below (a
- * window at/over ~80% used) breaks from this. */
-.usage-chip-gauge .hp-bar-fill {
-  background-color: var(--muted);
-}
-
 .usage-chip-gauge b {
   font-family: var(--font-mono);
   font-weight: 600;
-  color: inherit;
 }
 
-.usage-chip-gauge--danger {
+.usage-chip-gauge--warn b {
+  color: var(--status-working);
+}
+
+.usage-chip-gauge--danger b {
   color: var(--status-blocked);
 }
 
-.usage-chip-gauge--danger .hp-bar-fill {
-  background-color: var(--status-blocked);
+.usage-chip-gauge--normal b {
+  color: var(--status-done);
 }
 
-/* Per-window identity color, LABEL ONLY — deliberately exempt from the
- * level-3 "muted gauge" rule above (user feedback: "hard to distinguish the
- * three bars"): the %/fill stay on the muted-until-80% rule, but the label
- * keeps a fixed, always-on color by window so the three gauges stay
- * tellable apart at a glance regardless of urgency state. */
+/* Per-window identity color, LABEL ONLY — a separate axis from the urgency
+ * tone above: the %/fill stay on `gaugeTone`, while the label keeps a
+ * fixed, always-on color by window so the three gauges stay tellable
+ * apart at a glance regardless of urgency state. */
 .usage-chip-gauge--w5h .usage-chip-gauge-label {
   color: var(--accent-sky);
 }
