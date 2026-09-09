@@ -2,11 +2,9 @@ import type { RefObject } from 'react';
 import type { Session, ViewMode } from '@/store/store';
 import { ArceusDispatchBox } from '@/components/ArceusDispatchBox';
 import { FocusHeader } from '@/components/FocusHeader';
-import { FocusTerminalHead } from '@/components/FocusTerminalHead';
 import { SessionStatusStrip } from '@/components/SessionStatusStrip';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
-import { restartSessionFresh, stopSession } from '@/sessions';
-import { sessionStatusLabel } from '@/design/sessionLabel';
+import { restartSessionFresh } from '@/sessions';
 
 interface Props {
   session: Session | undefined;
@@ -35,16 +33,19 @@ interface Props {
  * React) — untouched by a mode switch.
  *
  * Munder Difflin restyle (backlog item): the terminal now sits inside a
- * framed `.terminal-panel` with its own mini header (FocusTerminalHead —
- * live indicator + font-size stepper). That wrapper and its head are BOTH
- * unconditional too, same reasoning as above — only their className/content
- * vary with `focus`, never their presence in the tree, so the `mountRef` div
- * they wrap never sees a different ancestor shape across a viewMode toggle.
+ * framed `.terminal-panel`, with `SessionStatusStrip` (the bottom statusline
+ * — status chip, model, context, multitask, cwd, kill) below the mount. That
+ * wrapper and the strip are BOTH unconditional too, same reasoning as
+ * above — only their className/content vary with `focus`, never their
+ * presence in the tree, so the `mountRef` div they wrap never sees a
+ * different ancestor shape across a viewMode toggle.
  *
  * 'terminal' view mode (BACKLOG phase E) is the per-agent command center:
  * FocusHeader above the terminal, Arceus's own dispatch box below it (see
  * the trailing block) when he's selected. Every other mode keeps the
- * pre-phase-E drawer-meta / dispatch-box-above-terminal layout, unchanged.
+ * pre-phase-E dispatch-box-above-terminal layout, unchanged (its old
+ * `.drawer-meta` status/cwd/kill row moved into `SessionStatusStrip` below
+ * the terminal instead).
  *
  * Parity sweep item 8 — the "queue" composer that used to sit below the
  * terminal in focus mode for every non-Arceus session is gone entirely (user
@@ -69,21 +70,7 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
 
   return (
     <>
-      {focus ? (
-        <FocusHeader session={session} />
-      ) : (
-        <div className="drawer-meta">
-          <span className={session.napping ? 'status napping' : `status ${session.status}`}>
-            {sessionStatusLabel(session)}
-          </span>
-          <span className="path" title={session.cwd}>
-            {session.cwd}
-          </span>
-          <button className="danger" onClick={() => void stopSession(session.id)}>
-            kill
-          </button>
-        </div>
-      )}
+      {focus && <FocusHeader session={session} />}
 
       {session.error && (
         <p className="error drawer-error">
@@ -104,12 +91,11 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
       {!focus && session.isArceus && <ArceusDispatchBox sessionId={session.id} />}
 
       <div className={focus ? 'terminal-panel terminal-panel-focus' : 'terminal-panel'}>
-        <FocusTerminalHead label={session.title} />
-        <SessionStatusStrip session={session} />
         <div className="terminal-mount-wrap">
           <div className="terminal-mount" ref={mountRef} />
           {findOpen && <TerminalFindBar sessionId={session.id} onClose={onCloseFind} />}
         </div>
+        <SessionStatusStrip session={session} />
       </div>
 
       {focus && session.isArceus && <ArceusDispatchBox sessionId={session.id} />}

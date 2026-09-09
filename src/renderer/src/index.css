@@ -1242,26 +1242,6 @@ body.garden-lowres .garden canvas {
   background: var(--panel-2);
 }
 
-.drawer-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 11px;
-}
-
-.drawer-meta .path {
-  font-family: var(--font-mono);
-  color: var(--muted);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-}
-
 /* Arceus dispatch box (Phase 8.8 §6) — a one-line convenience bar above the
  * terminal, shown ONLY while he's selected (ArceusDispatchBox is only
  * rendered for that session; nothing here needs its own visibility gate). */
@@ -1457,42 +1437,10 @@ body.garden-lowres .garden canvas {
   border: 1px solid var(--line);
 }
 
-/* The panel's own mini header — live indicator + font-size stepper
- * (FocusTerminalHead.tsx). Always rendered, and always shown: `.terminal-
- * panel` (and this head inside it) only ever exists in the DOM in 'terminal'
- * view mode or in 'garden' mode with the drawer open (TerminalDrawer.tsx
- * renders null otherwise, e.g. 'gardenFull'), so there's no third case to
- * hide this from — the font-size stepper is wanted in both. */
-.terminal-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--line);
-  font-size: var(--font-body-sm-size);
-}
-
-.terminal-panel-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.terminal-panel-live-dot {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--status-working);
-}
-
+/* Font-size stepper widget — moved from the (now-deleted) FocusTerminalHead
+ * mini header into QuickSettings.tsx's popover; kept as its own reusable
+ * class set rather than folded into `.quick-settings-panel` since it's a
+ * small self-contained control. */
 .terminal-panel-fontstep {
   display: flex;
   align-items: center;
@@ -1549,26 +1497,48 @@ body.garden-lowres .garden canvas {
   white-space: nowrap;
 }
 
-/* ── Statusline strip (session-status feature, SessionStatusStrip.tsx) —
- * mounted directly under the terminal panel's own mini header
- * (FocusTerminalHead.tsx) inside FocusView.tsx, which is the SAME render
- * path for both the focus/'terminal' view mode's terminal panel and the
- * garden/gardenFull drawer's terminal panel — see FocusView.tsx's own header
- * comment for why one mount point covers both surfaces. Same visibility as
- * `.terminal-panel-head` now (both always shown wherever `.terminal-panel`
- * itself renders at all) — this strip must stay visible in the garden
- * drawer too. */
+/* ── Bottom statusline (session-status feature, SessionStatusStrip.tsx) —
+ * mounted directly below `.terminal-mount-wrap` inside FocusView.tsx, which
+ * is the SAME render path for both the focus/'terminal' view mode's terminal
+ * panel and the garden/gardenFull drawer's terminal panel — see
+ * FocusView.tsx's own header comment for why one mount point covers both
+ * surfaces. Always rendered at a fixed height (never gated on `session.cost`
+ * — see the component's own doc comment for why) so the terminal mount above
+ * it never reflows. Also carries what used to be `.drawer-meta`'s status
+ * chip/cwd/kill row, hence `border-top` (a statusline sits at the bottom
+ * edge) rather than the old strip's `border-bottom`. */
 .status-strip {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 9px;
-  background: var(--bg-terminal);
-  border-bottom: 1px solid var(--line);
+  height: 24px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--muted);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.status-strip-path {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.status-strip-kill {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .status-strip-seg {
