@@ -483,13 +483,23 @@ export class PtyManager {
 
   private buildBaseEnv(overrides?: Record<string, string>): Record<string, string> {
     // Finder/Dock launches need the login-shell PATH and terminal defaults.
-    return {
+    const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
       PATH: userShellPath(),
       TERM: 'xterm-256color',
-      LANG: process.env.LANG || 'en_US.UTF-8',
-      ...(overrides ?? {})
+      LANG: process.env.LANG || 'en_US.UTF-8'
     };
+    // Every agent this app spawns is a real top-level session, never a
+    // subagent — but if the app itself was launched from inside an existing
+    // Claude Code session, CLAUDE_CODE_CHILD_SESSION leaks through the
+    // process.env spread above and makes the CLI wrongly treat the spawned
+    // agent as a child session, disabling transcript persistence for it.
+    // Strip it and force persistence back on, unless the caller's overrides
+    // explicitly say otherwise.
+    delete env.CLAUDE_CODE_CHILD_SESSION;
+    env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1';
+    Object.assign(env, overrides ?? {});
+    return env;
   }
 
   private buildFallbackEnv(env: Record<string, string>, provider?: string, claudeSettingsPath?: string, agentId?: string): Record<string, string> {
