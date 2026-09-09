@@ -11,20 +11,54 @@
  */
 import * as pty from 'node-pty';
 import type { WebContents } from 'electron';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn as spawnProcess } from 'node:child_process';
+import { createConnection, type Socket } from 'node:net';
 import { buildAgentsFlagValue } from './bundledHarnessAgents';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
 import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
 import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 import { TERMINAL_COLORS } from '../shared/terminalColors';
+import { FRAME_DATA, FRAME_EXIT, FRAME_KILL, FRAME_WRITE, FrameDecoder, encodeFrame } from './ptyKeeperProtocol';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
  *  userData: these are throwaway routing files, not app state. */
 function hookTmpDir(): string {
   return join(tmpdir(), 'pokemon-harness-hooks');
+}
+
+/** "Leave them running" quit path — where a detached session's keeper
+ *  socket + sidecar metadata file live. Same "plain OS temp, throwaway"
+ *  posture as `hookTmpDir` above, not userData. */
+function keeperDir(): string {
+  return join(tmpdir(), 'pokemon-harness-keepers');
+}
+function keeperSockPath(id: string): string {
+  return join(keeperDir(), `${id}.sock`);
+}
+/** Session fields the keeper process itself has no use for (cwd, command,
+ *  env, ...) but `tryReattach` needs to rebuild a real `PtySession` — see
+ *  `detachToKeeper`/`tryReattach` and this file's own `KeeperMeta`. Single-
+ *  use: written at detach time, read (and removed) on the one reattach
+ *  attempt that follows. */
+function keeperMetaPath(id: string): string {
+  return join(keeperDir(), `${id}.json`);
+}
+/** `ptyKeeper.ts`'s own build output — a sibling of this bundle's own file
+ *  (out/main/index.js next to out/main/ptyKeeper.js), same directory in
+ *  BOTH `npm run dev` (electron-vite dev still actually builds main/preload
+ *  to `out/`, only the renderer is dev-served) and a packaged build — same
+ *  `__dirname`-relative pattern index.ts already uses for the preload
+ *  script. Electron's asar support reads plain JS out of app.asar
+ *  transparently for both `require()` and a script path handed to its own
+ *  binary (ELECTRON_RUN_AS_NODE keeps that support — it only turns off the
+ *  browser/renderer machinery, not asar), so this file does NOT need
+ *  asarUnpack treatment the way node-pty's native binding does. */
+function keeperScriptPath(): string {
+  return join(__dirname, 'ptyKeeper.js');
 }
 
 /** Trailing output kept per session so a renderer crash's reload can repaint
@@ -73,9 +107,19 @@ const MAX_LAST_EXIT_CODES = 200;
  *  since more than one delegate can exit before its parent ever asks. */
 const DELEGATE_EXIT_TTL_MS = 10 * 60 * 1000;
 
+/** The complete runtime surface this file actually uses off `.proc` (grepped
+ *  — lines ~401/410/647/701/712/734/746/770/814 as of this writing: write,
+ *  resize, kill, pid, onData, onExit, nothing else). A direct `pty.spawn()`
+ *  result satisfies this structurally already, no change at normal spawn
+ *  time — the point of narrowing it is that `KeeperClient` (a fake `.proc`
+ *  backed by a reattached keeper socket, see `tryReattach`) can satisfy it
+ *  too, without needing to fake the rest of `pty.IPty` (cols/rows/process/
+ *  handleFlowControl/clear/pause/resume) it never implements. */
+type PtyLike = Pick<pty.IPty, 'pid' | 'write' | 'resize' | 'kill' | 'onData' | 'onExit'>;
+
 interface PtySession {
   id: string;
-  proc: pty.IPty;
+  proc: PtyLike;
   cwd: string;
   command: string;
   /** Epoch ms of the most recent byte this PTY emitted. */
@@ -397,67 +441,7 @@ export class PtyManager {
       };
       this.sessions.set(opts.id, session);
       this.onSessionsChanged?.();
-
-      proc.onData((data) => {
-        if (this.sessions.get(opts.id) !== session) return;
-        session.lastOutputAt = Date.now();
-        const visible = this.handleDetachedQueries(session, data);
-        if (!visible) return;
-        session.replay = (session.replay + visible).slice(-REPLAY_MAX_CHARS);
-        this.safeSend(`pty:data:${opts.id}`, visible);
-      });
-
-      proc.onExit(({ exitCode, signal }) => {
-        if (this.sessions.get(opts.id) !== session) return;
-        if (exitCode !== 0) {
-          log('pty', 'warn', 'session exited nonzero', { id: opts.id, command: session.command, exitCode, signal });
-        }
-        this.setLastExitCode(opts.id, exitCode);
-        this.sessions.delete(opts.id);
-        this.onSessionsChanged?.();
-        // GitHub #8 — unconditionally, even when a fallback shell is about to
-        // take over this same id below: taskNotificationWatcher only ever
-        // (re-)tracks an id via a CLI hook payload (registerSession), and a
-        // plain shell process never fires hooks, so there's nothing here for
-        // an unregister to wrongly cut off. Waiting on `willFallback` would
-        // just leave the watcher's 2s poll spinning for a session that's no
-        // longer an agentic CLI.
-        this.onSessionExited?.(opts.id);
-        if (session.isDelegate) {
-          const timer = setTimeout(() => this.delegateExits.delete(opts.id), DELEGATE_EXIT_TTL_MS);
-          this.delegateExits.set(opts.id, { exit: { exitCode, signal }, timer });
-        }
-
-        // BUG/UX fix — a real terminal drops you to a shell when the
-        // foreground process exits; this app used to just leave the tab
-        // dead. Respawn the user's shell under the SAME id so it stays a
-        // live, usable terminal. Skipped for: a fallback shell's OWN exit
-        // (`session.isFallback` — no chained respawn loop), a delegate
-        // (`session.isDelegate` must stay dead), and the opt-out setting.
-        // Arceus is DELIBERATELY no longer excluded here (BACKLOG item 3 —
-        // "when his CLI exits, the terminal is dead") — he now gets the
-        // exact same drop-to-shell behavior as any other session. His own
-        // resume/re-summon flow (arceus.ts's `tryResumeArceus`/
-        // `autoSummonArceus`) still owns re-summoning him, but only ever
-        // runs from an explicit user action (his topbar chip/roster card, or
-        // once at boot) — never from this pty's own exit — so a fallback
-        // shell riding under his id has nothing auto-re-summoning out from
-        // under it while the user types into it. A later re-summon still
-        // replaces that shell cleanly: spawn()'s reused-id kill (below in
-        // this same file) tears down whatever is currently running under an
-        // id before starting the new process, shell fallback included.
-        // Computed BEFORE the `pty:exit` send below (not after spawning) so
-        // the renderer's `PtyExit.fallback` flag is set in the SAME message
-        // as the exit notice — see that field's own comment on why: its
-        // regex tool-call parser must stop reading this channel before the
-        // fallback shell's first byte, not after.
-        const willFallback = this.shellFallbackEnabled && !session.isFallback && !session.isDelegate;
-        this.safeSend(`pty:exit:${opts.id}`, { exitCode, signal, fallback: willFallback });
-
-        if (willFallback) {
-          this.spawnFallbackShell(opts.id, session.cwd, session.env, session);
-        }
-      });
+      this.wireSessionHandlers(opts.id, session);
 
       return { ok: true, cwd };
     } catch (e) {
@@ -468,6 +452,77 @@ export class PtyManager {
       });
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /** Registers the onData/onExit handlers a live session's `proc` needs —
+   *  factored out of `spawn()` so `tryReattach()` can wire up EXACTLY the
+   *  same natural-exit handling (shell fallback, delegate-exit retention,
+   *  GitHub #8 unregister, replay accumulation) for a `KeeperClient` adapter
+   *  as a real freshly-spawned `pty.IPty` gets — a session detached then
+   *  reattached must behave identically to one that was live the whole
+   *  time once its underlying process eventually exits. `session.proc` is
+   *  already set by the caller; this only wires callbacks onto it. */
+  private wireSessionHandlers(id: string, session: PtySession): void {
+    session.proc.onData((data) => {
+      if (this.sessions.get(id) !== session) return;
+      session.lastOutputAt = Date.now();
+      const visible = this.handleDetachedQueries(session, data);
+      if (!visible) return;
+      session.replay = (session.replay + visible).slice(-REPLAY_MAX_CHARS);
+      this.safeSend(`pty:data:${id}`, visible);
+    });
+
+    session.proc.onExit(({ exitCode, signal }) => {
+      if (this.sessions.get(id) !== session) return;
+      if (exitCode !== 0) {
+        log('pty', 'warn', 'session exited nonzero', { id, command: session.command, exitCode, signal });
+      }
+      this.setLastExitCode(id, exitCode);
+      this.sessions.delete(id);
+      this.onSessionsChanged?.();
+      // GitHub #8 — unconditionally, even when a fallback shell is about to
+      // take over this same id below: taskNotificationWatcher only ever
+      // (re-)tracks an id via a CLI hook payload (registerSession), and a
+      // plain shell process never fires hooks, so there's nothing here for
+      // an unregister to wrongly cut off. Waiting on `willFallback` would
+      // just leave the watcher's 2s poll spinning for a session that's no
+      // longer an agentic CLI.
+      this.onSessionExited?.(id);
+      if (session.isDelegate) {
+        const timer = setTimeout(() => this.delegateExits.delete(id), DELEGATE_EXIT_TTL_MS);
+        this.delegateExits.set(id, { exit: { exitCode, signal }, timer });
+      }
+
+      // BUG/UX fix — a real terminal drops you to a shell when the
+      // foreground process exits; this app used to just leave the tab
+      // dead. Respawn the user's shell under the SAME id so it stays a
+      // live, usable terminal. Skipped for: a fallback shell's OWN exit
+      // (`session.isFallback` — no chained respawn loop), a delegate
+      // (`session.isDelegate` must stay dead), and the opt-out setting.
+      // Arceus is DELIBERATELY no longer excluded here (BACKLOG item 3 —
+      // "when his CLI exits, the terminal is dead") — he now gets the
+      // exact same drop-to-shell behavior as any other session. His own
+      // resume/re-summon flow (arceus.ts's `tryResumeArceus`/
+      // `autoSummonArceus`) still owns re-summoning him, but only ever
+      // runs from an explicit user action (his topbar chip/roster card, or
+      // once at boot) — never from this pty's own exit — so a fallback
+      // shell riding under his id has nothing auto-re-summoning out from
+      // under it while the user types into it. A later re-summon still
+      // replaces that shell cleanly: spawn()'s reused-id kill (below in
+      // this same file) tears down whatever is currently running under an
+      // id before starting the new process, shell fallback included.
+      // Computed BEFORE the `pty:exit` send below (not after spawning) so
+      // the renderer's `PtyExit.fallback` flag is set in the SAME message
+      // as the exit notice — see that field's own comment on why: its
+      // regex tool-call parser must stop reading this channel before the
+      // fallback shell's first byte, not after.
+      const willFallback = this.shellFallbackEnabled && !session.isFallback && !session.isDelegate;
+      this.safeSend(`pty:exit:${id}`, { exitCode, signal, fallback: willFallback });
+
+      if (willFallback) {
+        this.spawnFallbackShell(id, session.cwd, session.env, session);
+      }
+    });
   }
 
   /** Spawns the user's interactive shell under `id`, in `cwd`, with `env` —
@@ -738,6 +793,81 @@ export class PtyManager {
     }
   }
 
+  /** "Leave them running" quit path (QuitDialog.tsx's 5th action) — hands
+   *  session `id`'s live pty master off to a small detached `ptyKeeper.ts`
+   *  helper process instead of killing it, so the underlying CLI survives
+   *  this app quitting entirely (see ptyKeeper.ts's own header for the
+   *  validated mechanism). Returns false — caller falls back to a normal
+   *  kill for just this one session — if `.fd` isn't available: shouldn't
+   *  happen on this POSIX-only build (a direct `pty.spawn()` result is a
+   *  `UnixTerminal`, which always exposes it at runtime), but `.fd` is
+   *  deliberately NOT part of `PtyLike`'s typed surface, so this is a
+   *  defensive runtime check, not a type-level guarantee. */
+  detachToKeeper(id: string): boolean {
+    const session = this.sessions.get(id);
+    if (!session) return false;
+    if (session.proc instanceof KeeperClient) {
+      // Already reattached to an existing keeper (relaunched once already
+      // after a previous "leave them running" quit, now quitting the same
+      // way again) — that keeper is already independently alive holding
+      // the fd; nothing to spawn, just let go of our own connection to it
+      // rather than killing a session the user explicitly asked to keep.
+      session.proc.disconnect();
+      this.sessions.delete(id);
+      this.clearDelegateExit(id);
+      this.onSessionsChanged?.();
+      return true;
+    }
+    const fd = (session.proc as unknown as { fd?: number }).fd;
+    if (typeof fd !== 'number') return false;
+    const pid = session.proc.pid;
+    try {
+      mkdirSync(keeperDir(), { recursive: true });
+      // Stop OUR OWN reader before the keeper gets its own dup of the same
+      // fd — both reading the same open-file-description would otherwise
+      // race, splitting bytes between whichever side happens to read them
+      // first instead of the keeper reliably getting all of them. Public
+      // `IPty.pause()`/`.resume()` (node-pty's `Terminal` base class — both
+      // are a plain `this._socket.pause()`/`.resume()`), not part of
+      // `PtyLike`'s narrowed surface since nothing else in this file ever
+      // needs it.
+      (session.proc as unknown as { pause?: () => void }).pause?.();
+      const meta: KeeperMeta = {
+        pid,
+        cwd: session.cwd,
+        command: session.command,
+        env: session.env,
+        isFallback: session.isFallback,
+        isDelegate: session.isDelegate,
+        provider: session.provider,
+        claudeSettingsPath: session.claudeSettingsPath
+      };
+      writeFileSync(keeperMetaPath(id), JSON.stringify(meta), 'utf8');
+      const child = spawnProcess(process.execPath, [keeperScriptPath(), keeperSockPath(id), String(pid)], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        stdio: ['ignore', 'ignore', 'ignore', fd],
+        detached: true
+      });
+      child.unref();
+    } catch (e) {
+      log('pty', 'warn', 'detach to keeper failed, falling back to kill', {
+        id,
+        message: e instanceof Error ? e.message : String(e)
+      });
+      // Resume reading — the handoff failed, this session stays live under
+      // THIS process; the caller kills it normally right after.
+      (session.proc as unknown as { resume?: () => void }).resume?.();
+      return false;
+    }
+    // Same bookkeeping kill() does, minus the actual signal — the child is
+    // deliberately left alive, owned by the keeper now.
+    this.sessions.delete(id);
+    this.clearDelegateExit(id);
+    this.onSessionsChanged?.();
+    this.hookBridge?.cleanupSession(id, hookTmpDir());
+    return true;
+  }
+
   list(): PtyInfo[] {
     return [...this.sessions.values()].map((s) => ({
       id: s.id,
@@ -817,5 +947,223 @@ export class PtyManager {
       }
     }
     this.sessions.clear();
+  }
+
+  /** Bulk hand-off for "leave them running" quit — mirrors `killAll()`'s
+   *  loop, but detaches each session to its own keeper instead of signaling
+   *  it. Falls back to a normal kill for any one session `detachToKeeper`
+   *  can't handle, so nothing is silently orphaned by this quit path.
+   *  Snapshots the id list first since `detachToKeeper`/`kill` both mutate
+   *  `this.sessions` as they go. */
+  detachAllToKeepers(): void {
+    for (const id of [...this.sessions.keys()]) {
+      if (!this.detachToKeeper(id)) this.kill(id);
+    }
+  }
+
+  /** "Leave them running" quit path's counterpart to a fresh `spawn()` —
+   *  attempts to reconnect to session `id`'s keeper (see ptyKeeper.ts).
+   *  Returns false, touching nothing else, on any connection failure:
+   *  ENOENT/ECONNREFUSED means either this id was never detached, or its
+   *  keeper already exited because the underlying CLI finished naturally
+   *  while detached — `sessionRespawn.ts`'s caller falls through to today's
+   *  unchanged spawn/resume path for both cases, which already handles them
+   *  correctly (a `claude --resume` against an already-completed transcript
+   *  works fine). */
+  async tryReattach(id: string): Promise<boolean> {
+    let socket: Socket;
+    try {
+      socket = await connectKeeperSocket(keeperSockPath(id));
+    } catch {
+      return false;
+    }
+    const metaPath = keeperMetaPath(id);
+    let meta: KeeperMeta;
+    try {
+      meta = JSON.parse(readFileSync(metaPath, 'utf8')) as KeeperMeta;
+    } catch {
+      // Metadata is a nice-to-have, not required for the reattach itself —
+      // a session that comes back with blank cwd/command/env is still a
+      // live, usable terminal; only cosmetic/fallback-env fields degrade.
+      meta = { pid: 0, cwd: '', command: '', env: {}, isFallback: false, isDelegate: false };
+    }
+    try {
+      unlinkSync(metaPath);
+    } catch {
+      /* best-effort — single-use file, a leftover here is harmless */
+    }
+
+    const proc = new KeeperClient(socket, meta.pid);
+    const session: PtySession = {
+      id,
+      proc,
+      cwd: meta.cwd,
+      command: meta.command,
+      lastOutputAt: Date.now(),
+      replay: '',
+      env: meta.env,
+      isFallback: meta.isFallback,
+      isDelegate: meta.isDelegate,
+      provider: meta.provider,
+      claudeSettingsPath: meta.claudeSettingsPath,
+      // Same starting state a boot-respawned session gets (see
+      // `spawnFallbackShellFromRespawn`) — flips true the moment the
+      // renderer's terminal actually calls `getReplay()`.
+      rendererAttached: false,
+      oscCarry: ''
+    };
+    this.sessions.set(id, session);
+    this.onSessionsChanged?.();
+    // Backlog arrives as an ordinary FRAME_DATA the socket sends right after
+    // connecting (see ptyKeeper.ts) — `wireSessionHandlers`'s onData is
+    // already listening by the time that fires (KeeperClient buffers
+    // nothing before its listeners are attached; the frame decoder only
+    // starts running once the 'data' listener below is registered, and
+    // Node doesn't deliver a socket's buffered bytes until something reads
+    // them), so it lands in `session.replay`/gets flushed to the renderer
+    // exactly like any other byte on this channel — no separate handling
+    // needed here.
+    this.wireSessionHandlers(id, session);
+    return true;
+  }
+}
+
+/** Session fields the keeper process itself has no use for (see
+ *  `keeperMetaPath`) but `tryReattach` needs to rebuild a real
+ *  `PtySession` — written by `detachToKeeper`, read once (and removed) by
+ *  the one `tryReattach` attempt that follows. */
+interface KeeperMeta {
+  pid: number;
+  cwd: string;
+  command: string;
+  env: Record<string, string>;
+  isFallback: boolean;
+  isDelegate: boolean;
+  provider?: string;
+  claudeSettingsPath?: string;
+}
+
+/** Connects to a keeper's Unix socket, resolving once (and only once) —
+ *  rejects on ENOENT (no keeper ever existed for this id)/ECONNREFUSED (a
+ *  stale socket file whose keeper already exited) just like any other
+ *  `net.connect` failure. Split out from `tryReattach` only because a
+ *  Promise-wrapped one-shot connect is easier to read as its own function
+ *  than inlined. */
+function connectKeeperSocket(sockPath: string): Promise<Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(sockPath);
+    const onError = (e: Error): void => {
+      socket.removeListener('connect', onConnect);
+      reject(e);
+    };
+    const onConnect = (): void => {
+      socket.removeListener('error', onError);
+      resolve(socket);
+    };
+    socket.once('error', onError);
+    socket.once('connect', onConnect);
+  });
+}
+
+/** `PtyLike` adapter backed by a live socket connection to a detached
+ *  session's keeper (see ptyKeeper.ts) — stands in for a real `pty.IPty`
+ *  once `tryReattach` reconnects, so the rest of this file (write/resize/
+ *  kill, `wireSessionHandlers`'s onData/onExit wiring) never needs to know
+ *  the difference. */
+class KeeperClient {
+  readonly pid: number;
+  private readonly socket: Socket;
+  private readonly decoder = new FrameDecoder();
+  private dataListeners: Array<(data: string) => void> = [];
+  private exitListeners: Array<(e: { exitCode: number; signal?: number }) => void> = [];
+  private exited = false;
+
+  constructor(socket: Socket, pid: number) {
+    this.socket = socket;
+    this.pid = pid;
+    socket.on('data', (chunk: Buffer) => {
+      for (const frame of this.decoder.push(chunk)) {
+        if (frame.type === FRAME_DATA) {
+          const text = frame.payload.toString('utf8');
+          for (const cb of this.dataListeners) cb(text);
+        } else if (frame.type === FRAME_EXIT) {
+          this.handleExit(parseExitFrame(frame.payload));
+        }
+      }
+    });
+    // The keeper vanishing without ever sending FRAME_EXIT (hard-killed,
+    // machine slept mid-write, whatever) still has to surface as an exit —
+    // otherwise this session would look perpetually alive with a socket
+    // that will never emit another byte.
+    socket.on('close', () => this.handleExit({ exitCode: 0 }));
+    // 'close' always follows 'error' on a socket — this listener exists
+    // only so an unhandled 'error' event can't crash the process; the
+    // actual exit handling happens in the 'close' listener above.
+    socket.on('error', () => {
+      /* handled via 'close' above */
+    });
+  }
+
+  private handleExit(e: { exitCode: number; signal?: number }): void {
+    if (this.exited) return;
+    this.exited = true;
+    for (const cb of this.exitListeners) cb(e);
+  }
+
+  write(data: string | Buffer): void {
+    const payload = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+    this.socket.write(encodeFrame(FRAME_WRITE, payload));
+  }
+
+  /** No-op — see ptyKeeper.ts's header: resizing an inherited fd from a
+   *  standalone process needs node-pty's own internal native binding,
+   *  which this V1 doesn't attempt to reach from the keeper (unverifiable
+   *  in a packaged asar build without actually shipping one — an accepted
+   *  V1 limitation per this feature's design doc). A reattached terminal
+   *  just keeps whatever size the pty already had. */
+  resize(_cols: number, _rows: number): void {
+    /* intentional no-op, see comment above */
+  }
+
+  kill(_signal?: string): void {
+    this.socket.write(encodeFrame(FRAME_KILL, Buffer.alloc(0)));
+  }
+
+  /** Closes just OUR connection to the keeper — used when re-detaching an
+   *  already-reattached session (`detachToKeeper`'s `instanceof KeeperClient`
+   *  branch): unlike `kill()`, this must NOT touch the real child, the
+   *  keeper is already independently holding it alive. */
+  disconnect(): void {
+    this.socket.destroy();
+  }
+
+  onData(cb: (data: string) => void): { dispose(): void } {
+    this.dataListeners.push(cb);
+    return {
+      dispose: () => {
+        this.dataListeners = this.dataListeners.filter((l) => l !== cb);
+      }
+    };
+  }
+
+  onExit(cb: (e: { exitCode: number; signal?: number }) => void): { dispose(): void } {
+    this.exitListeners.push(cb);
+    return {
+      dispose: () => {
+        this.exitListeners = this.exitListeners.filter((l) => l !== cb);
+      }
+    };
+  }
+}
+
+function parseExitFrame(payload: Buffer): { exitCode: number; signal?: number } {
+  try {
+    const parsed = JSON.parse(payload.toString('utf8')) as { exitCode?: unknown; signal?: unknown };
+    return {
+      exitCode: typeof parsed.exitCode === 'number' ? parsed.exitCode : 0,
+      signal: typeof parsed.signal === 'number' ? parsed.signal : undefined
+    };
+  } catch {
+    return { exitCode: 0 };
   }
 }

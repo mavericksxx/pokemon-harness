@@ -31,6 +31,15 @@ export interface RespawnOutcome {
  *  original session.
  */
 export async function respawnSession(ptyManager: PtyManager, record: SessionRecord): Promise<RespawnOutcome> {
+  // "Leave them running" quit path (QuitDialog.tsx) — if this id's CLI
+  // survived the last quit detached to its own keeper process, reattach to
+  // it instead of spawning a brand-new one. Covers both "still running" and
+  // "finished naturally while detached" correctly: the latter just fails to
+  // reattach (its keeper already exited and cleaned up its socket) and
+  // falls through to the unchanged spawn/resume logic below, same as a
+  // session that was never detached in the first place.
+  if (await ptyManager.tryReattach(record.id)) return { ok: true };
+
   const useResume = shouldResume(record);
   const primary = ptyManager.spawn({
     id: record.id,

@@ -32,6 +32,7 @@ export interface AppIpcDeps {
   setClaudeThemeNoticePending: (notice: string | null) => void;
   openExternalIfSafe: (url: string) => void;
   setQuitConfirmed: (confirmed: boolean) => void;
+  setLeaveSessionsRunning: (leaveRunning: boolean) => void;
   getHarnessHomeDir: () => string;
   getSessionRegistry: () => SessionRecord[];
 }
@@ -50,6 +51,7 @@ export function registerAppIpc(deps: AppIpcDeps): void {
     setClaudeThemeNoticePending,
     openExternalIfSafe,
     setQuitConfirmed,
+    setLeaveSessionsRunning,
     getHarnessHomeDir,
     getSessionRegistry
   } = deps;
@@ -225,6 +227,21 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   // killAll still runs.
   handle('app:forceQuit', () => {
     setQuitConfirmed(true);
+    app.quit();
+  });
+
+  // "leave them running" — the quit dialog's non-destructive action: quits
+  // the app but hands each live session's pty master off to a small
+  // detached "keeper" process instead of killing it (pty.ts's
+  // `detachAllToKeepers`/ptyKeeper.ts), so the underlying CLI keeps running
+  // in the background until it finishes on its own; a later relaunch
+  // reattaches to it (sessionRespawn.ts's `tryReattach`) instead of
+  // resuming/respawning. `before-quit`'s existing flush still runs; its
+  // `ptyManager.killAll()` is skipped in favor of the detach, branching on
+  // `leaveSessionsRunning` (main/index.ts).
+  handle('app:leaveRunningAndQuit', () => {
+    setQuitConfirmed(true);
+    setLeaveSessionsRunning(true);
     app.quit();
   });
 

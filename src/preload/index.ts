@@ -270,6 +270,11 @@ const api = {
   },
   /** "kill it & quit" — bypasses the sunset ritual, quits immediately. */
   forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit'),
+  /** "leave them running" — bypasses the sunset ritual, quits immediately,
+   *  but detaches every live session's CLI to a background "keeper" process
+   *  instead of killing it; a later relaunch reattaches to whatever's still
+   *  going. */
+  leaveRunningAndQuit: (): Promise<void> => ipcRenderer.invoke('app:leaveRunningAndQuit'),
   /** "clear & quit" — bypasses the sunset ritual, wipes the session registry,
    *  and quits: the next launch opens to an empty garden (nothing resumes). */
   wipeGardenAndQuit: (): Promise<void> => ipcRenderer.invoke('app:wipeGardenAndQuit'),

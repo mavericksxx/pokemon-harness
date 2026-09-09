@@ -7,7 +7,12 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') }
+        // `ptyKeeper` — the "leave them running" quit path's detached
+        // helper process (see src/main/ptyKeeper.ts's own header). A second
+        // entry, not an import of index's own code: it's spawned as its own
+        // OS process (ELECTRON_RUN_AS_NODE) via the built `ptyKeeper.js`
+        // sibling this produces, never required by index.js at runtime.
+        input: { index: resolve(__dirname, 'src/main/index.ts'), ptyKeeper: resolve(__dirname, 'src/main/ptyKeeper.ts') }
       }
     }
   },

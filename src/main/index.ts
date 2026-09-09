@@ -177,6 +177,14 @@ app.on('second-instance', () => {
 // both a window close and an app quit are intercepted whenever a session is
 // still live, and the renderer is asked to show the quit dialog instead.
 let quitConfirmed = false;
+/** "Leave them running" quit path (QuitDialog.tsx's 5th action) — set ONLY
+ *  by the `app:leaveRunningAndQuit` handler (app.ts), alongside
+ *  `quitConfirmed`, same pattern as that flag. `before-quit`'s finalization
+ *  block below reads this to decide `ptyManager.detachAllToKeepers()` vs.
+ *  its existing `killAll()`. Like `quitConfirmed` above, there's no cancel
+ *  path anywhere that resets it back to false — a confirmed quit always
+ *  actually quits, so neither flag needs one. */
+let leaveSessionsRunning = false;
 function hasLiveSessions(): boolean {
   return ptyManager.list().length > 0;
 }
@@ -1135,7 +1143,11 @@ app.on('before-quit', (e) => {
     return;
   }
   sessionPersistence.flush();
-  ptyManager.killAll();
+  if (leaveSessionsRunning) {
+    ptyManager.detachAllToKeepers();
+  } else {
+    ptyManager.killAll();
+  }
   hookBridge.stop();
   costWatcher.stop();
   usageService.shutdown();
@@ -1229,6 +1241,9 @@ registerAppIpc({
   openExternalIfSafe,
   setQuitConfirmed: (confirmed) => {
     quitConfirmed = confirmed;
+  },
+  setLeaveSessionsRunning: (leaveRunning) => {
+    leaveSessionsRunning = leaveRunning;
   },
   getHarnessHomeDir: () => harnessHomeDir,
   getSessionRegistry: () => sessionRegistry

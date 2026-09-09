@@ -7,11 +7,13 @@ import { useEscapeToClose } from './useEscapeToClose';
 /**
  * Quit-intercept dialog (parity sweep item 2). Main prevents a close/quit
  * whenever sessions are still live and asks the renderer to show this
- * instead (see closingTime.ts's `startQuitInterceptListener`) — four
+ * instead (see closingTime.ts's `startQuitInterceptListener`) — five
  * actions: cancel, run the existing sunset ritual, kill everything and quit
- * immediately, or (behind its own confirmation step, see below) wipe every
- * session and quit. No dialog when zero sessions are live: main only ever
- * sends the request in that case, so this component just never opens.
+ * immediately, quit but leave every session running in the background
+ * (reattached on the next launch — see main/pty.ts's `detachAllToKeepers`/
+ * `tryReattach`), or (behind its own confirmation step, see below) wipe
+ * every session and quit. No dialog when zero sessions are live: main only
+ * ever sends the request in that case, so this component just never opens.
  *
  * `count` (main's own authoritative live-session count) spans every
  * workspace already (Phase 8.7 — main's ptyManager isn't workspace-scoped);
@@ -50,6 +52,10 @@ export function QuitDialog(): JSX.Element | null {
   const killAndQuit = (): void => {
     setOpen(false);
     void window.api.forceQuit();
+  };
+  const leaveRunningAndQuit = (): void => {
+    setOpen(false);
+    void window.api.leaveRunningAndQuit();
   };
   const wipeGardenAndQuit = (): void => {
     setOpen(false);
@@ -112,6 +118,15 @@ export function QuitDialog(): JSX.Element | null {
             </button>
             <span className="hint quit-dialog-action-hint">
               sunset ritual: everyone wraps up, then the app quits itself
+            </span>
+          </div>
+          <div className="quit-dialog-action">
+            <button type="button" onClick={leaveRunningAndQuit}>
+              leave them running
+            </button>
+            <span className="hint quit-dialog-action-hint">
+              quit now — sessions keep going in the background until they finish on their own.
+              reattach next launch.
             </span>
           </div>
           <div className="quit-dialog-action">
