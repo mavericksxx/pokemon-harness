@@ -17,13 +17,12 @@ interface Props {
   /** Fired unconditionally after the navigation calls in `onClick` below —
    *  lets a caller with its own state to unwind on navigation
    *  (SessionsOverview's overlay, closed via `setOpen(false)`) do so.
-   *  RosterStrip/FocusSidebar don't pass one; omitting it changes nothing
-   *  for them. */
+   *  RosterStrip doesn't pass one; omitting it changes nothing for it. */
   onNavigate?: () => void;
   /** Garden-split roster-strip rework, same size/variant idea as
-   *  AgentRosterCard.tsx's own prop — FocusSidebar/SessionsOverview never
-   *  pass this (default 'full', unchanged). RosterStrip.tsx always passes
-   *  'compact': sprite, task-label (or species) title, a "↳ parent" line,
+   *  AgentRosterCard.tsx's own prop — SessionsOverview never passes this
+   *  (default 'full', unchanged). RosterStrip.tsx (the party rail) always
+   *  passes 'compact': sprite, task-label (or species) title, a "↳ parent" line,
    *  and a sliver — no working dot (a battler has exactly one status, so a
    *  dot would be pure noise at this size) and no inline elapsed time (moved
    *  into the button's own `title` tooltip instead, see below). A subagent
@@ -178,9 +177,9 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
                   {label ? `${speciesName} · ↳ ${parent.title}` : `↳ ${parent.title} · subagent`}
                 </span>
               </span>
-              {/* Reusing `.summon-arceus-dot` — the same standalone status-color
-                  dot ArceusRosterCard's topbar chip uses, not a copy/paste of the
-                  wrong class: a battler has exactly two statuses worth showing
+              {/* Reusing `.summon-arceus-dot` — a standalone status-color dot,
+                  no badge background/pill text, not a copy/paste of the wrong
+                  class: a battler has exactly two statuses worth showing
                   (alive/done), so this tracks `done` rather than
                   `session.status`'s full state machine. */}
               <span className={`summon-arceus-dot ${done ? 'done' : 'working'}`} aria-hidden="true" />

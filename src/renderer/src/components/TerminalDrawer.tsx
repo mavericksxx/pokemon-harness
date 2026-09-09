@@ -34,7 +34,13 @@ export function TerminalDrawer(): JSX.Element | null {
   const viewMode = useStore((s) => s.viewMode);
   // A completed first-class delegate remains in the session store for its
   // roster card, but its terminal tab is closed as soon as its PTY exits.
-  const tabSessions = sessions.filter((s) => !(s.delegateParentId && s.status === 'done'));
+  // Arceus is excluded too, same reasoning as SessionsOverview.tsx — he's
+  // global (`useActiveWorkspaceSessions` includes him in every workspace)
+  // and reachable from his own pinned rail card instead, not this tab strip.
+  // `selectedSession`/`open` below don't read `tabSessions`, so selecting
+  // his rail card still opens his terminal even though the strip shows no
+  // active tab for it — intended, not a bug.
+  const tabSessions = sessions.filter((s) => !s.isArceus && !(s.delegateParentId && s.status === 'done'));
   const mountRef = useRef<HTMLDivElement>(null);
   // Find-in-scrollback (item 3 §1) — closed whenever the selected session
   // changes, so switching tabs never leaves a stale find bar (and its

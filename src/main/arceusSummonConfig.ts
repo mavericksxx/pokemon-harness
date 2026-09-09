@@ -11,7 +11,7 @@
  * Arceus has been onboarded before, so every later launch auto-summons him
  * from its contents with no dialog; absent means first-run (or the user
  * wiped it via Settings), so the setup dialog is shown instead. See
- * SummonArceusButton.tsx and main.tsx's boot().
+ * ArceusRosterCard.tsx's own summon flow and main.tsx's boot().
  */
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile, unlink } from 'node:fs/promises';

@@ -1,6 +1,7 @@
 import { Fragment, useMemo } from 'react';
-import { useStore } from '@/store/store';
+import { useStore, type Session } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
+import { useWorkspaceStore } from '@/store/workspaceStore';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { ArceusRosterCard } from '@/components/ArceusRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
@@ -11,12 +12,20 @@ interface Props {
 }
 
 /**
- * Bottom session strip (parity sweep item 5) — a horizontal-scroll row of
- * roster cards replacing the old top-chrome session chips + left sidebar,
- * used in 'garden' view mode only ('terminal' has its own vertical sidebar
- * instead, FocusSidebar.tsx; the two "Full" modes keep the previous topbar
- * chips — see App.tsx's own comment for why). "+ new agent" sits at the
- * strip's end, not in the top bar.
+ * The party rail — a 200px fixed-width vertical rail on the LEFT of
+ * `.body-row`, present in EVERY view mode (garden split's side-by-side pane,
+ * plain 'terminal', and full-bleed 'gardenFull' alike). Replaces three
+ * things that each used to own a slice of session-switching UI: this
+ * component's own former horizontal `.roster-strip` band (garden mode
+ * only), the separate vertical sidebar `FocusSidebar.tsx` used to own
+ * ('terminal' mode only, now retired), and the topbar's `OverflowChipRow`
+ * session chips (App.tsx, 'gardenFull' only, now retired too) — one roster
+ * UI everywhere instead of three different ones per view mode.
+ *
+ * Structure, top to bottom: a header (active garden's name + live/total
+ * counts), a scrolling list (Arceus pinned first with no heading, then an
+ * "agents" section, then a "done" section for finished delegates — dimmed,
+ * not hidden), and a footer holding "+ new agent".
  *
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7) — a session in
  * another workspace has no card here until you switch to it. Arceus is
@@ -27,22 +36,32 @@ interface Props {
  * gold-framed `ArceusRosterCard`, pinned first, rendered unconditionally so
  * he's always here, even in a workspace with no sessions at all.
  *
- * Garden-split roster-strip rework — cards are compact by default; the
- * currently SELECTED session's card expands to 'medium' (the approved
- * hybrid card, see AgentRosterCard.tsx and ArceusRosterCard.tsx). A subagent
- * never expands because it isn't independently selectable (clicking one
- * selects its parent instead). The strip itself is now wrapped in
- * `.roster-strip-wrap`, a non-scrolling
- * positioning context for the right-edge fade overlay (`.roster-strip-fade`)
- * that has to sit OUTSIDE the actual `overflow-x: auto` scroller below so it
- * stays pinned to the edge instead of scrolling away with the cards.
+ * Card anatomy — every ordinary card (selected or not) now always shows all
+ * three of `AgentRosterCard`'s `variant="medium"` rows (face+title+dot,
+ * provider·species, model+context); the old 'compact' variant (which
+ * dropped rows 2/3 for every unselected card) is retired along with it, so
+ * only 'medium'/'full' remain meaningful for that component now. Selection
+ * is a border/glow only (`.roster-card.selected`), not a size change — the
+ * rail's fixed 200px width doesn't have room to grow a card on select the
+ * way the old horizontal strip did. Subagent cards keep their existing
+ * `variant="compact"` (drops the model/context row — there's no real
+ * per-subagent telemetry to show, see SubagentRosterCard.tsx) and render
+ * indented under their parent with a mint left border (`.party-rail-child`).
  *
- * Subagent expand/collapse toggle — `subagentCardsHidden` (store.ts) is a
- * GLOBAL flag (not per-workspace), shared with FocusSidebar.tsx so switching
- * view modes never shows a different collapsed/expanded state. The toggle
- * button itself lives in `.roster-strip-wrap`, OUTSIDE the scrolling
- * `.roster-strip` — unlike the "+ new agent" trailing button, it has to stay
- * reachable once there are enough sessions for the strip to scroll.
+ * Subagent disclosure is now PER-PARENT (`collapsedParentIds`, store.ts)
+ * instead of the old single global `subagentCardsHidden` toggle that drew
+ * the same state twice (a toggle button pinned outside the scroller, plus a
+ * "hidden count" badge on the parent card) — `AgentRosterCard`'s own small
+ * `▾ n`/`▸ n` disclosure control now carries just its own parent's count.
+ * ⌥-click on any disclosure collapses/expands every parent at once,
+ * preserving the old global behavior as a modifier instead of a permanent
+ * separate control.
+ *
+ * Below ~1100px viewport (index.css) the rail collapses to a 56px column of
+ * face tiles — titles move into each card's own `title` tooltip, the
+ * header's text hides, and the footer becomes a bare "+" tile. Pure CSS
+ * (a plain `@media` query, no JS state) — see gardenSplit.ts's `PARTY_RAIL_PX`
+ * for why `NARROW_LAYOUT_MAX_PX` had to learn about this rail's width too.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -50,49 +69,92 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const battlers = useStore((s) => s.battlers);
-  const subagentCardsHidden = useStore((s) => s.subagentCardsHidden);
-  const setSubagentCardsHidden = useStore((s) => s.setSubagentCardsHidden);
+  const viewMode = useStore((s) => s.viewMode);
+  const collapsedParentIds = useStore((s) => s.collapsedParentIds);
+  const toggleParentCollapsed = useStore((s) => s.toggleParentCollapsed);
+  const toggleAllParentsCollapsed = useStore((s) => s.toggleAllParentsCollapsed);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+
+  const activeWorkspaceName = workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? workspaces[0]?.name ?? '';
+
+  // Finished first-class delegates get their own dimmed "done" section
+  // instead of sitting in the ordinary list looking indistinguishable from a
+  // live agent — same "done delegate" predicate TerminalDrawer.tsx's own
+  // tab strip already excludes.
+  const liveSessions = sessions.filter((s) => !(s.delegateParentId && s.status === 'done'));
+  const doneSessions = sessions.filter((s) => s.delegateParentId && s.status === 'done');
+
+  const workingCount = sessions.filter((s) => s.status === 'working').length;
+
+  // All parent ids with at least one live battler right now — the scope
+  // ⌥-click's "collapse/expand everything" applies to.
+  const parentIdsWithChildren = sessions
+    .filter((s) => battlers.some((b) => b.parentId === s.id))
+    .map((s) => s.id);
+
+  const renderSession = (s: Session): JSX.Element => {
+    const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
+    const collapsed = collapsedParentIds.includes(s.id);
+    return (
+      <Fragment key={s.id}>
+        <AgentRosterCard
+          session={s}
+          selected={s.id === selectedId}
+          onSelect={select}
+          variant="medium"
+          childCount={sessionBattlers.length}
+          collapsed={collapsed}
+          onToggleCollapse={(altKey) =>
+            altKey ? toggleAllParentsCollapsed(parentIdsWithChildren) : toggleParentCollapsed(s.id)
+          }
+        />
+        {!collapsed &&
+          sessionBattlers.map((b) => (
+            <div key={b.key} className="party-rail-child">
+              <SubagentRosterCard battler={b} parent={s} variant="compact" />
+            </div>
+          ))}
+      </Fragment>
+    );
+  };
 
   return (
-    <div className="roster-strip-wrap">
-      <button
-        type="button"
-        className={subagentCardsHidden ? 'roster-strip-toggle tip active' : 'roster-strip-toggle tip'}
-        onClick={() => setSubagentCardsHidden(!subagentCardsHidden)}
-        aria-pressed={subagentCardsHidden}
-        aria-label={subagentCardsHidden ? 'show subagent cards' : 'hide subagent cards'}
-        data-tip={subagentCardsHidden ? 'show subagents' : 'hide subagents'}
-      >
-        {subagentCardsHidden ? '▸' : '▾'} subagents
-      </button>
-      <div className="roster-strip">
-        <ArceusRosterCard variant={selectedId === ARCEUS_SESSION_ID ? 'medium' : 'compact'} />
-        {sessions.map((s) => {
-          const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
-          return (
-            <Fragment key={s.id}>
-              <AgentRosterCard
-                session={s}
-                selected={s.id === selectedId}
-                onSelect={select}
-                variant={s.id === selectedId ? 'medium' : 'compact'}
-                hiddenSubagentCount={subagentCardsHidden && sessionBattlers.length > 0 ? sessionBattlers.length : undefined}
-              />
-              {/* Subagent roster presence (Phase 4 Part B follow-up) — every live
-                  battler this session spawned gets its own card, immediately
-                  after its parent's, so it reads as belonging to it. Skipped
-                  while `subagentCardsHidden` is set — the parent's own badge
-                  above shows the count instead. */}
-              {!subagentCardsHidden &&
-                sessionBattlers.map((b) => <SubagentRosterCard key={b.key} battler={b} parent={s} variant="compact" />)}
-            </Fragment>
-          );
-        })}
-        <button type="button" className="roster-strip-new" onClick={onNewSession}>
-          + new agent
-        </button>
+    <div className="party-rail">
+      <div className="party-rail-header">
+        <span className="party-rail-garden-name">{activeWorkspaceName}</span>
+        <span className="party-rail-counts">
+          {sessions.length} · {workingCount} working
+        </span>
       </div>
-      <div className="roster-strip-fade" aria-hidden="true" />
+      <div className="party-rail-list">
+        {/* Arceus is global, not scoped to any one garden, so he's pinned
+            first with no section heading of his own. His card reads as
+            distinctly ceremonial (not just another row) in 'terminal' view
+            mode specifically — that mode has no garden pane of its own
+            drawing his cosmic ascent, so the rail is the one place he still
+            reads as the garden's god rather than an ordinary agent; 'medium'
+            there regardless of selection, same as an actual selection
+            anywhere else. */}
+        <ArceusRosterCard
+          variant={selectedId === ARCEUS_SESSION_ID || viewMode === 'terminal' ? 'medium' : 'compact'}
+          ceremonial={viewMode === 'terminal'}
+        />
+        {liveSessions.length > 0 && <div className="party-rail-heading">agents</div>}
+        {liveSessions.map(renderSession)}
+        {doneSessions.length > 0 && (
+          <div className="party-rail-done">
+            <div className="party-rail-heading">done</div>
+            {doneSessions.map(renderSession)}
+          </div>
+        )}
+      </div>
+      <button type="button" className="party-rail-new" onClick={onNewSession}>
+        <span className="party-rail-new-label">+ new agent</span>
+        <span className="party-rail-new-icon" aria-hidden="true">
+          +
+        </span>
+      </button>
     </div>
   );
 }

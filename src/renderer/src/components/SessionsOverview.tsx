@@ -11,7 +11,7 @@ import { useEscapeToClose } from './useEscapeToClose';
  *
  *  Scoped to the ACTIVE workspace's sessions (Phase 8.7) — same reasoning
  *  as RosterStrip. Arceus is excluded here too, same reasoning as RosterStrip
- *  — his topbar chip is his one home. */
+ *  — his own pinned party-rail card is his one home. */
 export function SessionsOverview(): JSX.Element | null {
   const open = useStore((s) => s.sessionsOverviewOpen);
   const setOpen = useStore((s) => s.setSessionsOverviewOpen);

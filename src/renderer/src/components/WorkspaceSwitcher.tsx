@@ -24,7 +24,7 @@ import { TrashIcon } from '@/components/icons';
  *  controls in the topbar (the other is the view-mode segmented group) — it
  *  holds state (which garden is active), so it keeps a permanent panel-2/
  *  hairline box rather than the ghost treatment. Moved from the topbar's
- *  left end (next to `SummonArceusButton`) to the right cluster, beside
+ *  left end (next to Arceus's old topbar summon chip) to the right cluster, beside
  *  HARNESS.md; the trigger now reads `▣ <name> ▾` — the caret is new, since
  *  nothing used to announce that this button opens a menu rather than just
  *  switching gardens directly. */

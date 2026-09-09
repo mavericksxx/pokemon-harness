@@ -10,9 +10,9 @@
  * Verified live: every URL below 200s from `play.pokemonshowdown.com`.
  *
  * The 17-type order (no Normal forme, since Arceus's own base form already
- * IS Normal-type and needs no plate) — the roster card's `--plate-color`
- * cycle that used to share this order was removed once he stopped getting a
- * roster card (his topbar chip is his one home now).
+ * IS Normal-type and needs no plate) — an older roster card's `--plate-color`
+ * cycle that used to share this order was removed once that card's ceremonial
+ * frame took over (ArceusRosterCard.tsx, index.css's `.roster-card-arceus`).
  */
 export const ARCEUS_FORMES: readonly string[] = [
   'arceus-fire',

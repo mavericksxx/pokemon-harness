@@ -155,22 +155,14 @@ function loadNarrowLayout(): boolean {
   return window.matchMedia(`(max-width: ${NARROW_LAYOUT_MAX_PX}px)`).matches;
 }
 
-/** Global (not per-workspace) subagent-cards visibility toggle — hides every
- *  `SubagentRosterCard` in both RosterStrip.tsx (garden view) and
- *  FocusSidebar.tsx (terminal view) when true, so switching view modes never
- *  shows an inconsistent collapsed/expanded state. Same persistence pattern
- *  as `viewMode`/`gardenSplit` above. Default `false` (expanded) — current
- *  behavior, unchanged. */
-const SUBAGENT_CARDS_HIDDEN_STORAGE_KEY = 'poke:subagentCardsHidden';
-
-function loadSubagentCardsHidden(): boolean {
-  try {
-    return window.localStorage.getItem(SUBAGENT_CARDS_HIDDEN_STORAGE_KEY) === 'true';
-  } catch {
-    /* ignore */
-  }
-  return false;
-}
+/* Per-parent subagent disclosure (party-rail rework) replaces the old
+ * GLOBAL `subagentCardsHidden` boolean (was persisted under
+ * `poke:subagentCardsHidden`) — see `collapsedParentIds`' own comment below.
+ * Deliberately NOT persisted, so that old key is simply never read/written
+ * again rather than migrated: it held a single boolean, not session ids, so
+ * there's nothing meaningful to carry forward, and persisting a set of
+ * session ids here would accumulate dead entries for long-gone sessions with
+ * no pruning pass to clear them. */
 
 interface HarnessState {
   sessions: Session[];
@@ -204,9 +196,14 @@ interface HarnessState {
    *  GardenSplitHandle.tsx — see the `GARDEN_SPLIT_STORAGE_KEY` comment
    *  above. */
   gardenSplit: number;
-  /** Global expand/collapse toggle for subagent roster cards — see
-   *  `SUBAGENT_CARDS_HIDDEN_STORAGE_KEY`'s own comment above. */
-  subagentCardsHidden: boolean;
+  /** Per-parent subagent disclosure (party-rail rework) — ids of sessions
+   *  whose own `SubagentRosterCard`s are currently collapsed under their
+   *  parent's `AgentRosterCard` in RosterStrip.tsx (replacing the old
+   *  single GLOBAL `subagentCardsHidden` boolean, which drew the same state
+   *  twice — a toggle button AND a "hidden count" badge on every parent).
+   *  In-memory only, not persisted (see the old storage key's own comment,
+   *  above `HarnessState`). */
+  collapsedParentIds: string[];
   /** Sessions-overview grid (Phase 8 §3) — a topbar button and (Phase 8 §7)
    *  the garden's signpost prop both open it. */
   sessionsOverviewOpen: boolean;
@@ -281,9 +278,13 @@ interface HarnessState {
    *  doesn't hit localStorage every frame — pointerup/double-click-reset
    *  pass `true` once, at the end. */
   setGardenSplit(ratio: number, persist?: boolean): void;
-  /** Flips the global subagent-cards toggle and persists it (survives
-   *  relaunch), same pattern as `setViewMode`. */
-  setSubagentCardsHidden(hidden: boolean): void;
+  /** Toggles ONE parent's own disclosure. */
+  toggleParentCollapsed(id: string): void;
+  /** ⌥-click-on-any-disclosure behavior (RosterStrip.tsx) — collapses every
+   *  parent in `parentIds` if any of them is currently expanded, otherwise
+   *  expands them all. Preserves the old global toggle's all-at-once
+   *  behavior as a modifier instead of a permanent separate control. */
+  toggleAllParentsCollapsed(parentIds: string[]): void;
   setSessionsOverviewOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
   setQuitDialogOpen(open: boolean, count?: number): void;
@@ -353,7 +354,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   recallDelegateIds: [],
   viewMode: loadViewMode(),
   gardenSplit: loadGardenSplit(),
-  subagentCardsHidden: loadSubagentCardsHidden(),
+  collapsedParentIds: [],
   sessionsOverviewOpen: false,
   settingsOpen: false,
   quitDialogOpen: false,
@@ -443,14 +444,17 @@ export const useStore = create<HarnessState>((set, get) => ({
     }
     set({ gardenSplit: ratio });
   },
-  setSubagentCardsHidden: (hidden) => {
-    try {
-      window.localStorage.setItem(SUBAGENT_CARDS_HIDDEN_STORAGE_KEY, String(hidden));
-    } catch {
-      /* ignore — toggle still applies for this session */
-    }
-    set({ subagentCardsHidden: hidden });
-  },
+  toggleParentCollapsed: (id) =>
+    set((st) => ({
+      collapsedParentIds: st.collapsedParentIds.includes(id)
+        ? st.collapsedParentIds.filter((x) => x !== id)
+        : [...st.collapsedParentIds, id]
+    })),
+  toggleAllParentsCollapsed: (parentIds) =>
+    set((st) => {
+      const allCollapsed = parentIds.length > 0 && parentIds.every((id) => st.collapsedParentIds.includes(id));
+      return { collapsedParentIds: allCollapsed ? [] : parentIds };
+    }),
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setQuitDialogOpen: (open, count) => set((st) => ({ quitDialogOpen: open, quitDialogCount: count ?? st.quitDialogCount })),

@@ -10,8 +10,8 @@ const WELCOME_PROVIDERS: AgentProviderId[] = ['claude', 'codex'];
 
 interface Props {
   /** Opens the real SummonArceusDialog — this component never spawns
-   *  anything itself, same separation SummonArceusButton already keeps
-   *  between "decide to summon" and "the summon dialog." */
+   *  anything itself, same separation ArceusRosterCard.tsx's own summon flow
+   *  keeps between "decide to summon" and "the summon dialog." */
   onSummonArceus(): void;
 }
 

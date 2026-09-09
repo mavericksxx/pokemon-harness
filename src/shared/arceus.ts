@@ -32,7 +32,7 @@ export const ARCEUS_TITLE = 'Arceus';
  *  SummonArceusDialog), then read back on every later launch to summon him
  *  again silently, no dialog: "onboard once, he's just there" (Phase 8.9
  *  spec). Its mere existence on disk is also the signal that gates the setup
- *  dialog — see SummonArceusButton.tsx. */
+ *  dialog — see ArceusRosterCard.tsx's own summon flow. */
 export interface ArceusSummonConfig {
   cwd: string;
   model?: string;
