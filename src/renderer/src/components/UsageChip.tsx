@@ -39,6 +39,15 @@ function miniGauges(providers: UsageProviderSnapshot[], mainUsageProvider: Usage
   return gauges;
 }
 
+/** Per-window identity color for the mini-gauge LABEL only (user feedback:
+ *  "hard to distinguish the three bars" — a fixed color by window label, not
+ *  urgency; `gaugeTone` below still owns the %/fill color unchanged). */
+function usageWindowClass(label: string): 'w5h' | 'wfable' | 'w7d' {
+  if (label === '5h') return 'w5h';
+  if (label === '7d fable') return 'wfable';
+  return 'w7d';
+}
+
 /** The chip's mini-gauge tint threshold (one control grammar pass) — the
  *  topbar chip is a level-3 GAUGE (muted by default, never boxed); unlike
  *  the popover's own bars below (still the full 3-tier `gaugeTone`), a mini
@@ -300,7 +309,10 @@ export function UsageChip(): JSX.Element | null {
             {gauges.map((w) => {
               const hot = w.usedPercent >= CHIP_GAUGE_HOT_THRESHOLD;
               return (
-                <span key={w.label} className={hot ? 'usage-chip-gauge usage-chip-gauge--danger' : 'usage-chip-gauge'}>
+                <span
+                  key={w.label}
+                  className={`usage-chip-gauge usage-chip-gauge--${usageWindowClass(w.label)}${hot ? ' usage-chip-gauge--danger' : ''}`}
+                >
                   <span className="hp-bar">
                     <span
                       className={hot ? 'hp-bar-fill danger' : 'hp-bar-fill'}
