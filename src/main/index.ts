@@ -58,34 +58,51 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // run falls back to the ascii npm `name` ("pokeharness") unless overridden
 // here — must run before `app.whenReady()` to reliably affect the dock/menu
 // bar in both dev and packaged builds.
-app.setName('Pokéharness');
+//
+// Dev/prod userData isolation: dev and packaged builds now get DIFFERENT
+// identities ('Pokéharness Dev' vs 'Pokéharness'), not the same one — see
+// the single-instance-lock block right below for why. `app.isPackaged` is a
+// static property (true only for an actual packaged build, e.g. `npm start`
+// after `electron-builder`; false for `electron-vite dev`/`npm run dev`) and
+// is safe to read this early — it's derived from the executable's own
+// resources layout at process start, not from anything `app.whenReady()` or
+// `setName` itself sets up, so there's no ordering dependency on the call
+// below.
+app.setName(app.isPackaged ? 'Pokéharness' : 'Pokéharness Dev');
 
 // ─── Single-instance lock (hooks.sock clobber bug) ─────────────────────────
-// A second launch sharing this app's userData dir — another packaged-app
-// open, or a dev run started while a packaged instance is already up — used
-// to race the first instance for hooks.sock: hookBridge.ensureFiles()/
-// start() unconditionally rmSync'd and recreated the socket at startup, so
-// the second launch would delete the FIRST instance's live socket out from
-// under it, bind its own, then exit and leave a dead file at the path — the
-// original process, still listening on the now-nameless inode, then got
-// ECONNREFUSED on every hook shim connect from then on (no subagent
-// battlers, no tool bubbles/status, poke-delegate spawns failing) until a
-// manual restart.
+// A second launch sharing this SAME identity's userData dir — a second
+// packaged-app open, or a second dev run — used to race the first instance
+// for hooks.sock: hookBridge.ensureFiles()/start() unconditionally rmSync'd
+// and recreated the socket at startup, so the second launch would delete the
+// FIRST instance's live socket out from under it, bind its own, then exit
+// and leave a dead file at the path — the original process, still listening
+// on the now-nameless inode, then got ECONNREFUSED on every hook shim
+// connect from then on (no subagent battlers, no tool bubbles/status,
+// poke-delegate spawns failing) until a manual restart.
 //
-// Must run AFTER `app.setName` above, not before: `requestSingleInstanceLock`
-// keys its lock off `app.getPath('userData')`, which is itself derived from
-// `app.getName()` — and per the comment on `setName` above, a DEV run's
-// `getName()` defaults to the ascii npm `name` ("pokeharness") until
-// `setName` normalizes it to match the packaged build's identity. Locking
-// before that call would resolve dev and packaged to two DIFFERENT userData
-// dirs (no collision, lock never fires) even though "both share the same
-// userData dir" is exactly the scenario this fixes — every actual userData
-// read/write in this file (hookBridge, sessionPersistence, usageService, ...)
-// already happens well after `setName`, so this is the earliest point the
-// lock can mean the same thing "userData" means everywhere else in this file.
-// Still ahead of ANYTHING that touches userData — hookBridge.ensureFiles()/
-// start(), sessions.json, the usage snapshot — so the loser never gets a
-// chance to race the winner for any of it.
+// Dev and packaged builds no longer share a userData dir at all (see
+// `setName` above) — `app.getPath('userData')` is derived from
+// `app.getName()`, so 'Pokéharness' and 'Pokéharness Dev' resolve to two
+// separate directories, which in turn gives them separate `hooks.sock`
+// paths (hookBridge.ts derives `sockPath` from the `userDataDir` it's
+// constructed with), separate sessions.json/app-settings.json, separate
+// caches. A dev run and a packaged run can now be up at the same time
+// without ever touching the same hooks.sock — there's nothing left for them
+// to clobber. What actually prevents the clobber today is that isolation,
+// not mutual exclusion.
+//
+// The lock below still has a job: refusing a SECOND launch of the SAME
+// identity (two packaged opens, or two dev runs) — that pair still shares
+// one userData dir and one hooks.sock, so the original race is still live
+// for it. `requestSingleInstanceLock` keys its lock off
+// `app.getPath('userData')`, itself derived from `app.getName()`, so this
+// must still run AFTER `setName` above — locking before it would resolve
+// every launch (dev or packaged) to the pre-`setName` npm-name userData dir,
+// making the lock meaningless for its one remaining job. It's also still
+// ahead of anything that actually touches userData in this file
+// (hookBridge, sessionPersistence, usageService, ...), so the loser of a
+// same-identity race never gets a chance to touch any of it.
 //
 // `app.quit()` alone only REQUESTS a quit before the app is ready — it
 // doesn't stop the ~1400 synchronous lines below from still running to the
