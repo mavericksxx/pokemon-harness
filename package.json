@@ -20,6 +20,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "gen:icon": "node build/icon/gen-icon.mjs",
     "gen:tahoe-icon": "node build/icon/gen-tahoe-icon.mjs",
+    "gen:tray-icon": "node build/icon/gen-tray-icon.mjs",
     "dist": "npm run build && electron-builder --mac",
     "release": "node tools/release.cjs"
   },
@@ -68,6 +69,10 @@
         {
           "from": "build/Assets.car",
           "to": "Assets.car"
+        },
+        {
+          "from": "build/icon/tray",
+          "to": "tray"
         }
       ]
     },

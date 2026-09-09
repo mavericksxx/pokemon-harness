@@ -21,8 +21,10 @@ import { registerAppIpc } from './ipc/app';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
+import { CostHistoryService } from './costHistory';
 import { SessionTitleWatcher } from './sessionTitleWatcher';
 import { UsageService } from './usageService';
+import { TrayController } from './tray';
 import { ArceusRelayWatcher } from './arceusRelay';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { loadAudioSettings } from './audioSettings';
@@ -219,6 +221,20 @@ const sessionTitleWatcher = new SessionTitleWatcher(
 // guarantee this constructor call does NOT itself violate (constructing the
 // service performs no I/O).
 const usageService = new UsageService(() => mainWindow?.webContents ?? null);
+// Tray popover's cost-history section (issue #17) — a scan of every
+// ~/.claude/projects/**/*.jsonl transcript over the last 30 days, cached
+// with a TTL (see costHistory.ts's own header). Independent of costWatcher
+// above: that one only tracks currently-registered LIVE sessions in memory.
+const costHistoryService = new CostHistoryService();
+// macOS menu-bar item (issue #17) — custom popover panel, not a native
+// `Menu`; see tray.ts's own header for the presentation decision and each
+// section's data source. `() => sessionRegistry` is the same forward-
+// reference trick `arceusRelay` below uses.
+const trayController = new TrayController({
+  usageService,
+  costHistory: costHistoryService,
+  getSessionRegistry: () => sessionRegistry
+});
 // BACKLOG "next up" item 3 — watches Arceus's own transcript (registered off
 // the same onRawPayload hook chained below) for a relay directive and types
 // it into the named session's pty. Constructed before `ptyManager` so its
@@ -1047,6 +1063,8 @@ app.whenReady().then(async () => {
   // shows up in harness.log rather than needing to be re-derived by hand.
   log('hooks', 'info', 'delegate CLI installed', { command: hookBridge.delegateCliCommand() });
   costWatcher.start();
+  costHistoryService.start();
+  trayController.init();
   arceusRelay.start();
   taskNotificationWatcher.start();
   sessionTitleWatcher.start();
@@ -1137,12 +1155,34 @@ app.whenReady().then(async () => {
   });
   diskRestorePromise = restoreFromDisk(appSettings);
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(resolveWindowBg(appSettings.theme));
+    // `mainWindow` directly, NOT `BrowserWindow.getAllWindows().length === 0`
+    // — the tray popover (tray.ts) is its own `BrowserWindow`, created once
+    // (lazily, on the first-ever tray click) and hidden/shown thereafter,
+    // never destroyed until quit. Once it exists, `getAllWindows()` never
+    // returns 0 again even with the garden window closed, so that count
+    // used to leave a Dock click permanently inert after closing the garden
+    // window via its traffic light — found and fixed post-merge (tray
+    // popover shipped in the same release as this check, so it was never
+    // exercised before). `mainWindow` is nulled in createWindow()'s own
+    // `closed` handler, so this is the direct, correct signal.
+    if (!mainWindow) createWindow(resolveWindowBg(appSettings.theme));
   });
   scheduleUpdateChecks();
 });
 
 app.on('window-all-closed', () => {
+  // Same underlying fact as the `activate` handler's comment above: once
+  // the tray popover window has ever been created, it's hidden rather than
+  // closed, so Electron's own "all windows closed" condition this event is
+  // named for basically never becomes true again on this app's one
+  // supported platform (darwin) — the flush()/killAll() below effectively
+  // stopped firing on the "close the garden window, no live sessions"
+  // path the moment the tray shipped. Left as-is (advisor-reviewed,
+  // documented rather than fixed): the darwin branch never called
+  // `app.quit()` here anyway, and `before-quit` below already owns the
+  // real flush/kill-or-detach decision for every path that actually quits
+  // the app. Revisit if a mac-only assumption here ever changes.
+  //
   // Flush BEFORE killing — see sessionPersistence.ts's SessionPersistence.flush()
   // doc comment for why the order matters.
   sessionPersistence.flush();
@@ -1170,6 +1210,8 @@ app.on('before-quit', (e) => {
   }
   hookBridge.stop();
   costWatcher.stop();
+  costHistoryService.stop();
+  trayController.destroy();
   usageService.shutdown();
   arceusRelay.stop();
   taskNotificationWatcher.stop();
