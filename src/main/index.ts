@@ -883,6 +883,7 @@ function createWindow(backgroundColor: string): void {
 
   win.on('ready-to-show', () => {
     win.show();
+    log('main', 'info', 'window ready-to-show', { uptimeMs: Math.round(process.uptime() * 1000) });
     // Cost-history warm-scan (issue #17's tray popover section — see
     // costHistory.ts's own `start()` comment) — deliberately fired HERE,
     // not from `app.whenReady()`'s synchronous top where it used to sit
@@ -1176,7 +1177,11 @@ app.whenReady().then(async () => {
   // One line per launch — also guarantees `logs/` actually exists on disk
   // (the folder is otherwise created lazily on first write) so the Settings
   // panel's "open logs" button isn't a no-op on a fresh install.
-  log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
+  log('main', 'info', 'app started', {
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    uptimeMs: Math.round(process.uptime() * 1000)
+  });
   Menu.setApplicationMenu(buildApplicationMenu());
   ensureClaudeTheme(() => {
     // Pull the toast after renderer boot so its listener is guaranteed ready.
