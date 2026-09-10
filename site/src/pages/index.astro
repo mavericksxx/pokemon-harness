@@ -342,24 +342,28 @@
     aspect-ratio: 16 / 10;
   }
   /* The demo has its own internal breakpoints tuned for a real desktop app
-     window and breaks down below ~800px of *iframe* width. Rather than let
-     the iframe shrink (which would trigger those internal breakpoints and
-     clip content), we render it at a fixed design width and scale the whole
-     box down visually with a transform — the iframe always sees ~1040px of
-     internal viewport, and the visitor sees it fit whatever space is
-     available. 1040/650 keeps the same 16:10 ratio as the frame itself, so
-     the scale factor is just container-width / 1040. */
+     window and breaks down below ~1100px of *iframe* width (the party
+     rail's collapse to a 56px face-tile column, and the topbar usage chip's
+     own collapse, both fire at exactly max-width: 1100px — index.css). 1040
+     used to sit just under that, so the embed always showed the collapsed
+     rail. Rather than let the iframe shrink (which would trigger those
+     internal breakpoints and clip content), we render it at a fixed design
+     width above 1100px and scale the whole box down visually with a
+     transform — the iframe always sees 1200px of internal viewport, and the
+     visitor sees it fit whatever space is available. 1200/750 keeps the
+     same 16:10 ratio as the frame itself, so the scale factor is just
+     container-width / 1200. */
   .demo-frame-scaler {
-    width: 1040px;
-    height: 650px;
+    width: 1200px;
+    height: 750px;
     transform-origin: top left;
     position: absolute;
     top: 0;
     left: 0;
   }
   .demo-frame-scaler iframe {
-    width: 1040px;
-    height: 650px;
+    width: 1200px;
+    height: 750px;
     border: 0;
     display: block;
   }
@@ -820,7 +824,7 @@
 </div>
 <script>
   (function () {
-    var DESIGN_WIDTH = 1040;
+    var DESIGN_WIDTH = 1200;
     var body = document.getElementById('demo-frame-body');
     var scaler = document.getElementById('demo-frame-scaler');
     if (!body || !scaler) return;

@@ -162,10 +162,12 @@
   --font-mono-md-line: 20px;
   --font-mono-sm-size: 13px;
   --font-mono-sm-line: 18px;
-  /* Fixed square box for the topbar's right-cluster icon-only buttons (view
-   * mode group, audio, theme, settings) — one size so glyphs land optically
-   * centered and nothing shifts as the row's content changes. */
-  --topbar-icon-size: 30px;
+  /* One control-height band for every interactive topbar control (one
+   * control grammar pass) — not just the icon-only squares (audio, theme,
+   * settings, the standalone "all sessions" button) but also the bordered
+   * level-1 controls (garden picker, view-mode segmented group) and the
+   * gauge/chip rows that share the row's height without a fixed width. */
+  --topbar-icon-size: 28px;
 
   font-family: var(--font-ui);
   font-size: var(--font-body-md-size);
@@ -229,8 +231,7 @@ body {
   min-height: 52px;
 }
 
-.topbar button,
-.topbar .chip {
+.topbar button {
   -webkit-app-region: no-drag;
 }
 
@@ -276,19 +277,21 @@ body {
   flex: 0 0 auto;
 }
 
-/* 16px, not `.brand`'s own 12px type-scale step or `.topbar-icon-btn`'s 15px:
- * a 16px box against this icon's 16-unit viewBox is an exact 1:1 unit-to-
- * pixel mapping, so every pixel-grid row lands on a whole device pixel
- * instead of being smeared by `crispEdges` rounding at a fractional scale. */
+/* 20px, matching `.brand`'s display-lg step below (one control grammar pass
+ * — was a 16px box against this icon's 16-unit viewBox, an exact 1:1
+ * unit-to-pixel mapping; growing the wordmark to display-lg without growing
+ * this would leave the pokeball reading small next to it, so this now scales
+ * with it at a 1.25x fraction instead — `crispEdges` still keeps the shapes
+ * hard-edged, just no longer landing every row on a whole device pixel). */
 .brand-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
 .brand {
   font-family: var(--font-display);
-  font-size: var(--font-display-md-size);
-  line-height: var(--font-display-md-line);
+  font-size: var(--font-display-lg-size);
+  line-height: var(--font-display-lg-line);
   color: var(--text);
   white-space: nowrap;
   /* Never shrink, never wrap — a flex-shrink:1 default with a nowrap text
@@ -304,12 +307,39 @@ body {
 }
 
 /* The right-cluster wrapper (App.tsx) — pinned, never shrinks/reflows; see
- * `.topbar-icon-btn`'s own comment further down for the full rationale. */
+ * `.topbar-icon-btn`'s own comment further down for the full rationale.
+ * One control grammar pass: `gap: 12px` is the "between groups" spacing
+ * between each of its zone children (`.topbar-zone-*` below, plus the bare
+ * `UsageChip` between "stage" and "garden" — a level-3 gauge never gets a
+ * zone wrapper of its own, see App.tsx's comment). */
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
   flex: none;
+}
+
+/* One zone = one group, per the control grammar's "4px inside a group"
+ * rule — `.view-switcher` (level-1) already sets its own internal gap, so
+ * this is really only exercised by the "stage" zone (the segmented group +
+ * the standalone "all sessions" ghost button beside it) and the "garden"/
+ * "system" zones below. */
+.topbar-zone {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/* Hairline rule at these two zone boundaries only (see App.tsx's comment on
+ * `.topbar-actions` for why the other boundaries are a plain gap) — the
+ * `.topbar-actions` gap already puts 12px before this zone's border, and
+ * this padding puts another 12px after it, so the rule sits visually
+ * centered in a 24px gap rather than flush against either neighbor. */
+.topbar-zone-garden,
+.topbar-zone-system {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
 }
 
 .new-agent-icon {
@@ -343,9 +373,9 @@ body {
 }
 
 /* Priority-tier hiding (issue #2 pt.1 + narrow-window support): below this,
- * `.topbar-actions`' full icon cluster plus the garden/terminal drawer
- * toggle no longer fits without clipping, down toward the window's new
- * 640px floor (main/index.ts). Rather than generalizing OverflowChipRow's
+ * `.topbar-actions`' full icon cluster no longer fits without clipping, down
+ * toward the window's new 640px floor (main/index.ts). Rather than
+ * generalizing OverflowChipRow's
  * hidden-measurement-row pattern here — several of these components
  * (UsageChip, AudioPopover, NotificationBell, QuickSettings) each own a
  * `position: fixed`/absolute popover with a document-level outside-click
@@ -358,13 +388,20 @@ body {
  * QuickSettings' own popover too, HARNESS.md's toggle is in both
  * QuickSettings and the full SettingsPanel, usage limits are a SettingsPanel
  * section, and AudioPopover's mute-all/music-on-off (not its transport/
- * track-search) are in QuickSettings as well. ViewModeSwitcher, QuickSettings
- * itself, and the drawer toggle (App.tsx's `topbar-actions`, needed for the
- * narrow single-pane switch — see effectiveLayout.ts) stay put.
+ * track-search) are in QuickSettings as well. ViewModeSwitcher and
+ * QuickSettings itself stay put, along with the hide-terminal chevron beside
+ * QuickSettings (App.tsx) — narrow layout drops these four regardless of
+ * whether the chevron happens to be mounted that render.
  *
- * Same breakpoint as gardenSplit.ts's NARROW_LAYOUT_MAX_PX (a plain `@media`
- * query, not that store value — this bar has no reason to react any later
- * or earlier than the layout it sits above already does). */
+ * Used to share its literal pixel value with gardenSplit.ts's
+ * NARROW_LAYOUT_MAX_PX, back when that constant was tuned for the garden/
+ * terminal split alone — now that it also folds in the party rail's own
+ * width (`PARTY_RAIL_PX`, gardenSplit.ts), the two have deliberately drifted
+ * apart: `.topbar` spans the full window regardless of the rail (a
+ * `.body-row`-only child), so ITS clipping point never moved, and coupling
+ * this to the split's own (now wider) threshold would hide these four
+ * earlier than the topbar itself ever needed to. Kept at its own
+ * independently-tuned 820px instead. */
 @media (max-width: 820px) {
   .harness-instructions-chip,
   .usage-popover,
@@ -374,25 +411,11 @@ body {
   }
 }
 
-.session-chips {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  width: 100%;
-  /* Lets this shrink below its content's natural width (the flex default
-   * is content-sized) so the measured wrapper can promote a cramped row to
-   * its compact dropdown instead of pushing the whole topbar wider. */
-  min-width: 0;
-  flex-shrink: 1;
-  scrollbar-width: none;
-}
-
-.session-chips::-webkit-scrollbar {
-  display: none;
-}
-
+/* `.session-chips`/`.chip*` (the topbar's own instantiation of this generic
+ * row, App.tsx) are gone — the party rail replaced that usage — but
+ * OverflowChipRow.tsx itself is still a real, reusable component (its own
+ * hardcoded classes below aren't tied to any one caller's className props),
+ * so its chrome stays. */
 .overflow-chip-row-wrap {
   position: relative;
 }
@@ -404,23 +427,15 @@ body {
   min-width: 0;
 }
 
-.overflow-chip-controls > .session-chips {
-  width: auto;
-  flex: 0 1 auto;
-}
-
 .overflow-chip-selected-row {
   overflow: hidden;
-  /* Floor against the selected chip shrinking to zero width and vanishing
-   * entirely at narrow window widths (it has no min-width of its own —
-   * `.session-chips`'s `min-width: 0; flex-shrink: 1;` above lets it go all
-   * the way to nothing). 90px is enough for the pokemon-face icon plus a
-   * few characters of an ellipsized title. */
+  /* Floor against the selected item shrinking to zero width and vanishing
+   * entirely at narrow widths (a caller's own row class typically sets
+   * `min-width: 0; flex-shrink: 1;` to let the measured wrapper promote a
+   * cramped row to its compact dropdown, which would otherwise let this go
+   * all the way to nothing). 90px is a reasonable icon-plus-a-few-characters
+   * floor for a typical caller. */
   min-width: 90px;
-}
-
-.overflow-chip-row-wrap.is-overflowing .session-chips {
-  overflow: hidden;
 }
 
 .overflow-chip-trigger {
@@ -469,96 +484,19 @@ body {
   box-shadow: var(--shadow-hard);
 }
 
-.overflow-chip-menu .chip {
-  width: 100%;
-  max-width: none;
-  text-align: left;
-}
-
 .overflow-chip-menu-footer {
   padding-top: 4px;
   border-top: 1px solid var(--muted-dim);
 }
 
-/* The row absorbs available topbar width; overflow is promoted to the
- * dropdown above instead of leaving a horizontal scroller in the chrome. */
-.session-chips-wrap {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 55vw;
-}
-
-.session-chips-fade {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 28px;
-  background: linear-gradient(to right, transparent, var(--panel));
-  pointer-events: none;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  max-width: 240px;
-  min-width: 0;
-  white-space: nowrap;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-
-.chip-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip.active {
-  border-color: var(--text-secondary);
-  box-shadow: inset 0 0 0 1px var(--text-secondary);
-}
-
-/* ── Summon Arceus (Phase 8.8) ───────────────────────────────────────────── */
-.summon-arceus {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-  background: var(--panel-2);
-  border: 1px solid var(--accent-text);
-  color: var(--accent-text);
-}
-
-.summon-arceus:hover {
-  background: var(--disabled);
-}
-
-.summon-arceus.active {
-  background: var(--gold);
-  color: var(--on-accent);
-}
-
-.summon-arceus-glyph {
-  font-size: 12px;
-}
-
-/* Status dot (parity sweep item — Arceus's chip is his one home now that
- * his roster card is gone): same status-color tokens `.status::before` uses
- * for the roster-card badge dot, but standalone (no badge background/text —
- * the word itself lives in the chip's tooltip instead, see
- * SummonArceusButton.tsx). Arceus's OWN chip never needs `.done` — `live`
- * (SummonArceusButton.tsx) is already false once his session status is
- * 'done', and the dot only renders when `live` — but the class is reused by
- * SubagentRosterCard's full variant (done/retired follow-up), which DOES
- * need it, hence the `.done` rule below. */
+/* `.summon-arceus`/`.summon-arceus-glyph`/`.summon-arceus.active` (his old
+ * topbar chip button, SummonArceusButton.tsx) are gone along with that
+ * component — the party rail guarantees his own card in every view mode now
+ * (ArceusRosterCard.tsx). `.summon-arceus-dot` below stays: it's a
+ * standalone status-color dot (same tokens `.status::before` uses for the
+ * roster-card badge dot, no badge background/pill text of its own) that
+ * SubagentRosterCard's full variant also reuses for a battler's alive/done
+ * status — see that component's own comment. */
 .summon-arceus-dot {
   width: 7px;
   height: 7px;
@@ -595,9 +533,11 @@ body {
  * target: a button showing just the active garden's name. Clicking it opens
  * one anchored popover holding everything that row used to spread across
  * several controls — same anchored-popover shape as `.audio-popover` above
- * (document-level pointerdown outside-click dismissal, `--shadow-hard`,
- * left-anchored here since the trigger sits near the topbar's LEFT end,
- * unlike the right-anchored popovers further down). */
+ * (document-level pointerdown outside-click dismissal, `--shadow-hard`).
+ * One control grammar pass: this control MOVED from the topbar's left end
+ * to the right cluster (as a level-1 `▣ <name> ▾` control, next to
+ * HARNESS.md), so the menu below is now right-anchored like every other
+ * popover in this cluster — see `.garden-picker-menu`'s own comment. */
 .garden-picker {
   position: relative;
   flex: 0 0 auto;
@@ -605,10 +545,18 @@ body {
 }
 
 .garden-picker-trigger {
-  max-width: 160px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--topbar-icon-size);
+  max-width: 200px;
+}
+
+.garden-picker-trigger-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .garden-picker-rename {
@@ -626,7 +574,11 @@ body {
 .garden-picker-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
+  /* Right-anchored, not left (was `left: 0`, correct while the trigger sat
+   * at the topbar's left end) — the trigger now sits in the right cluster,
+   * where a left-anchored menu growing rightward from it would overflow the
+   * window edge. */
+  right: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -642,6 +594,30 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-hard);
   -webkit-app-region: no-drag;
+}
+
+/* Header (one control grammar pass): names the garden and its folder — the
+ * trigger only ever shows the name, and rename/change-folder below act on
+ * the folder path with nothing else in this popover announcing it. */
+.garden-picker-menu-header {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--muted-dim);
+}
+
+.garden-picker-menu-name {
+  font-family: var(--font-display);
+  font-size: var(--font-display-sm-size);
+  line-height: var(--font-display-sm-line);
+  color: var(--text);
+}
+
+.garden-picker-menu-path {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-body-sm-size);
+  color: var(--muted);
 }
 
 .garden-picker-menu-list {
@@ -965,14 +941,7 @@ button.icon:active {
 }
 
 /* ── body ────────────────────────────────────────────────────────────────── */
-/* Garden-split roster-strip rework — `.body` is a plain single-child column
- * again (`.body-row` fills it entirely); the roster strip that used to live
- * here as `.body`'s second child (parity sweep item 5's "fixed-height band
- * below it") now lives INSIDE `.body-row`, under the garden only (see
- * `.garden-column` below) — that's also what makes the terminal drawer
- * full-height for free: `.body-row` no longer shares `.body`'s height with
- * a sibling strip, so it — and every row-flex child stretched to its height,
- * `.drawer`/`.focus-sidebar` included — now spans `.body`'s full height. */
+/* `.body` is a plain single-child column (`.body-row` fills it entirely). */
 .body {
   flex: 1;
   display: flex;
@@ -991,17 +960,22 @@ button.icon:active {
    * viewport regardless (fixed positioning isn't affected by an ancestor's
    * plain `position: relative`, only by a transformed/filtered one). */
   position: relative;
+  /* The party rail's current rendered width — `.party-rail` below reads
+   * this for its own `width`, and gardenSplit.ts's `terminalWidthCss` reads
+   * it too (via `var()` inside a CSS `calc()`) so the drawer's clamped
+   * width tracks the rail's ~1100px collapse (below) with no resize
+   * listener or measurement of its own. Overridden to `56px` inside that
+   * same media query. */
+  --party-rail-w: 200px;
 }
 
-/* Left column of the garden-split layout — garden pane on top, roster strip
- * directly under it (App.tsx's `.garden-column`, 'garden'/'gardenFull' view
- * modes only; 'terminal' hides this whole column via inline `display: none`
- * and uses `.focus-sidebar` instead). `flex: 1; min-width: 0` is `.garden-
- * mat`'s OLD role as a direct `.body-row` flex child — this wrapper takes
- * over that job one level up now that `.garden-mat` shares the column with
- * the strip instead of being `.body-row`'s child directly. `min-height: 0`
- * for the usual reason (a column flex item's automatic min-height would
- * otherwise resist shrinking below its content's height). */
+/* The garden pane's own column (App.tsx's `.garden-column`) — a `.body-row`
+ * sibling of the party rail (`.party-rail`, first child) now, not its
+ * parent; the rail used to live INSIDE this column in 'garden' mode only
+ * (RosterStrip.tsx's own header comment covers what replaced that). `flex:
+ * 1; min-width: 0` is `.garden-mat`'s own role as a `.body-row` flex child.
+ * `min-height: 0` for the usual reason (a column flex item's automatic
+ * min-height would otherwise resist shrinking below its content's height). */
 .garden-column {
   flex: 1;
   min-width: 0;
@@ -1026,42 +1000,22 @@ button.icon:active {
   margin: 0 auto;
 }
 
-/* Diorama mat: the garden is the game screen, this is its console shell —
- * a lifted bezel (panel surface, hairline border, corner clip matching the
- * modal treatment) matting the bright map on neutral chrome ground, with a
- * consistent margin on every side instead of an edge-to-edge letterbox. */
+/* Diorama mat: the garden is the game screen, this is its console shell.
+ * Gold-bezel pass — the actual bezel now lives on `.garden-warp-frame::after`
+ * below (see that rule's own comment for why it can't live here or on
+ * `.garden-frame-shadow`), so this is just the plain flex slot around it:
+ * no padding (the bezel IS the border now — a 32px neutral margin would
+ * leave the map floating away from its own frame) and `border-radius: 0`
+ * (a hard bezel can't have a rounded corner clip). No border here either —
+ * with the padding gone, a `--line` hairline would sit directly outside the
+ * gold bezel and read as a muddy fringe; the bezel is the only frame now. */
 .garden-mat {
   position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
-  padding: var(--space-6);
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-}
-
-/* Closing-time sunset ritual (Phase 8.5 Wave B item 2) — a warm overlay on
- * the MAT (covers the letterbox too, unlike a Pixi layer inside `world`
- * which is in map coordinates and would scale with the camera / sit under
- * an evolution ceremony's own dim). Opacity-only transition so `.active`
- * toggling on/off (start/cancel) both animate at the same ~4s rate. */
-.garden-sunset-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(232, 150, 64, 0) 0%,
-    rgba(224, 92, 58, 0.32) 55%,
-    rgba(107, 41, 61, 0.52) 100%
-  );
-  transition: opacity 4000ms linear;
-}
-
-.garden-sunset-overlay.active {
-  opacity: 1;
+  border-radius: 0;
 }
 
 /* Arceus's cosmos warp — `.garden-warp-frame` is `.garden`'s OLD flex:1
@@ -1082,6 +1036,47 @@ button.icon:active {
   overflow: hidden;
 }
 
+/* Gold bezel (gold-bezel pass) — a thin hard console-shell frame around the
+ * garden VIEWPORT, in both 'garden' (split) and 'gardenFull' modes. Lives on
+ * `.garden-warp-frame::after`, not on `.garden-mat` (an inset shadow there
+ * would paint UNDER the canvas, which is a later sibling) and not on
+ * `.garden-frame-shadow`/`.garden` (ArceusWarp.tsx transforms `.garden`
+ * every frame during the cosmos ascent — a bezel there would warp away with
+ * the map instead of staying put as a fixed shell). `pointer-events: none`
+ * so it never intercepts clicks meant for the map underneath.
+ *
+ * The inset box-shadow stack reads outside-in as: 1px seat line (dark gold),
+ * 2px bright gold body, 1px dark-gold outer line against the chrome ground —
+ * a hard offset, no blur, per tokens.ts's own shadow rule. Two of these
+ * pseudo-elements can't exist on one node, so the top-corner light accents
+ * ride the same `::after` as a pair of small background rectangles rather
+ * than a second pseudo-element.
+ *
+ * `mapBorder.ts`'s Pixi bush-hedge ring is a completely separate layer, one
+ * ring outside garden.tmj's `walls` fence, in MAP space (it scales with the
+ * camera) — this bezel is CHROME, fixed regardless of pan/zoom, and simply
+ * encompasses it visually. Untouched by this pass. */
+.garden-warp-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px var(--arceus-gold-deep),
+    inset 0 0 0 3px var(--gold),
+    inset 0 0 0 4px var(--arceus-gold-deep);
+  background-image:
+    linear-gradient(var(--arceus-gold-bright), var(--arceus-gold-bright)),
+    linear-gradient(var(--arceus-gold-bright), var(--arceus-gold-bright));
+  background-repeat: no-repeat;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-position:
+    top left,
+    top right;
+}
+
 .garden {
   position: absolute;
   inset: 0;
@@ -1097,15 +1092,6 @@ button.icon:active {
  * it pairs with only actually changes on the next scene rebuild. */
 body.garden-lowres .garden canvas {
   image-rendering: pixelated;
-}
-
-/* Whisper of inset shadow where the bright map settles into the mat — kept
- * to a small blur radius so it doesn't read as a haze over the pixel art. */
-.garden-frame-shadow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
 }
 
 /* The warp-streak burst (warpStreaks.ts) — a short sequence of small,
@@ -1290,26 +1276,6 @@ body.garden-lowres .garden canvas {
 .tab.active {
   color: var(--text);
   background: var(--panel-2);
-}
-
-.drawer-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 11px;
-}
-
-.drawer-meta .path {
-  font-family: var(--font-mono);
-  color: var(--muted);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
 
 /* Arceus dispatch box (Phase 8.8 §6) — a one-line convenience bar above the
@@ -1507,42 +1473,10 @@ body.garden-lowres .garden canvas {
   border: 1px solid var(--line);
 }
 
-/* The panel's own mini header — live indicator + font-size stepper
- * (FocusTerminalHead.tsx). Always rendered, and always shown: `.terminal-
- * panel` (and this head inside it) only ever exists in the DOM in 'terminal'
- * view mode or in 'garden' mode with the drawer open (TerminalDrawer.tsx
- * renders null otherwise, e.g. 'gardenFull'), so there's no third case to
- * hide this from — the font-size stepper is wanted in both. */
-.terminal-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--line);
-  font-size: var(--font-body-sm-size);
-}
-
-.terminal-panel-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.terminal-panel-live-dot {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--status-working);
-}
-
+/* Font-size stepper widget — moved from the (now-deleted) FocusTerminalHead
+ * mini header into QuickSettings.tsx's popover; kept as its own reusable
+ * class set rather than folded into `.quick-settings-panel` since it's a
+ * small self-contained control. */
 .terminal-panel-fontstep {
   display: flex;
   align-items: center;
@@ -1599,26 +1533,48 @@ body.garden-lowres .garden canvas {
   white-space: nowrap;
 }
 
-/* ── Statusline strip (session-status feature, SessionStatusStrip.tsx) —
- * mounted directly under the terminal panel's own mini header
- * (FocusTerminalHead.tsx) inside FocusView.tsx, which is the SAME render
- * path for both the focus/'terminal' view mode's terminal panel and the
- * garden/gardenFull drawer's terminal panel — see FocusView.tsx's own header
- * comment for why one mount point covers both surfaces. Same visibility as
- * `.terminal-panel-head` now (both always shown wherever `.terminal-panel`
- * itself renders at all) — this strip must stay visible in the garden
- * drawer too. */
+/* ── Bottom statusline (session-status feature, SessionStatusStrip.tsx) —
+ * mounted directly below `.terminal-mount-wrap` inside FocusView.tsx, which
+ * is the SAME render path for both the focus/'terminal' view mode's terminal
+ * panel and the garden/gardenFull drawer's terminal panel — see
+ * FocusView.tsx's own header comment for why one mount point covers both
+ * surfaces. Always rendered at a fixed height (never gated on `session.cost`
+ * — see the component's own doc comment for why) so the terminal mount above
+ * it never reflows. Also carries what used to be `.drawer-meta`'s status
+ * chip/cwd/kill row, hence `border-top` (a statusline sits at the bottom
+ * edge) rather than the old strip's `border-bottom`. */
 .status-strip {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 9px;
-  background: var(--bg-terminal);
-  border-bottom: 1px solid var(--line);
+  height: 24px;
+  padding: 0 9px;
+  box-sizing: border-box;
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--muted);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.status-strip-path {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.status-strip-kill {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .status-strip-seg {
@@ -2376,21 +2332,24 @@ body.garden-lowres .garden canvas {
   box-shadow: var(--shadow-hard);
 }
 
+/* Level-3 GAUGE weight (one control grammar pass) — read-only, never
+ * interactive-looking: no fill, no border, ever, muted mono text by default.
+ * `min-width` still pins to the row's shared band so the cluster doesn't
+ * jump when the chip's icon-only fallback state (no numeric window) swaps in
+ * for the wider gauge row; width itself stays auto either way. */
 .usage-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  /* Not `.topbar-icon-btn` (see that class's comment) — this can carry a
-   * variable-width usage readout, so only height/min-width are pinned to
-   * match the rest of the right cluster's row rhythm; width stays auto. */
   height: var(--topbar-icon-size);
   min-width: var(--topbar-icon-size);
   padding: 3px 8px;
+  font-family: var(--font-mono);
   font-size: var(--font-body-sm-size);
-  color: var(--gold);
+  color: var(--muted);
   background: none;
-  border: 1px solid transparent;
+  border: none;
 }
 
 .usage-chip--warn {
@@ -2401,12 +2360,13 @@ body.garden-lowres .garden canvas {
   color: var(--status-blocked);
 }
 
-/* HARNESS.md indicator pill (HARNESS.md follow-up item 3) — same row-height
- * token as the rest of `.topbar-actions`, but a visible muted border (unlike
- * `.usage-chip`'s transparent one) since this one has no icon to anchor it,
- * just mono text. Only rendered while the harness-instructions toggle is on
- * (see HarnessInstructionsChip.tsx) so it never contributes to the
- * cluster's fixed `flex: none` width otherwise. */
+/* HARNESS.md indicator pill (HARNESS.md follow-up item 3; one control
+ * grammar pass: now level-2 GHOST weight — fires an action (opens the file),
+ * doesn't hold state, so it matches audio/bell/theme/gear: transparent at
+ * rest, border + fill only on hover, muted text by default instead of a
+ * permanent border and accent text). Only rendered while the
+ * harness-instructions toggle is on (see HarnessInstructionsChip.tsx) so it
+ * never contributes to the cluster's fixed `flex: none` width otherwise. */
 .harness-instructions-chip {
   display: inline-flex;
   align-items: center;
@@ -2414,26 +2374,30 @@ body.garden-lowres .garden canvas {
   padding: 3px 8px;
   font-family: var(--font-mono);
   font-size: var(--font-body-sm-size);
-  color: var(--accent-text);
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
   white-space: nowrap;
 }
 
 .harness-instructions-chip:hover {
-  border-color: var(--accent-text);
+  color: var(--accent-text);
+  background: var(--panel-2);
+  border-color: var(--line);
 }
 
-/* Chip-form mini gauges (session-status composite design, item 1) — up to
- * three "[hp-bar] label N%" chips (5h / 7d / 7d fable) inside the SAME
- * `.usage-chip` button as before, replacing its old plain-text readout; the
- * button itself stays the one click target that opens `.usage-popover-panel`
- * below, unchanged. */
+/* Chip-form mini gauges (session-status composite design, item 1; one
+ * control grammar pass) — all three windows (5h / 7d / 7d fable) stay
+ * visible, unboxed (no border, no panel fill — never competes with the
+ * bordered controls), and fully tone-colored: the bar fill and the
+ * percentage number both follow the same 3-tier `gaugeTone` urgency scale
+ * the popover's own bars below use, so the gauge still conveys urgency at
+ * a glance. Tight 2px gap is what visually groups the three now that the
+ * vertical rules between them are gone. */
 .usage-chip-gauges {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 2px;
 }
 
 .usage-chip-gauge {
@@ -2444,12 +2408,8 @@ body.garden-lowres .garden canvas {
   white-space: nowrap;
 }
 
-/* Separator between adjacent gauges (user feedback: "hard to distinguish the
- * three bars") — same border token as `.usage-provider + .usage-provider`'s
- * own rule-between-repeated-items pattern above, just vertical here. */
 .usage-chip-gauge + .usage-chip-gauge {
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
+  padding-left: 6px;
 }
 
 .usage-chip-gauge .hp-bar {
@@ -2473,9 +2433,10 @@ body.garden-lowres .garden canvas {
   color: var(--status-done);
 }
 
-/* Per-window identity color, LABEL ONLY — the %/fill above stay on the
- * urgency tone system (`gaugeTone`); this is a separate, fixed-by-label
- * color so the three gauges are visually distinguishable at a glance. */
+/* Per-window identity color, LABEL ONLY — a separate axis from the urgency
+ * tone above: the %/fill stay on `gaugeTone`, while the label keeps a
+ * fixed, always-on color by window so the three gauges stay tellable
+ * apart at a glance regardless of urgency state. */
 .usage-chip-gauge--w5h .usage-chip-gauge-label {
   color: var(--accent-sky);
 }
@@ -2561,10 +2522,13 @@ body.garden-lowres .garden canvas {
 
 .hp-bar-fill {
   display: block;
+  width: 100%;
   height: 100%;
   background-color: var(--status-done);
   background-image: repeating-linear-gradient(to right, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 4px);
-  transition: width 400ms steps(2, end);
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
+  transition: transform 400ms steps(2, end);
 }
 
 .hp-bar-fill.warn {
@@ -2596,10 +2560,13 @@ body.garden-lowres .garden canvas {
  * bar" texture — a fixed-opacity dark overlay, so it reads correctly over
  * any of the three fill colors in either theme. */
 .usage-bar-fill {
+  width: 100%;
   height: 100%;
   background-color: var(--status-done);
   background-image: repeating-linear-gradient(to right, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 4px);
-  transition: width 400ms steps(2, end);
+  transform-origin: left center;
+  transform: scaleX(var(--fill, 0));
+  transition: transform 400ms steps(2, end);
 }
 
 .usage-bar-fill--warn {
@@ -2783,10 +2750,21 @@ body.garden-lowres .garden canvas {
   padding: 6px 10px;
 }
 
-/* ── View mode switcher (Phase 8 §1) ─────────────────────────────────────── */
+/* ── View mode switcher (Phase 8 §1; one control grammar pass) ───────────────
+ * Level-1 bordered group (one of only two — the other is the garden picker):
+ * fixed `--topbar-icon-size` band, `.segmented`'s own panel-2/hairline/active
+ * recipe (same as the theme picker in QuickSettings). `align-items: stretch`
+ * (flex default) is what makes the buttons fill that band without each
+ * needing its own height rule. "garden"/"terminal" carry a text label beside
+ * their glyph now (not `.topbar-icon-btn`'s fixed-square 28x28 — a labeled
+ * button needs to grow with its text); "⛶" (gardenFull) stays icon-only and
+ * auto-width here too, for the same reason none of the three use that class
+ * any more — a fixed 28px width doesn't share this row's height with an
+ * auto-width sibling inside the same bordered group. */
 .view-switcher {
   display: flex;
-  gap: 2px;
+  gap: 4px;
+  height: var(--topbar-icon-size);
   padding: 2px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -2794,28 +2772,35 @@ body.garden-lowres .garden canvas {
 }
 
 .view-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  font-size: var(--font-body-sm-size);
+  line-height: 1;
   background: none;
 }
 
 .view-switcher-btn.active {
-  background: var(--panel-2);
+  background: var(--bg);
   border-color: var(--line);
   color: var(--text);
 }
 
 /* ── Topbar right-cluster icon buttons (topbar overhaul, BACKLOG.md phase B
- * "icon group" item) ────────────────────────────────────────────────────
+ * "icon group" item; one control grammar pass) ─────────────────────────────
  * `.topbar-actions` (App.tsx) is the whole cluster after `.spacer` — pinned
  * with `flex: none` so only the spacer (and the scrollable chip rows before
  * it) absorb width changes; this cluster never reflows or shifts position.
- * `.topbar-icon-btn` gives every icon-only control in it (the view-mode
- * group's buttons, audio, theme, settings) the SAME fixed square box,
- * border, and hover treatment, so glyphs land optically centered and stop
- * drifting between components. Layered onto `.view-switcher-btn` above
- * (which now only carries the segmented group's own `.active` fill) rather
- * than replacing it. `UsageChip.tsx`'s trigger is deliberately NOT in this
- * class — it can carry a variable-width usage readout next to its icon — but
- * shares this box's height so the row still lines up (see `.usage-chip`). */
+ * `.topbar-icon-btn` is level-2 GHOST weight — every control that fires an
+ * action rather than holding state (audio, bell, theme, gear, the standalone
+ * "all sessions" button) shares this: transparent fill/border and muted text
+ * at rest, a border + fill only on hover, so it never competes visually with
+ * the level-1 bordered controls (garden picker, view-mode group). No longer
+ * layered onto the view-mode group's own buttons ("garden"/"terminal"/"⛶") —
+ * those moved to `.view-switcher-btn` alone once two of them grew a text
+ * label and could no longer share this class's fixed square box. */
 .topbar-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -2825,200 +2810,128 @@ body.garden-lowres .garden canvas {
   padding: 0;
   font-size: 15px;
   line-height: 1;
-  color: var(--text);
-  background: none;
+  color: var(--muted);
+  background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
 }
 
 .topbar-icon-btn:hover {
-  border-color: var(--accent-text);
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line);
 }
 
 .topbar-icon-btn:active {
   transform: translate(1px, 1px);
 }
 
-/* ── Agent roster cards (Phase 8 §3; bottom strip — parity sweep item 5;
- * garden-split rework — strip narrowed to the garden column, cards go
- * compact by default) ───────────────────────────────────────────────────── */
-/* Horizontal strip replacing the old left sidebar (`.roster-sidebar`) — a
- * fixed-height band under the garden pane only now (not the full window
- * width — see `.garden-column`), scrolling sideways once cards overflow.
- * "+ new session" sits at the end, not the top bar.
- *
- * `.roster-strip-wrap` is the non-scrolling outer box: it owns the panel
- * chrome (background/border) and is the positioning context for
- * `.roster-strip-fade`, which has to sit OUTSIDE the actual `overflow-x:
- * auto` scroller (`.roster-strip` itself) to stay pinned to the right edge
- * instead of scrolling away with the cards. */
-.roster-strip-wrap {
+/* ── Party rail (RosterStrip.tsx) ────────────────────────────────────────────
+ * A fixed-width `.body-row` child, present in EVERY view mode — see that
+ * component's own header comment for the three things it replaces (the old
+ * horizontal `.roster-strip` band, `FocusSidebar.tsx`'s separate vertical
+ * sidebar, and the topbar's `OverflowChipRow` session chips). Header (garden
+ * name + counts), a scrolling list, and a footer "+ new agent" tile. */
+.party-rail {
   flex: none;
-  position: relative;
-  min-width: 0;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-}
-
-.roster-strip {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  padding: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-/* Right-edge scroll fade (item 6) — a narrower strip makes overflow the
- * common case, not the exception, so the "there's more, keep scrolling"
- * affordance matters more than it did at the old full window width. */
-.roster-strip-fade {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 28px;
-  background: linear-gradient(to right, transparent, var(--panel));
-  pointer-events: none;
-}
-
-/* Global subagent-cards expand/collapse toggle (RosterStrip.tsx) — pinned to
- * `.roster-strip-wrap` itself rather than inside the scrolling `.roster-strip`
- * (unlike `.roster-strip-new`), so it stays reachable once there are enough
- * sessions for the strip to scroll. Shares the top-right corner with
- * `.roster-strip-fade` above — safe since that fade is `pointer-events: none`
- * and this sits on top of it in DOM order; its opaque background fully
- * occludes the fade underneath regardless of width, so widening it here
- * (discoverability fix — an icon-only 20px button was too easy to miss, see
- * `.focus-sidebar-toggle`'s own "▸/▾ subagents" label for the pattern this
- * follows) needs no change to the fade's own 28px band below it. Width is
- * auto/content-sized (not fixed) so the label fits; at ~80px it's still a
- * small fraction of `GARDEN_MIN_PX` (380px, gardenSplit.ts), so it never gets
- * clipped by the garden column's own floor. */
-.roster-strip-toggle {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 6px;
-  white-space: nowrap;
-  color: var(--muted);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  font-size: 11px;
-  line-height: 1;
-}
-
-.roster-strip-toggle:hover,
-.roster-strip-toggle.active {
-  color: var(--accent-text);
-  border-color: var(--accent);
-}
-
-/* Compact width (item 2: "roughly half the current [220px] card") is the
- * DEFAULT here, not a modifier class — any card variant that forgets to opt
- * into a wider class (`.roster-card-wrap-medium`/`-arceus` below) safely
- * falls back to compact instead of collapsing to `width: auto` against
- * `.roster-card`'s own `width: 100%`. Scoped to `.roster-strip` specifically
- * so FocusSidebar's/SessionsOverview's own `.roster-card-wrap` sizing
- * (full-width list row / grid cell, untouched) never sees this rule.
- *
- * `height: 108px` (NOT `min-height`) is the strip's own deterministic height
- * floor (parity sweep item 1's fix, recomputed for the trimmed medium card —
- * the tallest state a card ever reaches now that the old 220px full card no
- * longer appears in this strip at all):
- *   16   .roster-card padding (8px top + bottom)
- * + ~36  row 1 — a `box={32}` PokemonFace is 32px WIDE; its rendered height
- *        is `(32 / frameWidth) * frameHeight` for a bundled sprite (not
- *        guaranteed square — some Showdown sheets run taller than wide), so
- *        this is a generous upper estimate, not the literal 32px box width
- * +  4   .roster-card's row gap
- * + 18   row 2 (.roster-card-meta-line) — one text line at the app's
- *        inherited body line-height (18px; it's a fixed LENGTH set once on
- *        the body root, so every descendant inherits 18px regardless of its
- *        own smaller font-size, same as every existing roster-card text row)
- * +  4   gap
- * + 20   row 3 — bounded by .model-badge, the tallest element in it (~8px
- *        Press Start 2P glyph + 8px vertical padding + 2px border, its own
- *        `line-height: 1` opts out of the inherited 18px above)
- * = ~98, rounded up to 108 for real headroom (not a margin-of-error
- * rounding) over row 1's own uncertainty. `height`, not `min-height` — item
- * 4's actual requirement is that selecting/deselecting a card must NEVER
- * change the strip's height, and `min-height` only protects against
- * clipping, not growth: since the medium card is both the tallest variant
- * AND the one that only exists while something is selected, a `min-height`
- * a hair too small would grow the strip on selection and shrink it back on
- * deselect — exactly the reflow this item forbids. A fixed `height` plus
- * `.roster-card`'s own `height: 100%` makes every variant's wrap exactly
- * this tall regardless of content, and `.roster-strip`'s `overflow-y:
- * hidden` is the backstop if this estimate is ever wrong in the other
- * direction. */
-.roster-strip .roster-card-wrap {
-  width: 110px;
-  flex: none;
-  height: 108px;
-}
-
-/* Selected session's card (AgentRosterCard variant="medium") — the one
- * state that's still meaningfully wider than a compact card, trimmed down
- * from the old shipped 220px full card since the medium card carries fewer
- * rows (no tool line, no status pill). */
-.roster-strip .roster-card-wrap-medium {
-  width: 200px;
-}
-
-/* Arceus's compact ceremonial card (ArceusRosterCard.tsx) — ~1.3× an
- * ordinary compact card, wide enough for the frame and title to read as a
- * legendary encounter. The selected medium state uses the same width as a
- * selected ordinary card so its live HUD has room to breathe. */
-.roster-strip .roster-card-wrap-arceus {
-  width: 143px;
-}
-
-.roster-strip .roster-card-wrap-arceus.roster-card-wrap-medium {
-  width: 200px;
-}
-
-.roster-strip-new {
-  flex: none;
-  align-self: stretch;
-  width: 110px;
-  color: var(--muted);
-  background: var(--panel-2);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius-md);
-}
-
-.roster-strip-new:hover {
-  color: var(--text);
-  border-color: var(--accent-text);
-}
-
-/* ── Focus-mode left sidebar (Munder Difflin restyle, FocusSidebar.tsx) ─────
- * 'terminal' view mode's own vertical roster — replaces the bottom strip for
- * that mode only; RosterStrip.tsx/`.roster-strip` above is unchanged and
- * still serves 'garden'. Fixed width, full height, bordered panel per the
- * inspo; "+ add agent" pinned at the top instead of the strip's end. */
-.focus-sidebar {
-  flex: none;
-  width: 300px;
+  width: var(--party-rail-w);
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  overflow-y: auto;
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
 
-.focus-sidebar-new {
-  width: 100%;
+.party-rail-header {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.party-rail-garden-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--font-body-sm-size);
+}
+
+.party-rail-counts {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  white-space: nowrap;
+}
+
+.party-rail-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.party-rail-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* Small uppercase mono section labels ("agents"/"done") — Arceus, pinned
+ * first, gets no heading of his own (he's global, not a member of either
+ * section). */
+.party-rail-heading {
+  flex: none;
+  padding: 2px 2px 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Finished first-class delegates stay visible, just dimmed — "done, not
+ * hidden" (RosterStrip.tsx's own comment on why they get their own
+ * section instead of sitting in the ordinary list unmarked). */
+.party-rail-done {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0.55;
+}
+
+/* Subagent nesting (per-parent disclosure rework) — indented under its
+ * parent with a mint left border, replacing the old flat list a global
+ * show/hide toggle used to gate. */
+.party-rail-child {
+  margin-left: 13px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent-mint);
+}
+
+/* Rail-scoped sizing for the shared roster-card shell — every card fills
+ * the rail's own width (via `.party-rail-list`'s flex-column `align-items:
+ * stretch` default) and sizes to its own content rather than the old
+ * horizontal strip's fixed 108px band. */
+.party-rail .roster-card-wrap,
+.party-rail .roster-card {
+  height: auto;
+}
+
+.party-rail-new {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 8px 8px;
   padding: 10px;
   color: var(--muted);
   background: var(--panel-2);
@@ -3026,165 +2939,120 @@ body.garden-lowres .garden canvas {
   border-radius: var(--radius-md);
 }
 
-.focus-sidebar-new:hover {
+.party-rail-new:hover {
   color: var(--text);
   border-color: var(--accent-text);
 }
 
-/* Wrapper for the merged "+ add agent" trigger + its dropdown menu — was
- * `.focus-sidebar-actions`, a flex row holding two separate adjacent
- * buttons (the dashed "+ add agent" card and a small square "new terminal"
- * button). Those two actions are now one control: click the dashed card to
- * open a menu offering both. Anchored-popover shape follows
- * `.audio-popover`'s own (document-level pointerdown outside-click
- * dismissal, `--shadow-hard`), left-anchored since this sits in a fixed
- * left sidebar rather than the topbar's right end. */
-.focus-sidebar-add {
-  position: relative;
-  flex: none;
+.party-rail-new-icon {
+  display: none;
 }
 
-.focus-sidebar-add-menu {
+/* ── Per-parent subagent disclosure (AgentRosterCard.tsx) ────────────────────
+ * Same corner-badge idiom as `.roster-card-trainer-trigger`/the old hidden-
+ * subagents badge it replaces (a sibling of the card `<button>`, protruding
+ * OUTSIDE the card's own border box), TOP-RIGHT corner, persistent (not
+ * hover-gated) since it's a real count, not an accidental-click risk. */
+.roster-card-disclosure {
   position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-hard);
-}
-
-.focus-sidebar-add-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  text-align: left;
-}
-
-.focus-sidebar-add-menu-item:hover {
-  background: var(--panel-2);
-}
-
-.focus-sidebar-add-menu-item svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
-}
-
-.focus-sidebar-toggle {
-  flex: none;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
-  width: 100%;
-  color: var(--muted);
+  gap: 2px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  font-size: 11px;
-  line-height: 1;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  z-index: 2;
+  box-shadow: 1px 1px 0 var(--muted-dim);
+  transition:
+    color 90ms steps(2, end),
+    border-color 90ms steps(2, end);
 }
 
-.focus-sidebar-toggle:hover,
-.focus-sidebar-toggle.active {
+.roster-card-disclosure:hover,
+.roster-card-disclosure:focus-visible {
   color: var(--accent-text);
   border-color: var(--accent);
 }
 
-.focus-sidebar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* Undoes `.roster-strip`'s `align-items: stretch` (which the shared
- * `.roster-card`/`.roster-card-wrap` height:100% rules exist for) — a
- * vertical list wants each row sized to its own content instead of
- * equal-heighted against the tallest row. Scoped to this sidebar only, so
- * the horizontal strip's stretch behavior is untouched. */
-.focus-sidebar .roster-card-wrap,
-.focus-sidebar .roster-card {
-  height: auto;
-}
-
-/* Narrow-window overlay reveal tab (issue #2 pt.2, FocusSidebar.tsx) —
- * hidden outside the narrow breakpoint; the `@media` block below is the only
- * place either of these classes does anything. Same "edge tab reveals a
- * hidden panel" interaction as GardenDrawerEdgeTab.tsx/
- * `.garden-drawer-edge-tab`, docked to `.body-row`'s own left edge instead of
- * its right (App.tsx's `.body-row` is already `position: relative`). */
-.focus-sidebar-edge-tab {
-  display: none;
-}
-
-/* Below this, the fixed 300px sidebar would leave xterm too little width to
- * be usable (~324px, ~36 columns) at the window's 640px floor (main/index.ts).
- * It collapses to hidden-by-default here and reappears as a floating overlay
- * ON TOP of the terminal panel instead of a flex sibling that resizes it —
- * `position: absolute` takes it out of `.body-row`'s flex flow entirely, so
- * toggling it never changes the terminal mount's own width/height and no
- * fit()/resizePty call fires just from opening/closing this (see
- * FocusView.tsx's header comment for why that mount div must stay
- * undisturbed by mode-adjacent state). Same breakpoint as gardenSplit.ts's
- * NARROW_LAYOUT_MAX_PX (a plain `@media` query, not that store value — see
- * the other 820px block above for the same reasoning). Every other
- * `.focus-sidebar` property (width, padding, background, border-right, …)
- * is inherited unchanged from the base rule above — this only swaps its
- * flex participation for absolute positioning and adds the hidden-by-default
- * toggle. */
-@media (max-width: 820px) {
-  .focus-sidebar {
-    display: none;
-    position: absolute;
-    inset: 0 auto 0 0;
-    z-index: 20;
-    box-shadow: var(--shadow-hard);
+/* ── Collapsed rail (below ~1100px viewport) ─────────────────────────────────
+ * Face tiles only — titles/meta rows hide (they're still reachable via each
+ * card's own `title` tooltip), the status dot moves onto the sprite's own
+ * corner instead of sitting in a now-empty row, and the footer shrinks to a
+ * bare "+" tile. Pure CSS, no JS state — see gardenSplit.ts's `PARTY_RAIL_PX`
+ * for why the garden/terminal split's own narrow-layout threshold had to
+ * learn this rail's width too. */
+@media (max-width: 1100px) {
+  .body-row {
+    --party-rail-w: 56px;
   }
 
-  .focus-sidebar.focus-sidebar-overlay-open {
-    display: flex;
-  }
-
-  /* `.body-row >` (rather than the bare class) is load-bearing, not
-   * stylistic: this button also carries the shared `.tip` class for its
-   * tooltip, and `.tip { position: relative; }` (below, same 0,1,0
-   * specificity) sits LATER in this file, so it would otherwise win the
-   * cascade by source order and silently put this element back in
-   * `.body-row`'s flex flow instead of floating it — the exact push/resize
-   * behavior this whole feature exists to avoid. The extra `.body-row`
-   * ancestor raises specificity to 0,2,0 so this wins unconditionally. */
-  .body-row > .focus-sidebar-edge-tab {
-    display: flex;
-    position: absolute;
-    top: 50%;
-    left: 0;
-    width: 20px;
-    height: 40px;
-    transform: translateY(-50%);
-    align-items: center;
+  .party-rail-header {
     justify-content: center;
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-    border-left: none;
-    color: var(--muted);
-    cursor: pointer;
-    z-index: 21;
+    padding: 8px 4px;
   }
 
-  .focus-sidebar-edge-tab:hover {
-    color: var(--gold);
-    border-color: var(--gold);
+  .party-rail-garden-name,
+  .party-rail-counts,
+  .party-rail-heading,
+  .roster-card-title-compact,
+  .roster-card-meta-line,
+  .roster-card-parent-compact,
+  .roster-card-row3-medium,
+  .roster-card-ctx-sliver,
+  .roster-card-ctx-sliver-md,
+  .roster-card-arceus-status-row,
+  .roster-card-arceus-model-row,
+  .roster-card-arceus-context-row,
+  .roster-card-swap,
+  .roster-card-despawn,
+  .roster-card-disclosure,
+  .roster-card-trainer-trigger,
+  .party-rail-new-label {
+    display: none;
+  }
+
+  .party-rail-list {
+    padding: 6px 4px;
+  }
+
+  .party-rail-child {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .party-rail-new {
+    margin: 0 4px 8px;
+    padding: 8px 0;
+  }
+
+  .party-rail-new-icon {
+    display: inline;
+  }
+
+  .party-rail .roster-card-top-compact {
+    justify-content: center;
+    gap: 0;
+  }
+
+  /* Status dot relocates onto the card's own bottom-right corner, reading as
+   * the sprite's corner once the card shrinks to little more than the face
+   * plus padding — anchored against `.roster-card` itself (`position:
+   * relative`, base rule below), the dot's own nearest positioned ancestor,
+   * not `.roster-card-face` (a plain flex sibling of the dot, not a parent). */
+  .party-rail .roster-card-dot {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    box-shadow: 0 0 0 2px var(--panel-2);
   }
 }
 
@@ -3200,11 +3068,8 @@ body.garden-lowres .garden canvas {
   border-left: 3px solid var(--line);
   border-radius: var(--radius-md);
   width: 100%;
-  /* Fills `.roster-card-wrap`, which now carries the strip's own
-   * `align-items: stretch` height (see `.roster-card-wrap` below) — without
-   * this the card (a plain block child, not itself a stretched flex item)
-   * would size to its own content instead of the strip's full row height,
-   * same as before the wrapper was introduced. */
+  /* Fills `.roster-card-wrap` (see that class's own comment on its default
+   * `height: 100%`, and each mount site's override back to `auto`). */
   height: 100%;
   transform: translateY(0);
   transition:
@@ -3453,18 +3318,15 @@ body.garden-lowres .garden canvas {
   border-style: dashed;
 }
 
-/* ── Compact/medium roster cards (garden-split roster-strip rework) ────────
- * `.roster-card-compact` is shared by the ordinary session card, the
- * subagent card, and Arceus's ceremonial card — every one of them is
- * stretched by `.roster-card`'s own `height: 100%` to the fixed 108px band
- * (`.roster-strip .roster-card-wrap`'s own `height`, sized for the taller
- * medium card), and a compact card's own content is much shorter than that,
- * so `justify-content:
- * center` keeps its two rows centered in the taller box instead of pinned
- * to the top with dead space below (item 4 explicitly wants compacts to
- * stretch to the band — this is what keeps that look intentional rather
- * than top-heavy). `.roster-card-medium` needs no layout override of its
- * own — its three custom rows below (`.roster-card-meta-line`/`-row3-
+/* ── Compact/medium roster cards (garden-split roster-strip rework, now the
+ * party rail's own card sizes) ──────────────────────────────────────────────
+ * `.roster-card-compact` is shared by Arceus's ceremonial card and the
+ * subagent card (the ordinary session card is always `.roster-card-medium`
+ * in the rail now — see AgentRosterCard.tsx's own comment on why 'compact'
+ * was retired for it). `.party-rail .roster-card`'s `height: auto` (above)
+ * means both variants just size to their own content — no stretch-then-
+ * recenter to reconcile here. `.roster-card-medium` needs no layout override
+ * of its own — its three custom rows below (`.roster-card-meta-line`/`-row3-
  * medium`) already fill the base `.roster-card` shell's default flow. */
 .roster-card-compact {
   padding: 6px;
@@ -3488,18 +3350,6 @@ body.garden-lowres .garden canvas {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1 1 auto;
-}
-
-/* Compact provider identity — a tiny mono tag keeps Claude/Codex sessions
- * distinguishable without taking the fixed card out of its 108px strip band. */
-.roster-card-provider-compact {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--font-display-sm-size);
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
 }
 
 /* Standalone status dot for compact/medium cards — same status-color tokens
@@ -3606,11 +3456,10 @@ body.garden-lowres .garden canvas {
   /* Every other new text row in this section uses a design token
    * (`--font-body-sm-size`, 12px — the smallest one this app defines); this
    * is no exception, even though the mockup's own doc sketched a smaller
-   * off-scale 8.5px here — a subagent's compact card already has one more
-   * text row than an ordinary compact card (its "↳ parent" line), and it
-   * only needs to fit within the shared 108px band, not a tighter budget of
-   * its own, so there's no real pressure to introduce a new token-less size
-   * just for this one row. */
+   * off-scale 8.5px here — the rail's cards size to their own content now
+   * (`.party-rail .roster-card`'s `height: auto`), so an extra text row just
+   * grows the card rather than competing for a fixed budget, and there's no
+   * real pressure to introduce a new token-less size just for this one row. */
   font-size: var(--font-body-sm-size);
   line-height: var(--font-body-sm-line);
   color: var(--muted);
@@ -3621,9 +3470,9 @@ body.garden-lowres .garden canvas {
   min-width: 0;
 }
 
-/* Compact Arceus keeps the shared 108px band but gets a tighter version of
- * the four-corner gilt and side rails so the frame stays ornamental rather
- * than swallowing the 18px sprite/title row. */
+/* Compact Arceus gets a tighter version of the four-corner gilt and side
+ * rails so the frame stays ornamental rather than swallowing the 18px
+ * sprite/title row. */
 .roster-card-arceus.roster-card-compact::before {
   inset: 3px;
 }
@@ -3668,9 +3517,38 @@ body.garden-lowres .garden canvas {
   height: 10px;
 }
 
+/* 'terminal' view mode forces Arceus's rail card to 'medium' regardless of
+ * selection (RosterStrip.tsx, since that mode has no garden pane of its own
+ * drawing his cosmic ascent) — this extra weight is what keeps that forced
+ * state reading as genuinely ceremonial rather than "just another expanded
+ * card": a heavier gold edge and a bit more breathing room, layered on top
+ * of (not replacing) `.roster-card-arceus.roster-card-medium` above, reusing
+ * the existing Arceus gold tokens rather than a second look. */
+.roster-card-arceus.roster-card-arceus-ceremonial {
+  padding: 10px 8px;
+  box-shadow:
+    inset 0 0 0 1px var(--arceus-gold-bright),
+    inset 0 0 0 4px var(--arceus-gold-deep),
+    4px 4px 0 var(--arceus-violet);
+}
+
+/* Selected AND ceremonial at once (Arceus selected while in 'terminal' view
+ * mode) — `.roster-card-arceus.selected`'s own outer selection ring above
+ * would otherwise be clobbered outright (same `box-shadow` property, later
+ * source order wins the whole value, not a merge), so this re-adds it on
+ * top of the ceremonial treatment's own heavier inset instead of losing it. */
+.roster-card-arceus-ceremonial.selected {
+  box-shadow:
+    inset 0 0 0 1px var(--arceus-gold-bright),
+    inset 0 0 0 4px var(--arceus-gold-deep),
+    0 0 0 2px var(--arceus-gold-bright),
+    0 0 0 4px var(--arceus-ground),
+    4px 4px 0 var(--arceus-green);
+}
+
 /* Expanded Arceus HUD — status remains a real status badge, while the
  * provider, model, cumulative cost, and context gauge stay in compact rows
- * that fit inside the strip's fixed height. */
+ * that fit the rail's own width. */
 .roster-card-arceus-status-row,
 .roster-card-arceus-model-row,
 .roster-card-arceus-context-row {
@@ -3833,10 +3711,11 @@ body.garden-lowres .garden canvas {
 
 /* Parity sweep item 1 — a row toggled between "not rendered" and "rendered"
  * as its data arrived/cleared, which grew or shrank the card's own natural
- * height and re-triggered `.roster-strip`'s `align-items: stretch` across
- * every other card in the row. AgentRosterCard.tsx now always mounts these
- * rows; this just hides one's content while keeping its box (and therefore
- * the card's height) exactly as populated. */
+ * height (and, in the old horizontal `.roster-strip` this app shipped
+ * before the party rail, re-triggered its `align-items: stretch` across
+ * every other card in the row too). AgentRosterCard.tsx now always mounts
+ * these rows; this just hides one's content while keeping its box (and
+ * therefore the card's height) exactly as populated. */
 .roster-card-row-hidden {
   visibility: hidden;
 }
@@ -3904,11 +3783,14 @@ body.garden-lowres .garden canvas {
  * `.modal-backdrop`. */
 .roster-card-wrap {
   position: relative;
-  /* `.roster-strip` stretches its flex children to the row's full height
-   * (`align-items: stretch`) — this wrap is now that child instead of
-   * `.roster-card` itself, so it needs the explicit height too (a plain div
-   * isn't a flex item of anything that would otherwise size it); `.roster-card`
-   * above fills THIS in turn via its own `height: 100%`. */
+  /* A stretch-to-row-height default (a flex/grid row's `align-items:
+   * stretch` sizes this wrap when it's a direct flex/grid item, not
+   * `.roster-card` itself, which fills THIS in turn via its own `height:
+   * 100%`) — every current mount site (`.party-rail`, `.sessions-overview-
+   * grid`) overrides this back to `height: auto` instead, since a vertical
+   * list/grid wants each card sized to its own content, not its row's
+   * tallest sibling. Left as the base default rather than flipped since a
+   * future horizontal row of these cards would want it back. */
   height: 100%;
 }
 
@@ -3941,30 +3823,13 @@ body.garden-lowres .garden canvas {
     transform 90ms steps(2, end);
 }
 
-/* Compact card (garden-split rework, default state for every unselected
- * strip card) is only 110px wide — the labeled pill above (icon + "change
- * pokemon" at 12px, ~125px on its own) would spill past the card's edge and
- * over its neighbor on hover. `font-size: 0` collapses the label's own text
- * run to zero width without touching the JSX, leaving an icon-only square
- * closer to the old pre-Phase-C badge size — acceptable here since the card
- * is already this small everywhere else. The medium card (200px) keeps the
- * full labeled pill unchanged, same room the old 220px full card always had.
- * The icon itself needs an explicit px size in the same rule: PixelIcon's
- * SVGs are `width="1em" height="1em"` (icons.tsx), and an SVG presentation
- * attribute expressed in `em` resolves against the element's own computed
- * font-size — zeroing the button's font-size would collapse the icon to 0
- * too if this didn't override it with a real CSS dimension (CSS always
- * outranks a presentation attribute). */
-.roster-card-wrap:has(.roster-card-compact) .roster-card-swap {
-  gap: 0;
-  padding: 0;
-  width: 24px;
-  font-size: 0;
-}
-.roster-card-wrap:has(.roster-card-compact) .roster-card-swap svg {
-  width: 12px;
-  height: 12px;
-}
+/* Every rail card carries the full labeled pill unconditionally now — the
+ * old icon-only "compact card is too narrow for the label" override doesn't
+ * apply any more (AgentRosterCard.tsx's own comment on why 'compact' was
+ * retired for it — the only component that ever rendered this swap button).
+ * `.roster-card-despawn`'s own compact override below is unrelated: that one
+ * still fires, since SubagentRosterCard.tsx (a different component) still
+ * has a real compact+done state in the rail. */
 
 /* Hover OR keyboard focus reveals it — hover alone would leave it
  * unreachable from the keyboard. Hovering the row itself still counts as
@@ -4012,10 +3877,9 @@ body.garden-lowres .garden canvas {
     transform 90ms steps(2, end);
 }
 
-/* Compact card (110px wide) — icon-only square, same technique
- * `.roster-card-swap`'s own compact rule uses (font-size:0 collapses the
- * label's text run; the icon needs an explicit px size since PixelIcon's
- * `1em` SVG dimensions would otherwise collapse to 0 right along with it). */
+/* Compact card — icon-only square (font-size:0 collapses the label's text
+ * run; the icon needs an explicit px size since PixelIcon's `1em` SVG
+ * dimensions would otherwise collapse to 0 right along with it). */
 .roster-card-wrap:has(.roster-card-compact) .roster-card-despawn {
   gap: 0;
   padding: 0;
@@ -4111,9 +3975,9 @@ body.garden-lowres .garden canvas {
 
 /* `.tip` normally makes its element `position: relative`, but this control
  * still needs its absolute corner-badge anchor. The upward orientation keeps
- * the custom bubble inside the visible area when the badge hangs off the
- * bottom of `.roster-strip` (whose vertical overflow is intentionally
- * hidden). */
+ * the custom bubble inside the visible area when the badge sits near the
+ * bottom edge of a scrolled card list (`.party-rail-list`,
+ * `.sessions-overview-grid`). */
 .roster-card-trainer-trigger.tip {
   position: absolute;
 }
@@ -4122,40 +3986,6 @@ body.garden-lowres .garden canvas {
   top: auto;
   bottom: calc(100% + 6px);
   left: 0;
-}
-
-/* ── Hidden-subagents count badge (subagent expand/collapse toggle,
- * AgentRosterCard.tsx) ── Same corner-badge idiom as
- * `.roster-card-trainer-trigger` above (a sibling of the card `<button>`,
- * protruding OUTSIDE the card's own border box via negative offsets), just
- * mirrored to the TOP-RIGHT corner instead of that trigger's bottom-left —
- * this one is never hover-gated either (a persistent count, not an
- * accidental-click risk). */
-.roster-card-hidden-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  z-index: 2;
-  box-shadow: 1px 1px 0 var(--muted-dim);
-  transition:
-    color 90ms steps(2, end),
-    border-color 90ms steps(2, end);
-}
-
-.roster-card-hidden-badge:hover,
-.roster-card-hidden-badge:focus-visible {
-  color: var(--accent-text);
-  border-color: var(--accent);
 }
 
 /* Deliberately NOT `position: relative` — the trigger button below is
@@ -4179,11 +4009,11 @@ body.garden-lowres .garden canvas {
  * `.roster-card-swap` — unlike the topbar's `.usage-popover-panel`/
  * `.audio-popover-panel` (no clipping ancestor above them), every mount site
  * for THIS popover sits inside an `overflow: hidden`/`auto` scroll
- * container (`.roster-strip`, `.focus-sidebar`, `.sessions-overview-grid`),
+ * container (`.party-rail-list`, `.sessions-overview-grid`),
  * which would clip an absolutely-positioned panel opening outside its
  * card's own box. `position: fixed` escapes that clipping entirely (no
- * transformed/filtered ancestor sits between here and the viewport on any
- * of the three mount paths); TrainerCard.tsx measures the trigger badge's
+ * transformed/filtered ancestor sits between here and the viewport on
+ * either mount path); TrainerCard.tsx measures the trigger badge's
  * `getBoundingClientRect()` on open and supplies `left`/`bottom` as an
  * inline style, so this rule only carries the panel's static chrome. */
 .trainer-card-panel {
@@ -4283,7 +4113,7 @@ body.garden-lowres .garden canvas {
    * (screenshot: one subagent card full-height, another small one row
    * down). `start` stops any card from stretching to its row's tallest
    * neighbor; combined with the `height: auto` override below (same idiom
-   * `.focus-sidebar` already uses for its own vertical list), every card
+   * `.party-rail` uses for its own vertical list), every card
    * sizes to its own natural content height, which item 1's placeholder-row
    * fix now keeps constant per card type — so the same type reads the same
    * height everywhere in this grid, regardless of which row it lands on. */
@@ -4353,9 +4183,9 @@ body.garden-lowres .garden canvas {
 
 /* Amber pixel frame for the active rail item (settings redesign) — same
  * `--accent-text`-bordered "selected" convention as `.topbar-icon-btn`'s
- * hover ring and `.summon-arceus`, just persistent instead of hover-only.
- * The transparent border above is the baseline width/geometry so this
- * never shifts layout when a row becomes active. */
+ * hover ring, just persistent instead of hover-only. The transparent border
+ * above is the baseline width/geometry so this never shifts layout when a
+ * row becomes active. */
 .settings-rail-btn.active {
   background: var(--bg);
   border-color: var(--accent-text);
@@ -4406,8 +4236,8 @@ body.garden-lowres .garden canvas {
 
 /* ── Section cards (settings redesign — BACKLOG "settings page could use
  * such a big UI improvement") ────────────────────────────────────────────
- * Bordered pixel panel matching the app's other IN-PANEL groupings (`.chip`,
- * `.segmented`, `.view-switcher`) — panel-2 fill, hairline border, small
+ * Bordered pixel panel matching the app's other IN-PANEL groupings
+ * (`.segmented`, `.view-switcher`) — panel-2 fill, hairline border, small
  * radius — rather than the FLOATING-popover treatment (`.audio-popover-panel`
  * etc: same fill+border but `--radius-lg` + `--shadow-hard`). These cards
  * live inside an already-shadowed modal, so no shadow of their own. */
@@ -4552,7 +4382,7 @@ body.garden-lowres .garden canvas {
  * bottom-pinned input row. Scrolling itself is untouched (wheel/trackpad/
  * keyboard all still work — only the visual scrollbar chrome is hidden). */
 .terminal-mount .xterm-viewport {
-  scrollbar-width: none; /* Firefox — harmless no-op in this Chromium-only app, kept for parity with the other scrollbar-hiding rules in this file (see .session-chips near line 305) */
+  scrollbar-width: none; /* Firefox — harmless no-op in this Chromium-only app, kept for parity with the other scrollbar-hiding rules in this file */
 }
 .terminal-mount .xterm-viewport::-webkit-scrollbar {
   width: 0;
@@ -4855,7 +4685,14 @@ body.is-splitting .garden canvas {
 .picon { width: 1em; height: 1em; display: inline-block; vertical-align: -2px; shape-rendering: crispEdges; fill: currentColor; }
 #pane { cursor: grab; }
 #pane.dragging { cursor: grabbing; }
-.summon-arceus.demo-chip { border-color: var(--accent-sky); color: var(--accent-sky); }
+/* `.summon-arceus` (his old topbar chip) no longer exists in the real app's
+ * CSS — the party rail's own ArceusRosterCard is his one home now (see
+ * `#btn-roster-arceus` below). This demo-console trigger is a demo-only
+ * affordance with no real-app equivalent, so it gets its own small
+ * self-contained pill style here instead of borrowing a retired class. */
+.demo-chip { display: inline-flex; align-items: center; gap: 5px; height: var(--topbar-icon-size); padding: 0 8px; white-space: nowrap; font-size: var(--font-body-sm-size); background: var(--panel-2); border: 1px solid var(--accent-sky); color: var(--accent-sky); }
+.demo-chip:hover { background: var(--disabled); }
+.demo-chip-glyph { font-size: 12px; }
 .demo-console-panel { width: 300px; max-height: min(640px, 80vh); overflow-y: auto; }
 .demo-console-panel h2 { margin: 0 0 2px; font-family: var(--font-display); font-size: var(--font-display-md-size); line-height: var(--font-display-md-line); }
 .demo-group-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -4875,7 +4712,6 @@ body.is-splitting .garden canvas {
  * tour now (see `window.pokeDemo.scenes`), so the in-frame banner would just
  * be a second, redundant narrator sitting on top of the garden. */
 .app.is-embed .garden-chip-new,
-.app.is-embed .topbar-new-terminal,
 .app.is-embed #demo-console,
 .app.is-embed #btn-drawer-toggle,
 .app.is-embed #split-collapse,
@@ -4974,6 +4810,12 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
   <symbol id="i-moon" viewBox="0 0 16 16"><rect x="6" y="2" width="3" height="1" fill="currentColor"/><rect x="5" y="3" width="3" height="1" fill="currentColor"/><rect x="4" y="4" width="3" height="1" fill="currentColor"/><rect x="4" y="5" width="3" height="1" fill="currentColor"/><rect x="3" y="6" width="3" height="1" fill="currentColor"/><rect x="3" y="7" width="3" height="1" fill="currentColor"/><rect x="3" y="8" width="4" height="1" fill="currentColor"/><rect x="3" y="9" width="4" height="1" fill="currentColor"/><rect x="4" y="10" width="4" height="1" fill="currentColor"/><rect x="4" y="11" width="5" height="1" fill="currentColor"/><rect x="5" y="12" width="4" height="1" fill="currentColor"/><rect x="6" y="13" width="4" height="1" fill="currentColor"/></symbol>
   <symbol id="i-speaker-high" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="4" fill="currentColor"/><rect x="11" y="5" width="1" height="6" fill="currentColor"/><rect x="12" y="4" width="1" height="8" fill="currentColor"/></symbol>
   <symbol id="i-speaker-mute" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="1" fill="currentColor"/><rect x="11" y="7" width="1" height="1" fill="currentColor"/><rect x="12" y="8" width="1" height="1" fill="currentColor"/><rect x="11" y="9" width="1" height="1" fill="currentColor"/><rect x="10" y="10" width="1" height="1" fill="currentColor"/><rect x="12" y="6" width="1" height="1" fill="currentColor"/><rect x="13" y="7" width="1" height="1" fill="currentColor"/><rect x="13" y="9" width="1" height="1" fill="currentColor"/><rect x="12" y="10" width="1" height="1" fill="currentColor"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 16 16"><rect x="7" y="1" width="2" height="1" fill="currentColor"/><rect x="6" y="2" width="4" height="1" fill="currentColor"/><rect x="5" y="3" width="1" height="2" fill="currentColor"/><rect x="10" y="3" width="1" height="2" fill="currentColor"/><rect x="4" y="5" width="1" height="5" fill="currentColor"/><rect x="11" y="5" width="1" height="5" fill="currentColor"/><rect x="3" y="10" width="10" height="1" fill="currentColor"/><rect x="2" y="11" width="12" height="1" fill="currentColor"/><rect x="6" y="13" width="4" height="1" fill="currentColor"/></symbol>
+  <!-- ArceusRosterCard.tsx's StarIcon (4-point pixel sparkle) — distinct from
+       `#i-star` above (the 8x8 path star the garden walker's own float badge
+       uses); `.roster-card-arceus-star` (index.css) sizes this via plain
+       width/height, so it's a real svg element, not a text glyph. -->
+  <symbol id="i-star4" viewBox="0 0 16 16"><rect x="7" y="1" width="2" height="4" fill="currentColor"/><rect x="7" y="11" width="2" height="4" fill="currentColor"/><rect x="1" y="7" width="4" height="2" fill="currentColor"/><rect x="11" y="7" width="4" height="2" fill="currentColor"/><rect x="6" y="6" width="4" height="4" fill="currentColor"/></symbol>
 </svg>
 
 <div id="root">
@@ -4993,16 +4835,8 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
       <span class="brand">pokéharness</span>
     </span>
 
-    <button type="button" class="summon-arceus" id="btn-summon-arceus" title="summon arceus"><span class="summon-arceus-glyph" aria-hidden="true">✦</span>arceus</button>
-
-    <div class="garden-picker">
-      <button type="button" class="garden-picker-trigger" aria-haspopup="menu" aria-expanded="false" title="default garden">default garden</button>
-    </div>
-
-    <button type="button" class="topbar-new-terminal tip" data-tip="new terminal" aria-label="new terminal"><svg class="picon"><use href="#i-terminal"/></svg></button>
-
     <div class="quick-settings" id="demo-console">
-      <button type="button" class="summon-arceus demo-chip tip" id="btn-demo" data-tip="demo console (⌘D)" aria-expanded="false" aria-haspopup="dialog"><span class="summon-arceus-glyph" aria-hidden="true">▸</span>demo</button>
+      <button type="button" class="demo-chip tip" id="btn-demo" data-tip="demo console (⌘D)" aria-expanded="false" aria-haspopup="dialog"><span class="demo-chip-glyph" aria-hidden="true">▸</span>demo</button>
       <div class="quick-settings-catcher" id="demo-catcher" hidden></div>
       <div class="quick-settings-panel demo-console-panel" id="demo-panel" role="dialog" aria-label="demo console" hidden>
         <h2>demo console</h2>
@@ -5054,35 +4888,63 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
     <div class="spacer"></div>
 
     <div class="topbar-actions">
-      <div class="view-switcher" role="group" aria-label="view mode">
-        <button type="button" class="topbar-icon-btn view-switcher-btn active tip" data-tip="garden view (⌘1)" aria-label="garden view" aria-pressed="true"><svg class="picon"><use href="#i-tree"/></svg></button>
-        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="terminal view (⌘2)" aria-label="terminal view">☰</button>
-        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="garden only — no chrome (⌘3)" aria-label="garden only — no chrome">⛶</button>
-        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="all sessions" aria-label="all sessions"><svg class="picon"><use href="#i-sessions"/></svg></button>
+      <div class="topbar-zone topbar-zone-stage">
+        <div class="view-switcher" role="group" aria-label="view mode">
+          <button type="button" class="view-switcher-btn active tip" data-tip="garden view (⌘1)" aria-label="garden view" aria-pressed="true"><svg class="picon"><use href="#i-tree"/></svg>garden</button>
+          <button type="button" class="view-switcher-btn tip" data-tip="terminal view (⌘2)" aria-label="terminal view">☰terminal</button>
+          <button type="button" class="view-switcher-btn tip" data-tip="garden only — no chrome (⌘3)" aria-label="garden only — no chrome">⛶</button>
+        </div>
+        <button type="button" class="topbar-icon-btn tip" data-tip="all sessions" aria-label="all sessions"><svg class="picon"><use href="#i-sessions"/></svg></button>
+      </div>
+
+      <div class="topbar-zone topbar-zone-garden">
+        <div class="garden-picker">
+          <button type="button" class="garden-picker-trigger" aria-haspopup="menu" aria-expanded="false" title="default garden">
+            <span aria-hidden="true">▣</span>
+            <span class="garden-picker-trigger-name">default garden</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+        </div>
       </div>
 
       <div class="usage-popover">
         <button type="button" class="tip usage-chip usage-chip--normal" data-tip="usage limits" aria-label="usage limits">
           <span class="usage-chip-gauges">
-            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w5h"><span class="hp-bar"><span class="hp-bar-fill" style="width:23%"></span></span><span class="usage-chip-gauge-label">5h</span> <b>23%</b></span>
-            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w7d"><span class="hp-bar"><span class="hp-bar-fill" style="width:41%"></span></span><span class="usage-chip-gauge-label">7d</span> <b>41%</b></span>
-            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--wfable"><span class="hp-bar"><span class="hp-bar-fill" style="width:12%"></span></span><span class="usage-chip-gauge-label">7d fable</span> <b>12%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w5h"><span class="hp-bar"><span class="hp-bar-fill" style="--fill:0.23"></span></span><span class="usage-chip-gauge-label">5h</span> <b>23%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w7d"><span class="hp-bar"><span class="hp-bar-fill" style="--fill:0.41"></span></span><span class="usage-chip-gauge-label">7d</span> <b>41%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--wfable"><span class="hp-bar"><span class="hp-bar-fill" style="--fill:0.12"></span></span><span class="usage-chip-gauge-label">7d fable</span> <b>12%</b></span>
           </span>
         </button>
       </div>
 
-      <button type="button" class="topbar-icon-btn tip" id="btn-audio" data-tip="sound on — click to mute" aria-label="music player"><svg class="picon"><use id="audio-glyph" href="#i-speaker-high"/></svg></button>
+      <div class="topbar-zone topbar-zone-system">
+        <button type="button" class="topbar-icon-btn tip" id="btn-audio" data-tip="sound on — click to mute" aria-label="music player"><svg class="picon"><use id="audio-glyph" href="#i-speaker-high"/></svg></button>
 
-      <button type="button" class="topbar-icon-btn tip" data-tip="switch to light mode" aria-label="switch to light mode"><svg class="picon"><use href="#i-sun"/></svg></button>
+        <button type="button" class="topbar-icon-btn tip" data-tip="notifications" aria-label="notifications"><svg class="picon"><use href="#i-bell"/></svg></button>
 
-      <div class="quick-settings"><button type="button" class="topbar-icon-btn tip" data-tip="settings" aria-label="settings">⚙</button></div>
+        <button type="button" class="topbar-icon-btn tip" data-tip="switch to light mode" aria-label="switch to light mode"><svg class="picon"><use href="#i-sun"/></svg></button>
 
-      <button type="button" class="topbar-icon-btn tip" id="btn-drawer-toggle" data-tip="hide terminal" aria-label="hide terminal" aria-pressed="true"><svg class="picon"><use id="drawer-toggle-icon" href="#i-chevron-r"/></svg></button>
+        <div class="quick-settings"><button type="button" class="topbar-icon-btn tip" data-tip="settings" aria-label="settings">⚙</button></div>
+
+        <button type="button" class="topbar-icon-btn tip" id="btn-drawer-toggle" data-tip="hide terminal" aria-label="hide terminal" aria-pressed="true"><svg class="picon"><use id="drawer-toggle-icon" href="#i-chevron-r"/></svg></button>
+      </div>
     </div>
   </header>
 
   <main class="body">
     <div class="body-row" id="body-row">
+      <div class="party-rail" id="party-rail">
+        <div class="party-rail-header">
+          <span class="party-rail-garden-name">default garden</span>
+          <span class="party-rail-counts" id="party-rail-counts">0 · 0 working</span>
+        </div>
+        <div class="party-rail-list" id="roster"></div>
+        <button type="button" class="party-rail-new" id="party-rail-new">
+          <span class="party-rail-new-label">+ new agent</span>
+          <span class="party-rail-new-icon" aria-hidden="true">+</span>
+        </button>
+      </div>
+
       <div class="garden-column">
         <div class="garden-mat">
           <div class="garden-warp-frame">
@@ -5099,7 +4961,6 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
               <div class="reel" id="reel-banner">showreel</div>
               <div class="garden-hud"><button type="button" id="btn-fit" class="topbar-icon-btn tip" data-tip="fit to view" aria-label="fit to view">⤢</button></div>
               <div class="garden-empty" id="garden-empty">no sessions yet<br><br>spawn a pokémon to begin</div>
-              <div class="garden-frame-shadow"></div>
             </div>
             <div class="garden-cosmos" id="cosmos" aria-hidden="true">
               <div class="garden-cosmos-nebula" id="cosmos-nebula"></div>
@@ -5111,10 +4972,6 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
             <div class="garden-warp-streaks" id="warp-streaks" aria-hidden="true"></div>
             <div class="garden-warp-flash" id="warp-flash" aria-hidden="true"></div>
           </div>
-        </div>
-        <div class="roster-strip-wrap">
-          <div class="roster-strip" id="roster"></div>
-          <div class="roster-strip-fade" aria-hidden="true"></div>
         </div>
       </div>
 
@@ -5128,26 +4985,22 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
           <div class="drawer-tabs" id="drawer-tabs"></div>
           <button type="button" class="icon tip" id="drawer-close" data-tip="hide terminal">×</button>
         </header>
-        <div class="drawer-meta">
-          <span class="status starting" id="term-status">no session</span>
-          <span class="path" id="term-species"></span>
-          <button type="button" class="danger" id="drawer-kill">kill</button>
-        </div>
         <div class="terminal-panel" id="terminal-panel">
-          <div class="terminal-panel-head">
-            <span class="terminal-panel-live"><span class="terminal-panel-live-dot" aria-hidden="true"></span><span id="term-title-text">live · terminal</span></span>
-          </div>
-          <div class="status-strip">
-            <span class="status-strip-seg"><span class="model-badge" id="strip-model">—</span></span>
-            <span class="status-strip-divider">·</span>
-            <span class="status-strip-seg">context<div class="hp-bar"><div class="hp-bar-fill" id="strip-ctx" style="width:0%"></div></div><span class="status-strip-ctx-num" id="strip-ctx-num">0%</span></span>
-            <span class="status-strip-divider">·</span>
-            <span class="multitask-glyph off" id="multitask-glyph">⇶ idle</span>
-          </div>
           <div class="terminal-mount-wrap">
             <div class="terminal-mount">
               <div class="term" id="term"><div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div></div>
             </div>
+          </div>
+          <div class="status-strip">
+            <span class="status starting" id="term-status">no session</span>
+            <span class="status-strip-divider">·</span>
+            <span class="status-strip-seg"><span class="model-badge" id="strip-model">—</span></span>
+            <span class="status-strip-divider">·</span>
+            <span class="status-strip-seg">context<div class="hp-bar"><div class="hp-bar-fill" id="strip-ctx" style="--fill:0"></div></div><span class="status-strip-ctx-num" id="strip-ctx-num">0%</span></span>
+            <span class="status-strip-divider">·</span>
+            <span class="multitask-glyph off" id="multitask-glyph">⇶ idle</span>
+            <span class="status-strip-path" id="strip-cwd" title=""></span>
+            <button type="button" class="danger status-strip-kill" id="drawer-kill">kill</button>
           </div>
         </div>
       </aside>
@@ -6395,7 +6248,7 @@ async function spawnSession({ shiny = false, species } = {}) {
   const sp = SPECIES.get(lineBase); const forms = await loadForms(sp.id, shiny);
   if (!forms.front) { toast(`couldn't fetch the sprite for <b>${sp.name}</b> — are you online?`); return null; }
   const [title, task] = pick(TASKS); const id = 's' + (++store.seq);
-  const s = { id, kind: 'session', title, task, provider: 'claude', model: 'opus 5', species: sp, stage: sp.stage, shiny, status: 'starting', tool: null, napping: false, looping: false, accent: ACCENTS[store.seq % ACCENTS.length], lines: [], workingMs: 0, ctx: 4 + Math.floor(Math.random() * 20), subs: [] };
+  const s = { id, kind: 'session', title, task, provider: 'claude', model: 'opus 5', species: sp, stage: sp.stage, shiny, status: 'starting', tool: null, napping: false, looping: false, accent: ACCENTS[store.seq % ACCENTS.length], lines: [], workingMs: 0, ctx: 4 + Math.floor(Math.random() * 20), subs: [], cwd: `~/dev/${lineBase}` };
   s.walker = new Walker({ species: sp, shiny, forms, startTile: map.spawn('entrance'), label: title, accent: s.accent });
   s.walker.onClick = () => select(s.id);
   store.sessions.push(s);
@@ -6589,20 +6442,40 @@ function faceHtml(url, box, shiny) {
   return `<i class="pokemon-face" style="background-image:url(${url});background-size:contain;background-position:center;width:${box}px;height:${box}px"></i>` +
     (shiny ? `<span class="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">★</span>` : '');
 }
+/** Arceus's own permanent party-rail card (ArceusRosterCard.tsx) — pinned
+ * first, unconditionally. He's a virtual id in this demo (never a real
+ * `store.sessions` entry, see `find()`/`select()`), so his 'medium' state
+ * always reads as the same "awaiting summon" placeholder the real component
+ * shows when `session` is undefined — there's no mock cost/model data to
+ * fill it with. */
+function arceusCardHtml() {
+  const selected = store.selected === ARCEUS_ID;
+  const variant = selected ? 'medium' : 'compact';
+  const cosmic = `<span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>`;
+  const top = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, variant === 'medium' ? 32 : 18, false)}</span><span class="roster-card-title-compact"><svg class="roster-card-arceus-star" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><use href="#i-star4"/></svg> arceus</span></div>`;
+  const body = variant === 'medium'
+    ? `<div class="roster-card-arceus-status-row"><em class="status starting">awaiting summon</em><span class="roster-card-arceus-provider">claude</span></div>
+      <div class="roster-card-arceus-model-row"><span class="model-badge roster-card-row-hidden">&nbsp;</span><span class="roster-card-arceus-cost roster-card-row-hidden"> </span></div>
+      <div class="roster-card-arceus-context-row roster-card-row-hidden"><span class="roster-card-ctx-label">context</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="--fill:0"></div></div><span class="roster-card-ctx-label"> </span></div>`
+    : `<div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="--fill:0"></div></div>`;
+  const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap';
+  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-${variant}${selected ? ' selected' : ''}" id="btn-roster-arceus" title="summon arceus">${cosmic}${top}${body}</button>`;
+  arceus.querySelector('button').onclick = () => select(ARCEUS_ID);
+  return arceus;
+}
 function renderRoster() {
   const r = el('roster'); r.innerHTML = '';
-  const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap roster-card-wrap-arceus';
-  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-compact" id="btn-roster-arceus" title="summon arceus">
-    <span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>
-    <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, 18, false)}</span><span class="roster-card-title-compact"><span class="roster-card-arceus-star" aria-hidden="true">★</span> arceus</span></div>
-    <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:0%"></div></div>`;
-  arceus.querySelector('button').onclick = () => select(ARCEUS_ID);
-  r.appendChild(arceus);
+  r.appendChild(arceusCardHtml());
+  if (store.sessions.length > 0) {
+    const heading = document.createElement('div'); heading.className = 'party-rail-heading'; heading.textContent = 'agents'; r.appendChild(heading);
+  }
   for (const s of store.sessions) {
     r.appendChild(card(s));
-    for (const sub of store.subs.filter((x) => x.parent === s)) r.appendChild(card(sub));
+    for (const sub of store.subs.filter((x) => x.parent === s)) {
+      const wrap = document.createElement('div'); wrap.className = 'party-rail-child'; wrap.appendChild(card(sub)); r.appendChild(wrap);
+    }
   }
-  const add = document.createElement('button'); add.type = 'button'; add.className = 'roster-strip-new'; add.textContent = '+ new agent'; add.onclick = () => spawnSession(); r.appendChild(add);
+  el('party-rail-counts').textContent = `${store.sessions.length} · ${store.sessions.filter((s) => s.status === 'working').length} working`;
   el('garden-empty').style.display = store.sessions.length ? 'none' : 'flex';
   const opts = (sel, list) => { const cur = sel.value; sel.innerHTML = list.map((s) => `<option value="${s.id}">${s.species.name}${s.shiny ? ' ✦' : ''} — ${s.kind === 'sub' ? 'subagent' : s.title}</option>`).join('') || '<option value="">no pokémon alive</option>'; if ([...sel.options].some((o) => o.value === cur)) sel.value = cur; };
   const alive = [...store.sessions, ...store.subs]; opts(el('sel-evolve'), alive); opts(el('sel-battle-a'), alive); opts(el('sel-battle-b'), alive);
@@ -6623,21 +6496,29 @@ function card(s) {
     d.innerHTML = `<button type="button" class="roster-card roster-card-subagent roster-card-compact">
       <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.label}</span><span class="roster-card-dot ${s.retired ? 'done' : 'working'}"></span></div>
       <div class="roster-card-parent-compact">↳ ${s.parent.title}</div>
-      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:100%"></div></div></button>`;
+      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="--fill:1"></div></div></button>`;
     d.querySelector('button').onclick = () => select(s.id);
     return d;
   }
-  const medium = store.selected === s.id;
-  const d = document.createElement('div'); d.className = 'roster-card-wrap' + (medium ? ' roster-card-wrap-medium' : ''); d.dataset.id = s.id;
+  // Every ordinary rail card is 'medium' now, regardless of selection — the
+  // old compact/medium-on-select swap (AgentRosterCard.tsx's retired
+  // 'compact' variant) is gone; `.selected` is a border/glow only.
+  const selected = store.selected === s.id;
+  const d = document.createElement('div'); d.className = 'roster-card-wrap'; d.dataset.id = s.id;
   const dotCls = s.napping ? 'napping' : s.status;
-  const inner = medium
-    ? `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 32, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-dot ${dotCls}"></span></div>
-      <div class="roster-card-meta-line">${s.provider} · ${s.species.name.toLowerCase()}</div>
-      <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`
-    : `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-provider-compact">${s.provider}</span><span class="roster-card-dot ${dotCls}"></span></div>
-      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div>`;
-  d.innerHTML = `<button type="button" class="roster-card ${medium ? 'roster-card-medium selected' : 'roster-card-compact'}" style="border-left-color:${s.accent}">${inner}</button>`;
-  d.querySelector('button').onclick = () => select(s.id);
+  const inner = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 32, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-dot ${dotCls}"></span></div>
+    <div class="roster-card-meta-line">${s.provider} · ${s.species.name.toLowerCase()}</div>
+    <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="--fill:${s.ctx / 100}"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`;
+  // Per-parent subagent disclosure badge (AgentRosterCard.tsx) — persistent
+  // whenever this parent has any live battler, not hover-only; the demo has
+  // no per-parent collapse state, so it always reads as the expanded '▾ n'
+  // form (a sibling of the card `<button>`, same DOM shape as the real one).
+  const childCount = store.subs.filter((x) => x.parent === s).length;
+  const disclosure = childCount > 0
+    ? `<button type="button" class="roster-card-disclosure" title="${childCount} subagent${childCount === 1 ? '' : 's'}">▾ ${childCount}</button>`
+    : '';
+  d.innerHTML = `<button type="button" class="roster-card roster-card-medium${selected ? ' selected' : ''}" style="border-left-color:${s.accent}">${inner}</button>${disclosure}`;
+  d.querySelector('.roster-card').onclick = () => select(s.id);
   return d;
 }
 function term(s, cls, text) { s.lines.push({ cls, text }); if (s.lines.length > 400) s.lines.shift(); if (store.selected === s.id) appendTermLine({ cls, text }); }
@@ -6649,18 +6530,22 @@ function renderTerm() {
 }
 function renderTermHead() {
   const s = find(store.selected); const src = s && (s.kind === 'sub' ? s.parent : s);
-  el('term-title-text').textContent = src ? `live · ${src.title}` : 'live · terminal';
-  el('term-species').textContent = s ? `${s.species.name}${s.kind === 'sub' ? ' (subagent)' : ''}` : '';
   const st = el('term-status'); st.className = 'status ' + (src ? (src.napping ? 'napping' : src.status) : 'starting'); st.textContent = src ? (src.napping ? 'napping' : src.status === 'blocked' ? 'needs you' : src.status) : 'no session';
-  el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.width = (src ? src.ctx : 0) + '%'; el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
+  el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.setProperty('--fill', (src ? src.ctx : 0) / 100); el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
   const running = src ? store.subs.filter((sub) => sub.parent === src && sub.pending && !sub.walker.destroyed).length : 0;
   const mg = el('multitask-glyph'); mg.className = running > 0 ? 'multitask-glyph on' : 'multitask-glyph off'; mg.textContent = running > 0 ? `⇶ ${running} running` : '⇶ idle';
+  const cwdEl = el('strip-cwd'); cwdEl.textContent = src ? src.cwd : ''; cwdEl.title = src ? src.cwd : '';
 }
 function toast(html) { const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = html; el('toasts').appendChild(t); setTimeout(() => t.remove(), 3200); }
 
 // ───────────────────────────── terminal drawer: split/collapse (GardenSplitHandle.tsx, gardenSplit.ts) ─────────────────────────────
 const TERMINAL_MIN_PX = 420, GARDEN_MIN_PX = 380, HANDLE_PX = 6, DEFAULT_GARDEN_SPLIT = 0.54;
-const terminalWidthCss = (ratio) => `clamp(${TERMINAL_MIN_PX}px, ${(1 - ratio) * 100}%, calc(100% - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
+// `.body-row`'s own `--party-rail-w` (index.css) tracks the rail's live
+// rendered width (200px, or 56px collapsed below ~1100px) — subtracting it
+// here, not the PARTY_RAIL_PX constant, keeps this honest across that
+// collapse with no resize listener of its own (gardenSplit.ts's own
+// `terminalWidthCss`, ported verbatim).
+const terminalWidthCss = (ratio) => `clamp(${TERMINAL_MIN_PX}px, ${(1 - ratio) * 100}%, calc(100% - var(--party-rail-w) - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
 let drawerOpen = true, splitRatio = DEFAULT_GARDEN_SPLIT, demoOpen = false;
 function applyDrawerState() {
   el('drawer').style.display = drawerOpen ? 'flex' : 'none';
@@ -6938,6 +6823,9 @@ async function run(id) {
   finally { setBusy(false); }
 }
 
+// party rail footer — same action as the demo console's "spawn a pokémon"
+el('party-rail-new').onclick = () => spawnSession();
+
 // ───────────────────────────── demo console wiring — every button just dispatches into SCENES ─────────────────────────────
 el('btn-spawn').onclick = () => run('spawn');
 el('btn-spawn-shiny').onclick = () => run('spawn-shiny');
@@ -6967,13 +6855,37 @@ el('drawer-kill').onclick = () => { const s = find(store.selected); if (!s) retu
 el('split-handle').addEventListener('dblclick', () => { splitRatio = DEFAULT_GARDEN_SPLIT; applyDrawerState(); });
 (() => {
   let dragging = false;
+  // Cursor's offset from the handle's own left edge at grab time
+  // (GardenSplitHandle.tsx's `grabOffsetRef`) — without this, the first
+  // pointermove jumps the handle to align its right edge with the cursor
+  // instead of tracking it from wherever in the hit area it was grabbed.
+  let grabOffset = 0;
   const handle = el('split-handle');
-  handle.addEventListener('pointerdown', (e) => { dragging = true; handle.setPointerCapture(e.pointerId); });
+  // Magnetic 50/50 snap (GardenSplitHandle.tsx's `ratioFor`, ported) — a
+  // 10px pull toward true-center drawer width, computed off the row minus
+  // the party rail's own LIVE width (not the PARTY_RAIL_PX constant), so
+  // "50/50" means the midpoint of the garden+terminal area alone, same as
+  // the real handle.
+  const CENTER_SNAP_PX = 10;
+  const ratioFor = (clientX) => {
+    const rect = el('body-row').getBoundingClientRect();
+    const railWidth = el('party-rail').getBoundingClientRect().width;
+    const handleLeft = clientX - grabOffset;
+    const drawerWidth = rect.right - (handleLeft + HANDLE_PX);
+    const maxDrawerWidth = Math.max(TERMINAL_MIN_PX, rect.width - railWidth - HANDLE_PX - GARDEN_MIN_PX);
+    const clampedDrawerWidth = clamp(drawerWidth, TERMINAL_MIN_PX, maxDrawerWidth);
+    const centerDrawerWidth = clamp((rect.width - railWidth - HANDLE_PX) / 2, TERMINAL_MIN_PX, maxDrawerWidth);
+    const snappedDrawerWidth = Math.abs(clampedDrawerWidth - centerDrawerWidth) <= CENTER_SNAP_PX ? centerDrawerWidth : clampedDrawerWidth;
+    return 1 - snappedDrawerWidth / rect.width;
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    grabOffset = e.clientX - handle.getBoundingClientRect().left;
+    handle.setPointerCapture(e.pointerId);
+  });
   handle.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const rect = el('body-row').getBoundingClientRect(); const px = e.clientX - rect.left;
-    const minRatio = GARDEN_MIN_PX / rect.width, maxRatio = 1 - (TERMINAL_MIN_PX + HANDLE_PX) / rect.width;
-    splitRatio = clamp(px / rect.width, minRatio, maxRatio); applyDrawerState();
+    splitRatio = ratioFor(e.clientX); applyDrawerState();
   });
   handle.addEventListener('pointerup', () => { dragging = false; });
 })();
@@ -7014,7 +6926,6 @@ el('btn-reel').onclick = runShowreel;
 // ───────────────────────────── boot ─────────────────────────────
 audio.init();
 el('cosmos-nebula').style.backgroundImage = `url(${nebulaDataUrl()})`;
-el('btn-summon-arceus').onclick = () => select(ARCEUS_ID);
 /** Warms the sprites the tour's cast actually needs, so chapter 1 isn't the one paying for a cold CDN
  *  fetch. Strictly opportunistic: nothing here is awaited, `ready` never blocks on it, and every
  *  scene works unchanged if the whole thing fails (loadForms caches by URL and resolves null on a
