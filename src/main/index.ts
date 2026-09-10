@@ -226,6 +226,12 @@ const usageService = new UsageService(() => mainWindow?.webContents ?? null);
 // with a TTL (see costHistory.ts's own header). Independent of costWatcher
 // above: that one only tracks currently-registered LIVE sessions in memory.
 const costHistoryService = new CostHistoryService();
+// Guards costHistoryService.start() (fired off the first window's
+// `ready-to-show`, below) so it only ever warms the cache once per launch —
+// a later `activate`-triggered createWindow() (reopening the garden window
+// after it was closed, darwin's "all windows closed" doesn't quit) must not
+// spawn a second ~4.5s scan of the whole ~/.claude/projects tree.
+let costHistoryWarmed = false;
 // macOS menu-bar item (issue #17) — custom popover panel, not a native
 // `Menu`; see tray.ts's own header for the presentation decision and each
 // section's data source. `() => sessionRegistry` is the same forward-
@@ -875,7 +881,28 @@ function createWindow(backgroundColor: string): void {
   mainWindow = win;
   ptyManager.attachWebContents(win.webContents);
 
-  win.on('ready-to-show', () => win.show());
+  win.on('ready-to-show', () => {
+    win.show();
+    log('main', 'info', 'window ready-to-show', { uptimeMs: Math.round(process.uptime() * 1000) });
+    // Cost-history warm-scan (issue #17's tray popover section — see
+    // costHistory.ts's own `start()` comment) — deliberately fired HERE,
+    // not from `app.whenReady()`'s synchronous top where it used to sit
+    // alongside costWatcher.start()/trayController.init(), because it
+    // spawns a real, sustained child process (~4.5s wall-clock benchmarked
+    // against a real ~/.claude/projects tree in costHistoryScan.ts's own
+    // header) that was competing with window creation and renderer-bundle
+    // load for CPU/disk I/O at the single most latency-sensitive point of
+    // app launch. Deferring it to after the window has actually shown keeps
+    // `start()`'s "warm before the tray popover can plausibly be opened"
+    // property (the user can't open the tray popover before the window
+    // itself has shown) without it being on the boot critical path.
+    // `costHistoryWarmed` keeps this a true "once per launch" warm-up, not
+    // a rescan on every `activate`-triggered reopen of the window.
+    if (!costHistoryWarmed) {
+      costHistoryWarmed = true;
+      costHistoryService.start();
+    }
+  });
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });
@@ -1063,7 +1090,10 @@ app.whenReady().then(async () => {
   // shows up in harness.log rather than needing to be re-derived by hand.
   log('hooks', 'info', 'delegate CLI installed', { command: hookBridge.delegateCliCommand() });
   costWatcher.start();
-  costHistoryService.start();
+  // costHistoryService.start() deliberately NOT called here — see the
+  // `ready-to-show` handler in createWindow() for where it moved and why
+  // (this synchronous stretch runs before the window is even created, and
+  // the scan it kicks off is real, sustained CPU/disk work).
   trayController.init();
   arceusRelay.start();
   taskNotificationWatcher.start();
@@ -1147,7 +1177,11 @@ app.whenReady().then(async () => {
   // One line per launch — also guarantees `logs/` actually exists on disk
   // (the folder is otherwise created lazily on first write) so the Settings
   // panel's "open logs" button isn't a no-op on a fresh install.
-  log('main', 'info', 'app started', { appVersion: app.getVersion(), electronVersion: process.versions.electron });
+  log('main', 'info', 'app started', {
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    uptimeMs: Math.round(process.uptime() * 1000)
+  });
   Menu.setApplicationMenu(buildApplicationMenu());
   ensureClaudeTheme(() => {
     // Pull the toast after renderer boot so its listener is guaranteed ready.
