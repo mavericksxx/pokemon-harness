@@ -48,7 +48,14 @@
 .picon { width: 1em; height: 1em; display: inline-block; vertical-align: -2px; shape-rendering: crispEdges; fill: currentColor; }
 #pane { cursor: grab; }
 #pane.dragging { cursor: grabbing; }
-.summon-arceus.demo-chip { border-color: var(--accent-sky); color: var(--accent-sky); }
+/* `.summon-arceus` (his old topbar chip) no longer exists in the real app's
+ * CSS — the party rail's own ArceusRosterCard is his one home now (see
+ * `#btn-roster-arceus` below). This demo-console trigger is a demo-only
+ * affordance with no real-app equivalent, so it gets its own small
+ * self-contained pill style here instead of borrowing a retired class. */
+.demo-chip { display: inline-flex; align-items: center; gap: 5px; height: var(--topbar-icon-size); padding: 0 8px; white-space: nowrap; font-size: var(--font-body-sm-size); background: var(--panel-2); border: 1px solid var(--accent-sky); color: var(--accent-sky); }
+.demo-chip:hover { background: var(--disabled); }
+.demo-chip-glyph { font-size: 12px; }
 .demo-console-panel { width: 300px; max-height: min(640px, 80vh); overflow-y: auto; }
 .demo-console-panel h2 { margin: 0 0 2px; font-family: var(--font-display); font-size: var(--font-display-md-size); line-height: var(--font-display-md-line); }
 .demo-group-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -68,7 +75,6 @@
  * tour now (see `window.pokeDemo.scenes`), so the in-frame banner would just
  * be a second, redundant narrator sitting on top of the garden. */
 .app.is-embed .garden-chip-new,
-.app.is-embed .topbar-new-terminal,
 .app.is-embed #demo-console,
 .app.is-embed #btn-drawer-toggle,
 .app.is-embed #split-collapse,
@@ -167,6 +173,7 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
   <symbol id="i-moon" viewBox="0 0 16 16"><rect x="6" y="2" width="3" height="1" fill="currentColor"/><rect x="5" y="3" width="3" height="1" fill="currentColor"/><rect x="4" y="4" width="3" height="1" fill="currentColor"/><rect x="4" y="5" width="3" height="1" fill="currentColor"/><rect x="3" y="6" width="3" height="1" fill="currentColor"/><rect x="3" y="7" width="3" height="1" fill="currentColor"/><rect x="3" y="8" width="4" height="1" fill="currentColor"/><rect x="3" y="9" width="4" height="1" fill="currentColor"/><rect x="4" y="10" width="4" height="1" fill="currentColor"/><rect x="4" y="11" width="5" height="1" fill="currentColor"/><rect x="5" y="12" width="4" height="1" fill="currentColor"/><rect x="6" y="13" width="4" height="1" fill="currentColor"/></symbol>
   <symbol id="i-speaker-high" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="4" fill="currentColor"/><rect x="11" y="5" width="1" height="6" fill="currentColor"/><rect x="12" y="4" width="1" height="8" fill="currentColor"/></symbol>
   <symbol id="i-speaker-mute" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="1" fill="currentColor"/><rect x="11" y="7" width="1" height="1" fill="currentColor"/><rect x="12" y="8" width="1" height="1" fill="currentColor"/><rect x="11" y="9" width="1" height="1" fill="currentColor"/><rect x="10" y="10" width="1" height="1" fill="currentColor"/><rect x="12" y="6" width="1" height="1" fill="currentColor"/><rect x="13" y="7" width="1" height="1" fill="currentColor"/><rect x="13" y="9" width="1" height="1" fill="currentColor"/><rect x="12" y="10" width="1" height="1" fill="currentColor"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 16 16"><rect x="7" y="1" width="2" height="1" fill="currentColor"/><rect x="6" y="2" width="4" height="1" fill="currentColor"/><rect x="5" y="3" width="1" height="2" fill="currentColor"/><rect x="10" y="3" width="1" height="2" fill="currentColor"/><rect x="4" y="5" width="1" height="5" fill="currentColor"/><rect x="11" y="5" width="1" height="5" fill="currentColor"/><rect x="3" y="10" width="10" height="1" fill="currentColor"/><rect x="2" y="11" width="12" height="1" fill="currentColor"/><rect x="6" y="13" width="4" height="1" fill="currentColor"/></symbol>
 </svg>
 
 <div id="root">
@@ -186,16 +193,8 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
       <span class="brand">pokéharness</span>
     </span>
 
-    <button type="button" class="summon-arceus" id="btn-summon-arceus" title="summon arceus"><span class="summon-arceus-glyph" aria-hidden="true">✦</span>arceus</button>
-
-    <div class="garden-picker">
-      <button type="button" class="garden-picker-trigger" aria-haspopup="menu" aria-expanded="false" title="default garden">default garden</button>
-    </div>
-
-    <button type="button" class="topbar-new-terminal tip" data-tip="new terminal" aria-label="new terminal"><svg class="picon"><use href="#i-terminal"/></svg></button>
-
     <div class="quick-settings" id="demo-console">
-      <button type="button" class="summon-arceus demo-chip tip" id="btn-demo" data-tip="demo console (⌘D)" aria-expanded="false" aria-haspopup="dialog"><span class="summon-arceus-glyph" aria-hidden="true">▸</span>demo</button>
+      <button type="button" class="demo-chip tip" id="btn-demo" data-tip="demo console (⌘D)" aria-expanded="false" aria-haspopup="dialog"><span class="demo-chip-glyph" aria-hidden="true">▸</span>demo</button>
       <div class="quick-settings-catcher" id="demo-catcher" hidden></div>
       <div class="quick-settings-panel demo-console-panel" id="demo-panel" role="dialog" aria-label="demo console" hidden>
         <h2>demo console</h2>
@@ -247,11 +246,23 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
     <div class="spacer"></div>
 
     <div class="topbar-actions">
-      <div class="view-switcher" role="group" aria-label="view mode">
-        <button type="button" class="topbar-icon-btn view-switcher-btn active tip" data-tip="garden view (⌘1)" aria-label="garden view" aria-pressed="true"><svg class="picon"><use href="#i-tree"/></svg></button>
-        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="terminal view (⌘2)" aria-label="terminal view">☰</button>
-        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="garden only — no chrome (⌘3)" aria-label="garden only — no chrome">⛶</button>
-        <button type="button" class="topbar-icon-btn view-switcher-btn tip" data-tip="all sessions" aria-label="all sessions"><svg class="picon"><use href="#i-sessions"/></svg></button>
+      <div class="topbar-zone topbar-zone-stage">
+        <div class="view-switcher" role="group" aria-label="view mode">
+          <button type="button" class="view-switcher-btn active tip" data-tip="garden view (⌘1)" aria-label="garden view" aria-pressed="true"><svg class="picon"><use href="#i-tree"/></svg>garden</button>
+          <button type="button" class="view-switcher-btn tip" data-tip="terminal view (⌘2)" aria-label="terminal view">☰terminal</button>
+          <button type="button" class="view-switcher-btn tip" data-tip="garden only — no chrome (⌘3)" aria-label="garden only — no chrome">⛶</button>
+        </div>
+        <button type="button" class="topbar-icon-btn tip" data-tip="all sessions" aria-label="all sessions"><svg class="picon"><use href="#i-sessions"/></svg></button>
+      </div>
+
+      <div class="topbar-zone topbar-zone-garden">
+        <div class="garden-picker">
+          <button type="button" class="garden-picker-trigger" aria-haspopup="menu" aria-expanded="false" title="default garden">
+            <span aria-hidden="true">▣</span>
+            <span class="garden-picker-trigger-name">default garden</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+        </div>
       </div>
 
       <div class="usage-popover">
@@ -264,18 +275,34 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
         </button>
       </div>
 
-      <button type="button" class="topbar-icon-btn tip" id="btn-audio" data-tip="sound on — click to mute" aria-label="music player"><svg class="picon"><use id="audio-glyph" href="#i-speaker-high"/></svg></button>
+      <div class="topbar-zone topbar-zone-system">
+        <button type="button" class="topbar-icon-btn tip" id="btn-audio" data-tip="sound on — click to mute" aria-label="music player"><svg class="picon"><use id="audio-glyph" href="#i-speaker-high"/></svg></button>
 
-      <button type="button" class="topbar-icon-btn tip" data-tip="switch to light mode" aria-label="switch to light mode"><svg class="picon"><use href="#i-sun"/></svg></button>
+        <button type="button" class="topbar-icon-btn tip" data-tip="notifications" aria-label="notifications"><svg class="picon"><use href="#i-bell"/></svg></button>
 
-      <div class="quick-settings"><button type="button" class="topbar-icon-btn tip" data-tip="settings" aria-label="settings">⚙</button></div>
+        <button type="button" class="topbar-icon-btn tip" data-tip="switch to light mode" aria-label="switch to light mode"><svg class="picon"><use href="#i-sun"/></svg></button>
 
-      <button type="button" class="topbar-icon-btn tip" id="btn-drawer-toggle" data-tip="hide terminal" aria-label="hide terminal" aria-pressed="true"><svg class="picon"><use id="drawer-toggle-icon" href="#i-chevron-r"/></svg></button>
+        <div class="quick-settings"><button type="button" class="topbar-icon-btn tip" data-tip="settings" aria-label="settings">⚙</button></div>
+
+        <button type="button" class="topbar-icon-btn tip" id="btn-drawer-toggle" data-tip="hide terminal" aria-label="hide terminal" aria-pressed="true"><svg class="picon"><use id="drawer-toggle-icon" href="#i-chevron-r"/></svg></button>
+      </div>
     </div>
   </header>
 
   <main class="body">
     <div class="body-row" id="body-row">
+      <div class="party-rail" id="party-rail">
+        <div class="party-rail-header">
+          <span class="party-rail-garden-name">default garden</span>
+          <span class="party-rail-counts" id="party-rail-counts">0 · 0 working</span>
+        </div>
+        <div class="party-rail-list" id="roster"></div>
+        <button type="button" class="party-rail-new" id="party-rail-new">
+          <span class="party-rail-new-label">+ new agent</span>
+          <span class="party-rail-new-icon" aria-hidden="true">+</span>
+        </button>
+      </div>
+
       <div class="garden-column">
         <div class="garden-mat">
           <div class="garden-warp-frame">
@@ -292,7 +319,6 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
               <div class="reel" id="reel-banner">showreel</div>
               <div class="garden-hud"><button type="button" id="btn-fit" class="topbar-icon-btn tip" data-tip="fit to view" aria-label="fit to view">⤢</button></div>
               <div class="garden-empty" id="garden-empty">no sessions yet<br><br>spawn a pokémon to begin</div>
-              <div class="garden-frame-shadow"></div>
             </div>
             <div class="garden-cosmos" id="cosmos" aria-hidden="true">
               <div class="garden-cosmos-nebula" id="cosmos-nebula"></div>
@@ -304,10 +330,6 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
             <div class="garden-warp-streaks" id="warp-streaks" aria-hidden="true"></div>
             <div class="garden-warp-flash" id="warp-flash" aria-hidden="true"></div>
           </div>
-        </div>
-        <div class="roster-strip-wrap">
-          <div class="roster-strip" id="roster"></div>
-          <div class="roster-strip-fade" aria-hidden="true"></div>
         </div>
       </div>
 
@@ -321,26 +343,22 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
           <div class="drawer-tabs" id="drawer-tabs"></div>
           <button type="button" class="icon tip" id="drawer-close" data-tip="hide terminal">×</button>
         </header>
-        <div class="drawer-meta">
-          <span class="status starting" id="term-status">no session</span>
-          <span class="path" id="term-species"></span>
-          <button type="button" class="danger" id="drawer-kill">kill</button>
-        </div>
         <div class="terminal-panel" id="terminal-panel">
-          <div class="terminal-panel-head">
-            <span class="terminal-panel-live"><span class="terminal-panel-live-dot" aria-hidden="true"></span><span id="term-title-text">live · terminal</span></span>
+          <div class="terminal-mount-wrap">
+            <div class="terminal-mount">
+              <div class="term" id="term"><div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div></div>
+            </div>
           </div>
           <div class="status-strip">
+            <span class="status starting" id="term-status">no session</span>
+            <span class="status-strip-divider">·</span>
             <span class="status-strip-seg"><span class="model-badge" id="strip-model">—</span></span>
             <span class="status-strip-divider">·</span>
             <span class="status-strip-seg">context<div class="hp-bar"><div class="hp-bar-fill" id="strip-ctx" style="width:0%"></div></div><span class="status-strip-ctx-num" id="strip-ctx-num">0%</span></span>
             <span class="status-strip-divider">·</span>
             <span class="multitask-glyph off" id="multitask-glyph">⇶ idle</span>
-          </div>
-          <div class="terminal-mount-wrap">
-            <div class="terminal-mount">
-              <div class="term" id="term"><div class="term-empty">select a pokémon in the garden or a card below to open its terminal.</div></div>
-            </div>
+            <span class="status-strip-path" id="strip-cwd" title=""></span>
+            <button type="button" class="danger status-strip-kill" id="drawer-kill">kill</button>
           </div>
         </div>
       </aside>
@@ -1588,7 +1606,7 @@ async function spawnSession({ shiny = false, species } = {}) {
   const sp = SPECIES.get(lineBase); const forms = await loadForms(sp.id, shiny);
   if (!forms.front) { toast(`couldn't fetch the sprite for <b>${sp.name}</b> — are you online?`); return null; }
   const [title, task] = pick(TASKS); const id = 's' + (++store.seq);
-  const s = { id, kind: 'session', title, task, provider: 'claude', model: 'opus 5', species: sp, stage: sp.stage, shiny, status: 'starting', tool: null, napping: false, looping: false, accent: ACCENTS[store.seq % ACCENTS.length], lines: [], workingMs: 0, ctx: 4 + Math.floor(Math.random() * 20), subs: [] };
+  const s = { id, kind: 'session', title, task, provider: 'claude', model: 'opus 5', species: sp, stage: sp.stage, shiny, status: 'starting', tool: null, napping: false, looping: false, accent: ACCENTS[store.seq % ACCENTS.length], lines: [], workingMs: 0, ctx: 4 + Math.floor(Math.random() * 20), subs: [], cwd: `~/dev/${lineBase}` };
   s.walker = new Walker({ species: sp, shiny, forms, startTile: map.spawn('entrance'), label: title, accent: s.accent });
   s.walker.onClick = () => select(s.id);
   store.sessions.push(s);
@@ -1782,20 +1800,40 @@ function faceHtml(url, box, shiny) {
   return `<i class="pokemon-face" style="background-image:url(${url});background-size:contain;background-position:center;width:${box}px;height:${box}px"></i>` +
     (shiny ? `<span class="shiny-badge roster-card-shiny" title="shiny" aria-label="shiny">★</span>` : '');
 }
+/** Arceus's own permanent party-rail card (ArceusRosterCard.tsx) — pinned
+ * first, unconditionally. He's a virtual id in this demo (never a real
+ * `store.sessions` entry, see `find()`/`select()`), so his 'medium' state
+ * always reads as the same "awaiting summon" placeholder the real component
+ * shows when `session` is undefined — there's no mock cost/model data to
+ * fill it with. */
+function arceusCardHtml() {
+  const selected = store.selected === ARCEUS_ID;
+  const variant = selected ? 'medium' : 'compact';
+  const cosmic = `<span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>`;
+  const top = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, variant === 'medium' ? 32 : 18, false)}</span><span class="roster-card-title-compact"><span class="roster-card-arceus-star" aria-hidden="true">★</span> arceus</span></div>`;
+  const body = variant === 'medium'
+    ? `<div class="roster-card-arceus-status-row"><em class="status starting">awaiting summon</em><span class="roster-card-arceus-provider">claude</span></div>
+      <div class="roster-card-arceus-model-row"><span class="model-badge roster-card-row-hidden">&nbsp;</span><span class="roster-card-arceus-cost roster-card-row-hidden"> </span></div>
+      <div class="roster-card-arceus-context-row roster-card-row-hidden"><span class="roster-card-ctx-label">context</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:0%"></div></div><span class="roster-card-ctx-label"> </span></div>`
+    : `<div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:0%"></div></div>`;
+  const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap';
+  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-${variant}${selected ? ' selected' : ''}" id="btn-roster-arceus" title="summon arceus">${cosmic}${top}${body}</button>`;
+  arceus.querySelector('button').onclick = () => select(ARCEUS_ID);
+  return arceus;
+}
 function renderRoster() {
   const r = el('roster'); r.innerHTML = '';
-  const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap roster-card-wrap-arceus';
-  arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-compact" id="btn-roster-arceus" title="summon arceus">
-    <span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>
-    <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, 18, false)}</span><span class="roster-card-title-compact"><span class="roster-card-arceus-star" aria-hidden="true">★</span> arceus</span></div>
-    <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:0%"></div></div>`;
-  arceus.querySelector('button').onclick = () => select(ARCEUS_ID);
-  r.appendChild(arceus);
+  r.appendChild(arceusCardHtml());
+  if (store.sessions.length > 0) {
+    const heading = document.createElement('div'); heading.className = 'party-rail-heading'; heading.textContent = 'agents'; r.appendChild(heading);
+  }
   for (const s of store.sessions) {
     r.appendChild(card(s));
-    for (const sub of store.subs.filter((x) => x.parent === s)) r.appendChild(card(sub));
+    for (const sub of store.subs.filter((x) => x.parent === s)) {
+      const wrap = document.createElement('div'); wrap.className = 'party-rail-child'; wrap.appendChild(card(sub)); r.appendChild(wrap);
+    }
   }
-  const add = document.createElement('button'); add.type = 'button'; add.className = 'roster-strip-new'; add.textContent = '+ new agent'; add.onclick = () => spawnSession(); r.appendChild(add);
+  el('party-rail-counts').textContent = `${store.sessions.length} · ${store.sessions.filter((s) => s.status === 'working').length} working`;
   el('garden-empty').style.display = store.sessions.length ? 'none' : 'flex';
   const opts = (sel, list) => { const cur = sel.value; sel.innerHTML = list.map((s) => `<option value="${s.id}">${s.species.name}${s.shiny ? ' ✦' : ''} — ${s.kind === 'sub' ? 'subagent' : s.title}</option>`).join('') || '<option value="">no pokémon alive</option>'; if ([...sel.options].some((o) => o.value === cur)) sel.value = cur; };
   const alive = [...store.sessions, ...store.subs]; opts(el('sel-evolve'), alive); opts(el('sel-battle-a'), alive); opts(el('sel-battle-b'), alive);
@@ -1820,16 +1858,16 @@ function card(s) {
     d.querySelector('button').onclick = () => select(s.id);
     return d;
   }
-  const medium = store.selected === s.id;
-  const d = document.createElement('div'); d.className = 'roster-card-wrap' + (medium ? ' roster-card-wrap-medium' : ''); d.dataset.id = s.id;
+  // Every ordinary rail card is 'medium' now, regardless of selection — the
+  // old compact/medium-on-select swap (AgentRosterCard.tsx's retired
+  // 'compact' variant) is gone; `.selected` is a border/glow only.
+  const selected = store.selected === s.id;
+  const d = document.createElement('div'); d.className = 'roster-card-wrap'; d.dataset.id = s.id;
   const dotCls = s.napping ? 'napping' : s.status;
-  const inner = medium
-    ? `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 32, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-dot ${dotCls}"></span></div>
-      <div class="roster-card-meta-line">${s.provider} · ${s.species.name.toLowerCase()}</div>
-      <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`
-    : `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-provider-compact">${s.provider}</span><span class="roster-card-dot ${dotCls}"></span></div>
-      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div>`;
-  d.innerHTML = `<button type="button" class="roster-card ${medium ? 'roster-card-medium selected' : 'roster-card-compact'}" style="border-left-color:${s.accent}">${inner}</button>`;
+  const inner = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 32, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-dot ${dotCls}"></span></div>
+    <div class="roster-card-meta-line">${s.provider} · ${s.species.name.toLowerCase()}</div>
+    <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`;
+  d.innerHTML = `<button type="button" class="roster-card roster-card-medium${selected ? ' selected' : ''}" style="border-left-color:${s.accent}">${inner}</button>`;
   d.querySelector('button').onclick = () => select(s.id);
   return d;
 }
@@ -1842,18 +1880,22 @@ function renderTerm() {
 }
 function renderTermHead() {
   const s = find(store.selected); const src = s && (s.kind === 'sub' ? s.parent : s);
-  el('term-title-text').textContent = src ? `live · ${src.title}` : 'live · terminal';
-  el('term-species').textContent = s ? `${s.species.name}${s.kind === 'sub' ? ' (subagent)' : ''}` : '';
   const st = el('term-status'); st.className = 'status ' + (src ? (src.napping ? 'napping' : src.status) : 'starting'); st.textContent = src ? (src.napping ? 'napping' : src.status === 'blocked' ? 'needs you' : src.status) : 'no session';
   el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.width = (src ? src.ctx : 0) + '%'; el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
   const running = src ? store.subs.filter((sub) => sub.parent === src && sub.pending && !sub.walker.destroyed).length : 0;
   const mg = el('multitask-glyph'); mg.className = running > 0 ? 'multitask-glyph on' : 'multitask-glyph off'; mg.textContent = running > 0 ? `⇶ ${running} running` : '⇶ idle';
+  const cwdEl = el('strip-cwd'); cwdEl.textContent = src ? src.cwd : ''; cwdEl.title = src ? src.cwd : '';
 }
 function toast(html) { const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = html; el('toasts').appendChild(t); setTimeout(() => t.remove(), 3200); }
 
 // ───────────────────────────── terminal drawer: split/collapse (GardenSplitHandle.tsx, gardenSplit.ts) ─────────────────────────────
 const TERMINAL_MIN_PX = 420, GARDEN_MIN_PX = 380, HANDLE_PX = 6, DEFAULT_GARDEN_SPLIT = 0.54;
-const terminalWidthCss = (ratio) => `clamp(${TERMINAL_MIN_PX}px, ${(1 - ratio) * 100}%, calc(100% - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
+// `.body-row`'s own `--party-rail-w` (index.css) tracks the rail's live
+// rendered width (200px, or 56px collapsed below ~1100px) — subtracting it
+// here, not the PARTY_RAIL_PX constant, keeps this honest across that
+// collapse with no resize listener of its own (gardenSplit.ts's own
+// `terminalWidthCss`, ported verbatim).
+const terminalWidthCss = (ratio) => `clamp(${TERMINAL_MIN_PX}px, ${(1 - ratio) * 100}%, calc(100% - var(--party-rail-w) - ${GARDEN_MIN_PX + HANDLE_PX}px))`;
 let drawerOpen = true, splitRatio = DEFAULT_GARDEN_SPLIT, demoOpen = false;
 function applyDrawerState() {
   el('drawer').style.display = drawerOpen ? 'flex' : 'none';
@@ -2131,6 +2173,9 @@ async function run(id) {
   finally { setBusy(false); }
 }
 
+// party rail footer — same action as the demo console's "spawn a pokémon"
+el('party-rail-new').onclick = () => spawnSession();
+
 // ───────────────────────────── demo console wiring — every button just dispatches into SCENES ─────────────────────────────
 el('btn-spawn').onclick = () => run('spawn');
 el('btn-spawn-shiny').onclick = () => run('spawn-shiny');
@@ -2161,12 +2206,26 @@ el('split-handle').addEventListener('dblclick', () => { splitRatio = DEFAULT_GAR
 (() => {
   let dragging = false;
   const handle = el('split-handle');
+  // Magnetic 50/50 snap (GardenSplitHandle.tsx's `ratioFor`, ported) — a
+  // 10px pull toward true-center drawer width, computed off the row minus
+  // the party rail's own LIVE width (not the PARTY_RAIL_PX constant), so
+  // "50/50" means the midpoint of the garden+terminal area alone, same as
+  // the real handle.
+  const CENTER_SNAP_PX = 10;
+  const ratioFor = (clientX) => {
+    const rect = el('body-row').getBoundingClientRect();
+    const railWidth = el('party-rail').getBoundingClientRect().width;
+    const drawerWidth = rect.right - clientX;
+    const maxDrawerWidth = Math.max(TERMINAL_MIN_PX, rect.width - railWidth - HANDLE_PX - GARDEN_MIN_PX);
+    const clampedDrawerWidth = clamp(drawerWidth, TERMINAL_MIN_PX, maxDrawerWidth);
+    const centerDrawerWidth = clamp((rect.width - railWidth - HANDLE_PX) / 2, TERMINAL_MIN_PX, maxDrawerWidth);
+    const snappedDrawerWidth = Math.abs(clampedDrawerWidth - centerDrawerWidth) <= CENTER_SNAP_PX ? centerDrawerWidth : clampedDrawerWidth;
+    return 1 - snappedDrawerWidth / rect.width;
+  };
   handle.addEventListener('pointerdown', (e) => { dragging = true; handle.setPointerCapture(e.pointerId); });
   handle.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const rect = el('body-row').getBoundingClientRect(); const px = e.clientX - rect.left;
-    const minRatio = GARDEN_MIN_PX / rect.width, maxRatio = 1 - (TERMINAL_MIN_PX + HANDLE_PX) / rect.width;
-    splitRatio = clamp(px / rect.width, minRatio, maxRatio); applyDrawerState();
+    splitRatio = ratioFor(e.clientX); applyDrawerState();
   });
   handle.addEventListener('pointerup', () => { dragging = false; });
 })();
@@ -2207,7 +2266,6 @@ el('btn-reel').onclick = runShowreel;
 // ───────────────────────────── boot ─────────────────────────────
 audio.init();
 el('cosmos-nebula').style.backgroundImage = `url(${nebulaDataUrl()})`;
-el('btn-summon-arceus').onclick = () => select(ARCEUS_ID);
 /** Warms the sprites the tour's cast actually needs, so chapter 1 isn't the one paying for a cold CDN
  *  fetch. Strictly opportunistic: nothing here is awaited, `ready` never blocks on it, and every
  *  scene works unchanged if the whole thing fails (loadForms caches by URL and resolves null on a
