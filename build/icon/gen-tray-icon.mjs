@@ -3,18 +3,22 @@
 // A monochrome TEMPLATE image (macOS handles dark/light menu-bar adaptation
 // itself once `nativeImage.setTemplateImage(true)` is set in tray.ts — this
 // script only needs to produce a black-on-transparent alpha shape, never a
-// colored one). A pokéball silhouette: outer circle, a horizontal band
-// splitting it into two lobes, and a center button with its own small hole
-// — the standard reduced pokéball glyph, recognizable at ~18-22pt.
+// colored one). An OUTLINED pokéball glyph ("Hollow Ball"): a ring (stroke,
+// not a filled disc), a horizontal band across the ring at the same stroke
+// weight, and a center button with its own small hole. Outlined rather than
+// solid because a filled disc this size is much denser than the hairline
+// stroke-weight glyphs macOS puts beside it in the menu bar (Wi-Fi, battery,
+// Control Center) — it read as a dark smudge, not a pokéball.
 //
 // Craft note (see the project's own "icon mockup craft" lesson from issue
 // #18's six-round exploration): flat, bold, high-contrast shapes are the
 // correct craft at small icon sizes — internal texture/dithering reads as
 // mush once compressed into ~18-22px, well BELOW even Dock/Finder icon
 // sizes where that lesson was learned. So this is deliberately a flat 1-bit
-// silhouette with only edge anti-aliasing (via supersample + box-downscale,
-// same primitive gen-icon.mjs already uses for the app icon), not textured
-// shading.
+// shape with only edge anti-aliasing (via supersample + box-downscale, same
+// primitive gen-icon.mjs already uses for the app icon), not textured
+// shading — the outline just replaces "flat filled disc" with "flat filled
+// ring" as the flat shape being rendered.
 //
 // Same pure-JS PNG encoder (Float64Array pixel grid, hand-rolled zlib PNG
 // chunks) as gen-icon.mjs — no image-processing dependency needed for a
@@ -62,9 +66,9 @@ function fillCircle(grid, cx, cy, r, alpha) {
   }
 }
 
-function clearRect(grid, x0, y0, x1, y1) {
+function rect(grid, x0, y0, x1, y1, alpha) {
   for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
-    for (let x = Math.floor(x0); x < Math.ceil(x1); x++) setOpaque(grid, x, y, 0);
+    for (let x = Math.floor(x0); x < Math.ceil(x1); x++) setOpaque(grid, x, y, alpha);
   }
 }
 
@@ -161,19 +165,26 @@ function drawPokeball() {
   const g = makeGrid(MASTER, MASTER);
   const cx = MASTER / 2;
   const cy = MASTER / 2;
-  const r = 9 * SUPER; // diameter 18/22 units — leaves a couple px of breathing room, per the 18-22pt spec
-  fillCircle(g, cx, cy, r, 255);
 
-  // Horizontal dividing band — 2 units tall, full width of the circle's
-  // bounding box (clearRect is cheaply over-wide; fillCircle already
-  // bounded the shape, so clearing outside it is a no-op).
-  const bandHalf = SUPER; // 1 unit above/below center = 2-unit-tall band
-  clearRect(g, cx - r - SUPER, cy - bandHalf, cx + r + SUPER, cy + bandHalf);
+  // Outer ring — a filled disc with a smaller disc punched out of its
+  // middle, leaving a ~1.9-unit stroke. This is the "outlined, not solid"
+  // move: a filled disc this size reads far denser than the hairline
+  // glyphs beside it in the menu bar, so the ring is drawn as a stroke.
+  const outerR = 9 * SUPER; // diameter 18/22 units — leaves a couple px of breathing room, per the 18-22pt spec
+  const innerR = 7.1 * SUPER; // punch-out radius — leaves a ~1.9-unit ring stroke
+  fillCircle(g, cx, cy, outerR, 255);
+  fillCircle(g, cx, cy, innerR, 0);
 
-  // Center button sits ON the band (solid), with a small hole punched
+  // Horizontal dividing band — filled (not punched, unlike the old solid
+  // silhouette) at the same ~1.9-unit stroke weight as the ring, spanning
+  // the ring's full width so it reads as a bar across it.
+  const bandHalf = 0.95 * SUPER; // 1.9-unit-tall band, matching the ring stroke
+  rect(g, cx - outerR, cy - bandHalf, cx + outerR, cy + bandHalf, 255);
+
+  // Center button sits on the band (solid), with a small hole punched
   // through its middle — the standard pokéball reduction.
-  fillCircle(g, cx, cy, 2.4 * SUPER, 255);
-  fillCircle(g, cx, cy, 1 * SUPER, 0);
+  fillCircle(g, cx, cy, 2.7 * SUPER, 255);
+  fillCircle(g, cx, cy, 1.15 * SUPER, 0);
 
   return g;
 }
