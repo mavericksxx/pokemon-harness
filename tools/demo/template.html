@@ -174,6 +174,11 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
   <symbol id="i-speaker-high" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="4" fill="currentColor"/><rect x="11" y="5" width="1" height="6" fill="currentColor"/><rect x="12" y="4" width="1" height="8" fill="currentColor"/></symbol>
   <symbol id="i-speaker-mute" viewBox="0 0 16 16"><rect x="1" y="6" width="3" height="4" fill="currentColor"/><rect x="4" y="5" width="2" height="6" fill="currentColor"/><rect x="6" y="3" width="2" height="10" fill="currentColor"/><rect x="10" y="6" width="1" height="1" fill="currentColor"/><rect x="11" y="7" width="1" height="1" fill="currentColor"/><rect x="12" y="8" width="1" height="1" fill="currentColor"/><rect x="11" y="9" width="1" height="1" fill="currentColor"/><rect x="10" y="10" width="1" height="1" fill="currentColor"/><rect x="12" y="6" width="1" height="1" fill="currentColor"/><rect x="13" y="7" width="1" height="1" fill="currentColor"/><rect x="13" y="9" width="1" height="1" fill="currentColor"/><rect x="12" y="10" width="1" height="1" fill="currentColor"/></symbol>
   <symbol id="i-bell" viewBox="0 0 16 16"><rect x="7" y="1" width="2" height="1" fill="currentColor"/><rect x="6" y="2" width="4" height="1" fill="currentColor"/><rect x="5" y="3" width="1" height="2" fill="currentColor"/><rect x="10" y="3" width="1" height="2" fill="currentColor"/><rect x="4" y="5" width="1" height="5" fill="currentColor"/><rect x="11" y="5" width="1" height="5" fill="currentColor"/><rect x="3" y="10" width="10" height="1" fill="currentColor"/><rect x="2" y="11" width="12" height="1" fill="currentColor"/><rect x="6" y="13" width="4" height="1" fill="currentColor"/></symbol>
+  <!-- ArceusRosterCard.tsx's StarIcon (4-point pixel sparkle) — distinct from
+       `#i-star` above (the 8x8 path star the garden walker's own float badge
+       uses); `.roster-card-arceus-star` (index.css) sizes this via plain
+       width/height, so it's a real svg element, not a text glyph. -->
+  <symbol id="i-star4" viewBox="0 0 16 16"><rect x="7" y="1" width="2" height="4" fill="currentColor"/><rect x="7" y="11" width="2" height="4" fill="currentColor"/><rect x="1" y="7" width="4" height="2" fill="currentColor"/><rect x="11" y="7" width="4" height="2" fill="currentColor"/><rect x="6" y="6" width="4" height="4" fill="currentColor"/></symbol>
 </svg>
 
 <div id="root">
@@ -268,9 +273,9 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
       <div class="usage-popover">
         <button type="button" class="tip usage-chip usage-chip--normal" data-tip="usage limits" aria-label="usage limits">
           <span class="usage-chip-gauges">
-            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w5h"><span class="hp-bar"><span class="hp-bar-fill" style="width:23%"></span></span><span class="usage-chip-gauge-label">5h</span> <b>23%</b></span>
-            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w7d"><span class="hp-bar"><span class="hp-bar-fill" style="width:41%"></span></span><span class="usage-chip-gauge-label">7d</span> <b>41%</b></span>
-            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--wfable"><span class="hp-bar"><span class="hp-bar-fill" style="width:12%"></span></span><span class="usage-chip-gauge-label">7d fable</span> <b>12%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w5h"><span class="hp-bar"><span class="hp-bar-fill" style="--fill:0.23"></span></span><span class="usage-chip-gauge-label">5h</span> <b>23%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--w7d"><span class="hp-bar"><span class="hp-bar-fill" style="--fill:0.41"></span></span><span class="usage-chip-gauge-label">7d</span> <b>41%</b></span>
+            <span class="usage-chip-gauge usage-chip-gauge--normal usage-chip-gauge--wfable"><span class="hp-bar"><span class="hp-bar-fill" style="--fill:0.12"></span></span><span class="usage-chip-gauge-label">7d fable</span> <b>12%</b></span>
           </span>
         </button>
       </div>
@@ -354,7 +359,7 @@ canvas.g-fx { position: absolute; left: 0; top: 0; z-index: 8000; pointer-events
             <span class="status-strip-divider">·</span>
             <span class="status-strip-seg"><span class="model-badge" id="strip-model">—</span></span>
             <span class="status-strip-divider">·</span>
-            <span class="status-strip-seg">context<div class="hp-bar"><div class="hp-bar-fill" id="strip-ctx" style="width:0%"></div></div><span class="status-strip-ctx-num" id="strip-ctx-num">0%</span></span>
+            <span class="status-strip-seg">context<div class="hp-bar"><div class="hp-bar-fill" id="strip-ctx" style="--fill:0"></div></div><span class="status-strip-ctx-num" id="strip-ctx-num">0%</span></span>
             <span class="status-strip-divider">·</span>
             <span class="multitask-glyph off" id="multitask-glyph">⇶ idle</span>
             <span class="status-strip-path" id="strip-cwd" title=""></span>
@@ -1810,12 +1815,12 @@ function arceusCardHtml() {
   const selected = store.selected === ARCEUS_ID;
   const variant = selected ? 'medium' : 'compact';
   const cosmic = `<span class="roster-card-arceus-cosmic" aria-hidden="true"><span class="roster-card-arceus-pixels"></span><span class="roster-card-arceus-glint"></span><span class="roster-card-arceus-wheel"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span><span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span><span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span></span>`;
-  const top = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, variant === 'medium' ? 32 : 18, false)}</span><span class="roster-card-title-compact"><span class="roster-card-arceus-star" aria-hidden="true">★</span> arceus</span></div>`;
+  const top = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(`${CDN}/sprites/gen5ani/arceus.gif`, variant === 'medium' ? 32 : 18, false)}</span><span class="roster-card-title-compact"><svg class="roster-card-arceus-star" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><use href="#i-star4"/></svg> arceus</span></div>`;
   const body = variant === 'medium'
     ? `<div class="roster-card-arceus-status-row"><em class="status starting">awaiting summon</em><span class="roster-card-arceus-provider">claude</span></div>
       <div class="roster-card-arceus-model-row"><span class="model-badge roster-card-row-hidden">&nbsp;</span><span class="roster-card-arceus-cost roster-card-row-hidden"> </span></div>
-      <div class="roster-card-arceus-context-row roster-card-row-hidden"><span class="roster-card-ctx-label">context</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:0%"></div></div><span class="roster-card-ctx-label"> </span></div>`
-    : `<div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:0%"></div></div>`;
+      <div class="roster-card-arceus-context-row roster-card-row-hidden"><span class="roster-card-ctx-label">context</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="--fill:0"></div></div><span class="roster-card-ctx-label"> </span></div>`
+    : `<div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="--fill:0"></div></div>`;
   const arceus = document.createElement('div'); arceus.className = 'roster-card-wrap';
   arceus.innerHTML = `<button type="button" class="roster-card roster-card-arceus roster-card-${variant}${selected ? ' selected' : ''}" id="btn-roster-arceus" title="summon arceus">${cosmic}${top}${body}</button>`;
   arceus.querySelector('button').onclick = () => select(ARCEUS_ID);
@@ -1854,7 +1859,7 @@ function card(s) {
     d.innerHTML = `<button type="button" class="roster-card roster-card-subagent roster-card-compact">
       <div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 18, s.shiny)}</span><span class="roster-card-title-compact">${s.label}</span><span class="roster-card-dot ${s.retired ? 'done' : 'working'}"></span></div>
       <div class="roster-card-parent-compact">↳ ${s.parent.title}</div>
-      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="width:100%"></div></div></button>`;
+      <div class="hp-bar roster-card-ctx-sliver"><div class="hp-bar-fill" style="--fill:1"></div></div></button>`;
     d.querySelector('button').onclick = () => select(s.id);
     return d;
   }
@@ -1866,9 +1871,17 @@ function card(s) {
   const dotCls = s.napping ? 'napping' : s.status;
   const inner = `<div class="roster-card-top-compact"><span class="roster-card-face">${faceHtml(s.walker.forms.front.url, 32, s.shiny)}</span><span class="roster-card-title-compact">${s.title}</span><span class="roster-card-dot ${dotCls}"></span></div>
     <div class="roster-card-meta-line">${s.provider} · ${s.species.name.toLowerCase()}</div>
-    <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="width:${s.ctx}%"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`;
-  d.innerHTML = `<button type="button" class="roster-card roster-card-medium${selected ? ' selected' : ''}" style="border-left-color:${s.accent}">${inner}</button>`;
-  d.querySelector('button').onclick = () => select(s.id);
+    <div class="roster-card-row3-medium"><span class="model-badge">${s.model}</span><div class="hp-bar roster-card-ctx-sliver-md"><div class="hp-bar-fill" style="--fill:${s.ctx / 100}"></div></div><span class="roster-card-ctx-label">${s.ctx}%</span></div>`;
+  // Per-parent subagent disclosure badge (AgentRosterCard.tsx) — persistent
+  // whenever this parent has any live battler, not hover-only; the demo has
+  // no per-parent collapse state, so it always reads as the expanded '▾ n'
+  // form (a sibling of the card `<button>`, same DOM shape as the real one).
+  const childCount = store.subs.filter((x) => x.parent === s).length;
+  const disclosure = childCount > 0
+    ? `<button type="button" class="roster-card-disclosure" title="${childCount} subagent${childCount === 1 ? '' : 's'}">▾ ${childCount}</button>`
+    : '';
+  d.innerHTML = `<button type="button" class="roster-card roster-card-medium${selected ? ' selected' : ''}" style="border-left-color:${s.accent}">${inner}</button>${disclosure}`;
+  d.querySelector('.roster-card').onclick = () => select(s.id);
   return d;
 }
 function term(s, cls, text) { s.lines.push({ cls, text }); if (s.lines.length > 400) s.lines.shift(); if (store.selected === s.id) appendTermLine({ cls, text }); }
@@ -1881,7 +1894,7 @@ function renderTerm() {
 function renderTermHead() {
   const s = find(store.selected); const src = s && (s.kind === 'sub' ? s.parent : s);
   const st = el('term-status'); st.className = 'status ' + (src ? (src.napping ? 'napping' : src.status) : 'starting'); st.textContent = src ? (src.napping ? 'napping' : src.status === 'blocked' ? 'needs you' : src.status) : 'no session';
-  el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.width = (src ? src.ctx : 0) + '%'; el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
+  el('strip-model').textContent = src ? src.model : '—'; el('strip-ctx').style.setProperty('--fill', (src ? src.ctx : 0) / 100); el('strip-ctx-num').textContent = (src ? src.ctx : 0) + '%';
   const running = src ? store.subs.filter((sub) => sub.parent === src && sub.pending && !sub.walker.destroyed).length : 0;
   const mg = el('multitask-glyph'); mg.className = running > 0 ? 'multitask-glyph on' : 'multitask-glyph off'; mg.textContent = running > 0 ? `⇶ ${running} running` : '⇶ idle';
   const cwdEl = el('strip-cwd'); cwdEl.textContent = src ? src.cwd : ''; cwdEl.title = src ? src.cwd : '';
@@ -2205,6 +2218,11 @@ el('drawer-kill').onclick = () => { const s = find(store.selected); if (!s) retu
 el('split-handle').addEventListener('dblclick', () => { splitRatio = DEFAULT_GARDEN_SPLIT; applyDrawerState(); });
 (() => {
   let dragging = false;
+  // Cursor's offset from the handle's own left edge at grab time
+  // (GardenSplitHandle.tsx's `grabOffsetRef`) — without this, the first
+  // pointermove jumps the handle to align its right edge with the cursor
+  // instead of tracking it from wherever in the hit area it was grabbed.
+  let grabOffset = 0;
   const handle = el('split-handle');
   // Magnetic 50/50 snap (GardenSplitHandle.tsx's `ratioFor`, ported) — a
   // 10px pull toward true-center drawer width, computed off the row minus
@@ -2215,14 +2233,19 @@ el('split-handle').addEventListener('dblclick', () => { splitRatio = DEFAULT_GAR
   const ratioFor = (clientX) => {
     const rect = el('body-row').getBoundingClientRect();
     const railWidth = el('party-rail').getBoundingClientRect().width;
-    const drawerWidth = rect.right - clientX;
+    const handleLeft = clientX - grabOffset;
+    const drawerWidth = rect.right - (handleLeft + HANDLE_PX);
     const maxDrawerWidth = Math.max(TERMINAL_MIN_PX, rect.width - railWidth - HANDLE_PX - GARDEN_MIN_PX);
     const clampedDrawerWidth = clamp(drawerWidth, TERMINAL_MIN_PX, maxDrawerWidth);
     const centerDrawerWidth = clamp((rect.width - railWidth - HANDLE_PX) / 2, TERMINAL_MIN_PX, maxDrawerWidth);
     const snappedDrawerWidth = Math.abs(clampedDrawerWidth - centerDrawerWidth) <= CENTER_SNAP_PX ? centerDrawerWidth : clampedDrawerWidth;
     return 1 - snappedDrawerWidth / rect.width;
   };
-  handle.addEventListener('pointerdown', (e) => { dragging = true; handle.setPointerCapture(e.pointerId); });
+  handle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    grabOffset = e.clientX - handle.getBoundingClientRect().left;
+    handle.setPointerCapture(e.pointerId);
+  });
   handle.addEventListener('pointermove', (e) => {
     if (!dragging) return;
     splitRatio = ratioFor(e.clientX); applyDrawerState();
