@@ -32,6 +32,7 @@ import { useAudioStore } from './audioStore';
 import { sfxUrl, type SfxKey } from './sfxAssets';
 import { sfxKeyForTool, VICTORY_SFX, EVOLUTION_RISER_SFX } from './toolSounds';
 import { initMusicPrefetch, stopMusicPrefetch } from './musicPrefetch';
+import { safeLogDiagnostic } from '../diagnosticsClient';
 
 const CROSSFADE_MS = 2500;
 const RETRY_MS = 1500;
@@ -125,6 +126,50 @@ function sfxEnabled(): boolean {
 
 function sfxVolume(mul: number): number {
   return useAudioStore.getState().settings.sfxVolume * mul;
+}
+
+/** Runtime Howler/store state worth attaching to every sound-trigger log
+ *  line (see `logSoundEvent`) and to `debugSnapshot`'s CDP introspection.
+ *  The premise behind this tracing is that the store→`Howler.mute()` wiring
+ *  (see `initAudio`'s subscribe callback below) *looks* airtight in the
+ *  static code but might not be at runtime — so the log needs to show what
+ *  Howler is actually doing (`ctxState`, `masterGainValue`, `usingWebAudio`,
+ *  Howler's own internal `howlerMuted` flag), not just what the store
+ *  believes (`storeMasterMuted`).
+ *
+ *  `loaded` matters specifically: before `initAudio`'s `getAudioSettings`
+ *  fetch resolves, the store sits at `DEFAULT_AUDIO_SETTINGS`
+ *  (`masterMuted: false`) — an early spawn cry (walkerLifecycle.ts) logged
+ *  during that pre-hydrate window would show `storeMasterMuted: false` even
+ *  for a muted user, and `loaded: false` is what tells that apart from a
+ *  real desync after the fact. */
+function audioRuntimeSnapshot(): {
+  storeMasterMuted: boolean;
+  loaded: boolean;
+  ctxState: string | undefined;
+  masterGainValue: number | undefined;
+  usingWebAudio: boolean;
+  howlerMuted: boolean | undefined;
+} {
+  const { settings, loaded } = useAudioStore.getState();
+  return {
+    storeMasterMuted: settings.masterMuted,
+    loaded,
+    ctxState: Howler.ctx?.state,
+    masterGainValue: Howler.masterGain?.gain.value,
+    usingWebAudio: Howler.usingWebAudio,
+    howlerMuted: (Howler as unknown as { _muted?: boolean })._muted
+  };
+}
+
+/** Sound-trigger tracing (mute-leak investigation) — fired at every actual
+ *  Howl play() call (music crossfade/resume, SFX, cry) so a future leaked
+ *  sound can be pinpointed against harness.log's runtime snapshot at that
+ *  instant. Routed through `safeLogDiagnostic` (the existing renderer→main
+ *  diagnostics forwarder — see diagnosticsClient.ts), which already
+ *  swallows its own errors, so no separate try/catch is needed here. */
+function logSoundEvent(event: string): void {
+  safeLogDiagnostic('audio', 'info', event, audioRuntimeSnapshot());
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -276,6 +321,7 @@ async function crossfadeToTrack(id: string, opts: { loop: boolean }, seq?: numbe
   currentMusic = next;
   currentMusicId = id;
   ensureAudioContextResumed(); // musicOn can restore true on launch with no user gesture yet
+  logSoundEvent(`music:crossfade:${id}`);
   next.play();
   if (useAudioStore.getState().settings.musicPaused) {
     next.pause();
@@ -492,6 +538,7 @@ export function playerTogglePause(): void {
     currentMusic.pause();
     cancelPlayerTimer();
   } else {
+    logSoundEvent('music:resume');
     currentMusic.play();
     // Covers the "started a track while already paused" case (crossfadeToTrack
     // skips its fade-in then, leaving volume at the Howl's initial 0) as well
@@ -700,6 +747,7 @@ function playSfx(key: SfxKey, mul = 1): void {
   if (!h) return;
   ensureAudioContextResumed();
   h.volume(sfxVolume(mul));
+  logSoundEvent(`sfx:play:${key}`);
   h.play();
 }
 
@@ -720,6 +768,7 @@ async function playCry(speciesId: string): Promise<void> {
   if (!h || !sfxEnabled()) return;
   ensureAudioContextResumed();
   h.volume(sfxVolume(CRY_VOLUME_MUL));
+  logSoundEvent(`cry:play:${speciesId}`);
   h.play();
 }
 
@@ -733,15 +782,14 @@ export function debugSnapshot(): {
   playerCurrentId: string | null;
   activeBattles: string[];
   ceremonyActiveCount: number;
-  ctxState: string | undefined;
-} {
+} & ReturnType<typeof audioRuntimeSnapshot> {
   return {
     musicMode: currentMusicMode,
     currentMusicId,
     playerCurrentId,
     activeBattles: [...activeBattles],
     ceremonyActiveCount,
-    ctxState: Howler.ctx?.state
+    ...audioRuntimeSnapshot()
   };
 }
 

@@ -716,6 +716,24 @@ function notifyStatusTransitions(nextSessions: SessionRecord[], selectedId: stri
       const workspace = workspaceRegistry.workspaces.find((w) => w.id === sessionWorkspaceId);
       if (workspace) body += ` (${workspace.name})`;
     }
+    // `audioMasterMuted` is read directly off the module-level mirror here —
+    // no local/cached copy — so this always reflects the latest
+    // `audio:saveSettings` IPC, ruling out staleness as a source of a leaked
+    // notification sound.
+    //
+    // Sound-trigger tracing (mute-leak investigation): unlike every other
+    // sound in the app (Howler, gated by `Howler.mute()` — see
+    // audioEngine.ts), this native OS notification is the one path Howler's
+    // mute can't reach, and Electron/macOS's `silent` option here is a hint
+    // to the OS, not a guaranteed suppression. There's no more deterministic
+    // Electron API for this — `Notification` exposes no other sound-related
+    // field on macOS besides `silent` (and this app never sets a custom
+    // `sound` name, so there's no override to remove). If a sound is still
+    // heard after this line logs `masterMuted: true`, it isn't this call —
+    // the log line is what proves that, not an assumption either way.
+    // Showing the notification itself is intentional even when muted — only
+    // its sound should be suppressed, so the visual toast stays.
+    log('audio', 'info', `notification:show:${session.status}`, { masterMuted: audioMasterMuted });
     try {
       new Notification({ title: 'pokéharness', body, silent: audioMasterMuted }).show();
     } catch {
@@ -1000,6 +1018,25 @@ function createWindow(backgroundColor: string): void {
     // the cache after the page load so the startup push cannot be lost; this
     // is push-only and never triggers credential access.
     usageService.replaySnapshot();
+  });
+
+  // Beep-class tracing (mute-leak investigation, complementing the Howler/
+  // notification tracing in audioEngine.ts and notifyStatusTransitions
+  // above): both previously-shipped leaked-sound fixes (23f2c41's
+  // Notification `silent` flag, acd9cdc's removal of the Edit menu's
+  // undo/redo roles) turned out to be a native macOS `NSBeep()` fired by an
+  // unhandled Cmd-chord reaching a menu item with no handler — never JS or
+  // Howler at all, so nothing else in this file's tracing can see it. Any
+  // OTHER unhandled key-equivalent can beep the same way. Log Cmd/Ctrl
+  // chords only (not every keystroke) — just modifiers + key, no full event
+  // dump — so a future beep can be correlated by timestamp against which
+  // chord fired.
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown' || (!input.meta && !input.control)) return;
+    const mods = [input.meta && 'meta', input.control && 'control', input.alt && 'alt', input.shift && 'shift']
+      .filter(Boolean)
+      .join('+');
+    log('input', 'info', 'chord', { mods, key: input.key });
   });
 
   // macOS auto-hides the traffic lights in fullscreen, which turns the
