@@ -189,7 +189,7 @@ if (!rootEl) throw new Error('#root missing');
 const documentScrollGuardTargets = [document.documentElement, document.body, rootEl];
 const documentScrollGuardExemptSelector =
   '.session-chips, .garden-picker-menu, .pokemon-picker, .drawer-tabs, .modal, ' +
-  '.usage-popover-panel, .mini-player-list, .roster-strip, .focus-sidebar, ' +
+  '.usage-popover-panel, .mini-player-list, ' +
   '.party-rail-list, .sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
   '.overflow-chip-menu, textarea, input, select';
 const clampScrollPosition = (target: Element) => {
