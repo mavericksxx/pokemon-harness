@@ -168,6 +168,21 @@ let mainWindow: BrowserWindow | null = null;
 // racing it blind — see both call sites for why.
 let cancelPendingFullscreenHide: (() => void) | null = null;
 
+// Timestamp (ms since epoch) until which a `leave-full-screen` should be
+// treated as tray-click-induced rather than a legitimate user toggle — see
+// `markTrayActivationLikely` and the `leave-full-screen` listener below.
+let trayActivationLikelyUntil = 0;
+
+// Called as early as possible on any tray interaction (see tray.ts's
+// `onLikelyActivate`), since a tray click activates the app at the
+// OS/AppKit level before any of our JS runs, which can force the main
+// window out of fullscreen outside our control. Recorded as a short-lived
+// window rather than a one-shot flag so it can't race ahead of the
+// `leave-full-screen` event it's meant to catch.
+function markTrayActivationLikely(): void {
+  trayActivationLikelyUntil = Date.now() + 1200;
+}
+
 // Shared by `second-instance` and `activate`, both registered together after
 // boot's own `createWindow(...)` call (~line 1162) — see that registration
 // for why. A user-initiated close now only ever hides the window (see the
@@ -281,7 +296,8 @@ const trayController = new TrayController({
   usageService,
   costHistory: costHistoryService,
   getSessionRegistry: () => sessionRegistry,
-  getEffectiveTheme: () => resolveTerminalAppearance(activeTheme)
+  getEffectiveTheme: () => resolveTerminalAppearance(activeTheme),
+  onLikelyActivate: markTrayActivationLikely
 });
 // BACKLOG "next up" item 3 — watches Arceus's own transcript (registered off
 // the same onRawPayload hook chained below) for a relay directive and types
@@ -1081,6 +1097,23 @@ function createWindow(backgroundColor: string): void {
     if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', true);
   });
   win.on('leave-full-screen', () => {
+    // A tray-icon click activates the app at the OS/AppKit level before any
+    // JS runs, which can force the main window out of fullscreen outside any
+    // of our own control — that leaves AppKit's bookkeeping confused (stuck
+    // fullscreen button, wrong Dock indicator). We can't tell "our own call"
+    // apart from "everything else" here, because a legitimate manual
+    // fullscreen exit (green-button click, Cmd+Ctrl+F) also isn't our own
+    // call and must NOT be undone — so instead we specifically watch for a
+    // recent tray interaction (see `markTrayActivationLikely`/
+    // `trayActivationLikelyUntil`) and only auto-restore in that case. Snap
+    // straight back into fullscreen and skip the IPC message — the window
+    // never really left from the user's perspective, and `enter-full-screen`
+    // will send `true` once the re-entry completes.
+    if (Date.now() < trayActivationLikelyUntil) {
+      trayActivationLikelyUntil = 0;
+      if (!win.isDestroyed()) win.setFullScreen(true);
+      return;
+    }
     if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', false);
   });
 

@@ -92,6 +92,12 @@ export interface TrayControllerDeps {
    *  for `'system'` mode matches the rest of the app exactly rather than
    *  re-deriving its own. */
   getEffectiveTheme: () => 'light' | 'dark';
+  /** Invoked as early as possible on any tray interaction (see `init()`'s
+   *  `mouse-down` listener, which fires ahead of `click`) — lets the main
+   *  window's fullscreen listener distinguish an OS-forced fullscreen exit
+   *  (caused by the tray click activating the app) from a legitimate
+   *  user-initiated one. */
+  onLikelyActivate: () => void;
 }
 
 export class TrayController {
@@ -126,6 +132,9 @@ export class TrayController {
     const tray = new Tray(icon);
     tray.setToolTip('Pokéharness');
     tray.on('click', () => this.toggle());
+    // Fires earlier/closer to the actual native click than `click` above —
+    // see `onLikelyActivate`'s doc comment for why that matters.
+    tray.on('mouse-down', () => this.deps.onLikelyActivate());
     this.tray = tray;
     ipcMain.on('tray:close', () => this.hide());
     // Pull, not push: the popover page calls this itself (on load, and again
