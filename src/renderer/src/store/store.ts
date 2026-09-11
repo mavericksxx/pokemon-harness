@@ -188,6 +188,27 @@ function loadRailCollapsed(): boolean {
   return false;
 }
 
+/** Manual party-rail drag order (RosterStrip.tsx's top-level card drag) —
+ *  the ids of the rail's "agents" section sessions, in the order the user
+ *  last dragged them into. Persisted the same way as `railCollapsed` above.
+ *  Rebuilt FRESH from the currently-visible session ids every time a drag
+ *  completes (RosterStrip.tsx's onDrop), rather than incrementally patched,
+ *  so it never accumulates stale ids for sessions that have since finished
+ *  or been removed — no separate pruning pass needed. A session id absent
+ *  from this array (e.g. one just created) simply sorts after every id that
+ *  IS present. */
+const PARTY_RAIL_ORDER_STORAGE_KEY = 'poke:partyRailOrder';
+
+function loadPartyRailOrder(): string[] {
+  try {
+    const raw = window.localStorage.getItem(PARTY_RAIL_ORDER_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
 /* Per-parent subagent disclosure (party-rail rework) replaces the old
  * GLOBAL `subagentCardsHidden` boolean (was persisted under
  * `poke:subagentCardsHidden`) — see `collapsedParentIds`' own comment below.
@@ -280,6 +301,9 @@ interface HarnessState {
    *  (RosterStrip.tsx's header toggle) — persisted, see
    *  `RAIL_COLLAPSED_STORAGE_KEY`'s own comment. */
   railCollapsed: boolean;
+  /** Party rail's manual top-level card drag order — persisted, see
+   *  `PARTY_RAIL_ORDER_STORAGE_KEY`'s own comment. */
+  partyRailOrder: string[];
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>,
@@ -334,6 +358,10 @@ interface HarnessState {
   /** Toggles the party rail's manual collapse and persists it (survives
    *  relaunch, same pattern as `setViewMode`). */
   setRailCollapsed(collapsed: boolean): void;
+  /** Replaces the party rail's manual drag order wholesale and persists it
+   *  (survives relaunch, same pattern as `setRailCollapsed`) — callers pass
+   *  the full rebuilt order, not a patch. */
+  setPartyRailOrder(order: string[]): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
@@ -404,6 +432,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   windowVisible: true,
   narrowLayout: loadNarrowLayout(),
   railCollapsed: loadRailCollapsed(),
+  partyRailOrder: loadPartyRailOrder(),
 
   addSession: (s, options) => {
     const session: Session = {
@@ -510,6 +539,14 @@ export const useStore = create<HarnessState>((set, get) => ({
       /* ignore — collapse state still applies for this session */
     }
     set({ railCollapsed: collapsed });
+  },
+  setPartyRailOrder: (order) => {
+    try {
+      window.localStorage.setItem(PARTY_RAIL_ORDER_STORAGE_KEY, JSON.stringify(order));
+    } catch {
+      /* ignore — order still applies for this session */
+    }
+    set({ partyRailOrder: order });
   },
 
   pushToast: (text, action) => {

@@ -2923,6 +2923,21 @@ body.garden-lowres .garden canvas {
   height: auto;
 }
 
+/* Top-level card drag-to-reorder (party-rail rework) — native HTML5 DnD,
+ * wired on the plain wrapping `<div>` RosterStrip.tsx puts around each
+ * draggable `AgentRosterCard` (only "agents" section cards get these
+ * classes; Arceus, subagent cards, and "done" cards never do). `.dragging`
+ * marks the card actually being picked up; `.drag-over` marks whichever
+ * other card the pointer is currently over, as an insertion cue — same
+ * accent used by `.roster-card.selected`'s own ring above. */
+.party-rail .dragging {
+  opacity: 0.5;
+}
+
+.party-rail .drag-over {
+  border-top: 2px solid var(--accent-text);
+}
+
 .party-rail-new {
   flex: none;
   display: flex;
