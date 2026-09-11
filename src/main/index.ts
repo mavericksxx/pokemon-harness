@@ -163,15 +163,25 @@ app.on('child-process-gone', (_event, details) => {
 
 let mainWindow: BrowserWindow | null = null;
 
-// Single-instance lock (see the top of this file) — a second launch attempt
-// fires this on the WINNER instead of opening its own window; bring the
-// existing one to the front rather than silently dropping the attempt.
-app.on('second-instance', () => {
-  if (!mainWindow) return;
+// Shared by `second-instance` and `activate`, both registered together after
+// boot's own `createWindow(...)` call (~line 1162) — see that registration
+// for why. Recreates the garden window if it was closed entirely, otherwise
+// just brings the existing one forward. Uses `activeTheme` rather than
+// `appSettings.theme` directly: same module-level settings mirror
+// `keepAwakeEnabled`/`codexDelegateModel` already use elsewhere in this file
+// (see `activeTheme`'s own comment above `createWindow`'s definition) — kept
+// in sync with `appSettings.theme` from boot onward (`registerSettingsIpc`'s
+// `setActiveTheme`), so it's equivalent here without this function needing a
+// closure over `app.whenReady()`'s local `appSettings`.
+function ensureWindowOpen(): void {
+  if (!mainWindow) {
+    createWindow(resolveWindowBg(activeTheme));
+    return;
+  }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
-});
+}
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
 // Set once a quit is CONFIRMED — either the quit dialog's "kill it & quit"
@@ -1198,9 +1208,32 @@ app.whenReady().then(async () => {
     // window via its traffic light — found and fixed post-merge (tray
     // popover shipped in the same release as this check, so it was never
     // exercised before). `mainWindow` is nulled in createWindow()'s own
-    // `closed` handler, so this is the direct, correct signal.
-    if (!mainWindow) createWindow(resolveWindowBg(appSettings.theme));
+    // `closed` handler, so this is the direct, correct signal. Shared with
+    // `second-instance` below via `ensureWindowOpen()` (see its own comment).
+    ensureWindowOpen();
   });
+  // Single-instance lock (see the top of this file) — a second launch
+  // attempt fires this on the WINNER instead of opening its own window.
+  // Also covers the OS launching a brand-new process (Finder/Spotlight/
+  // `open -a`) while this one is already running headlessly — garden window
+  // closed via its traffic light, tray/background sessions still alive —
+  // which otherwise silently no-ops (no window, no visible sign the app is
+  // still alive) once `mainWindow` goes null.
+  //
+  // Registered HERE, after `createWindow(...)` above, deliberately not at
+  // module load: this whole `app.whenReady().then(...)` boot sequence has
+  // several `await`s ahead of that call (settings/audio load,
+  // `ensureHarnessHome`, ... — `harnessHomeDir` can be a slow network/iCloud
+  // path per its own comment), during which `mainWindow` is still null for
+  // reasons that have nothing to do with the user closing a window. A
+  // `second-instance` fired in that window, wired this early, would race
+  // `ensureWindowOpen()`'s own `createWindow(...)` against boot's — or, fired
+  // before `ready`, could throw constructing a `BrowserWindow` and hit the
+  // `uncaughtException` handler, hard-exiting mid-boot. Registering after
+  // this point restores the invariant both `ensureWindowOpen()` callers rely
+  // on: `mainWindow === null` here can only mean the user closed the window,
+  // never "boot hasn't gotten there yet."
+  app.on('second-instance', ensureWindowOpen);
   scheduleUpdateChecks();
 });
 

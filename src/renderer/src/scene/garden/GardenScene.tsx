@@ -27,7 +27,7 @@ import { stopSession } from '@/sessions';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
 // in verbatim; Vite has no JSON loader for that extension, hence `?raw` + parse.
 import gardenMapRaw from './maps/garden.tmj?raw';
-import { useStore } from '@/store/store';
+import { useStore, GARDEN_FULLSCREEN_CHANGE_EVENT } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { sessionWorkspaceId, useWorkspaceStore } from '@/store/workspaceStore';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
@@ -1312,11 +1312,27 @@ export function GardenScene(): JSX.Element {
       };
       window.addEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
 
+      // Native macOS fullscreen enter/exit (main.tsx's `onFullscreenChange`
+      // listener) — same "resync once the geometry-affecting event is over"
+      // need as the split drag-end above, but the OS's fullscreen transition
+      // is an animated ~0.3-0.5s resize, not a single already-settled layout
+      // commit, so this waits two frames rather than one before re-syncing.
+      // See GARDEN_FULLSCREEN_CHANGE_EVENT's own comment (store.ts).
+      const onFullscreenChange = (): void => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!destroyed) syncCanvasToHost();
+          });
+        });
+      };
+      window.addEventListener(GARDEN_FULLSCREEN_CHANGE_EVENT, onFullscreenChange);
+
       cleanup = (): void => {
         ro.disconnect();
         unsubscribeThemeSetting();
         systemThemeQuery.removeEventListener('change', onSystemThemeChange);
         window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
+        window.removeEventListener(GARDEN_FULLSCREEN_CHANGE_EVENT, onFullscreenChange);
         document.removeEventListener('visibilitychange', syncRenderState);
         // `Ticker.shared` is a Pixi-GLOBAL singleton, not owned by this
         // generation — hand it back running so a teardown that ISN'T

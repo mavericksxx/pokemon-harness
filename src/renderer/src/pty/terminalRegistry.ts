@@ -21,7 +21,7 @@ import '@xterm/xterm/css/xterm.css';
 import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
 import { resetLoopStreak } from './loopDetector';
-import { useStore } from '@/store/store';
+import { useStore, GARDEN_FULLSCREEN_CHANGE_EVENT } from '@/store/store';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { GARDEN_SPLIT_DRAG_END_EVENT } from '@/gardenSplit';
@@ -175,6 +175,9 @@ interface Entry {
    *  detach. See the `GARDEN_SPLIT_DRAG_END_EVENT` listener in
    *  attachTerminal for what it's for. */
   offDragEnd: (() => void) | null;
+  /** Same lifecycle as `offDragEnd` above, for the `GARDEN_FULLSCREEN_CHANGE_EVENT`
+   *  listener in attachTerminal. */
+  offFullscreenChange: (() => void) | null;
 }
 
 const entries = new Map<string, Entry>();
@@ -421,7 +424,8 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     offCost,
     offTitle,
     resizeObserver: null,
-    offDragEnd: null
+    offDragEnd: null,
+    offFullscreenChange: null
   });
 
   if (replay) term.write(replay);
@@ -505,6 +509,17 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
   };
   window.addEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
   e.offDragEnd = () => window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
+
+  // Native macOS fullscreen enter/exit — same resync need as the split
+  // drag-end above (see GARDEN_FULLSCREEN_CHANGE_EVENT's own comment,
+  // store.ts), but the OS's fullscreen transition is an animated ~0.3-0.5s
+  // resize rather than an already-settled layout commit, so this waits two
+  // frames rather than one before re-fitting.
+  const onFullscreenChange = (): void => {
+    requestAnimationFrame(() => requestAnimationFrame(doFit));
+  };
+  window.addEventListener(GARDEN_FULLSCREEN_CHANGE_EVENT, onFullscreenChange);
+  e.offFullscreenChange = () => window.removeEventListener(GARDEN_FULLSCREEN_CHANGE_EVENT, onFullscreenChange);
 }
 
 /** Unmount from the DOM while retaining this session's WebGL addon/context for
@@ -518,6 +533,8 @@ export function detachTerminal(sessionId: string): void {
   e.resizeObserver = null;
   e.offDragEnd?.();
   e.offDragEnd = null;
+  e.offFullscreenChange?.();
+  e.offFullscreenChange = null;
   e.host.remove();
 }
 

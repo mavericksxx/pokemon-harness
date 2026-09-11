@@ -15,6 +15,22 @@ const ACCENTS = [0xffd166, 0x8ecae6, 0xff8fa3, 0xb5e48c, 0xc8a2ff, 0xffb27a];
 /** Auto-dismiss delay for a toast, ms. */
 const TOAST_DURATION_MS = 4500;
 
+/** Dispatched on `window` by main.tsx's `window.api.onFullscreenChange`
+ *  listener, right after `setIsFullScreen` commits — same "explicit resync
+ *  after a window-geometry-affecting event" pattern gardenSplit.ts's
+ *  `GARDEN_SPLIT_DRAG_END_EVENT` already uses. Native macOS fullscreen
+ *  enter/exit only pushes a boolean over IPC (App.tsx toggles the
+ *  `is-fullscreen` CSS class off it); nothing else re-fits the Pixi canvas or
+ *  terminal grids afterward. Electron's `enter-full-screen`/`leave-full-screen`
+ *  (main/index.ts) fires after the OS transition completes, so this isn't
+ *  about catching an animation mid-flight — it's that nothing guarantees the
+ *  passive ResizeObservers' last delivery before/during that transition
+ *  actually reflects the final post-transition geometry. Re-fit explicitly
+ *  rather than trust that it did. GardenScene.tsx and terminalRegistry.ts
+ *  both listen for this the same way they listen for
+ *  `GARDEN_SPLIT_DRAG_END_EVENT`. */
+export const GARDEN_FULLSCREEN_CHANGE_EVENT = 'poke:garden-fullscreen-change';
+
 /** A live subagent battler, mirrored into the store just far enough for the
  *  roster strip to render a card for it (Phase 4 Part B follow-up —
  *  "subagent battlers in the bottom agent bar"). The battler itself lives

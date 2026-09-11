@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { useStore } from './store/store';
+import { useStore, GARDEN_FULLSCREEN_CHANGE_EVENT } from './store/store';
 import { startSession, stopSession, startRegistrySync, startCompletionToasts, startDelegateSpawnListener } from './sessions';
 import { autoSummonArceus, startArceusRelayToasts } from './arceus';
 import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
@@ -51,7 +51,14 @@ startUpdateCheckListener();
 // (before boot()'s async work) rather than in a React effect, so the
 // listener is already attached by the time main's did-finish-load push
 // arrives, same rationale as the quit-intercept listener above.
-window.api.onFullscreenChange((isFullScreen) => useStore.getState().setIsFullScreen(isFullScreen));
+window.api.onFullscreenChange((isFullScreen) => {
+  useStore.getState().setIsFullScreen(isFullScreen);
+  // See GARDEN_FULLSCREEN_CHANGE_EVENT's own comment (store.ts) — dispatched
+  // synchronously, same as GardenSplitHandle.tsx's drag-end dispatch;
+  // GardenScene.tsx/terminalRegistry.ts's own listeners defer the actual
+  // resync work.
+  window.dispatchEvent(new Event(GARDEN_FULLSCREEN_CHANGE_EVENT));
+});
 
 // Generic main-side toast push (hooks.sock self-heal — main/hookBridge.ts's
 // `checkSocketHealth`) — same independent-of-boot() wiring as the listeners
