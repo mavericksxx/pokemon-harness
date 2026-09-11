@@ -171,6 +171,23 @@ function loadNarrowLayout(): boolean {
   return window.matchMedia(`(max-width: ${NARROW_LAYOUT_MAX_PX}px)`).matches;
 }
 
+/** Manual party-rail collapse (RosterStrip.tsx's header toggle) — same
+ *  persistence pattern as `viewMode`/`gardenSplit` above: a user preference
+ *  that survives relaunch, not a live viewport fact like `narrowLayout`.
+ *  Independent of the rail's OWN `@media (max-width: 1100px)` auto-collapse
+ *  (index.css) — a manual collapse on a wide window and the responsive
+ *  breakpoint both just drive the rail to the same 56px icon-only width. */
+const RAIL_COLLAPSED_STORAGE_KEY = 'poke:railCollapsed';
+
+function loadRailCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY) === '1';
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /* Per-parent subagent disclosure (party-rail rework) replaces the old
  * GLOBAL `subagentCardsHidden` boolean (was persisted under
  * `poke:subagentCardsHidden`) — see `collapsedParentIds`' own comment below.
@@ -259,6 +276,10 @@ interface HarnessState {
    *  creation so the very first render already reflects reality instead of
    *  briefly assuming a wide window. */
   narrowLayout: boolean;
+  /** Party rail manually collapsed to its 56px icon-only column
+   *  (RosterStrip.tsx's header toggle) — persisted, see
+   *  `RAIL_COLLAPSED_STORAGE_KEY`'s own comment. */
+  railCollapsed: boolean;
 
   addSession(
     s: Omit<Session, 'accent' | 'createdAt' | 'status' | 'station' | 'workedMs'>,
@@ -310,6 +331,9 @@ interface HarnessState {
   /** Written only by App.tsx's `matchMedia` listener — never persisted, see
    *  `narrowLayout`'s own comment above. */
   setNarrowLayout(narrowLayout: boolean): void;
+  /** Toggles the party rail's manual collapse and persists it (survives
+   *  relaunch, same pattern as `setViewMode`). */
+  setRailCollapsed(collapsed: boolean): void;
   /** Non-blocking notification (e.g. a lazy sprite fetch failure). Dismisses
    *  itself after a few seconds. `action` adds a single button (Phase 8.5 #3). */
   pushToast(text: string, action?: Toast['action']): void;
@@ -379,6 +403,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   isFullScreen: false,
   windowVisible: true,
   narrowLayout: loadNarrowLayout(),
+  railCollapsed: loadRailCollapsed(),
 
   addSession: (s, options) => {
     const session: Session = {
@@ -478,6 +503,14 @@ export const useStore = create<HarnessState>((set, get) => ({
   setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
   setWindowVisible: (windowVisible) => set({ windowVisible }),
   setNarrowLayout: (narrowLayout) => set({ narrowLayout }),
+  setRailCollapsed: (collapsed) => {
+    try {
+      window.localStorage.setItem(RAIL_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore — collapse state still applies for this session */
+    }
+    set({ railCollapsed: collapsed });
+  },
 
   pushToast: (text, action) => {
     const id = `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

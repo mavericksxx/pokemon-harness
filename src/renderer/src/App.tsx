@@ -69,6 +69,7 @@ export function App(): JSX.Element {
   const setViewMode = useStore((s) => s.setViewMode);
   const isFullScreen = useStore((s) => s.isFullScreen);
   const setNarrowLayout = useStore((s) => s.setNarrowLayout);
+  const railCollapsed = useStore((s) => s.railCollapsed);
 
   // Narrow-layout signal (issue #2 pt.1 + narrow-window support) — a single
   // `matchMedia` listener, not a `ResizeObserver`: collapsing the garden
@@ -238,7 +239,7 @@ export function App(): JSX.Element {
       </header>
 
       <main className="body">
-        <div className="body-row">
+        <div className={`body-row${showRosterRail && railCollapsed ? ' rail-collapsed' : ''}`}>
           {/* Party rail — a fixed-width `.body-row` child of its own, first
               so it reads as the app's one permanent left rail. Shown in
               'garden' and 'terminal' only (see `showRosterRail`'s own
@@ -246,7 +247,17 @@ export function App(): JSX.Element {
               free mode — is excluded); simply omitting it here is enough to
               give `.garden-column` the row's full width in that mode, no
               extra CSS needed (it's already a flex child with no rail
-              sibling to share space with). */}
+              sibling to share space with). `rail-collapsed` here (not on
+              `.party-rail` itself) is what actually shrinks `.garden-column`/
+              `.drawer` to fill the reclaimed space — it flips the same
+              `--party-rail-w` custom property gardenSplit.ts's
+              `terminalWidthCss` already reads, same mechanism the
+              `@media (max-width: 1100px)` auto-collapse uses (index.css),
+              just JS-driven instead of viewport-driven. RosterStrip reads
+              `railCollapsed`/`setRailCollapsed` off the store itself (same
+              as `viewMode`/`collapsedParentIds` etc. there) rather than
+              through props — this is the only other place that needs the
+              value, to keep `.garden-column`/`.drawer` in sync. */}
           {showRosterRail && <RosterStrip onNewSession={() => setDialogOpen(true)} />}
           <div
             className="garden-column"
