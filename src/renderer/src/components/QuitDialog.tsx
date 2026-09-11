@@ -4,15 +4,17 @@ import { sessionWorkspaceId } from '@/store/workspaceStore';
 import { useEscapeToClose } from './useEscapeToClose';
 
 /**
- * Quit-intercept dialog (parity sweep item 2). Main prevents a close/quit
- * whenever sessions are still live and asks the renderer to show this
- * instead (see updateNotifier.ts's `startQuitInterceptListener`) — four
- * actions: cancel, kill everything and quit immediately, quit but leave
- * every session running in the background (reattached on the next launch —
- * see main/pty.ts's `detachAllToKeepers`/`tryReattach`), or (behind its own
- * confirmation step, see below) wipe every session and quit. No dialog when
- * zero sessions are live: main only ever sends the request in that case, so
- * this component just never opens.
+ * Quit-intercept dialog (parity sweep item 2). Main prevents an actual QUIT
+ * (Cmd+Q / Dock quit / app-menu Quit) whenever sessions are still live and
+ * asks the renderer to show this instead (see updateNotifier.ts's
+ * `startQuitInterceptListener`) — four actions: cancel, kill everything and
+ * quit immediately, quit but leave every session running in the background
+ * (reattached on the next launch — see main/pty.ts's
+ * `detachAllToKeepers`/`tryReattach`), or (behind its own confirmation step,
+ * see below) wipe every session and quit. A plain window close (traffic
+ * light / Cmd+W) never triggers this — it just hides the window. No dialog
+ * when zero sessions are live: main only ever sends the request in that
+ * case, so this component just never opens.
  *
  * `count` (main's own authoritative live-session count) spans every
  * workspace already (Phase 8.7 — main's ptyManager isn't workspace-scoped);

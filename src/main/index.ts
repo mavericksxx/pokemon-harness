@@ -165,14 +165,19 @@ let mainWindow: BrowserWindow | null = null;
 
 // Shared by `second-instance` and `activate`, both registered together after
 // boot's own `createWindow(...)` call (~line 1162) — see that registration
-// for why. Recreates the garden window if it was closed entirely, otherwise
-// just brings the existing one forward. Uses `activeTheme` rather than
-// `appSettings.theme` directly: same module-level settings mirror
-// `keepAwakeEnabled`/`codexDelegateModel` already use elsewhere in this file
-// (see `activeTheme`'s own comment above `createWindow`'s definition) — kept
-// in sync with `appSettings.theme` from boot onward (`registerSettingsIpc`'s
-// `setActiveTheme`), so it's equivalent here without this function needing a
-// closure over `app.whenReady()`'s local `appSettings`.
+// for why. A user-initiated close now only ever hides the window (see the
+// `close` handler in createWindow()), so `mainWindow` going null here means
+// the window was actually destroyed — quit teardown, or some other genuine
+// destroy — never a plain close; the `createWindow()` branch below is cheap
+// insurance for that case and effectively dead on darwin in normal use.
+// Otherwise this just brings the existing (possibly hidden) window forward.
+// Uses `activeTheme` rather than `appSettings.theme` directly: same
+// module-level settings mirror `keepAwakeEnabled`/`codexDelegateModel`
+// already use elsewhere in this file (see `activeTheme`'s own comment above
+// `createWindow`'s definition) — kept in sync with `appSettings.theme` from
+// boot onward (`registerSettingsIpc`'s `setActiveTheme`), so it's equivalent
+// here without this function needing a closure over `app.whenReady()`'s
+// local `appSettings`.
 function ensureWindowOpen(): void {
   if (!mainWindow) {
     createWindow(resolveWindowBg(activeTheme));
@@ -185,10 +190,15 @@ function ensureWindowOpen(): void {
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
 // Set once a quit is CONFIRMED — either the quit dialog's "kill it & quit"
-// action (`app:forceQuit`) or its "leave them running" action
-// (`app:leaveRunningAndQuit`). While false, both a window close and an app
-// quit are intercepted whenever a session is still live, and the renderer is
-// asked to show the quit dialog instead.
+// (`app:forceQuit`), "leave them running" (`app:leaveRunningAndQuit`), or
+// "clear & quit" (`app:wipeGardenAndQuit`) action, or by `before-quit` itself
+// the moment its own gate passes with zero live sessions to confirm about
+// (see that handler). While false, an app quit is intercepted whenever a
+// session is still live, and the renderer is asked to show the quit dialog
+// instead; a plain window close is never intercepted — it just hides the
+// window (see the `close` handler in createWindow()), but still checks this
+// flag so it lets an in-progress quit's own window-close through instead of
+// re-hiding it.
 let quitConfirmed = false;
 /** "Leave them running" quit path (QuitDialog.tsx's 3rd action) — set ONLY
  *  by the `app:leaveRunningAndQuit` handler (app.ts), alongside
@@ -202,9 +212,21 @@ function hasLiveSessions(): boolean {
   return ptyManager.list().length > 0;
 }
 function requestQuitConfirmation(): void {
-  const wc = mainWindow?.webContents;
-  if (!wc || wc.isDestroyed()) return;
-  wc.send('app:quitRequested', ptyManager.list().length);
+  // The window can now be hidden (rather than destroyed) when a real quit is
+  // requested — Dock-context-menu Quit, or Cmd+Q after the window was
+  // previously closed-to-hidden. Sending the IPC straight to a hidden
+  // window's webContents would open the dialog invisibly. Restore/show/focus
+  // first so the user actually sees it. Deliberately NOT routed through
+  // `ensureWindowOpen()`: if `mainWindow` were somehow null here, that
+  // function's `createWindow()` branch would send to a not-yet-booted
+  // renderer and drop the message silently (same race as the crash-info
+  // comment above, ~line 1007).
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.send('app:quitRequested', ptyManager.list().length);
 }
 // Phase 8.5 Wave B item 1 — registered off every hook payload's own
 // `transcript_path` (see hookBridge.ts's `onRawPayload` param), independent
@@ -917,16 +939,34 @@ function createWindow(backgroundColor: string): void {
     if (mainWindow === win) mainWindow = null;
   });
 
-  // The macOS traffic-light close button fires `close` directly WITHOUT
-  // `before-quit` firing first (that only happens for Cmd+Q / Dock quit /
-  // app menu Quit — see the `before-quit` handler below) — on darwin,
-  // closing the app's one window doesn't quit the app at all
-  // (`window-all-closed` only calls `app.quit()` on non-darwin). Both entry
-  // points need their own guard.
+  // The macOS traffic-light close button (and Cmd+W / the Window menu's
+  // `role: 'close'`, which fire this same event) fires `close` directly
+  // WITHOUT `before-quit` firing first (that only happens for Cmd+Q / Dock
+  // quit / app menu Quit — see the `before-quit` handler below). A
+  // user-initiated close never quits or shows the quit-intercept dialog
+  // anymore — it just hides the window, same as Cmd+H, keeping every PTY
+  // session and the renderer's state alive. `quitConfirmed` true means a
+  // real quit is already underway (`before-quit` got past its own gate and
+  // is tearing things down) — let that `close` proceed normally instead of
+  // hiding, or `app.quit()` would hang waiting for a window that keeps
+  // refusing to close.
   win.on('close', (e) => {
-    if (quitConfirmed || !hasLiveSessions()) return;
+    if (quitConfirmed) return;
     e.preventDefault();
-    requestQuitConfirmation();
+    // Hiding a window mid-native-fullscreen is a known Electron glitch (can
+    // leave a blank Space / a window that won't come back cleanly) — drop
+    // out of fullscreen first and hide only once that animation finishes.
+    if (win.isFullScreen()) {
+      // `leave-full-screen` can fire mid-teardown (see the listener below,
+      // registered for the renderer inset message) if a quit races this
+      // animation — guard the same way that one already does.
+      win.once('leave-full-screen', () => {
+        if (!win.isDestroyed()) win.hide();
+      });
+      win.setFullScreen(false);
+    } else {
+      win.hide();
+    }
   });
 
   // Never navigate the shell away from the app; open external links in the OS browser.
@@ -1203,20 +1243,23 @@ app.whenReady().then(async () => {
     // — the tray popover (tray.ts) is its own `BrowserWindow`, created once
     // (lazily, on the first-ever tray click) and hidden/shown thereafter,
     // never destroyed until quit. Once it exists, `getAllWindows()` never
-    // returns 0 again even with the garden window closed, so that count
+    // returns 0 again even with the garden window hidden, so that count
     // used to leave a Dock click permanently inert after closing the garden
     // window via its traffic light — found and fixed post-merge (tray
     // popover shipped in the same release as this check, so it was never
-    // exercised before). `mainWindow` is nulled in createWindow()'s own
-    // `closed` handler, so this is the direct, correct signal. Shared with
-    // `second-instance` below via `ensureWindowOpen()` (see its own comment).
+    // exercised before). `mainWindow` is only nulled by an actual destroy
+    // now (quit teardown, or some other genuine `closed` — a plain
+    // traffic-light/Cmd+W close just hides it, see the `close` handler
+    // above), so this is still the direct, correct signal either way.
+    // Shared with `second-instance` below via `ensureWindowOpen()` (see its
+    // own comment).
     ensureWindowOpen();
   });
   // Single-instance lock (see the top of this file) — a second launch
   // attempt fires this on the WINNER instead of opening its own window.
   // Also covers the OS launching a brand-new process (Finder/Spotlight/
   // `open -a`) while this one is already running headlessly — garden window
-  // closed via its traffic light, tray/background sessions still alive —
+  // hidden via its traffic light, tray/background sessions still alive —
   // which otherwise silently no-ops (no window, no visible sign the app is
   // still alive) once `mainWindow` goes null.
   //
@@ -1231,8 +1274,10 @@ app.whenReady().then(async () => {
   // before `ready`, could throw constructing a `BrowserWindow` and hit the
   // `uncaughtException` handler, hard-exiting mid-boot. Registering after
   // this point restores the invariant both `ensureWindowOpen()` callers rely
-  // on: `mainWindow === null` here can only mean the user closed the window,
-  // never "boot hasn't gotten there yet."
+  // on: `mainWindow === null` here can only mean an actual destroy already
+  // happened (quit teardown, or some other genuine `closed`) — never "boot
+  // hasn't gotten there yet," and, post this change, no longer "the user
+  // closed the window" either, since a plain close just hides it now.
   app.on('second-instance', ensureWindowOpen);
   scheduleUpdateChecks();
 });
@@ -1258,17 +1303,31 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (e) => {
-  // Cmd+Q / Dock quit / app-menu Quit — see the window's own `close` handler
-  // in createWindow() for the OTHER entry point (the traffic-light button),
-  // which this does not cover. Never fires a second dialog once a quit is
-  // already confirmed — `quitConfirmed` is set by the quit dialog's own
-  // `app:forceQuit`/`app:leaveRunningAndQuit` handlers before either calls
-  // `app.quit()`.
+  // Cmd+Q / Dock quit / app-menu Quit — the ONLY entry point that can
+  // actually quit the app. The window's own `close` handler in
+  // createWindow() (the traffic-light button, or Cmd+W) never quits
+  // anymore — it just hides the window — so it has nothing to hand off to
+  // this handler. Never fires a second dialog once a quit is already
+  // confirmed — `quitConfirmed` is set by the quit dialog's own
+  // `app:forceQuit`/`app:leaveRunningAndQuit`/`app:wipeGardenAndQuit`
+  // handlers before any of them calls `app.quit()`.
   if (!quitConfirmed && hasLiveSessions()) {
     e.preventDefault();
     requestQuitConfirmation();
     return;
   }
+  // Reached only once a quit is genuinely proceeding (the gate above passed
+  // — either a session-owning path already confirmed, or there were no live
+  // sessions to confirm about). Set here, not at the top of this handler
+  // before the gate, so a request that gets intercepted above (dialog shown,
+  // `e.preventDefault()`'d) never flips this — a "leave them running"/"kill
+  // it" pick still sets it earlier via app.ts, and a cancelled dialog
+  // doesn't call anything here at all, so this never gets stuck true from a
+  // cancelled attempt. Needed so the `close` handler above lets THIS
+  // teardown's own window-close through instead of re-hiding it and hanging
+  // `app.quit()` — the specific bug that motivated this flag being read
+  // there in the first place.
+  quitConfirmed = true;
   sessionPersistence.flush();
   if (leaveSessionsRunning) {
     ptyManager.detachAllToKeepers();

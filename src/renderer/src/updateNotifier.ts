@@ -31,11 +31,13 @@ export function startUpdateCheckListener(): void {
 
 /**
  * Quit-intercept dialog (parity sweep item 2) — main asks the renderer to
- * show the "N agents still running" dialog whenever a close/quit was
- * prevented because sessions are live (see main/index.ts's `close` and
- * `before-quit` guards). Call once, at boot — same wiring as
- * `startUpdateCheckListener` above. Moved here (its original home guarded
- * against a since-removed sunset-ritual feature that no longer exists).
+ * show the "N agents still running" dialog whenever an actual QUIT (Cmd+Q /
+ * Dock quit / app-menu Quit) was prevented because sessions are live (see
+ * main/index.ts's `before-quit` guard). A plain window close no longer goes
+ * through this at all — it just hides the window. Call once, at boot — same
+ * wiring as `startUpdateCheckListener` above. Moved here (its original home
+ * guarded against a since-removed sunset-ritual feature that no longer
+ * exists).
  */
 export function startQuitInterceptListener(): void {
   window.api.onQuitRequested((count) => {

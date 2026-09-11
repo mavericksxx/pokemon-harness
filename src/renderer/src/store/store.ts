@@ -227,9 +227,10 @@ interface HarnessState {
    *  the garden's well prop both open it. */
   settingsOpen: boolean;
   /** Quit-intercept dialog (parity sweep item 2) — opened when main prevents
-   *  a close/quit because sessions are still live; `quitDialogCount` is
-   *  main's own authoritative live-session count (see updateNotifier.ts's
-   *  `startQuitInterceptListener`). */
+   *  an actual quit (Cmd+Q / Dock quit / app-menu Quit) because sessions are
+   *  still live; a plain window close never opens this, it just hides the
+   *  window. `quitDialogCount` is main's own authoritative live-session
+   *  count (see updateNotifier.ts's `startQuitInterceptListener`). */
   quitDialogOpen: boolean;
   quitDialogCount: number;
   /** macOS fullscreen state, pushed from main (main.tsx's
