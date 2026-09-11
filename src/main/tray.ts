@@ -210,17 +210,15 @@ export class TrayController {
     if (this.popover && theme !== this.popoverTheme) this.loadPopoverTheme(win, theme);
     this.popover = win;
     this.positionUnderTray(win);
-    win.show();
-    win.focus();
-    // OPEN QUESTION (flagged, not fixed here): `show()`+`focus()` activates
-    // the app on macOS, which can raise the main garden window above
-    // whatever app/Space the user was actually in — not ideal for a
-    // glanceable menu-bar popover. The conventional fix is a NON-ACTIVATING
-    // panel window (`type: 'panel'` on the BrowserWindow constructor
-    // options), but this app's installed Electron (44.2.0 — see
-    // node_modules/electron/electron.d.ts) has no `type` constructor option
-    // at all; it isn't available to try here. Left as the standard
-    // show()+focus() behavior; revisit if/when Electron ships it.
+    // showInactive(), not show()+focus(): the latter activates the whole app
+    // on macOS, and activating any window of an app that has another window
+    // in native fullscreen forces that window out of its fullscreen Space.
+    // showInactive() shows the popover without activating the app, so the
+    // main garden window's fullscreen state is left alone. `acceptFirstMouse`
+    // on the popover's BrowserWindow (see `createPopover()`) keeps its
+    // buttons clickable on the very first click despite not being key/focused
+    // on open.
+    win.showInactive();
     //
     // No data push here — see `init()`'s `tray:getData` handler comment. The
     // page's own `visibilitychange` listener does the pulling once `show()`
@@ -242,6 +240,11 @@ export class TrayController {
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
+      // Since the popover opens via showInactive() (not key/focused), a
+      // click on it would otherwise just activate the window without
+      // reaching its contents — acceptFirstMouse (macOS-only) makes that
+      // first click also click through to the web contents.
+      acceptFirstMouse: true,
       webPreferences: {
         preload: join(__dirname, '../preload/trayPopoverPreload.js'),
         sandbox: true,
