@@ -490,7 +490,7 @@ export class PtyManager {
       this.onSessionExited?.(id);
       if (session.isDelegate) {
         const timer = setTimeout(() => this.delegateExits.delete(id), DELEGATE_EXIT_TTL_MS);
-        this.delegateExits.set(id, { exit: { exitCode, signal }, timer });
+        this.delegateExits.set(id, { exit: { exitCode, signal, lastOutput: session.replay.slice(-16_000) }, timer });
       }
 
       // BUG/UX fix — a real terminal drops you to a shell when the
