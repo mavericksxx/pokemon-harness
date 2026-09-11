@@ -163,6 +163,11 @@ app.on('child-process-gone', (_event, details) => {
 
 let mainWindow: BrowserWindow | null = null;
 
+// Set only while the `close` handler's exit-fullscreen-then-hide sequence
+// (below) is in flight, so `ensureWindowOpen` can cancel it instead of
+// racing it blind — see both call sites for why.
+let cancelPendingFullscreenHide: (() => void) | null = null;
+
 // Shared by `second-instance` and `activate`, both registered together after
 // boot's own `createWindow(...)` call (~line 1162) — see that registration
 // for why. A user-initiated close now only ever hides the window (see the
@@ -184,6 +189,10 @@ function ensureWindowOpen(): void {
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
+  // A pending exit-fullscreen-then-hide sequence (see the `close` handler)
+  // must be cancelled before showing, or whichever of that sequence's hide
+  // and this show lands last would silently win.
+  if (cancelPendingFullscreenHide) cancelPendingFullscreenHide();
   mainWindow.show();
   mainWindow.focus();
 }
@@ -982,9 +991,30 @@ function createWindow(backgroundColor: string): void {
       // `leave-full-screen` can fire mid-teardown (see the listener below,
       // registered for the renderer inset message) if a quit races this
       // animation — guard the same way that one already does.
-      win.once('leave-full-screen', () => {
+      //
+      // The animation can also just never finish (a Space switch or another
+      // close/activate racing in, or macOS dropping the event outright) —
+      // without a fallback that leaves the window de-flagged as fullscreen
+      // but never hidden, still parked on its own fullscreen Space: visible
+      // but gone from the Dock/Cmd+Tab. The timeout below force-hides in
+      // that case; whichever of the event/timeout fires first cancels the
+      // other so this can't double-hide or touch an already-destroyed win.
+      const onLeaveFullScreen = () => {
+        clearTimeout(hideFallback);
+        cancelPendingFullscreenHide = null;
         if (!win.isDestroyed()) win.hide();
-      });
+      };
+      const hideFallback: ReturnType<typeof setTimeout> = setTimeout(() => {
+        win.removeListener('leave-full-screen', onLeaveFullScreen);
+        cancelPendingFullscreenHide = null;
+        if (!win.isDestroyed()) win.hide();
+      }, 1000);
+      cancelPendingFullscreenHide = () => {
+        clearTimeout(hideFallback);
+        win.removeListener('leave-full-screen', onLeaveFullScreen);
+        cancelPendingFullscreenHide = null;
+      };
+      win.once('leave-full-screen', onLeaveFullScreen);
       win.setFullScreen(false);
     } else {
       win.hide();
