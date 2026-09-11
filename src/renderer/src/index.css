@@ -915,8 +915,14 @@ button.icon:active {
    * it too (via `var()` inside a CSS `calc()`) so the drawer's clamped
    * width tracks the rail's ~1100px collapse (below) with no resize
    * listener or measurement of its own. Overridden to `56px` inside that
-   * same media query. */
+   * same media query, and by the `.rail-collapsed` modifier right below it
+   * (App.tsx, RosterStrip.tsx's header toggle — same 56px, JS-driven
+   * instead of viewport-driven). */
   --party-rail-w: 200px;
+}
+
+.body-row.rail-collapsed {
+  --party-rail-w: 56px;
 }
 
 /* The garden pane's own column (App.tsx's `.garden-column`) — a `.body-row`
@@ -2790,13 +2796,19 @@ body.garden-lowres .garden canvas {
   flex-direction: column;
   background: var(--panel);
   border-right: 1px solid var(--line);
+  /* Manual collapse toggle (header chevron below) and the responsive
+   * `@media (max-width: 1100px)` breakpoint further down both just flip
+   * `--party-rail-w` — this is what turns that into a slide instead of a
+   * snap. `prefers-reduced-motion` already zeroes every transition's
+   * duration app-wide (this file's own rule, near the keyframes), so this
+   * needs no separate reduced-motion override. */
+  transition: width 180ms ease-out;
 }
 
 .party-rail-header {
   flex: none;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
@@ -2813,10 +2825,46 @@ body.garden-lowres .garden canvas {
 
 .party-rail-counts {
   flex: none;
+  /* Pushes itself (and the collapse button after it) to the header's right
+   * edge — the same visual result `justify-content: space-between` gave the
+   * old two-child header, generalized to the button's own third child
+   * without space-between spreading all three apart evenly. */
+  margin-left: auto;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--font-display-sm-size);
   white-space: nowrap;
+}
+
+/* Manual collapse toggle — same double-chevron glyph + level-2 ghost
+ * weight as the topbar's hide/show-terminal button (App.tsx's
+ * `.topbar-icon-btn`), sized down to fit this tighter header. `align-self:
+ * center` sidesteps the header's `align-items: baseline` (meant for the two
+ * text spans, not an icon box). */
+.party-rail-collapse-btn {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.party-rail-collapse-btn:hover,
+.party-rail-collapse-btn:focus-visible {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+
+.party-rail-collapse-btn:active {
+  transform: translate(1px, 1px);
 }
 
 .party-rail-list {
@@ -2965,6 +3013,11 @@ body.garden-lowres .garden canvas {
   .roster-card-despawn,
   .roster-card-disclosure,
   .roster-card-trainer-trigger,
+  /* The manual collapse toggle has nothing to do at this width — the rail
+   * is already forced to this same 56px icon-only treatment regardless of
+   * `railCollapsed`, so an "expand" chevron here would click to no visible
+   * effect. */
+  .party-rail-collapse-btn,
   .party-rail-new-label {
     display: none;
   }
@@ -3004,6 +3057,76 @@ body.garden-lowres .garden canvas {
     bottom: 2px;
     box-shadow: 0 0 0 2px var(--panel-2);
   }
+}
+
+/* ── Manually collapsed rail (RosterStrip.tsx's header chevron) ─────────────
+ * The exact same 56px icon-only treatment as the `@media (max-width: 1100px)`
+ * block above, applied via `.party-rail.rail-collapsed` instead of a
+ * viewport width — grouped into one `:is()` list rather than duplicating
+ * each selector twice. Kept as its own block (not merged into the media
+ * query above) since a class and a media feature can't share one `@media`
+ * condition in plain CSS. `.party-rail-collapse-btn` deliberately stays
+ * OUT of the hidden list here (unlike its narrow-viewport media-query
+ * counterpart above) — collapsed-by-choice still needs a visible control to
+ * expand back, whereas collapsed-by-viewport has nothing that button could
+ * usefully do. */
+.party-rail.rail-collapsed .party-rail-header {
+  justify-content: center;
+  padding: 8px 4px;
+}
+
+.party-rail.rail-collapsed
+  :is(
+    .party-rail-garden-name,
+    .party-rail-counts,
+    .party-rail-heading,
+    .roster-card-title-compact,
+    .roster-card-meta-line,
+    .roster-card-parent-compact,
+    .roster-card-row3-medium,
+    .roster-card-ctx-sliver,
+    .roster-card-ctx-sliver-md,
+    .roster-card-arceus-status-row,
+    .roster-card-arceus-model-row,
+    .roster-card-arceus-context-row,
+    .roster-card-swap,
+    .roster-card-despawn,
+    .roster-card-disclosure,
+    .roster-card-trainer-trigger,
+    .party-rail-new-label
+  ) {
+  display: none;
+}
+
+.party-rail.rail-collapsed .party-rail-list {
+  padding: 6px 4px;
+}
+
+.party-rail.rail-collapsed .party-rail-child {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
+.party-rail.rail-collapsed .party-rail-new {
+  margin: 0 4px 8px;
+  padding: 8px 0;
+}
+
+.party-rail.rail-collapsed .party-rail-new-icon {
+  display: inline;
+}
+
+.party-rail.rail-collapsed .roster-card-top-compact {
+  justify-content: center;
+  gap: 0;
+}
+
+.party-rail.rail-collapsed .roster-card-dot {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  box-shadow: 0 0 0 2px var(--panel-2);
 }
 
 .roster-card {

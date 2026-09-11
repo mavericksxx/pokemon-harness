@@ -190,7 +190,7 @@ const documentScrollGuardTargets = [document.documentElement, document.body, roo
 const documentScrollGuardExemptSelector =
   '.session-chips, .garden-picker-menu, .pokemon-picker, .drawer-tabs, .modal, ' +
   '.usage-popover-panel, .mini-player-list, .roster-strip, .focus-sidebar, ' +
-  '.sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
+  '.party-rail-list, .sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
   '.overflow-chip-menu, textarea, input, select';
 const clampScrollPosition = (target: Element) => {
   if (target.scrollLeft !== 0) target.scrollLeft = 0;

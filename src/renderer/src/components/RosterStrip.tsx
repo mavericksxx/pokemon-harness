@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '@/store/workspaceStore';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { ArceusRosterCard } from '@/components/ArceusRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
+import { DoubleChevronLeftIcon, DoubleChevronRightIcon } from '@/components/icons';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 
 interface Props {
@@ -66,8 +67,11 @@ interface Props {
  * Below ~1100px viewport (index.css) the rail collapses to a 56px column of
  * face tiles — titles move into each card's own `title` tooltip, the
  * header's text hides, and the footer becomes a bare "+" tile. Pure CSS
- * (a plain `@media` query, no JS state) — see gardenSplit.ts's `PARTY_RAIL_PX`
- * for why `NARROW_LAYOUT_MAX_PX` had to learn about this rail's width too.
+ * (a plain `@media` query) — see gardenSplit.ts's `PARTY_RAIL_PX` for why
+ * `NARROW_LAYOUT_MAX_PX` had to learn about this rail's width too. The
+ * header's own chevron button below drives the exact same 56px treatment
+ * manually (`store.ts`'s persisted `railCollapsed`), independent of viewport
+ * width — see index.css's "Collapsed rail" section for both triggers.
  */
 export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceSessions = useActiveWorkspaceSessions();
@@ -79,6 +83,8 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const collapsedParentIds = useStore((s) => s.collapsedParentIds);
   const toggleParentCollapsed = useStore((s) => s.toggleParentCollapsed);
   const toggleAllParentsCollapsed = useStore((s) => s.toggleAllParentsCollapsed);
+  const railCollapsed = useStore((s) => s.railCollapsed);
+  const setRailCollapsed = useStore((s) => s.setRailCollapsed);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
 
@@ -126,12 +132,29 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   };
 
   return (
-    <div className="party-rail">
+    <div className={`party-rail${railCollapsed ? ' rail-collapsed' : ''}`}>
       <div className="party-rail-header">
         <span className="party-rail-garden-name">{activeWorkspaceName}</span>
         <span className="party-rail-counts">
           {sessions.length} · {workingCount} working
         </span>
+        {/* Manual collapse toggle — same double-chevron "collapse/expand this
+            direction" glyph as the topbar's hide/show-terminal button
+            (App.tsx), same level-2 ghost icon-button weight. Collapsing
+            drives the rail to the same 56px icon-only treatment the
+            `@media (max-width: 1100px)` breakpoint already applies
+            (index.css's "Collapsed rail" section) — one visual state, two
+            triggers. */}
+        <button
+          type="button"
+          className="party-rail-collapse-btn tip"
+          data-tip={railCollapsed ? 'expand agents' : 'collapse agents'}
+          aria-label={railCollapsed ? 'expand agents' : 'collapse agents'}
+          aria-pressed={railCollapsed}
+          onClick={() => setRailCollapsed(!railCollapsed)}
+        >
+          {railCollapsed ? <DoubleChevronRightIcon /> : <DoubleChevronLeftIcon />}
+        </button>
       </div>
       <div className="party-rail-list">
         {/* Arceus is global, not scoped to any one garden, so he's pinned
