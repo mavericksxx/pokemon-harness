@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useStore, type Session } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { useWorkspaceStore } from '@/store/workspaceStore';
@@ -10,6 +10,20 @@ import { ARCEUS_SESSION_ID } from '@shared/arceus';
 
 interface Props {
   onNewSession(): void;
+}
+
+/** Applies the rail's manual drag order (store.ts's `partyRailOrder`) to a
+ *  list of live sessions: a session whose id appears in `order` sorts by its
+ *  index there; one that doesn't (e.g. a session just created, never
+ *  dragged) sorts to the end, after every ordered session, keeping its place
+ *  relative to other not-yet-ordered sessions via the sort's stability. */
+function applyPartyRailOrder(sessions: Session[], order: string[]): Session[] {
+  const indexById = new Map(order.map((id, i) => [id, i]));
+  return [...sessions].sort((a, b) => {
+    const ai = indexById.get(a.id) ?? Infinity;
+    const bi = indexById.get(b.id) ?? Infinity;
+    return ai - bi;
+  });
 }
 
 /**
@@ -85,8 +99,16 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const toggleAllParentsCollapsed = useStore((s) => s.toggleAllParentsCollapsed);
   const railCollapsed = useStore((s) => s.railCollapsed);
   const setRailCollapsed = useStore((s) => s.setRailCollapsed);
+  const partyRailOrder = useStore((s) => s.partyRailOrder);
+  const setPartyRailOrder = useStore((s) => s.setPartyRailOrder);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+
+  // Top-level card drag-to-reorder (party-rail rework) — only the "agents"
+  // section's cards are draggable (see `renderSession`'s `draggable` param),
+  // never Arceus, a subagent card, or a "done" card.
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const activeWorkspaceName = workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? workspaces[0]?.name ?? '';
 
@@ -97,6 +119,15 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const liveSessions = sessions.filter((s) => !(s.delegateParentId && s.status === 'done'));
   const doneSessions = sessions.filter((s) => s.delegateParentId && s.status === 'done');
 
+  // Display order only — never the underlying `sessions` array itself (that
+  // stays in ordinary session-creation order for every other consumer, e.g.
+  // SessionsOverview's grid). Recomputed whenever `liveSessions` or the
+  // persisted order changes.
+  const orderedLiveSessions = useMemo(
+    () => applyPartyRailOrder(liveSessions, partyRailOrder),
+    [liveSessions, partyRailOrder]
+  );
+
   const workingCount = sessions.filter((s) => s.status === 'working').length;
 
   // All parent ids with at least one live battler right now — the scope
@@ -105,22 +136,82 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
     .filter((s) => battlers.some((b) => b.parentId === s.id))
     .map((s) => s.id);
 
-  const renderSession = (s: Session): JSX.Element => {
+  // `draggable` gates ALL drag wiring below — only the "agents" section's
+  // top-level cards pass true (see call sites below); "done" cards render
+  // through this same function but with dragging fully inert.
+  const renderSession = (s: Session, draggable: boolean): JSX.Element => {
     const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
     const collapsed = collapsedParentIds.includes(s.id);
+    const dragClasses = [
+      draggable && s.id === draggedId ? 'dragging' : '',
+      draggable && s.id === dragOverId ? 'drag-over' : ''
+    ]
+      .filter(Boolean)
+      .join(' ');
     return (
       <Fragment key={s.id}>
-        <AgentRosterCard
-          session={s}
-          selected={s.id === selectedId}
-          onSelect={select}
-          variant="medium"
-          childCount={sessionBattlers.length}
-          collapsed={collapsed}
-          onToggleCollapse={(altKey) =>
-            altKey ? toggleAllParentsCollapsed(parentIdsWithChildren) : toggleParentCollapsed(s.id)
+        {/* Wraps AgentRosterCard rather than passing it drag props directly
+            — it doesn't accept arbitrary DOM props, and its own `memo()`/
+            styling assumptions shouldn't need to know about drag-to-reorder
+            at all. */}
+        <div
+          className={dragClasses || undefined}
+          draggable={draggable}
+          onDragStart={draggable ? () => setDraggedId(s.id) : undefined}
+          onDragOver={
+            draggable
+              ? (e) => {
+                  if (!draggedId || draggedId === s.id) return;
+                  e.preventDefault();
+                  setDragOverId(s.id);
+                }
+              : undefined
           }
-        />
+          onDragLeave={draggable ? () => setDragOverId((cur) => (cur === s.id ? null : cur)) : undefined}
+          onDrop={
+            draggable
+              ? (e) => {
+                  e.preventDefault();
+                  if (!draggedId || draggedId === s.id) {
+                    setDraggedId(null);
+                    setDragOverId(null);
+                    return;
+                  }
+                  const ids = orderedLiveSessions.map((sess) => sess.id);
+                  const fromIdx = ids.indexOf(draggedId);
+                  const toIdx = ids.indexOf(s.id);
+                  if (fromIdx !== -1 && toIdx !== -1) {
+                    const next = [...ids];
+                    next.splice(fromIdx, 1);
+                    next.splice(toIdx, 0, draggedId);
+                    setPartyRailOrder(next);
+                  }
+                  setDraggedId(null);
+                  setDragOverId(null);
+                }
+              : undefined
+          }
+          onDragEnd={
+            draggable
+              ? () => {
+                  setDraggedId(null);
+                  setDragOverId(null);
+                }
+              : undefined
+          }
+        >
+          <AgentRosterCard
+            session={s}
+            selected={s.id === selectedId}
+            onSelect={select}
+            variant="medium"
+            childCount={sessionBattlers.length}
+            collapsed={collapsed}
+            onToggleCollapse={(altKey) =>
+              altKey ? toggleAllParentsCollapsed(parentIdsWithChildren) : toggleParentCollapsed(s.id)
+            }
+          />
+        </div>
         {!collapsed &&
           sessionBattlers.map((b) => (
             <div key={b.key} className="party-rail-child">
@@ -170,11 +261,11 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
           ceremonial={viewMode === 'terminal'}
         />
         {liveSessions.length > 0 && <div className="party-rail-heading">agents</div>}
-        {liveSessions.map(renderSession)}
+        {orderedLiveSessions.map((s) => renderSession(s, true))}
         {doneSessions.length > 0 && (
           <div className="party-rail-done">
             <div className="party-rail-heading">done</div>
-            {doneSessions.map(renderSession)}
+            {doneSessions.map((s) => renderSession(s, false))}
           </div>
         )}
       </div>
