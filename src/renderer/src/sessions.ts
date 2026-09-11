@@ -217,7 +217,7 @@ async function adoptDelegateSession(spawned: DelegateSessionSpawned): Promise<vo
   // no session record to patch; main retains that delegate-only exit snapshot
   // so this path lands in the same done state instead of resurrecting it idle.
   const earlyExit = await window.api.getPtyExit(spawned.id);
-  if (earlyExit) {
+  if (earlyExit && useStore.getState().sessions.find((s) => s.id === spawned.id)?.status !== 'done') {
     useStore.getState().updateSession(spawned.id, {
       status: 'done',
       exitCode: earlyExit.exitCode,
@@ -225,6 +225,10 @@ async function adoptDelegateSession(spawned: DelegateSessionSpawned): Promise<vo
       toolTarget: undefined,
       station: 'wander'
     });
+    // status is now 'done' — writeReplayNow's own guard skips feeding this
+    // through the tool-call parser, matching a normal exit's behavior.
+    if (earlyExit.lastOutput) writeReplayNow(spawned.id, earlyExit.lastOutput);
+    writeReplayNow(spawned.id, `\r\n\x1b[90m[process exited with code ${earlyExit.exitCode}]\x1b[0m\r\n`);
   }
 
   const replay = await window.api.getPtyReplay(spawned.id);
@@ -406,7 +410,10 @@ export function startCompletionToasts(): void {
       // is a fresh transition.
       if (was === undefined) continue;
       if (session.status === 'done' && was !== 'done') {
-        useStore.getState().pushToast(`${session.title} finished.`);
+        const msg = typeof session.exitCode === 'number' && session.exitCode !== 0
+          ? `${session.title} exited with code ${session.exitCode}.`
+          : `${session.title} finished.`;
+        useStore.getState().pushToast(msg);
       } else if (session.status === 'blocked' && was !== 'blocked') {
         useStore.getState().pushNotification(`${session.title} needs your input.`);
       }

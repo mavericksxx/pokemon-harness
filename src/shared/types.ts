@@ -37,6 +37,12 @@ export interface PtyExit {
    *  arbitrary shell text could spawn a battle or flip status on a stray
    *  match, which a fallback shell must never do. */
   fallback?: boolean;
+  /** A tail of the process's own output, captured only for a delegate
+   *  session that exited before the renderer could adopt it — see
+   *  PtyManager's `delegateExits`/`getDelegateExit`. Only ever populated on
+   *  the `pty:exit-info` response; never set on the live `pty:exit:<id>`
+   *  push (terminalRegistry.ts already has the real output by then). */
+  lastOutput?: string;
 }
 
 export interface PtyInfo {
