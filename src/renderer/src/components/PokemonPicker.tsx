@@ -139,14 +139,14 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
               disabled={disabled}
               title={optionTitle}
               onClick={() => {
-                // A species with alt forms doesn't commit yet — reveal the
-                // form sub-panel below instead, same as the effect above
-                // does when the dialog opens on one. `onChange` only ever
-                // fires once the user has picked a final (base-or-form) id,
-                // matching both callers' "onChange commits" assumption.
+                // A species with alt forms commits immediately as the base
+                // species AND reveals the form sub-panel below, so the user
+                // can optionally refine to a specific alt form afterward —
+                // without this, clicking e.g. Pikachu here left the outer
+                // selection at whatever the dialog defaulted to on open.
                 const forms = formsOf(entry.id);
+                onChange(entry.id);
                 if (forms.length > 0) setFormsPickerFor(entry.id);
-                else onChange(entry.id);
               }}
             >
               <span className="pokemon-option-face">
