@@ -14,11 +14,16 @@
  * the main bundle, so it's guaranteed present wherever `out/main/index.js`
  * runs, dev or packaged, no extra resource wiring.
  *
- * Visual language matches the main app's existing dark "trainer card" chrome
+ * Visual language matches the main app's existing "trainer card" chrome
  * (UsageChip.tsx's popover, design/tokens.ts) — same panel/border/text
  * colors, same hard-edged HP-bar gauge treatment, same gauge-tone
  * thresholds — with hex values copied in directly rather than imported
- * (this file has no build step to resolve a TS/CSS import through). The one
+ * (this file has no build step to resolve a TS/CSS import through), for
+ * BOTH the dark and light palettes (`DARK_PALETTE`/`LIGHT_PALETTE` below,
+ * matched by hand against `design/tokens.ts`'s dark constants and their
+ * `*Light` counterparts). `buildTrayPopoverHtml(theme)` picks one at
+ * document-build time — see tray.ts's own header for how the caller decides
+ * which theme to build and when to rebuild an already-open popover. The one
  * deliberate departure: no self-hosted Press Start 2P pixel font — shipping
  * that font to a page outside the renderer's own asset pipeline is real
  * packaging work for a decorative typeface, so section headers use a plain
@@ -26,14 +31,87 @@
  * tradeoff note.
  */
 
-const STYLE = `
-  :root { color-scheme: dark; }
+/** One theme's worth of hex values for every color used in `STYLE` below.
+ *  Field names describe the ROLE the color plays (matching a design/tokens.ts
+ *  constant), not the literal dark hex, so `LIGHT_PALETTE` reads as "the
+ *  light counterpart of each dark role" rather than a second unrelated list. */
+interface TrayPopoverPalette {
+  colorScheme: 'light' | 'dark';
+  /** design/tokens.ts `ground[100]` / `groundLight[100]` — panel fill. */
+  panel: string;
+  /** `ground[300]` / `groundLight[300]` — hairline borders. */
+  border: string;
+  /** `ink[900]` / `inkLight[900]` — primary text. */
+  text: string;
+  /** `gold` / `goldLight` — brand accent (section headers, pokéball, sparkline bars). */
+  accent: string;
+  /** `ink[300]` / `inkLight[300]` — subtle section/provider dividers. */
+  divider: string;
+  /** `ink[500]` / `inkLight[500]` — muted/tertiary text. */
+  muted: string;
+  /** `ink[700]` / `inkLight[700]` — secondary text (provider headers). */
+  mutedStrong: string;
+  /** `ground.terminal` / `groundLight.terminal` — gauge track fill. */
+  barTrack: string;
+  /** `status.done` / `statusLight.done` — default (low-usage) gauge fill. */
+  statusDone: string;
+  /** `status.working` / `statusLight.working` — mid-usage gauge fill, "working" session dot. */
+  statusWarn: string;
+  /** `status.blocked` / `statusLight.blocked` — high-usage gauge fill, "needs you" session dot. */
+  statusDanger: string;
+  /** `status.idle` / `statusLight.idle` — "idle" session dot. */
+  statusIdle: string;
+  /** `ground.disabled` / `groundLight.disabled` — zero-cost sparkline bars. */
+  disabled: string;
+  /** `shadowHard` / `shadowHardLight` — the frame's hard-offset shadow. */
+  shadow: string;
+}
+
+const DARK_PALETTE: TrayPopoverPalette = {
+  colorScheme: 'dark',
+  panel: '#1D1D22',
+  border: '#787684',
+  text: '#DEDBD6',
+  accent: '#E8B740',
+  divider: '#3E3D46',
+  muted: '#96919F',
+  mutedStrong: '#B3B0AC',
+  barTrack: '#1A1A1F',
+  statusDone: '#6FB88B',
+  statusWarn: '#D8B052',
+  statusDanger: '#DF8078',
+  statusIdle: '#64ACBB',
+  disabled: '#313139',
+  shadow: '4px 4px 0 rgba(0, 0, 0, 0.45)'
+};
+
+const LIGHT_PALETTE: TrayPopoverPalette = {
+  colorScheme: 'light',
+  panel: '#FFF8E7',
+  border: '#A899B5',
+  text: '#1A1320',
+  accent: '#DCAB3C',
+  divider: '#D9CFE0',
+  muted: '#6B5878',
+  mutedStrong: '#3D2E4A',
+  barTrack: '#FCFAF0',
+  statusDone: '#5CA97A',
+  statusWarn: '#DCAB3C',
+  statusDanger: '#D96A62',
+  statusIdle: '#4F9FAF',
+  disabled: '#E8D9A0',
+  shadow: '3px 3px 0 rgba(26, 19, 32, 0.14)'
+};
+
+function buildStyle(p: TrayPopoverPalette): string {
+  return `
+  :root { color-scheme: ${p.colorScheme}; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: transparent; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: 12px;
-    color: #DEDBD6;
+    color: ${p.text};
     -webkit-user-select: none;
     user-select: none;
     overflow: hidden;
@@ -41,10 +119,10 @@ const STYLE = `
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
   .frame {
     margin: 6px 10px 10px 6px; /* leaves room (top/right) for the hard-offset shadow below */
-    background: #1D1D22;
-    border: 1px solid #787684;
+    background: ${p.panel};
+    border: 1px solid ${p.border};
     border-radius: 2px;
-    box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.45);
+    box-shadow: ${p.shadow};
     display: flex;
     flex-direction: column;
     max-height: calc(100vh - 16px);
@@ -54,14 +132,14 @@ const STYLE = `
     align-items: center;
     gap: 6px;
     padding: 10px 12px;
-    border-bottom: 1px solid #787684;
+    border-bottom: 1px solid ${p.border};
     flex: 0 0 auto;
   }
   .header .ball {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #DEDBD6;
+    background: ${p.text};
     position: relative;
     overflow: hidden;
     flex: 0 0 auto;
@@ -70,7 +148,7 @@ const STYLE = `
     content: '';
     position: absolute;
     inset: 0 0 50% 0;
-    background: #E8B740;
+    background: ${p.accent};
   }
   .header .ball::after {
     content: '';
@@ -79,12 +157,12 @@ const STYLE = `
     left: 0;
     right: 0;
     height: 2px;
-    background: #1D1D22;
+    background: ${p.panel};
   }
   .header .brand {
     font-weight: 600;
     letter-spacing: 0.02em;
-    color: #DEDBD6;
+    color: ${p.text};
   }
   .body {
     overflow-y: auto;
@@ -95,7 +173,7 @@ const STYLE = `
   }
   section + section {
     padding-top: 12px;
-    border-top: 1px solid #3E3D46;
+    border-top: 1px solid ${p.divider};
   }
   .section-head {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -103,12 +181,12 @@ const STYLE = `
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #E8B740;
+    color: ${p.accent};
     margin: 0 0 8px;
   }
-  .muted { color: #96919F; }
-  .provider + .provider { margin-top: 10px; padding-top: 10px; border-top: 1px solid #3E3D46; }
-  .provider-head { font-size: 11px; font-weight: 600; color: #B3B0AC; margin-bottom: 6px; }
+  .muted { color: ${p.muted}; }
+  .provider + .provider { margin-top: 10px; padding-top: 10px; border-top: 1px solid ${p.divider}; }
+  .provider-head { font-size: 11px; font-weight: 600; color: ${p.mutedStrong}; margin-bottom: 6px; }
   .window + .window { margin-top: 6px; }
   .window-head {
     display: flex;
@@ -116,39 +194,39 @@ const STYLE = `
     align-items: baseline;
     gap: 8px;
     font-size: 11px;
-    color: #96919F;
+    color: ${p.muted};
   }
   .window-label { text-transform: lowercase; }
-  .window-pct { color: #DEDBD6; font-weight: 600; }
+  .window-pct { color: ${p.text}; font-weight: 600; }
   .bar {
     height: 8px;
     padding: 1px;
     margin-top: 3px;
-    background: #1A1A1F;
-    border: 1px solid #787684;
+    background: ${p.barTrack};
+    border: 1px solid ${p.border};
     border-radius: 0;
   }
   .bar-fill {
     height: 100%;
-    background-color: #6FB88B;
+    background-color: ${p.statusDone};
     background-image: repeating-linear-gradient(to right, rgba(0,0,0,0.22) 0 1px, transparent 1px 4px);
     transform-origin: left center;
   }
-  .bar-fill.warn { background-color: #D8B052; }
-  .bar-fill.danger { background-color: #DF8078; }
-  .window-foot { font-size: 10px; color: #96919F; margin-top: 3px; }
-  .balance { font-size: 10px; color: #96919F; margin-top: 3px; }
+  .bar-fill.warn { background-color: ${p.statusWarn}; }
+  .bar-fill.danger { background-color: ${p.statusDanger}; }
+  .window-foot { font-size: 10px; color: ${p.muted}; margin-top: 3px; }
+  .balance { font-size: 10px; color: ${p.muted}; margin-top: 3px; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; }
   .row + .row { margin-top: 4px; }
-  .row .k { color: #96919F; }
-  .row .v { color: #DEDBD6; font-weight: 600; }
+  .row .k { color: ${p.muted}; }
+  .row .v { color: ${p.text}; font-weight: 600; }
   .stat-cluster { display: flex; gap: 14px; }
   .stat { display: flex; align-items: center; gap: 5px; font-size: 11px; }
   .stat-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
-  .stat-dot.working { background: #D8B052; }
-  .stat-dot.idle { background: #64ACBB; }
-  .stat-dot.needsYou { background: #DF8078; }
-  .stat b { color: #DEDBD6; }
+  .stat-dot.working { background: ${p.statusWarn}; }
+  .stat-dot.idle { background: ${p.statusIdle}; }
+  .stat-dot.needsYou { background: ${p.statusDanger}; }
+  .stat b { color: ${p.text}; }
   .spark {
     display: flex;
     align-items: flex-end;
@@ -159,17 +237,19 @@ const STYLE = `
   .spark-bar {
     flex: 1 1 0;
     min-width: 2px;
-    background: #E8B740;
+    background: ${p.accent};
     border-radius: 0;
   }
-  .spark-bar.zero { background: #313139; height: 2px !important; }
-</style>`;
+  .spark-bar.zero { background: ${p.disabled}; height: 2px !important; }
+  </style>`;
+}
 
 // Inline JS. Deliberately no template literals / backticks anywhere below
 // (this whole page is itself embedded in a TS template literal in
 // trayPopoverHtml.ts's export — see this file's own header) — plain string
 // concatenation instead, so nothing here needs escaping against the outer
-// literal.
+// literal. Theme-independent — never touches a color — so it's built once,
+// not per-palette like `buildStyle` above.
 const SCRIPT = `
   var PROVIDER_LABEL = { claude: 'Claude Code', codex: 'Codex CLI' };
 
@@ -382,13 +462,22 @@ const SCRIPT = `
   });
 </script>`;
 
-export const TRAY_POPOVER_HTML = `<!doctype html>
+/** Builds the popover's whole document for one effective theme. Called by
+ *  tray.ts both to create the popover `BrowserWindow` and to reload it in
+ *  place when the effective theme changes while it already exists (see that
+ *  file's own header) — a full `loadURL()` re-run rather than a live DOM
+ *  patch, since this page has no CSS-custom-property indirection to flip and
+ *  re-running the inline `<script>` is cheap (a `data:` URL, no network). */
+export function buildTrayPopoverHtml(theme: 'light' | 'dark'): string {
+  const palette = theme === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
+  const style = buildStyle(palette);
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
 <title>pokéharness</title>
-<style>${STYLE}
+<style>${style}
 </head>
 <body>
 <div class="frame">
@@ -411,3 +500,4 @@ export const TRAY_POPOVER_HTML = `<!doctype html>
 <script>${SCRIPT}
 </body>
 </html>`;
+}
