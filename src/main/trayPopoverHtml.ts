@@ -43,8 +43,13 @@ interface TrayPopoverPalette {
   border: string;
   /** `ink[900]` / `inkLight[900]` — primary text. */
   text: string;
-  /** `gold` / `goldLight` — brand accent (section headers, pokéball, sparkline bars). */
+  /** `gold` / `goldLight` — brand accent FILL (pokéball, sparkline bars). Not
+   *  for text — see `accentText` below. */
   accent: string;
+  /** `gold` / `accentTextLight` — brand accent as TEXT (section headers).
+   *  `goldLight` (~2.08:1 on the light panel) fails WCAG 4.5:1 for text; dark
+   *  mode has no contrast problem so this equals `accent` there. */
+  accentText: string;
   /** `ink[300]` / `inkLight[300]` — subtle section/provider dividers. */
   divider: string;
   /** `ink[500]` / `inkLight[500]` — muted/tertiary text. */
@@ -73,6 +78,7 @@ const DARK_PALETTE: TrayPopoverPalette = {
   border: '#787684',
   text: '#DEDBD6',
   accent: '#E8B740',
+  accentText: '#E8B740',
   divider: '#3E3D46',
   muted: '#96919F',
   mutedStrong: '#B3B0AC',
@@ -91,6 +97,7 @@ const LIGHT_PALETTE: TrayPopoverPalette = {
   border: '#A899B5',
   text: '#1A1320',
   accent: '#DCAB3C',
+  accentText: '#7D5312',
   divider: '#D9CFE0',
   muted: '#6B5878',
   mutedStrong: '#3D2E4A',
@@ -181,7 +188,7 @@ function buildStyle(p: TrayPopoverPalette): string {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: ${p.accent};
+    color: ${p.accentText};
     margin: 0 0 8px;
   }
   .muted { color: ${p.muted}; }

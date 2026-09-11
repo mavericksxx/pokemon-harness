@@ -150,7 +150,7 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
           className="party-rail-collapse-btn tip"
           data-tip={railCollapsed ? 'expand agents' : 'collapse agents'}
           aria-label={railCollapsed ? 'expand agents' : 'collapse agents'}
-          aria-pressed={railCollapsed}
+          aria-expanded={!railCollapsed}
           onClick={() => setRailCollapsed(!railCollapsed)}
         >
           {railCollapsed ? <DoubleChevronRightIcon /> : <DoubleChevronLeftIcon />}
