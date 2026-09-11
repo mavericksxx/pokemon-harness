@@ -249,7 +249,8 @@ let costHistoryWarmed = false;
 const trayController = new TrayController({
   usageService,
   costHistory: costHistoryService,
-  getSessionRegistry: () => sessionRegistry
+  getSessionRegistry: () => sessionRegistry,
+  getEffectiveTheme: () => resolveTerminalAppearance(activeTheme)
 });
 // BACKLOG "next up" item 3 — watches Arceus's own transcript (registered off
 // the same onRawPayload hook chained below) for a relay directive and types
@@ -391,7 +392,10 @@ let activeTheme: AppSettings['theme'] = 'system';
  *  already Codex's own equivalent of "use the best available model." */
 let codexDelegateModel = '';
 nativeTheme.on('updated', () => {
-  if (activeTheme === 'system') ptyManager.setTerminalAppearance(resolveTerminalAppearance(activeTheme));
+  if (activeTheme === 'system') {
+    ptyManager.setTerminalAppearance(resolveTerminalAppearance(activeTheme));
+    trayController.syncTheme();
+  }
 });
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
 
@@ -1320,6 +1324,7 @@ registerSettingsIpc({
   syncKeepAwake,
   setActiveTheme: (theme) => {
     activeTheme = theme;
+    trayController.syncTheme();
   },
   setKeepAwakeEnabled: (enabled) => {
     keepAwakeEnabled = enabled;

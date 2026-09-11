@@ -42,7 +42,7 @@ import type { UsageService } from './usageService';
 import type { CostHistoryService } from './costHistory';
 import type { SessionRecord } from '../shared/types';
 import type { TrayPopoverData, TraySessionCounts } from '../shared/trayTypes';
-import { TRAY_POPOVER_HTML } from './trayPopoverHtml';
+import { buildTrayPopoverHtml } from './trayPopoverHtml';
 import { log } from './diagnostics';
 
 /** Fallback for the `tray:getData` handler's own catch — `collectData()`
@@ -87,11 +87,21 @@ export interface TrayControllerDeps {
   usageService: UsageService;
   costHistory: CostHistoryService;
   getSessionRegistry: () => SessionRecord[];
+  /** Same resolver `index.ts` already uses for `resolveWindowBg`/
+   *  `ptyManager.setTerminalAppearance` — so the popover's light/dark call
+   *  for `'system'` mode matches the rest of the app exactly rather than
+   *  re-deriving its own. */
+  getEffectiveTheme: () => 'light' | 'dark';
 }
 
 export class TrayController {
   private tray: Tray | null = null;
   private popover: BrowserWindow | null = null;
+  /** The theme `popover`'s current document was last built with — `null`
+   *  until the popover exists. Compared against `deps.getEffectiveTheme()`
+   *  to decide whether an existing (possibly hidden/reused) popover needs a
+   *  fresh `loadURL()` rather than always rebuilding on every open. */
+  private popoverTheme: 'light' | 'dark' | null = null;
   /** Guards against the classic Electron tray-popover double-fire — see
    *  `toggle()`'s own comment. */
   private static readonly REOPEN_GUARD_MS = 250;
@@ -146,8 +156,24 @@ export class TrayController {
     ipcMain.removeHandler('tray:getData');
     if (this.popover && !this.popover.isDestroyed()) this.popover.destroy();
     this.popover = null;
+    this.popoverTheme = null;
     this.tray?.destroy();
     this.tray = null;
+  }
+
+  /** Called from `index.ts` whenever the effective theme might have changed
+   *  while the popover is already open — an explicit theme-setting switch,
+   *  or (in `'system'` mode) a live OS-appearance flip, mirroring the
+   *  `nativeTheme.on('updated', ...)` listener that already re-resolves
+   *  `resolveTerminalAppearance` for the terminal elsewhere in `index.ts`.
+   *  A no-op if the popover doesn't exist, isn't visible (its theme is
+   *  reconciled on the next `show()` instead — see there), or the effective
+   *  theme didn't actually change. */
+  syncTheme(): void {
+    if (!this.popover || this.popover.isDestroyed() || !this.popover.isVisible()) return;
+    const theme = this.deps.getEffectiveTheme();
+    if (theme === this.popoverTheme) return;
+    this.loadPopoverTheme(this.popover, theme);
   }
 
   /** Clicking the tray icon to CLOSE an open popover steals its focus first,
@@ -174,7 +200,14 @@ export class TrayController {
 
   private show(): void {
     if (!this.tray) return;
-    const win = this.popover ?? this.createPopover();
+    const theme = this.deps.getEffectiveTheme();
+    const win = this.popover ?? this.createPopover(theme);
+    // The popover `BrowserWindow` is cached and reused across opens (see
+    // `createPopover()`'s own comment), so a theme switch made while it was
+    // hidden wouldn't otherwise show up until `syncTheme()` next runs — this
+    // catches that stale case on every reopen too, not just a live change
+    // while already visible.
+    if (this.popover && theme !== this.popoverTheme) this.loadPopoverTheme(win, theme);
     this.popover = win;
     this.positionUnderTray(win);
     win.show();
@@ -194,7 +227,7 @@ export class TrayController {
     // actually makes it visible.
   }
 
-  private createPopover(): BrowserWindow {
+  private createPopover(theme: 'light' | 'dark'): BrowserWindow {
     const win = new BrowserWindow({
       width: WINDOW_WIDTH,
       height: POPOVER_HEIGHT,
@@ -235,8 +268,19 @@ export class TrayController {
     // own initial load.
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', (e) => e.preventDefault());
-    void win.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(TRAY_POPOVER_HTML)}`);
+    this.loadPopoverTheme(win, theme);
     return win;
+  }
+
+  /** Loads (or reloads) `win` with `buildTrayPopoverHtml(theme)` and records
+   *  `theme` as `popoverTheme` — the one place that builds the popover's
+   *  document, shared by both initial creation and a later theme-driven
+   *  reload (`show()`, `syncTheme()`). A full `loadURL()` re-run rather than
+   *  a live DOM patch — see trayPopoverHtml.ts's own comment on
+   *  `buildTrayPopoverHtml` for why that's cheap enough here. */
+  private loadPopoverTheme(win: BrowserWindow, theme: 'light' | 'dark'): void {
+    this.popoverTheme = theme;
+    void win.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(buildTrayPopoverHtml(theme))}`);
   }
 
   /** Anchors the popover under the tray icon — `tray.getBounds()` for the
