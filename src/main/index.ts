@@ -949,7 +949,12 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
   // bookkeeping (restored-list order, notes) is unaffected by which respawn
   // actually finished first.
   const outcomes = await Promise.allSettled(
-    persisted.sessions.map((record) => respawnSession(ptyManager, record))
+    persisted.sessions.map((record) =>
+      respawnSession(ptyManager, record, {
+        harnessHomeDir,
+        defaultAgentProvider: appSettings.defaultAgentProvider
+      })
+    )
   );
 
   for (let i = 0; i < persisted.sessions.length; i += 1) {
