@@ -7,11 +7,23 @@
  * `app`/`ipcMain`, which only exist inside a running Electron process, so it
  * can't be required outside one.
  */
-import { buildProviderArgs } from '../shared/agentProvider';
+import { AGENT_PROVIDERS, buildProviderArgs, type AgentProviderId } from '../shared/agentProvider';
+import { isGlobalSession } from '../shared/arceus';
+import { loadArceusSummonConfig } from './arceusSummonConfig';
 import type { PtyManager } from './pty';
 import type { SessionRecord } from '../shared/types';
 import { log } from './diagnostics';
 import { RESUME_GRACE_MS } from '../shared/resumeTiming';
+
+/** Bits `respawnSession` needs to check Arceus's saved summon config before
+ *  relaunching him specifically — see that function's own comment. Mirrors
+ *  exactly what `main/ipc/app.ts`'s `arceus:loadSummonConfig` handler already
+ *  passes to `loadArceusSummonConfig` for the resummon path, so this reads
+ *  the SAME source of truth rather than inventing a second one. */
+export interface ArceusRespawnConfig {
+  harnessHomeDir: string;
+  defaultAgentProvider: AgentProviderId;
+}
 
 export interface RespawnOutcome {
   ok: boolean;
@@ -30,7 +42,11 @@ export interface RespawnOutcome {
  *  so the shell's PATH shims can make a hand-relaunched CLI behave like the
  *  original session.
  */
-export async function respawnSession(ptyManager: PtyManager, record: SessionRecord): Promise<RespawnOutcome> {
+export async function respawnSession(
+  ptyManager: PtyManager,
+  record: SessionRecord,
+  arceusConfig: ArceusRespawnConfig
+): Promise<RespawnOutcome> {
   // "Leave them running" quit path (QuitDialog.tsx) — if this id's CLI
   // survived the last quit detached to its own keeper process, reattach to
   // it instead of spawning a brand-new one. Covers both "still running" and
@@ -40,13 +56,15 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
   // session that was never detached in the first place.
   if (await ptyManager.tryReattach(record.id)) return { ok: true };
 
-  const useResume = shouldResume(record);
+  const effective = await resolveEffectiveRespawn(record, arceusConfig);
+
+  const useResume = shouldResume(effective);
   const primary = ptyManager.spawn({
     id: record.id,
     cwd: record.cwd,
-    command: record.command,
-    args: respawnArgs(record),
-    provider: record.provider,
+    command: effective.command,
+    args: respawnArgs(effective),
+    provider: effective.provider,
     cols: 100,
     rows: 30
   });
@@ -62,7 +80,7 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
   const reason = primary.ok
     ? 'the claude session could not be resumed'
     : (primary.error ?? 'the original command could not be restarted');
-  const fallback = ptyManager.spawnFallbackShellFromRespawn(record.id, record.cwd, record.provider);
+  const fallback = ptyManager.spawnFallbackShellFromRespawn(record.id, record.cwd, effective.provider);
   if (!fallback.ok) return { ok: false };
   // Consumed here, not just read — this is the one place a boot-restore
   // failure's exit code is ever needed, so leaving it in `lastExitCodes`
@@ -71,7 +89,7 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
   const exitCode = ptyManager.takeLastExitCode(record.id);
   log('pty', 'warn', 'session respawn fell back to shell', {
     id: record.id,
-    provider: record.provider,
+    provider: effective.provider,
     reason,
     ...(exitCode === undefined ? {} : { exitCode })
   });
@@ -83,16 +101,49 @@ export async function respawnSession(ptyManager: PtyManager, record: SessionReco
  *  (hookRouter.ts's SessionStart case). This also governs a disk-persisted
  *  Arceus record on app relaunch (provider-aware Arceus, BACKLOG item 1 —
  *  `restoreFromDisk` in main/index.ts respawns him through this same
- *  generic path, no Arceus-specific branch): a codex Arceus simply
- *  respawns fresh here, persona re-typed on the renderer's next summon of
- *  him, same as arceus.ts's own `autoSummonArceus` already does for a
- *  mid-run (app-still-up) re-summon — see that function's comment for the
- *  parallel case. Not a gap to close: codex has no resumable-conversation
- *  flag in this app at all (no `--resume`-equivalent id captured for any
- *  codex session, Arceus or otherwise), so "fresh, persona re-typed" is the
- *  correct fallback rather than a workaround. */
+ *  generic path via `respawnSession`, which resolves his EFFECTIVE
+ *  provider/model from the saved summon config — `resolveEffectiveRespawn`
+ *  below — before this function ever sees the record): a codex Arceus (per
+ *  the saved config, regardless of what the stale on-disk record's own
+ *  `provider` field says) simply respawns fresh here, persona re-typed on
+ *  the renderer's next summon of him, same as arceus.ts's own
+ *  `autoSummonArceus` already does for a mid-run (app-still-up) re-summon —
+ *  see that function's comment for the parallel case. Not a gap to close:
+ *  codex has no resumable-conversation flag in this app at all (no
+ *  `--resume`-equivalent id captured for any codex session, Arceus or
+ *  otherwise), so "fresh, persona re-typed" is the correct fallback rather
+ *  than a workaround. */
 export function shouldResume(record: SessionRecord): boolean {
   return record.provider === 'claude' && !!record.claudeSessionId;
+}
+
+/** Provider/model/command `respawnSession` actually uses for `record` — the
+ *  record itself, unchanged, for every ordinary session. For Arceus
+ *  specifically (`isGlobalSession`), overridden with whatever's currently
+ *  saved in `agents/arceus/summon.json` (main/arceusSummonConfig.ts) — the
+ *  SAME source of truth the reset-and-resummon flow already reads
+ *  (`SummonArceusDialog.tsx` -> renderer's `arceus.ts` `summonArceus`), so a
+ *  provider/model change made there is respected on the next app launch
+ *  too, not just a mid-run resummon (this was the bug: this function used
+ *  to just trust the stale on-disk `SessionRecord`, which only reflects
+ *  whatever was live at the last quit). Falls back to `record` unchanged if
+ *  Arceus was never summoned (no summon.json yet). `claudeSessionId` is
+ *  left untouched either way — a captured id only matters when the
+ *  (possibly overridden) provider is still 'claude', which `shouldResume`
+ *  already gates on. */
+async function resolveEffectiveRespawn(
+  record: SessionRecord,
+  arceusConfig: ArceusRespawnConfig
+): Promise<SessionRecord> {
+  if (!isGlobalSession(record)) return record;
+  const saved = await loadArceusSummonConfig(arceusConfig.harnessHomeDir, arceusConfig.defaultAgentProvider);
+  if (!saved) return record;
+  return {
+    ...record,
+    provider: saved.provider,
+    model: saved.model,
+    command: AGENT_PROVIDERS[saved.provider].defaultCommand
+  };
 }
 
 /** Args for a persisted session's respawn — BEFORE pty.ts's claude-only
