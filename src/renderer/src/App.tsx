@@ -62,10 +62,10 @@ export function App(): JSX.Element {
   const onboardingDone = useAppSettingsStore((s) => s.settings.onboardingDone);
   const [welcomeArceusDialogOpen, setWelcomeArceusDialogOpen] = useState(false);
   const viewMode = useStore((s) => s.viewMode);
-  // Still needed here for the split handle's mount condition, and now the
-  // restored hide-terminal chevron below too — the show-terminal half of
-  // this toggle lives on GardenDrawerEdgeTab.tsx, but the divider only
-  // exists when the drawer is actually showing.
+  // The raw preference, not the effective layout (that's effectiveLayout.ts's
+  // job now) — used here only for the hide-terminal chevron's label/pressed
+  // state and the edge tab's mount condition below. The show-terminal half
+  // of this toggle lives on GardenDrawerEdgeTab.tsx.
   const drawerOpen = useStore((s) => s.drawerOpen);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   // The drawer never opens for Arceus in 'garden' mode regardless of
@@ -214,8 +214,10 @@ export function App(): JSX.Element {
             GardenDrawerEdgeTab.tsx's show-terminal tab (that one only
             covers bringing the drawer BACK once it's closed — this is what
             closes it in the first place), rendered only in 'garden' mode
-            where the split actually exists; level-2 ghost `.topbar-icon-btn`,
-            same weight as its audio/bell/theme/gear neighbors. */}
+            where the split actually exists — and not at all when Arceus is
+            selected, since his drawer never shows there regardless of this
+            preference; level-2 ghost `.topbar-icon-btn`, same weight as its
+            audio/bell/theme/gear neighbors. */}
         <div className="topbar-actions">
           <div className="topbar-zone topbar-zone-stage">
             <ViewModeSwitcher />
