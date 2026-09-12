@@ -5,6 +5,8 @@ import { loadAppSettings, saveAppSettings } from '../appSettings';
 import { loadTerminalSettings, saveTerminalSettings } from '../terminalSettings';
 import { ensureHarnessHome, resolveHarnessHomeDir } from '../harnessHome';
 import { ensureHarnessInstructions, harnessInstructionsPath } from '../harnessInstructions';
+import { arceusSystemPromptPath } from '../arceusPrompt';
+import { arceusRosterFilePath } from '../arceusRosterFile';
 import { saveWorkspaceRegistry } from '../workspacePersistence';
 import { initDiagnostics, setDiagnosticsLoggingEnabled } from '../diagnostics';
 import type { PtyManager } from '../pty';
@@ -105,6 +107,12 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
       harnessInstructionsPath(getHarnessHomeDir())
     );
     ptyManager.setAdvisorModel(settings.advisorModel);
+    // Arceus v2 — re-read on every save (not just a dir change) so this
+    // stays trivially correct; cheap (two `join()` calls, no I/O).
+    ptyManager.setArceusPaths(
+      arceusSystemPromptPath(getHarnessHomeDir()),
+      arceusRosterFilePath(getHarnessHomeDir())
+    );
     setCodexDelegateModel(settings.codexDelegateModel);
 
     await saveAppSettings(settings);

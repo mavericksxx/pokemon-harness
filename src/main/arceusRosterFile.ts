@@ -9,12 +9,15 @@
  * remembered roster.
  *
  * Regenerated from `main/index.ts`'s `sessions:checkpoint` handler, right
- * alongside `arceusRelay.onSessionsChecked` — kept in its own module so
- * arceusRelay.ts doesn't grow an unrelated responsibility.
+ * alongside `pokeRelay.onSessionsChecked` — kept in its own module so
+ * main/pokeTools.ts doesn't grow an unrelated responsibility. Extended for
+ * Arceus v2 (docs/arceus-v2-plan.md §3.4) with a workspaces registry block
+ * and each session's `lastDispatch`.
  */
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionRecord } from '../shared/types';
+import type { WorkspaceRecord } from '../shared/workspaceTypes';
 import { log } from './diagnostics';
 
 function arceusDir(harnessHomeDir: string): string {
@@ -33,6 +36,21 @@ interface RosterFileEntry {
   provider: string;
   status: string;
   workspace?: string;
+  /** See `SessionRecord.lastDispatch`'s own comment — the continuity signal
+   *  Arceus v2's dispatch flow (docs/arceus-v2-plan.md §3.1) reads to offer
+   *  reuse-vs-spawn-fresh for an idle agent. */
+  lastDispatch?: { at: number; message: string };
+}
+
+/** Arceus v2 (docs/arceus-v2-plan.md §3.4/§7 item 2) — the workspaces
+ *  registry block, trimmed to just what Arceus needs: an id to name in
+ *  `poke-spawn`, a human name, and the cwd that workspace resolves to.
+ *  `createdAt`/`accent` (WorkspaceRecord's other fields) are UI-only and
+ *  dropped here. */
+interface RosterWorkspaceEntry {
+  id: string;
+  name: string;
+  primaryFolder: string;
 }
 
 /** Serialized once per call purely to diff against the last WRITTEN
@@ -54,15 +72,23 @@ let lastWrittenPath: string | null = null;
 let lastEntriesJson: string | null = null;
 
 /** Called from `sessions:checkpoint` (main/index.ts), right next to
- *  `arceusRelay.onSessionsChecked` — and once more from the
+ *  `pokeRelay.onSessionsChecked` — and once more from the
  *  `arceus:ensureSystemPrompt` handler right before it hands `rosterPath`
  *  to the renderer, so the file is guaranteed to exist at the moment its
  *  path is promised to Arceus rather than depending on a checkpoint having
  *  already fired first. Arceus's own entry is excluded — same exclusion the
- *  renderer's `toRosterEntries` applies to the first-prompt and dispatch-box
- *  roster. Errors are logged, never thrown: a roster-file write must never
- *  take down a checkpoint. */
-export function writeArceusRosterFile(harnessHomeDir: string, sessions: SessionRecord[]): void {
+ *  renderer's `toRosterEntries` applies to the dispatch-box roster tag.
+ *  Errors are logged, never thrown: a roster-file write must never take
+ *  down a checkpoint.
+ *
+ *  `workspaces` (Arceus v2, docs/arceus-v2-plan.md §3.4) is the FULL live
+ *  workspace registry, not filtered — every workspace is a valid
+ *  `poke-spawn` target whether or not it currently has any sessions. */
+export function writeArceusRosterFile(
+  harnessHomeDir: string,
+  sessions: SessionRecord[],
+  workspaces: WorkspaceRecord[]
+): void {
   const p = arceusRosterFilePath(harnessHomeDir);
   const entries: RosterFileEntry[] = sessions
     .filter((s) => !s.isArceus && !s.isPlainTerminal)
@@ -71,11 +97,20 @@ export function writeArceusRosterFile(harnessHomeDir: string, sessions: SessionR
       pokemon: s.pokemon,
       provider: s.provider,
       status: s.status,
-      workspace: s.workspaceId
+      workspace: s.workspaceId,
+      lastDispatch: s.lastDispatch
     }));
+  const workspaceEntries: RosterWorkspaceEntry[] = workspaces.map((w) => ({
+    id: w.id,
+    name: w.name,
+    primaryFolder: w.primaryFolder
+  }));
 
-  const entriesJson = JSON.stringify(entries);
-  if (p === lastWrittenPath && entriesJson === lastEntriesJson && existsSync(p)) return;
+  // Compared together so a workspace-only change (created/renamed, no
+  // session change at all) still triggers a rewrite instead of being
+  // silently skipped by a comparison that only ever looked at `entries`.
+  const combinedJson = JSON.stringify({ entries, workspaceEntries });
+  if (p === lastWrittenPath && combinedJson === lastEntriesJson && existsSync(p)) return;
 
   try {
     mkdirSync(arceusDir(harnessHomeDir), { recursive: true });
@@ -85,11 +120,15 @@ export function writeArceusRosterFile(harnessHomeDir: string, sessions: SessionR
     // tracks the last real CHANGE, not the last time this function ran —
     // calling it `generatedAt` would read as "freshly polled" and could lead
     // Arceus to (wrongly) treat an old-looking timestamp as a stale file.
-    const content = JSON.stringify({ lastChangedAt: new Date().toISOString(), sessions: entries }, null, 2);
+    const content = JSON.stringify(
+      { lastChangedAt: new Date().toISOString(), workspaces: workspaceEntries, sessions: entries },
+      null,
+      2
+    );
     writeFileSync(tmp, content, 'utf8');
     renameSync(tmp, p);
     lastWrittenPath = p;
-    lastEntriesJson = entriesJson;
+    lastEntriesJson = combinedJson;
   } catch (e) {
     log('arceus-roster', 'error', 'writing roster file failed', {
       error: e instanceof Error ? e.message : String(e)

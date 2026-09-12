@@ -2,15 +2,16 @@ import { handle } from './handle';
 import { writeArceusRosterFile } from '../arceusRosterFile';
 import type { PtyManager } from '../pty';
 import type { SessionPersistence } from '../sessionPersistence';
-import type { ArceusRelayWatcher } from '../arceusRelay';
+import type { PokeRelay } from '../pokeTools';
 import type { CostWatcher } from '../costWatcher';
 import type { TaskNotificationWatcher } from '../taskNotificationWatcher';
 import type { DiskRestoreInfo, SessionRecord } from '../../shared/types';
+import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
 
 export interface SessionsIpcDeps {
   ptyManager: PtyManager;
   sessionPersistence: SessionPersistence;
-  arceusRelay: ArceusRelayWatcher;
+  pokeRelay: PokeRelay;
   costWatcher: CostWatcher;
   taskNotificationWatcher: TaskNotificationWatcher;
   notifyStatusTransitions: (sessions: SessionRecord[], selectedId: string | null) => void;
@@ -19,6 +20,7 @@ export interface SessionsIpcDeps {
   getLastSelectedId: () => string | null;
   setLastSelectedId: (id: string | null) => void;
   getHarnessHomeDir: () => string;
+  getWorkspaceRegistry: () => WorkspaceSnapshot;
   getDiskRestorePromise: () => Promise<DiskRestoreInfo>;
   isDiskRestoreConsumed: () => boolean;
   setDiskRestoreConsumed: (consumed: boolean) => void;
@@ -28,7 +30,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   const {
     ptyManager,
     sessionPersistence,
-    arceusRelay,
+    pokeRelay,
     costWatcher,
     taskNotificationWatcher,
     notifyStatusTransitions,
@@ -37,6 +39,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     getLastSelectedId,
     setLastSelectedId,
     getHarnessHomeDir,
+    getWorkspaceRegistry,
     getDiskRestorePromise,
     isDiskRestoreConsumed,
     setDiskRestoreConsumed
@@ -63,10 +66,10 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
       sessions: sessions.filter((s) => !s.delegateParentId),
       lastSelectedId: selectedId
     });
-    // BACKLOG "next up" item 3 — flushes any relay Arceus queued for a target
-    // that's now idle (or drops it if that target closed/finished in the
-    // meantime). Cheap no-op when nothing is queued.
-    arceusRelay.onSessionsChecked(sessions);
+    // Arceus v2 (docs/arceus-v2-plan.md §3.2) — flushes any `poke-relay`
+    // queued for a target that's now idle (or drops it if that target
+    // closed/finished in the meantime). Cheap no-op when nothing is queued.
+    pokeRelay.onSessionsChecked(sessions);
     // Cadence gating (2026-09-01) — this checkpoint fires synchronously off
     // every renderer session-status change (see startRegistrySync in
     // sessions.ts), so it's also the resume/pause trigger for costWatcher's
@@ -77,7 +80,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     taskNotificationWatcher.onSessionsChecked(sessions);
     // Regenerates agents/arceus/roster.json (self-serve roster Arceus can read
     // with his own tools) — cheap no-op when nothing roster-relevant changed.
-    writeArceusRosterFile(getHarnessHomeDir(), sessions);
+    writeArceusRosterFile(getHarnessHomeDir(), sessions, getWorkspaceRegistry().workspaces);
   });
 
   // Boot-time pull, for both a crash-triggered reload and a plain dev Cmd+R:

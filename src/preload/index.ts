@@ -21,6 +21,7 @@ import type { AppSettings } from '../shared/appSettingsTypes';
 import type { WorkspaceMutationResult, WorkspaceSnapshot, WorkspaceUpdate } from '../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
+import type { PokeAskNotice, PokeRelayDeliveredNotice, PokeSpawnedNotice } from '../shared/pokeTools';
 import type { DiagnosticsInfo, ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
 import type { UsageSnapshot } from '../shared/usageTypes';
 
@@ -154,9 +155,9 @@ const api = {
   /** One more async `Task`/`Agent` dispatch outstanding for this parent
    *  session (its transcript's `toolUseResult.isAsync`) — hookRouter.ts uses
    *  this to gate `Stop`-driven battle completion. Single global channel,
-   *  same pattern as `onArceusRelayUnresolved` below, since every listener
-   *  needs every parent's events (there's no one owner to scope a per-id
-   *  channel to, unlike `onHookEvent`/`onCostUpdate`). */
+   *  same pattern as `onDelegateHookEvent` above, since every listener needs
+   *  every parent's events (there's no one owner to scope a per-id channel
+   *  to, unlike `onHookEvent`/`onCostUpdate`). */
   onAsyncSubagentLaunch: (cb: (agentId: string) => void): (() => void) => {
     const listener = (_e: IpcRendererEvent, agentId: string): void => cb(agentId);
     ipcRenderer.on('battle:asyncLaunch', listener);
@@ -241,15 +242,32 @@ const api = {
   /** Settings' "reset arceus" action — deletes the saved config, returning
    *  the app to first-run (setup dialog) behavior. */
   resetArceusSummonConfig: (): Promise<void> => ipcRenderer.invoke('arceus:resetSummonConfig'),
-  /** BACKLOG "next up" item 3 — main's `arceusRelay.ts` watches Arceus's own
-   *  transcript for a relay directive and resolves it against the live
-   *  session list; this fires only when a directive's named agent doesn't
-   *  resolve to anyone, so the renderer can toast it (main has no toast
-   *  surface of its own). */
-  onArceusRelayUnresolved: (cb: (name: string) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, name: string): void => cb(name);
-    ipcRenderer.on('arceus:relayUnresolved', listener);
-    return () => ipcRenderer.removeListener('arceus:relayUnresolved', listener);
+  // ─── Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — poke-ask/poke-spawn/
+  // poke-relay. All three are one-way pushes; there is no matching invoke
+  // channel because the round trip back is always a plain `writePty` call
+  // the renderer makes itself, not a reply over the hooks socket. ─────────
+  /** `poke-ask` — shows a picker; the caller answers by injecting into
+   *  Arceus's own pty itself (see PokeAskModal.tsx), never through this API. */
+  onPokeAsk: (cb: (notice: PokeAskNotice) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, notice: PokeAskNotice): void => cb(notice);
+    ipcRenderer.on('poke:ask', listener);
+    return () => ipcRenderer.removeListener('poke:ask', listener);
+  },
+  /** `poke-spawn` — main already spawned the real pty; the renderer's job is
+   *  to adopt it as an ordinary session (see sessions.ts's `adoptPokeSpawn`),
+   *  same shape as `onDelegateSessionSpawned` above. */
+  onPokeSpawn: (cb: (notice: PokeSpawnedNotice) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, notice: PokeSpawnedNotice): void => cb(notice);
+    ipcRenderer.on('poke:spawned', listener);
+    return () => ipcRenderer.removeListener('poke:spawned', listener);
+  },
+  /** `poke-relay` — fires once the message is actually written into its
+   *  target's pty (may have sat queued until the target went idle); the
+   *  renderer stamps its own `lastDispatch` copy for that session. */
+  onPokeRelayDelivered: (cb: (notice: PokeRelayDeliveredNotice) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, notice: PokeRelayDeliveredNotice): void => cb(notice);
+    ipcRenderer.on('poke:relayDelivered', listener);
+    return () => ipcRenderer.removeListener('poke:relayDelivered', listener);
   },
 
   // ─── Workspaces (Phase 8.7) ─────────────────────────────────────────────

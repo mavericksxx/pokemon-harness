@@ -80,20 +80,28 @@ export function buildArceusArgs(provider: AgentProviderId, model: string | undef
   return [...buildProviderArgs(provider, model), ...autoArgs];
 }
 
-/** Verbatim, user-approved draft (Phase 8.8 spec, extended for BACKLOG "next
- *  up" item 3) — written to agents/arceus/SYSTEM.md on first summon ONLY
- *  (main/arceusPrompt.ts never overwrites an existing file), so the user can
- *  retune Arceus by editing that file directly. This constant is the seed,
- *  not a live source: once the file exists, its on-disk contents are what
- *  every summon reads, and are typed in as the FIRST PROMPT (not a system
- *  prompt anymore — see buildArceusArgs above) once his session is ready. */
-export const ARCEUS_SYSTEM_PROMPT_TEMPLATE = `You are Arceus, the orchestrator of this garden. You speak briefly and calmly — a benevolent creator who delegates rather than micromanages, with light Pokémon flavor and zero hamminess. Duties: triage what the user asks for, break it into tasks, assign work to the other agents in the garden, watch their progress, and surface only what genuinely needs the user's attention. When asked what's happening, give a short plain-language status of who's doing what. You do not implement things yourself unless directly asked. Keep every reply short.
+/** Verbatim, user-approved draft (Phase 8.8 spec, rewritten for Arceus v2 —
+ *  see docs/arceus-v2-plan.md §3.1/§7) — written to agents/arceus/SYSTEM.md
+ *  on first summon ONLY (main/arceusPrompt.ts never overwrites an existing
+ *  file), so the user can retune Arceus by editing that file directly. This
+ *  constant is the seed, not a live source: once the file exists, its
+ *  on-disk contents are what every summon reads, composed (with a roster-
+ *  file pointer — see `buildArceusSystemPrompt` below) into the ONE system
+ *  prompt file every Arceus spawn gets, at the shared `PtyManager.spawn`
+ *  choke point (pty.ts), replacing HARNESS.md's own flag for his spawns only. */
+export const ARCEUS_SYSTEM_PROMPT_TEMPLATE = `You are Arceus, the orchestrator of this garden. You speak briefly and calmly — a benevolent creator who delegates rather than micromanages, with light Pokémon flavor and zero hamminess. You do not implement things yourself; you route work to other agents, across every project (workspace) in the garden.
 
-Below this message is a snapshot of who's in the garden right now, across every workspace — session title, pokémon species, provider, and status. It will go stale as sessions come and go; whenever the user assigns you a task through the dispatch box, the app automatically prepends a fresh one-line \`[roster: ...]\` tag to what you receive — trust that tag over this initial snapshot, and don't treat it as something to reply to. A live roster file at \`agents/arceus/roster.json\` (in the harness home directory) also exists on disk for you to read directly when in doubt.
+Every time the user gives you a task:
+1. Identify which workspace it belongs to. If you're confident, say your guess in one short line and proceed — no need to ask. If it's genuinely ambiguous between two or more real candidates, call \`poke-ask\` with the question and the candidate workspaces as options, instead of guessing.
+2. Once the workspace is settled, check agents/arceus/roster.json for an idle agent already there. If one exists, ALWAYS call \`poke-ask\` and offer exactly two options — continue with that agent (mention what it was last working on, from its \`lastDispatch\`) or spawn a new one — even when you're sure which is right. That choice is the user's, never yours to make silently.
+3. If no idle agent exists there, call \`poke-spawn\` directly with the workspace and the task, and tell the user that's what you did.
+4. If the user explicitly asks you to relay or hand off a message to a specific already-running agent, call \`poke-relay\` with that agent's name (its title, or its pokémon species if unambiguous) and the message.
 
-When — and ONLY when — the user explicitly asks you to relay, assign, or hand off a task to a specific named agent, end your reply with exactly one line per assignment, in this exact form:
-@@relay agent="<session title or pokémon species>" message="<the instruction, in your own words>"
-Use the agent's session title when you know it; its pokémon species name works too if that's what the user said and it's unambiguous. If the message needs a literal " or \\, escape it as \\" or \\\\. Never emit an @@relay line unprompted, speculatively, or to yourself — only in direct response to the user asking you to relay something. After emitting it, confirm in plain language what you relayed and to whom.
+Single target only for now — one workspace, one agent per task. Never fan a single request out across more than one agent or project.
+
+\`poke-ask\`, \`poke-spawn\`, and \`poke-relay\` are ordinary Bash commands. All three return IMMEDIATELY with just a short acknowledgment — none of them wait for the user's answer, the new agent to come up, or the relay to actually land. Once one returns, end your turn normally. You'll be re-prompted with the real outcome as a fresh message once it's known — never poll or wait for it yourself.
+
+If you are running on Codex rather than Claude, these three tools are not available to you (a sandboxing limitation) — say so plainly if the user asks you to do something that needs them, and stick to plain conversation/relay through what they type to you directly.
 `;
 
 // ─── Roster formatting (BACKLOG "next up" item 3 §2) ───────────────────────
@@ -116,14 +124,6 @@ function rosterEntryLine(e: ArceusRosterEntry): string {
   return `${e.title} (${e.pokemon}, ${e.provider}) — ${e.status}`;
 }
 
-/** Multi-line block for the first prompt — one line per session. Callers
- *  pass every session across every workspace, Arceus's own entry already
- *  excluded (he isn't part of his own roster). */
-export function formatRosterBlock(entries: ArceusRosterEntry[]): string {
-  if (entries.length === 0) return 'garden roster: (no other sessions yet)';
-  return ['garden roster:', ...entries.map((e) => `- ${rosterEntryLine(e)}`)].join('\n');
-}
-
 /** Single-line, compact form — the tag the dispatch box prepends to every
  *  message it sends into Arceus's pty (item 2's "app prepends a fresh
  *  roster line" mechanism, chosen over a separate change-triggered watcher
@@ -134,19 +134,19 @@ export function formatRosterLine(entries: ArceusRosterEntry[]): string {
   return `[roster: ${entries.map(rosterEntryLine).join('; ')}]`;
 }
 
-/** The full first-prompt text (persona + roster snapshot + a pointer to the
- *  always-current roster file) typed into Arceus's pty once his session is
- *  ready — see arceus.ts's `summonArceus`. `rosterFilePath` is the absolute
- *  path to `agents/arceus/roster.json` (main/arceusRosterFile.ts), freshly
- *  resolved at runtime on every summon — unlike the SYSTEM.md template body
- *  (written once, never overwritten), this sentence is rebuilt fresh every
- *  time, so it's the load-bearing way Arceus learns about the file even for
- *  a pre-existing install whose SYSTEM.md predates it. */
-export function buildArceusFirstPrompt(
-  personaText: string,
-  roster: ArceusRosterEntry[],
-  rosterFilePath: string
-): string {
-  const rosterFileNote = `${rosterFilePath} is always current — when you need to resolve who's in the garden (a species you don't recognize, a renamed session, or any doubt), read that file rather than trusting remembered names; the per-message \`[roster: ...]\` tag remains authoritative for messages that carry it.`;
-  return `${personaText.trim()}\n\n${formatRosterBlock(roster)}\n\n${rosterFileNote}`;
+/** The ONE composed system-prompt file every Arceus spawn gets (claude or
+ *  codex) — his persona (agents/arceus/SYSTEM.md's CURRENT on-disk contents,
+ *  re-read fresh at every spawn, same "live source" rule HARNESS.md follows
+ *  — see pty.ts's `spawn()`) plus a pointer to the always-current roster
+ *  file. Built at the shared `PtyManager.spawn` choke point so all three
+ *  real Arceus spawn paths (summonArceus/tryResumeArceus/sessionRespawn's
+ *  respawnSession) get it automatically, replacing HARNESS.md's own
+ *  `--append-system-prompt-file`/`-c developer_instructions=` flag for his
+ *  spawns only (never both — the CLI flag is last-value-wins, and he
+ *  doesn't write code, so HARNESS.md's instructions don't apply to him).
+ *  `rosterFilePath` is the absolute path to `agents/arceus/roster.json`
+ *  (main/arceusRosterFile.ts). */
+export function buildArceusSystemPrompt(personaText: string, rosterFilePath: string): string {
+  const rosterNote = `A live roster file exists at ${rosterFilePath} — every workspace ({id, name, primaryFolder}) and every session ({title, pokemon, provider, status, workspace, lastDispatch}). Read it whenever you need to resolve who's in the garden or where a workspace lives; trust it over anything you remember.`;
+  return `${personaText.trim()}\n\n${rosterNote}`;
 }

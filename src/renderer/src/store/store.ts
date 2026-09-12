@@ -271,6 +271,11 @@ interface HarnessState {
    *  count (see updateNotifier.ts's `startQuitInterceptListener`). */
   quitDialogOpen: boolean;
   quitDialogCount: number;
+  /** Arceus v2 (docs/arceus-v2-plan.md §3.2) — a `poke-ask` request pushed
+   *  from main (main.tsx's `onPokeAsk` listener), non-null exactly while
+   *  PokeAskModal.tsx is shown. Cleared either by an answer (which also
+   *  injects it into Arceus's own pty) or a plain dismiss. */
+  pokeAsk: { id: string; question: string; options: string[] } | null;
   /** macOS fullscreen state, pushed from main (main.tsx's
    *  `window.api.onFullscreenChange` listener; see main/index.ts's
    *  `enter-full-screen`/`leave-full-screen` handlers). Drives the topbar's
@@ -350,6 +355,8 @@ interface HarnessState {
   setSessionsOverviewOpen(open: boolean): void;
   setSettingsOpen(open: boolean): void;
   setQuitDialogOpen(open: boolean, count?: number): void;
+  /** Arceus v2 — shows/updates the `poke-ask` picker; `null` closes it. */
+  setPokeAsk(ask: { id: string; question: string; options: string[] } | null): void;
   setIsFullScreen(isFullScreen: boolean): void;
   setWindowVisible(windowVisible: boolean): void;
   /** Written only by App.tsx's `matchMedia` listener — never persisted, see
@@ -428,6 +435,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   settingsOpen: false,
   quitDialogOpen: false,
   quitDialogCount: 0,
+  pokeAsk: null,
   isFullScreen: false,
   windowVisible: true,
   narrowLayout: loadNarrowLayout(),
@@ -529,6 +537,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   setSessionsOverviewOpen: (open) => set({ sessionsOverviewOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setQuitDialogOpen: (open, count) => set((st) => ({ quitDialogOpen: open, quitDialogCount: count ?? st.quitDialogCount })),
+  setPokeAsk: (ask) => set({ pokeAsk: ask }),
   setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
   setWindowVisible: (windowVisible) => set({ windowVisible }),
   setNarrowLayout: (narrowLayout) => set({ narrowLayout }),

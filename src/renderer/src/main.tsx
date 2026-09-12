@@ -2,8 +2,16 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useStore, GARDEN_FULLSCREEN_CHANGE_EVENT } from './store/store';
-import { startSession, stopSession, startRegistrySync, startCompletionToasts, startDelegateSpawnListener } from './sessions';
-import { autoSummonArceus, startArceusRelayToasts } from './arceus';
+import {
+  startSession,
+  stopSession,
+  startRegistrySync,
+  startCompletionToasts,
+  startDelegateSpawnListener,
+  startPokeSpawnListener,
+  startPokeRelayDeliveredListener
+} from './sessions';
+import { autoSummonArceus, startPokeAskListener } from './arceus';
 import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
 import {
   initAudio,
@@ -240,12 +248,18 @@ async function boot(): Promise<void> {
   try {
     startRegistrySync();
     startCompletionToasts();
-    startArceusRelayToasts();
     // First-class delegate sessions (shared/delegateSpawn.ts) — adopts each
     // app-spawned `codex exec` pty main pushes over `delegate:sessionSpawned`
     // as an ordinary session (roster card + terminal). See sessions.ts's
     // `startDelegateSpawnListener` for the full sequencing rationale.
     startDelegateSpawnListener();
+    // Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — `poke-spawn`'s renderer
+    // half (same adoption shape as the delegate listener above),
+    // `poke-relay`'s `lastDispatch` stamp, and `poke-ask`'s picker (renders
+    // via PokeAskModal.tsx once this stores it).
+    startPokeSpawnListener();
+    startPokeRelayDeliveredListener();
+    startPokeAskListener();
 
     // xterm measures glyph width once at `term.open()` and never re-measures
     // on a later font swap, so JetBrains Mono must be ready before any

@@ -208,6 +208,15 @@ export interface SessionRecord {
    *  back to 'codex delegate' when unset/blank, same default the older
    *  roaming-battler path uses (hookBridge.ts's `handleDelegate`). */
   delegateLabel?: string;
+  /** Arceus v2 continuity signal (docs/arceus-v2-plan.md §3.4/§7 item 2) —
+   *  the timestamp + text of the last message dispatched INTO this session,
+   *  from Arceus (`poke-spawn`'s initial task, a `poke-relay` injection) or
+   *  the user (the dispatch box). Read by `writeArceusRosterFile`
+   *  (main/arceusRosterFile.ts) into each roster.json entry, so Arceus can
+   *  tell "was this idle agent already working on something" before
+   *  offering reuse-vs-spawn-fresh via `poke-ask`. Absent until the first
+   *  such dispatch. */
+  lastDispatch?: { at: number; message: string };
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

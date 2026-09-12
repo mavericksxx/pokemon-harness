@@ -27,6 +27,10 @@ export function ArceusDispatchBox({ sessionId }: Props): JSX.Element {
     if (!trimmed) return;
     const roster = formatRosterLine(toRosterEntries(useStore.getState().sessions));
     void window.api.writePty(sessionId, `${roster} ${trimmed}\r`);
+    // Arceus v2 continuity signal (docs/arceus-v2-plan.md §3.4) — same field
+    // `poke-spawn`/`poke-relay` stamp on their own targets; here it's on
+    // Arceus's own record (this box only ever dispatches to him).
+    useStore.getState().updateSession(sessionId, { lastDispatch: { at: Date.now(), message: trimmed } });
     setText('');
   };
 

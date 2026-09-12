@@ -97,14 +97,14 @@ export function SummonArceusDialog({ onClose }: Props): JSX.Element {
               </option>
             ))}
           </select>
-          {/* Relay ("tell chikorita to do X") only works for a claude
-              Arceus — it reads his own Claude Code hooks to learn where his
-              transcript lives, and this app doesn't wire hooks for a
-              top-level codex session at all. A codex Arceus still chats and
-              takes dispatches normally; he just can't hand work to other
-              agents on his own. */}
+          {/* Routing/spawning/relaying (poke-ask/poke-spawn/poke-relay —
+              Arceus v2) only works for a claude Arceus: they round-trip over
+              a UDS socket, and Codex's sandbox blocks that connection
+              outright (spike-confirmed, docs/arceus-v2-plan.md §3.3/§4 spike
+              2b). A codex Arceus still chats and takes dispatches normally;
+              he just can't route work to other agents on his own. */}
           {provider === 'codex' && (
-            <p className="hint">relaying tasks to other agents (@@relay) currently only works for claude.</p>
+            <p className="hint">routing/spawning/relaying to other agents currently only works for claude.</p>
           )}
         </label>
 

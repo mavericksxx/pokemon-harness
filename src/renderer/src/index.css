@@ -1805,6 +1805,18 @@ body.garden-lowres .garden canvas {
   margin-top: 4px;
 }
 
+/* ── poke-ask picker (Arceus v2, docs/arceus-v2-plan.md §3.2/§7) ─────────── */
+/* Vertical stack of option buttons, above the generic `.modal-actions`
+ * dismiss row below it — deliberately plain (visual redesign is separate,
+ * out-of-scope work per the plan's §6/§7). */
+.poke-ask-options {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 /* ── Quit-intercept dialog (parity sweep item 2) ─────────────────────────── */
 /* Wider than the generic `.modal` (backlog: the "kill it & quit" caption
  * wrapped badly in the ~136px column the default 460px width leaves for

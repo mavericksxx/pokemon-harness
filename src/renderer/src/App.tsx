@@ -20,6 +20,7 @@ import { QuickSettings } from '@/components/QuickSettings';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { QuitDialog } from '@/components/QuitDialog';
+import { PokeAskModal } from '@/components/PokeAskModal';
 import { BootWipe } from '@/components/BootWipe';
 import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
@@ -286,6 +287,7 @@ export function App(): JSX.Element {
       <SessionsOverview />
       <SettingsPanel />
       <QuitDialog />
+      <PokeAskModal />
       {!onboardingDone && <WelcomeDialog onSummonArceus={() => setWelcomeArceusDialogOpen(true)} />}
       {welcomeArceusDialogOpen && (
         <SummonArceusDialog onClose={() => setWelcomeArceusDialogOpen(false)} />

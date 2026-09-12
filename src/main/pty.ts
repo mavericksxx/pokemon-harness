@@ -18,8 +18,9 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { createConnection, type Socket } from 'node:net';
 import { buildAgentsFlagValue } from './bundledHarnessAgents';
 import { expandTilde, resolveCommand, userShellPath } from './shellEnv';
-import { AGENT_ID_ENV, HOOK_SOCK_ENV, type HookBridge } from './hookBridge';
+import { AGENT_ID_ENV, HOOK_SOCK_ENV, POKE_TOOL_PERMISSION_RULES, type HookBridge } from './hookBridge';
 import { log } from './diagnostics';
+import { ARCEUS_SESSION_ID, buildArceusSystemPrompt } from '../shared/arceus';
 import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 import { TERMINAL_COLORS } from '../shared/terminalColors';
 import { FRAME_DATA, FRAME_EXIT, FRAME_KILL, FRAME_WRITE, FrameDecoder, encodeFrame } from './ptyKeeperProtocol';
@@ -175,6 +176,14 @@ export class PtyManager {
   private advisorModel = 'fable';
   private terminalAppearance: 'light' | 'dark' = 'dark';
   private lastExitCodes = new Map<string, number>();
+  /** Arceus v2 (docs/arceus-v2-plan.md §3.5) — his own persona file
+   *  (agents/arceus/SYSTEM.md) and the live roster file's path, set at boot
+   *  and whenever the harness home dir changes (main/index.ts), same
+   *  "path cached, contents read fresh at spawn time" pattern as
+   *  `harnessInstructionsPath` above. Read inside `spawn()` ONLY for
+   *  `opts.id === ARCEUS_SESSION_ID` — see that method's own comment. */
+  private arceusSystemPromptPath: string | null = null;
+  private arceusRosterPath: string | null = null;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -240,6 +249,13 @@ export class PtyManager {
     this.harnessInstructionsPath = path;
   }
 
+  /** Set at boot and whenever the harness home dir changes (main/index.ts),
+   *  same call-site pattern as `setHarnessInstructions` above. */
+  setArceusPaths(systemPromptPath: string, rosterPath: string): void {
+    this.arceusSystemPromptPath = systemPromptPath;
+    this.arceusRosterPath = rosterPath;
+  }
+
   /** Set from `appSettings.advisorModel` at boot and on every settings save
    *  (main/index.ts) — read the next time any claude session spawns, so
    *  changing it never touches an already-running session's pty. */
@@ -293,6 +309,12 @@ export class PtyManager {
       return { ok: false, error: `command not found on PATH: ${opts.command}` };
     }
 
+    // Arceus v2 (docs/arceus-v2-plan.md §3.5) — the shared choke point every
+    // real Arceus spawn path (renderer's summonArceus/tryResumeArceus, and
+    // sessionRespawn.ts's boot-time respawnSession) funnels through, so
+    // persona composition below can't be missed on any of them.
+    const isArceus = opts.id === ARCEUS_SESSION_ID;
+
     // Phase 4 Part A — wire the Claude Code hooks shim for claude sessions
     // only: a per-session --settings file routes lifecycle hooks over a UDS
     // back to this app, so the garden can use them as the authoritative state
@@ -301,7 +323,15 @@ export class PtyManager {
     let hookEnv: Record<string, string> = {};
     let claudeSettingsPath: string | undefined;
     if (opts.provider === 'claude' && this.hookBridge) {
-      const settingsPath = this.hookBridge.prepareSession(opts.id, hookTmpDir());
+      // Arceus v2 — his own settings get the three poke-* tools'
+      // `permissions.allow` entries too, so auto-mode-off doesn't stall him
+      // on an unattended permission prompt for a Bash command his own
+      // persona expects him to run autonomously.
+      const settingsPath = this.hookBridge.prepareSession(
+        opts.id,
+        hookTmpDir(),
+        isArceus ? POKE_TOOL_PERMISSION_RULES : undefined
+      );
       claudeSettingsPath = settingsPath;
       args = [...args, '--settings', settingsPath];
       hookEnv = { [AGENT_ID_ENV]: opts.id, [HOOK_SOCK_ENV]: this.hookBridge.sockPath };
@@ -311,15 +341,17 @@ export class PtyManager {
     // CLAUDE.md, appended into every TOP-LEVEL claude/codex session's argv.
     // Deliberately excludes poke-delegate spawns (`opts.isDelegate` — see
     // hookBridge.ts's `handleDelegateSpawn` and main/index.ts's
-    // `onDelegateSpawnRequest`): those are subagents given their own task
-    // prompt, not sessions that need the orchestrator's own operating
-    // instructions. Read synchronously, right here, rather than cached at
+    // `onDelegateSpawnRequest`) AND Arceus (`isArceus` — Arceus v2): he
+    // doesn't write code, only routes/spawns/relays, so HARNESS.md's
+    // instructions don't apply to him — he gets his OWN composed system
+    // prompt instead (see the `isArceus` block right below this one).
+    // Read synchronously, right here, rather than cached at
     // `setHarnessInstructions` time — the file's CURRENT on-disk contents
     // are the live source (harnessInstructions.ts's header), so an edit
     // takes effect on the very next spawn. Missing/empty/unreadable file
     // just means no flag gets appended — same best-effort posture as every
     // other disk read in this function.
-    if (!opts.isDelegate && this.harnessInstructionsEnabled && this.harnessInstructionsPath) {
+    if (!opts.isDelegate && !isArceus && this.harnessInstructionsEnabled && this.harnessInstructionsPath) {
       let instructions = '';
       try {
         instructions = readFileSync(this.harnessInstructionsPath, 'utf8');
@@ -344,6 +376,45 @@ export class PtyManager {
           // produces a TOML-compatible double-quoted string literal (same
           // \n/\"/\\ escaping) for ordinary text.
           args = [...args, '-c', `developer_instructions=${JSON.stringify(instructions)}`];
+        }
+      }
+    }
+
+    // Arceus v2 (docs/arceus-v2-plan.md §3.5) — his ONE composed system
+    // prompt: agents/arceus/SYSTEM.md's CURRENT on-disk contents (re-read
+    // fresh here, same live-source contract as HARNESS.md above) plus a
+    // pointer to the live roster file (shared/arceus.ts's
+    // `buildArceusSystemPrompt`). Applies for BOTH providers — a codex
+    // Arceus gets it via the same `-c developer_instructions=` flag
+    // HARNESS.md would otherwise have used, so he keeps a working persona
+    // even though he can't reach the three new poke-* tools (his own text
+    // says so). Missing/empty SYSTEM.md just means no flag gets appended,
+    // same best-effort posture as every other block in this function.
+    if (
+      isArceus &&
+      (opts.provider === 'claude' || opts.provider === 'codex') &&
+      this.arceusSystemPromptPath &&
+      this.arceusRosterPath
+    ) {
+      let personaText = '';
+      try {
+        personaText = readFileSync(this.arceusSystemPromptPath, 'utf8');
+      } catch {
+        /* SYSTEM.md missing/unreadable — spawn without a persona rather than fail the whole session */
+      }
+      if (personaText.trim()) {
+        const composed = buildArceusSystemPrompt(personaText, this.arceusRosterPath);
+        try {
+          mkdirSync(hookTmpDir(), { recursive: true });
+          const composedPath = join(hookTmpDir(), 'arceus-system-prompt.md');
+          writeFileSync(composedPath, composed, 'utf8');
+          if (opts.provider === 'claude') {
+            args = [...args, '--append-system-prompt-file', composedPath];
+          } else if (opts.provider === 'codex') {
+            args = [...args, '-c', `developer_instructions=${JSON.stringify(composed)}`];
+          }
+        } catch {
+          /* best-effort — spawn without the composed file rather than fail the whole session */
         }
       }
     }
@@ -400,6 +471,17 @@ export class PtyManager {
     // above, plus `this.hookBridge` presence since the command comes from it.
     if (!opts.isDelegate && this.harnessInstructionsEnabled && opts.provider === 'claude' && this.hookBridge) {
       hookEnv.POKEHARNESS_DELEGATE_CMD = this.hookBridge.delegateCliCommand();
+    }
+
+    // Arceus v2 (docs/arceus-v2-plan.md §3.2/§3.4) — `poke-ask`/`poke-spawn`/
+    // `poke-relay` are bare PATH-resolvable commands, but ONLY for Arceus's
+    // OWN spawn, and only on claude (codex's sandbox blocks the UDS connect
+    // outright — spike-confirmed, see the plan's §3.3/§4 spike 2b; not
+    // wired at all for codex rather than shipping a command that always
+    // fails). Prepended ahead of the ordinary shell PATH, same pattern
+    // `buildFallbackEnv` already uses for `cliShimPath()` below.
+    if (isArceus && opts.provider === 'claude' && this.hookBridge) {
+      hookEnv.PATH = `${this.hookBridge.pokeToolsPath()}:${userShellPath()}`;
     }
 
     const env: Record<string, string> = {

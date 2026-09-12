@@ -2,6 +2,8 @@
 import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest, SessionStatus } from '@shared/types';
 import type { DelegateSessionSpawned } from '@shared/delegateSpawn';
+import type { PokeRelayDeliveredNotice, PokeSpawnedNotice } from '@shared/pokeTools';
+import { wrapBracketedPaste } from '@/arceus';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
@@ -233,6 +235,71 @@ async function adoptDelegateSession(spawned: DelegateSessionSpawned): Promise<vo
 
   const replay = await window.api.getPtyReplay(spawned.id);
   if (replay) writeReplayNow(spawned.id, replay);
+}
+
+/**
+ * Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — `poke-spawn`'s renderer half.
+ * Main already spawned the real pty (main/index.ts's `onPokeSpawn`) by the
+ * time this fires; mirrors `adoptDelegateSession` above almost exactly
+ * (species pick, store entry, no `window.api.spawnPty` call here) with two
+ * differences: the workspace is ALREADY resolved (`spawned.workspaceId`,
+ * not "whichever workspace is active" or "the parent's workspace"), and the
+ * initial task is injected as this session's first typed message — the
+ * bracketed-paste + `\r` mechanism Arceus's own persona used to get his
+ * first prompt this same way — and stamped as its `lastDispatch`, the
+ * continuity signal `writeArceusRosterFile` (main-side) reads for a future
+ * "was this agent already working on something" decision.
+ */
+export function startPokeSpawnListener(): void {
+  window.api.onPokeSpawn((spawned: PokeSpawnedNotice) => {
+    void adoptPokeSpawn(spawned);
+  });
+}
+
+async function adoptPokeSpawn(spawned: PokeSpawnedNotice): Promise<void> {
+  if (hasTerminal(spawned.id)) return; // defensive — should never double-fire
+
+  const picked = pickFreeLine(useStore.getState().takenLines());
+  // Same shiny-roll sequencing as startSession/adoptDelegateSession.
+  await initShinyConfig();
+  const shiny = rollShiny();
+
+  const title = spawned.task.length > 60 ? `${spawned.task.slice(0, 57)}...` : spawned.task;
+
+  createTerminal(spawned.id, 'claude');
+  useStore.getState().addSession(
+    {
+      id: spawned.id,
+      title,
+      cwd: spawned.cwd,
+      command: spawned.command,
+      provider: 'claude',
+      pokemon: picked.name,
+      line: picked.line,
+      shiny,
+      workspaceId: spawned.workspaceId
+    },
+    { select: false }
+  );
+  useStore.getState().updateSession(spawned.id, { status: 'idle' });
+
+  void window.api.writePty(spawned.id, wrapBracketedPaste(spawned.task) + '\r');
+  useStore.getState().updateSession(spawned.id, { lastDispatch: { at: Date.now(), message: spawned.task } });
+  // A `poke-spawn` is an autonomous action the user may not be watching for
+  // — a plain confirmation toast, same spirit as `swapSessionPokemon`'s own,
+  // is the one place `spawned.workspaceName` earns its spot on the wire.
+  useStore.getState().pushToast(`arceus spawned ${picked.name} in ${spawned.workspaceName}.`);
+}
+
+/** Arceus v2 — `poke-relay`'s renderer half. Main already resolved the
+ *  target and typed the message into its pty (main/pokeTools.ts's
+ *  `PokeRelay`, idle-safety queue included) by the time this fires; the
+ *  renderer's only remaining job is stamping its own `lastDispatch` copy for
+ *  that session (main has no store of its own to write to). */
+export function startPokeRelayDeliveredListener(): void {
+  window.api.onPokeRelayDelivered(({ targetId, message, at }: PokeRelayDeliveredNotice) => {
+    useStore.getState().updateSession(targetId, { lastDispatch: { at, message } });
+  });
 }
 
 /**

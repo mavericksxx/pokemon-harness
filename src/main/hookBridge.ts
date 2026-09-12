@@ -38,6 +38,8 @@ import {
   type HookPayload
 } from '../shared/hookEvents';
 import type { DelegateSpawnRequest, DelegateSpawnResponse } from '../shared/delegateSpawn';
+import { ARCEUS_SESSION_ID } from '../shared/arceus';
+import type { PokeAskRequest, PokeRelayRequest, PokeSpawnRequest, PokeToolResponse } from '../shared/pokeTools';
 
 /** Env var the shim reads to find the UDS to dial. */
 export const HOOK_SOCK_ENV = 'POKE_HOOK_SOCK';
@@ -81,6 +83,27 @@ export const CODEX_SHIM_FILENAME = 'cth-hook-codex.cjs';
  *  orchestrator (a Claude CLI running inside a harness pty) runs this via its
  *  own Bash tool to ask the app to spawn a real `codex exec` pty session. */
 export const DELEGATE_CLI_FILENAME = 'poke-delegate.cjs';
+
+/** Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — the three new tool commands,
+ *  installed as bare PATH-resolvable wrappers in their OWN directory,
+ *  deliberately separate from `CLI_SHIM_DIRNAME` above (which shadows
+ *  `claude`/`codex` and must never be on Arceus's own PATH). Only prepended
+ *  to PATH for an ARCEUS spawn on the claude provider — see pty.ts's
+ *  `spawn()` — so no other session can even resolve these by name, on top of
+ *  the parentAgentId guard every handler below still enforces independently. */
+const POKE_TOOLS_DIRNAME = 'poke-tools-bin';
+/** Shared implementation the three wrapper commands all exec into (argv[2]
+ *  names which one: 'poke-ask' | 'poke-spawn' | 'poke-relay') — one script
+ *  instead of three near-identical ones, same "small, dumb, one UDS round
+ *  trip" spirit as poke-delegate's own `DELEGATE_CLI_SCRIPT`. */
+const POKE_TOOLS_SCRIPT_FILENAME = 'poke-tools.cjs';
+
+/** `permissions.allow` entries added to Arceus's own per-session settings
+ *  (see `prepareSession`'s `extraAllowRules` param) so auto-mode-off doesn't
+ *  stall him on an unattended permission prompt for any of the three new
+ *  commands — mirrors `claude --help`'s own `Bash(<cmd>:*)` prefix-match
+ *  syntax. */
+export const POKE_TOOL_PERMISSION_RULES = ['Bash(poke-ask:*)', 'Bash(poke-spawn:*)', 'Bash(poke-relay:*)'];
 
 /** Cap on one UDS connection's buffered-so-far line (`bind()`'s
  *  `conn.on('data')`, below) — the shim always writes one JSON line then
@@ -326,6 +349,85 @@ c.on('end', () => {
 setTimeout(() => fail('timed out waiting for pok\\u00e9harness'), 10000).unref();
 `;
 
+/** Arceus v2 — shared implementation for `poke-ask`/`poke-spawn`/
+ *  `poke-relay`. `argv[2]` (a literal string baked into each wrapper —
+ *  see `ensureFiles()`'s wrapper-writing loop below) names which tool is
+ *  running; everything after it is that tool's own arguments. Same UDS
+ *  round-trip shape as
+ *  `DELEGATE_CLI_SCRIPT` above, deliberately NOT waiting for the real
+ *  outcome (docs/arceus-v2-plan.md §3.2/§4 spike 1) — the ack this prints is
+ *  the whole point: Claude Code's own Bash tool refuses to block
+ *  synchronously on an external event, so the actual answer/spawn/relay
+ *  arrives later as a fresh pty message, never as this command's own output. */
+const POKE_TOOLS_SCRIPT = `#!/usr/bin/env node
+'use strict';
+const net = require('net');
+
+const tool = process.argv[2];
+
+function fail(msg) {
+  process.stderr.write((tool || 'poke-tool') + ': ' + msg + '\\n');
+  process.exit(1);
+}
+
+const sock = process.env.${HOOK_SOCK_ENV};
+const parentAgentId = process.env.${AGENT_ID_ENV};
+if (!sock || !parentAgentId) {
+  fail('not running inside a pok\\u00e9harness session (only arceus can run this)');
+}
+
+const argv = process.argv.slice(3);
+let payload;
+
+function takeFlag(flag) {
+  const rest = [];
+  let value;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === flag) value = argv[++i];
+    else rest.push(argv[i]);
+  }
+  return { value, rest };
+}
+
+if (tool === 'poke-ask') {
+  const question = argv[0];
+  const options = argv.slice(1).map((o) => o.trim()).filter(Boolean);
+  if (!question || !question.trim()) fail('usage: poke-ask "<question>" "<option 1>" ["<option 2>" ...]');
+  if (options.length === 0) fail('at least one option is required');
+  payload = { type: 'poke/ask', parentAgentId, question: question.trim(), options };
+} else if (tool === 'poke-spawn') {
+  const { value: workspace, rest } = takeFlag('--workspace');
+  const task = rest.join(' ').trim();
+  if (!workspace) fail('usage: poke-spawn --workspace <id or name> <initial task>');
+  if (!task) fail('an initial task is required');
+  payload = { type: 'poke/spawn', parentAgentId, workspace, task };
+} else if (tool === 'poke-relay') {
+  const { value: agent, rest } = takeFlag('--agent');
+  const message = rest.join(' ').trim();
+  if (!agent) fail('usage: poke-relay --agent <id, title, or species> <message>');
+  if (!message) fail('a message is required');
+  payload = { type: 'poke/relay', parentAgentId, agent, message };
+} else {
+  fail('unknown tool: ' + tool);
+}
+
+let resp = '';
+const c = net.createConnection(sock, () => c.write(JSON.stringify(payload) + '\\n'));
+c.setEncoding('utf8');
+c.on('data', (d) => { resp += d; });
+c.on('error', (e) => fail('could not reach pok\\u00e9harness: ' + e.message));
+c.on('end', () => {
+  let result = {};
+  try { result = JSON.parse(resp || '{}'); } catch (_) {}
+  if (result && result.ok) {
+    process.stdout.write((result.note || 'accepted') + (result.id ? ' (' + result.id + ')' : '') + '\\n');
+    process.exit(0);
+  }
+  fail(result && result.error ? result.error : 'request failed');
+});
+setTimeout(() => fail('timed out waiting for pok\\u00e9harness'), 10000).unref();
+`;
+
 export class HookBridge {
   private server: Server | null = null;
   private readonly binDir: string;
@@ -335,6 +437,8 @@ export class HookBridge {
   private readonly launcherFile: string;
   private readonly cliShimDir: string;
   private readonly cliJsonHelperFile: string;
+  private readonly pokeToolsDir: string;
+  private readonly pokeToolsScriptFile: string;
   readonly sockPath: string;
   /** Identity of the socket file we're CURRENTLY bound to, captured right
    *  after `listen()` succeeds. Existence alone can't tell "our socket" from
@@ -403,7 +507,19 @@ export class HookBridge {
      *  standalone-usability reason as `isKnownSession`/`onRawPayload` above —
      *  without it, a well-formed request still validates but gets a plain
      *  "not wired" error instead of silently hanging. */
-    private onDelegateSpawnRequest?: (req: DelegateSpawnRequest) => DelegateSpawnResponse
+    private onDelegateSpawnRequest?: (req: DelegateSpawnRequest) => DelegateSpawnResponse,
+    /** Arceus v2 — validated (parentAgentId === ARCEUS_SESSION_ID, per this
+     *  class's own guard) then handed off, same "optional so this class
+     *  stays usable standalone" reasoning as every other callback above.
+     *  Each owns its own side effect: `onPokeAsk` pushes a picker to the
+     *  renderer, `onPokeSpawn` spawns a real pty (like
+     *  `onDelegateSpawnRequest` does) and notifies the renderer to adopt it,
+     *  `onPokeRelay` resolves the target and queues the injection. None of
+     *  the three block on the eventual outcome — see this file's
+     *  `POKE_TOOLS_SCRIPT` header. */
+    private onPokeAsk?: (req: PokeAskRequest) => PokeToolResponse,
+    private onPokeSpawn?: (req: PokeSpawnRequest) => PokeToolResponse,
+    private onPokeRelay?: (req: PokeRelayRequest) => PokeToolResponse
   ) {
     this.binDir = join(userDataDir, 'hooks-bin');
     this.shimFile = join(this.binDir, SHIM_FILENAME);
@@ -412,6 +528,8 @@ export class HookBridge {
     this.launcherFile = join(this.binDir, process.platform === 'win32' ? 'poke-node.cmd' : 'poke-node');
     this.cliShimDir = join(this.binDir, CLI_SHIM_DIRNAME);
     this.cliJsonHelperFile = join(this.cliShimDir, CLI_JSON_HELPER_FILENAME);
+    this.pokeToolsDir = join(this.binDir, POKE_TOOLS_DIRNAME);
+    this.pokeToolsScriptFile = join(this.pokeToolsDir, POKE_TOOLS_SCRIPT_FILENAME);
     this.sockPath = join(userDataDir, 'hooks.sock');
   }
 
@@ -426,16 +544,33 @@ export class HookBridge {
   ensureFiles(): void {
     mkdirSync(this.binDir, { recursive: true });
     mkdirSync(this.cliShimDir, { recursive: true });
+    mkdirSync(this.pokeToolsDir, { recursive: true });
     writeFileSync(this.shimFile, HOOK_SHIM, 'utf8');
     writeFileSync(this.codexShimFile, CODEX_HOOK_SHIM, 'utf8');
     writeFileSync(this.delegateCliFile, DELEGATE_CLI_SCRIPT, 'utf8');
     writeFileSync(join(this.cliShimDir, 'claude'), CLAUDE_CLI_SHIM, 'utf8');
     writeFileSync(join(this.cliShimDir, 'codex'), CODEX_CLI_SHIM, 'utf8');
     writeFileSync(this.cliJsonHelperFile, CLI_JSON_HELPER, 'utf8');
+    writeFileSync(this.pokeToolsScriptFile, POKE_TOOLS_SCRIPT, 'utf8');
     try {
       chmodSync(join(this.cliShimDir, 'claude'), 0o755);
       chmodSync(join(this.cliShimDir, 'codex'), 0o755);
       chmodSync(this.cliJsonHelperFile, 0o755);
+      // Arceus v2 — three bare-command wrappers, one per tool name, all
+      // exec'ing the same shared `poke-tools.cjs` (this file's own
+      // `POKE_TOOLS_SCRIPT`) through the bundled-node launcher below, same
+      // "$0 as a literal argument" trick used to avoid three near-duplicate
+      // implementation files. Posix-only (this app is macOS-only) — no
+      // win32 branch, same as the cli-shims directory just above.
+      for (const name of ['poke-ask', 'poke-spawn', 'poke-relay']) {
+        const wrapperPath = join(this.pokeToolsDir, name);
+        writeFileSync(
+          wrapperPath,
+          `#!/bin/sh\nexec "${this.launcherFile}" "${this.pokeToolsScriptFile}" "${name}" "$@"\n`,
+          'utf8'
+        );
+        chmodSync(wrapperPath, 0o755);
+      }
       if (process.platform === 'win32') {
         writeFileSync(
           this.launcherFile,
@@ -468,6 +603,13 @@ export class HookBridge {
   /** Helper that emits a JSON.stringify-compatible string literal. */
   cliJsonHelperPath(): string {
     return this.cliJsonHelperFile;
+  }
+
+  /** Arceus v2 — directory prepended to PATH for an Arceus spawn only (see
+   *  pty.ts's `spawn()`), holding the `poke-ask`/`poke-spawn`/`poke-relay`
+   *  bare-command wrappers. */
+  pokeToolsPath(): string {
+    return this.pokeToolsDir;
   }
 
   /** Start listening on the UDS. Independent of any live claude session — the
@@ -522,22 +664,13 @@ export class HookBridge {
             prefix: raw.slice(0, 120)
           });
         }
-        let res: unknown = {};
-        try {
-          // First-class delegate sessions — distinguished from an ordinary
-          // HookPayload by `type`, a field no real Claude/codex hook payload
-          // ever carries (see shared/delegateSpawn.ts's header).
-          res = isDelegateSpawnRequest(parsed)
-            ? this.handleDelegateSpawn(parsed)
-            : this.handle(parsed as HookPayload);
-        } catch (e) {
-          console.error('[hooks] handler threw:', e);
-          res = {};
-        }
-        // Always write a response and end the connection — the shim blocks on
-        // this until its own 5s timeout, and every subsequent tool call in
-        // that session would stall by that long if we ever forgot to reply.
-        conn.end(JSON.stringify(res ?? {}));
+        void this.dispatch(parsed).then((res) => {
+          // Always write a response and end the connection — the shim/CLI
+          // blocks on this until its own timeout, and every subsequent tool
+          // call in that session would stall by that long if we ever forgot
+          // to reply.
+          conn.end(JSON.stringify(res ?? {}));
+        });
       });
       conn.on('error', () => {
         /* shim hung up early — ignore */
@@ -801,8 +934,14 @@ export class HookBridge {
 
   /** Per-session Claude Code settings routing every wired hook through the
    *  shim. Written fresh on every spawn so a code change here always takes
-   *  effect without a stale file lingering from a previous run. */
-  prepareSession(agentId: string, tmpDir: string): string {
+   *  effect without a stale file lingering from a previous run.
+   *
+   *  `extraAllowRules` (Arceus v2 — pty.ts's `spawn()` passes
+   *  `POKE_TOOL_PERMISSION_RULES` for an Arceus spawn only) adds
+   *  `permissions.allow` entries so auto-mode-off doesn't stall a session on
+   *  an unattended permission prompt for a Bash command it's expected to run
+   *  autonomously. */
+  prepareSession(agentId: string, tmpDir: string, extraAllowRules?: string[]): string {
     mkdirSync(tmpDir, { recursive: true });
     const settingsPath = join(tmpDir, `hook-settings-${agentId}.json`);
     const cmd = this.hookCommand();
@@ -831,6 +970,12 @@ export class HookBridge {
         // already covered by the SessionStart entry above.
         PreCompact: [entry()]
       },
+      // Arceus v2 — omitted entirely (not even an empty array) for every
+      // ordinary session, same "untouched unless opted into" posture as
+      // `statusLine` below.
+      ...(extraAllowRules && extraAllowRules.length > 0
+        ? { permissions: { allow: extraAllowRules } }
+        : {}),
       // BACKLOG "next up" item 2 — only added when the user opts in
       // (settings → terminal → "hide claude statusline"); when off this key
       // is omitted entirely so the file is byte-identical to before this
@@ -979,6 +1124,74 @@ export class HookBridge {
     }
   }
 
+  /** Single dispatch point for every UDS connection's one parsed line — ASYNC
+   *  (Arceus v2, docs/arceus-v2-plan.md §3.4's "the socket handler must
+   *  become async" plumbing note), unlike every individual handler below,
+   *  which stays synchronous: none of `handle`/`handleDelegateSpawn`/the
+   *  three `handlePoke*` methods actually needs to await anything (a picker
+   *  push, a `ptyManager.spawn()` call, and an `InjectionQueue.submit` are
+   *  all synchronous), but making the call site itself `async` means one
+   *  landing here later that DOES need to await something (a future poke-*
+   *  tool, say) is a one-line change, not a second refactor of this whole
+   *  dispatch path. */
+  private async dispatch(parsed: unknown): Promise<unknown> {
+    try {
+      // First-class delegate sessions / Arceus v2's three poke-* tools —
+      // all distinguished from an ordinary `HookPayload` by `type`, a field
+      // no real Claude/codex hook payload ever carries (see
+      // shared/delegateSpawn.ts's header).
+      if (isDelegateSpawnRequest(parsed)) return this.handleDelegateSpawn(parsed);
+      if (isPokeAskRequest(parsed)) return this.handlePokeAsk(parsed);
+      if (isPokeSpawnRequest(parsed)) return this.handlePokeSpawn(parsed);
+      if (isPokeRelayRequest(parsed)) return this.handlePokeRelay(parsed);
+      return this.handle(parsed as HookPayload);
+    } catch (e) {
+      console.error('[hooks] handler threw:', e);
+      return {};
+    }
+  }
+
+  /** Arceus v2 guard, shared by all three `handlePoke*` methods below: only
+   *  Arceus's OWN pty can ever reach these — `parentAgentId` is read off the
+   *  trusted `POKEHARNESS_AGENT_ID` env var (same mechanism poke-delegate's
+   *  own identity already relies on, see this file's header), so this can't
+   *  be spoofed by argv. Rejects any other harness session — including a
+   *  poke-spawned worker — from impersonating Arceus and injecting into
+   *  another agent's terminal. */
+  private isFromArceus(parentAgentId: string | undefined): boolean {
+    return parentAgentId === ARCEUS_SESSION_ID;
+  }
+
+  private handlePokeAsk(req: PokeAskRequest): PokeToolResponse {
+    if (!this.isFromArceus(req.parentAgentId)) return { ok: false, error: 'only arceus can use poke-ask' };
+    const question = req.question?.trim();
+    const options = (req.options ?? []).map((o) => o.trim()).filter(Boolean);
+    if (!question) return { ok: false, error: 'a question is required' };
+    if (options.length === 0) return { ok: false, error: 'at least one option is required' };
+    if (!this.onPokeAsk) return { ok: false, error: 'poke-ask is not wired' };
+    return this.onPokeAsk({ ...req, question, options });
+  }
+
+  private handlePokeSpawn(req: PokeSpawnRequest): PokeToolResponse {
+    if (!this.isFromArceus(req.parentAgentId)) return { ok: false, error: 'only arceus can use poke-spawn' };
+    const workspace = req.workspace?.trim();
+    const task = req.task?.trim();
+    if (!workspace) return { ok: false, error: 'a workspace is required' };
+    if (!task) return { ok: false, error: 'an initial task is required' };
+    if (!this.onPokeSpawn) return { ok: false, error: 'poke-spawn is not wired' };
+    return this.onPokeSpawn({ ...req, workspace, task });
+  }
+
+  private handlePokeRelay(req: PokeRelayRequest): PokeToolResponse {
+    if (!this.isFromArceus(req.parentAgentId)) return { ok: false, error: 'only arceus can use poke-relay' };
+    const agent = req.agent?.trim();
+    const message = req.message?.trim();
+    if (!agent) return { ok: false, error: 'an agent is required' };
+    if (!message) return { ok: false, error: 'a message is required' };
+    if (!this.onPokeRelay) return { ok: false, error: 'poke-relay is not wired' };
+    return this.onPokeRelay({ ...req, agent, message });
+  }
+
   /** First-class delegate sessions (shared/delegateSpawn.ts) — validates a
    *  `delegate/spawn` request (shape, known parent, existing cwd) and, only
    *  once all three hold, hands off to `onDelegateSpawnRequest` for the
@@ -1028,4 +1241,19 @@ function isDelegateSpawnRequest(value: unknown): value is DelegateSpawnRequest {
     typeof value === 'object' &&
     (value as { type?: unknown }).type === 'delegate/spawn'
   );
+}
+
+/** Arceus v2 — same loose shape-check convention as `isDelegateSpawnRequest`
+ *  above; each `handlePoke*` method does the real field validation once this
+ *  narrows the branch. */
+function isPokeAskRequest(value: unknown): value is PokeAskRequest {
+  return value !== null && typeof value === 'object' && (value as { type?: unknown }).type === 'poke/ask';
+}
+
+function isPokeSpawnRequest(value: unknown): value is PokeSpawnRequest {
+  return value !== null && typeof value === 'object' && (value as { type?: unknown }).type === 'poke/spawn';
+}
+
+function isPokeRelayRequest(value: unknown): value is PokeRelayRequest {
+  return value !== null && typeof value === 'object' && (value as { type?: unknown }).type === 'poke/relay';
 }

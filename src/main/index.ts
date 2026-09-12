@@ -25,7 +25,7 @@ import { CostHistoryService } from './costHistory';
 import { SessionTitleWatcher } from './sessionTitleWatcher';
 import { UsageService } from './usageService';
 import { TrayController } from './tray';
-import { ArceusRelayWatcher } from './arceusRelay';
+import { PokeRelay, resolveWorkspaceHint } from './pokeTools';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { loadAudioSettings } from './audioSettings';
 import { loadAppSettings, saveAppSettings } from './appSettings';
@@ -34,6 +34,8 @@ import { respawnSession } from './sessionRespawn';
 import { ensureClaudeTheme } from './claudeTheme';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
+import { arceusSystemPromptPath } from './arceusPrompt';
+import { arceusRosterFilePath } from './arceusRosterFile';
 import { initWorkspaceRegistry, repairWorkspaceFolders, saveWorkspaceRegistry } from './workspacePersistence';
 import { checkForUpdate } from './updateCheck';
 import { getLogDir, initDiagnostics, log, setDiagnosticsLoggingEnabled } from './diagnostics';
@@ -44,8 +46,10 @@ import type {
   SessionStatus
 } from '../shared/types';
 import type { AppSettings } from '../shared/appSettingsTypes';
+import { AGENT_PROVIDERS, buildProviderArgs } from '../shared/agentProvider';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceSnapshot } from '../shared/workspaceTypes';
 import type { DelegateSessionSpawned, DelegateSpawnRequest, DelegateSpawnResponse } from '../shared/delegateSpawn';
+import type { PokeAskRequest, PokeRelayRequest, PokeSpawnRequest, PokeToolResponse } from '../shared/pokeTools';
 
 // Audio (Phase 7): SFX is ON by default, and a cry can fire the instant a
 // session's walker first spawns — before the user has clicked anything.
@@ -260,8 +264,8 @@ const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
 // written one directory level below the session's own transcript file —
 // see sessionTitleWatcher.ts's header) and pushes it into `session.title`.
 // Registered off the same onRawPayload hook chain as costWatcher/
-// arceusRelay/taskNotificationWatcher below. Second constructor arg is the
-// same forward-reference trick `arceusRelay`'s own `() => sessionRegistry`
+// taskNotificationWatcher below. Second constructor arg is the same
+// forward-reference trick `pokeRelay`'s own `() => sessionRegistry`
 // below uses (`sessionRegistry` isn't declared until later in this file, but
 // this arrow function only evaluates it once a hook payload actually needs a
 // session's current title — long after `sessionRegistry` is live) — scoped
@@ -291,7 +295,7 @@ let costHistoryWarmed = false;
 // macOS menu-bar item (issue #17) — custom popover panel, not a native
 // `Menu`; see tray.ts's own header for the presentation decision and each
 // section's data source. `() => sessionRegistry` is the same forward-
-// reference trick `arceusRelay` below uses.
+// reference trick `pokeRelay` below uses.
 const trayController = new TrayController({
   usageService,
   costHistory: costHistoryService,
@@ -299,23 +303,37 @@ const trayController = new TrayController({
   getEffectiveTheme: () => resolveTerminalAppearance(activeTheme),
   onLikelyActivate: markTrayActivationLikely
 });
-// BACKLOG "next up" item 3 — watches Arceus's own transcript (registered off
-// the same onRawPayload hook chained below) for a relay directive and types
-// it into the named session's pty. Constructed before `ptyManager` so its
-// constructor can close over `ptyManager.write` by reference — see the
-// arrow function below, evaluated lazily on first call, not at this line.
-const arceusRelay = new ArceusRelayWatcher(
+// Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — `poke-relay`'s delivery half
+// (target resolution + the idle-safety InjectionQueue), replacing
+// `ArceusRelayWatcher`'s transcript-tailing entirely: a real tool call
+// discovers the relay now, so there's nothing left to poll. Constructed
+// before `ptyManager` so its constructor can close over `ptyManager.write`
+// by reference — see the arrow function below, evaluated lazily on first
+// call, not at this line. `onDelivered` has no store of its own to stamp
+// `lastDispatch` on (that lives in the renderer) — it just pushes a one-way
+// notice for the renderer to stamp its own copy, which then round-trips back
+// via the next `sessions:checkpoint`.
+const pokeRelay = new PokeRelay(
   (id, data) => ptyManager.write(id, data),
   () => sessionRegistry,
-  () => mainWindow?.webContents ?? null
+  (targetId, message, at, ok) => {
+    if (!ok) return;
+    const wc = mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    try {
+      wc.send('poke:relayDelivered', { targetId, message, at });
+    } catch {
+      /* window tore down mid-send */
+    }
+  }
 );
 // Bug B fix (2026-08-29) — see taskNotificationWatcher.ts's own header for
 // the real, evidence-backed reason `Stop` alone can no longer be trusted as
 // subagent-completion proof for an async `Task`/`Agent` dispatch.
 const taskNotificationWatcher = new TaskNotificationWatcher(() => mainWindow?.webContents ?? null);
-// Explicit type annotation (unlike `arceusRelay` above, which needs none):
-// the delegate-validation callback below returns `boolean`, not `void`, so
-// TS must actually resolve `ptyManager`'s type to check it — and `ptyManager`
+// Explicit type annotation (unlike `pokeRelay` above, which needs none): the
+// delegate-validation callback below returns `boolean`, not `void`, so TS
+// must actually resolve `ptyManager`'s type to check it — and `ptyManager`
 // in turn is constructed with `hookBridge` as its own first argument, a real
 // mutual cycle the `void`-returning callbacks above never triggered. The
 // annotation breaks the cycle by fixing `hookBridge`'s type up front.
@@ -324,12 +342,11 @@ const hookBridge: HookBridge = new HookBridge(
   () => mainWindow?.webContents ?? null,
   (agentId, transcriptPath, hookEventName, subagentAgentId) => {
     costWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
-    arceusRelay.onHookPayload(agentId, transcriptPath);
     taskNotificationWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
     sessionTitleWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
   },
   // External-codex-delegate feature — same forward-reference trick as
-  // `arceusRelay` above: `ptyManager` isn't constructed until the next line,
+  // `pokeRelay` above: `ptyManager` isn't constructed until the next line,
   // but this arrow function only evaluates it when a delegate hook actually
   // arrives, by which point it's long since initialized.
   (id) => ptyManager.hasSession(id),
@@ -416,6 +433,68 @@ const hookBridge: HookBridge = new HookBridge(
       }
     }
     return { ok: true, id };
+  },
+  // Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — `poke-ask`: pushes a picker
+  // to the renderer and acks immediately; the user's eventual answer is
+  // injected into ARCEUS'S OWN pty by the renderer itself (same
+  // window.api.writePty mechanism ArceusDispatchBox.tsx uses), never
+  // returned over this socket.
+  (req: PokeAskRequest): PokeToolResponse => {
+    const wc = mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return { ok: false, error: 'no window to show the picker in' };
+    const id = `ask-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    try {
+      wc.send('poke:ask', { id, question: req.question, options: req.options });
+    } catch {
+      return { ok: false, error: 'failed to reach the app window' };
+    }
+    return { ok: true, id, note: "shown to the user — you'll get their answer as a follow-up message" };
+  },
+  // `poke-spawn` — resolves the workspace hint against the LIVE registry
+  // (never a silent fallback to "whichever workspace is active": a wrong
+  // guess landing in the wrong project is worse than Arceus having to retry
+  // with a name copied from roster.json's own workspaces block), spawns a
+  // real top-level claude session exactly like a manually-started one (this
+  // is deliberately main-side, same as `onDelegateSpawnRequest` above,
+  // rather than round-tripping through the renderer's own `pty:spawn`
+  // handler), then notifies the renderer to adopt it (species pick, store
+  // entry, initial-task injection, `lastDispatch` stamp) — see
+  // sessions.ts's `adoptPokeSpawn`.
+  (req: PokeSpawnRequest): PokeToolResponse => {
+    const ws = resolveWorkspaceHint(req.workspace, workspaceRegistry.workspaces);
+    if (!ws) {
+      const names = workspaceRegistry.workspaces.map((w) => w.name).join(', ') || '(none)';
+      return { ok: false, error: `no workspace matching "${req.workspace}" — known workspaces: ${names}` };
+    }
+    const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const command = AGENT_PROVIDERS.claude.defaultCommand;
+    const args = buildProviderArgs('claude', undefined);
+    const result = ptyManager.spawn({ id, cwd: ws.primaryFolder, command, args, provider: 'claude' });
+    if (!result.ok) return { ok: false, error: result.error ?? 'spawn failed' };
+    const wc = mainWindow?.webContents;
+    if (wc && !wc.isDestroyed()) {
+      try {
+        wc.send('poke:spawned', {
+          id,
+          workspaceId: ws.id,
+          workspaceName: ws.name,
+          cwd: result.cwd ?? ws.primaryFolder,
+          command,
+          args,
+          task: req.task
+        });
+      } catch {
+        /* window tore down mid-send */
+      }
+    }
+    return { ok: true, id, note: `spawning a fresh agent in "${ws.name}"` };
+  },
+  // `poke-relay` — resolution + idle-safety delivery both live in
+  // `pokeRelay` (main/pokeTools.ts); this just forwards the ack/error.
+  (req: PokeRelayRequest): PokeToolResponse => {
+    const result = pokeRelay.submit(req.agent, req.message);
+    if (!result.ok) return result;
+    return { ok: true, note: `message accepted for delivery to ${req.agent}` };
   }
 );
 // Third arg (GitHub #8) — mirrors `pty:kill`'s own
@@ -1249,7 +1328,6 @@ app.whenReady().then(async () => {
   // (this synchronous stretch runs before the window is even created, and
   // the scan it kicks off is real, sustained CPU/disk work).
   trayController.init();
-  arceusRelay.start();
   taskNotificationWatcher.start();
   sessionTitleWatcher.start();
   const appSettings = await loadAppSettings();
@@ -1313,6 +1391,11 @@ app.whenReady().then(async () => {
   usageService.setEnabled(appSettings.usageLimitsEnabled);
   ptyManager.setHarnessInstructions(appSettings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
   ptyManager.setAdvisorModel(appSettings.advisorModel);
+  // Arceus v2 (docs/arceus-v2-plan.md §3.5) — must be set BEFORE
+  // `restoreFromDisk()` below, since a persisted Arceus record's boot
+  // respawn (sessionRespawn.ts) calls `ptyManager.spawn()` directly and
+  // needs these paths already resolved to compose his system prompt.
+  ptyManager.setArceusPaths(arceusSystemPromptPath(harnessHomeDir), arceusRosterFilePath(harnessHomeDir));
   codexDelegateModel = appSettings.codexDelegateModel;
   initDiagnostics(harnessHomeDir);
   setDiagnosticsLoggingEnabled(appSettings.diagnosticsLoggingEnabled);
@@ -1443,7 +1526,6 @@ app.on('before-quit', (e) => {
   costHistoryService.stop();
   trayController.destroy();
   usageService.shutdown();
-  arceusRelay.stop();
   taskNotificationWatcher.stop();
   sessionTitleWatcher.stop();
 });
@@ -1453,7 +1535,7 @@ registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher, sessionTitleW
 registerSessionsIpc({
   ptyManager,
   sessionPersistence,
-  arceusRelay,
+  pokeRelay,
   costWatcher,
   taskNotificationWatcher,
   notifyStatusTransitions,
@@ -1466,6 +1548,7 @@ registerSessionsIpc({
     lastSelectedId = id;
   },
   getHarnessHomeDir: () => harnessHomeDir,
+  getWorkspaceRegistry: () => workspaceRegistry,
   getDiskRestorePromise: () => diskRestorePromise,
   isDiskRestoreConsumed: () => diskRestoreConsumed,
   setDiskRestoreConsumed: (consumed) => {
@@ -1540,5 +1623,6 @@ registerAppIpc({
     leaveSessionsRunning = leaveRunning;
   },
   getHarnessHomeDir: () => harnessHomeDir,
-  getSessionRegistry: () => sessionRegistry
+  getSessionRegistry: () => sessionRegistry,
+  getWorkspaceRegistry: () => workspaceRegistry
 });

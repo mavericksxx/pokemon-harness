@@ -16,6 +16,7 @@ import type { UsageService } from '../usageService';
 import type { CostWatcher } from '../costWatcher';
 import type { RendererCrashInfo, SessionRecord } from '../../shared/types';
 import type { ArceusSummonConfig } from '../../shared/arceus';
+import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
 import type { UpdateCheckResult } from '../../shared/updateTypes';
 import type { ExportDiagnosticsResult, LogLevel } from '../../shared/diagnosticsTypes';
 
@@ -35,6 +36,10 @@ export interface AppIpcDeps {
   setLeaveSessionsRunning: (leaveRunning: boolean) => void;
   getHarnessHomeDir: () => string;
   getSessionRegistry: () => SessionRecord[];
+  /** Arceus v2 (docs/arceus-v2-plan.md §3.4) — so `arceus:ensureSystemPrompt`
+   *  can write the workspaces registry block into roster.json alongside the
+   *  session list, same as `sessions:checkpoint` (ipc/sessions.ts). */
+  getWorkspaceRegistry: () => WorkspaceSnapshot;
 }
 
 export function registerAppIpc(deps: AppIpcDeps): void {
@@ -53,7 +58,8 @@ export function registerAppIpc(deps: AppIpcDeps): void {
     setQuitConfirmed,
     setLeaveSessionsRunning,
     getHarnessHomeDir,
-    getSessionRegistry
+    getSessionRegistry,
+    getWorkspaceRegistry
   } = deps;
 
   // ─── Crash recovery ─────────────────────────────────────────────────────────
@@ -88,7 +94,7 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   // actually exists at that moment rather than depending on a
   // `sessions:checkpoint` having already fired first.
   handle('arceus:ensureSystemPrompt', async () => {
-    writeArceusRosterFile(getHarnessHomeDir(), getSessionRegistry());
+    writeArceusRosterFile(getHarnessHomeDir(), getSessionRegistry(), getWorkspaceRegistry().workspaces);
     return ensureArceusSystemPrompt(getHarnessHomeDir());
   });
   // Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds

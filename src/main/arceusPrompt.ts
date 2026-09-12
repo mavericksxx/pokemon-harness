@@ -17,7 +17,13 @@ function arceusDir(harnessHomeDir: string): string {
   return join(harnessHomeDir, 'agents', 'arceus');
 }
 
-function arceusSystemPromptPath(harnessHomeDir: string): string {
+/** Exported for `PtyManager.setArceusPaths` (main/index.ts, at boot and on
+ *  every harness-home change) — pty.ts's `spawn()` reads this file fresh at
+ *  every Arceus spawn to compose his one system-prompt file (shared/
+ *  arceus.ts's `buildArceusSystemPrompt`), the same "live source" contract
+ *  this function's own fresh-read already relies on for the renderer's
+ *  `ensureArceusSystemPrompt` IPC round trip. */
+export function arceusSystemPromptPath(harnessHomeDir: string): string {
   return join(arceusDir(harnessHomeDir), 'SYSTEM.md');
 }
 
@@ -27,10 +33,11 @@ function arceusSystemPromptPath(harnessHomeDir: string): string {
  *  so a user's edit to the file takes effect the very next time Arceus is
  *  summoned, no app restart needed. Also hands back the absolute path to
  *  the live roster file (arceusRosterFile.ts) — piggybacked on this same
- *  IPC round-trip rather than a new channel, since `summonArceus` already
- *  calls this once per fresh summon and needs both paths at the same
- *  moment, to build the first prompt (shared/arceus.ts's
- *  `buildArceusFirstPrompt`). */
+ *  IPC round-trip rather than a new channel. The returned `prompt`/`path`
+ *  are no longer used to build a first-prompt (pty.ts's `spawn()` re-reads
+ *  the file itself at spawn time to compose his system prompt); calling
+ *  this before every real spawn is still what guarantees the file — and
+ *  roster.json — exist on disk before that read. */
 export async function ensureArceusSystemPrompt(
   harnessHomeDir: string
 ): Promise<{ path: string; prompt: string; rosterPath: string }> {
