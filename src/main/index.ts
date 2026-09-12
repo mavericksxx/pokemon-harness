@@ -317,7 +317,13 @@ const pokeRelay = new PokeRelay(
   (id, data) => ptyManager.write(id, data),
   () => sessionRegistry,
   (targetId, message, at, ok) => {
-    if (!ok) return;
+    if (!ok) {
+      // Advisor follow-up — the old ArceusRelayWatcher logged a failed
+      // delivery too (its own InjectionQueue onDeliver hook); silently
+      // swallowing it here left no trace of a write that didn't land.
+      log('poke-relay', 'warn', 'relay write failed', { targetId });
+      return;
+    }
     const wc = mainWindow?.webContents;
     if (!wc || wc.isDestroyed()) return;
     try {
@@ -461,6 +467,11 @@ const hookBridge: HookBridge = new HookBridge(
   // entry, initial-task injection, `lastDispatch` stamp) — see
   // sessions.ts's `adoptPokeSpawn`.
   (req: PokeSpawnRequest): PokeToolResponse => {
+    // Advisor must-fix: checked BEFORE spawning (not after) — with no
+    // window, nothing would ever adopt the pty (species pick, store entry),
+    // orphaning a live process while this still told Arceus it succeeded.
+    const wc = mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return { ok: false, error: 'no window to adopt the new session' };
     const ws = resolveWorkspaceHint(req.workspace, workspaceRegistry.workspaces);
     if (!ws) {
       const names = workspaceRegistry.workspaces.map((w) => w.name).join(', ') || '(none)';
@@ -477,21 +488,21 @@ const hookBridge: HookBridge = new HookBridge(
     const args = [...buildProviderArgs('claude', undefined), ...autoArgs];
     const result = ptyManager.spawn({ id, cwd: ws.primaryFolder, command, args, provider: 'claude' });
     if (!result.ok) return { ok: false, error: result.error ?? 'spawn failed' };
-    const wc = mainWindow?.webContents;
-    if (wc && !wc.isDestroyed()) {
-      try {
-        wc.send('poke:spawned', {
-          id,
-          workspaceId: ws.id,
-          workspaceName: ws.name,
-          cwd: result.cwd ?? ws.primaryFolder,
-          command,
-          args,
-          task: req.task
-        });
-      } catch {
-        /* window tore down mid-send */
-      }
+    try {
+      wc.send('poke:spawned', {
+        id,
+        workspaceId: ws.id,
+        workspaceName: ws.name,
+        cwd: result.cwd ?? ws.primaryFolder,
+        command,
+        task: req.task
+      });
+    } catch {
+      // Window tore down in the narrow window between the check above and
+      // this send — the pty is already live but orphaned (no adoption
+      // listener left to catch it). Rare enough (requires a destroy mid
+      // synchronous call) not to warrant more than this note; the session
+      // still shows up in `ptyManager.list()`/next boot's disk restore.
     }
     return { ok: true, id, note: `spawning a fresh agent in "${ws.name}"` };
   },

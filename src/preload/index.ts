@@ -221,10 +221,13 @@ const api = {
   openHarnessInstructions: (): Promise<string> => ipcRenderer.invoke('harness:openInstructions'),
 
   // ─── Arceus (Phase 8.8) ─────────────────────────────────────────────────
-  /** Ensures agents/arceus/SYSTEM.md exists and returns its current
-   *  contents + path, plus the live roster file's path (arceusRosterFile.ts)
-   *  — call fresh at every summon, never cache the result. */
-  ensureArceusSystemPrompt: (): Promise<{ path: string; prompt: string; rosterPath: string }> =>
+  /** Ensures agents/arceus/SYSTEM.md exists (migrating an untouched v1 seed
+   *  — see main/arceusPrompt.ts) and returns its current contents + path —
+   *  call fresh at every summon, never cache the result. Also (main-side,
+   *  before this resolves) writes roster.json fresh, but doesn't hand its
+   *  path back over the wire — nothing renderer-side reads that anymore
+   *  (pty.ts's `spawn()` resolves it itself at spawn time). */
+  ensureArceusSystemPrompt: (): Promise<{ path: string; prompt: string }> =>
     ipcRenderer.invoke('arceus:ensureSystemPrompt'),
   /** Dev-only — see main/index.ts's `config:arceusDevStandin`. */
   getArceusDevStandin: (): Promise<boolean> => ipcRenderer.invoke('config:arceusDevStandin'),

@@ -156,8 +156,9 @@ export class SessionTitleWatcher {
   private armed = false;
 
   /** `getSessionTitle` — same late-bound main-process lookup pattern
-   *  arceusRelay.ts's constructor uses for its own `getSessions` param
-   *  (wired from main/index.ts's `() => sessionRegistry`), narrowed to just
+   *  main/pokeTools.ts's `PokeRelay` constructor uses for its own
+   *  `getSessions` param (wired from main/index.ts's `() => sessionRegistry`),
+   *  narrowed to just
    *  the one field this watcher needs: a session's CURRENT Pokeharness
    *  title, read once per brand-new session to stamp the initial 👾 marker
    *  (see `tryInitialMark`). */

@@ -32,7 +32,7 @@
  *                      TTL-cached; see that file's own header.
  *  - agent statuses   → the `sessionRegistry` mirror (main/index.ts),
  *                      passed in as a getter (same forward-reference
- *                      pattern `arceusRelay`/`sessionTitleWatcher` already
+ *                      pattern `pokeRelay`/`sessionTitleWatcher` already
  *                      use for the same field).
  */
 import { BrowserWindow, ipcMain, nativeImage, screen, Tray, type NativeImage } from 'electron';

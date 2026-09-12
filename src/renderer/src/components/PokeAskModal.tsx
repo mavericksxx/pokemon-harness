@@ -17,7 +17,24 @@ export function PokeAskModal(): JSX.Element | null {
   const ask = useStore((s) => s.pokeAsk);
   const setPokeAsk = useStore((s) => s.setPokeAsk);
 
-  useEscapeToClose(() => setPokeAsk(null));
+  // Advisor fix: guarded on `ask !== null`, same as every other dialog in
+  // this codebase — an always-armed listener would fire Escape into this
+  // handler even while no picker is showing.
+  const dismiss = (): void => {
+    if (!ask) return;
+    // Advisor follow-up: his persona tells him to wait for a follow-up
+    // message once poke-ask is accepted — without this, dismissing (Escape,
+    // backdrop click, or the button below) leaves him waiting forever with
+    // no signal his question was dropped.
+    void window.api.writePty(
+      ARCEUS_SESSION_ID,
+      wrapBracketedPaste(`poke-ask outcome: the user dismissed the question ("${ask.question}") without answering.`) +
+        '\r'
+    );
+    setPokeAsk(null);
+  };
+
+  useEscapeToClose(dismiss, ask !== null);
 
   if (!ask) return null;
 
@@ -28,7 +45,7 @@ export function PokeAskModal(): JSX.Element | null {
   };
 
   return (
-    <div className="modal-backdrop" onClick={() => setPokeAsk(null)}>
+    <div className="modal-backdrop" onClick={dismiss}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>arceus is asking</h2>
         <p className="hint">{ask.question}</p>
@@ -40,7 +57,7 @@ export function PokeAskModal(): JSX.Element | null {
           ))}
         </div>
         <div className="modal-actions">
-          <button type="button" onClick={() => setPokeAsk(null)}>
+          <button type="button" onClick={dismiss}>
             dismiss
           </button>
         </div>

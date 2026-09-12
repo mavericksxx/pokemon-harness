@@ -258,11 +258,14 @@ export function startPokeSpawnListener(): void {
 }
 
 /** How long a `poke-spawn`ed session's first-message delivery waits for its
- *  OWN `SessionStart` hook before delivering anyway — same rare-path
- *  backstop role (and value) as the deleted `armFirstPromptDelivery`'s
- *  `FIRST_PROMPT_FALLBACK_MS` used for Arceus's own old first-prompt
- *  mechanism. Claude-only, same as poke-spawn itself (main/index.ts always
- *  spawns provider 'claude' for it). */
+ *  OWN `SessionStart` hook before giving up (see `armInitialTaskDelivery`'s
+ *  own header for why "giving up" — not delivering blind — is the right
+ *  fallback here, unlike the deleted `armFirstPromptDelivery`'s own timer).
+ *  Same value as that old constant, still a generous backstop — hooks
+ *  going quiet is a documented possibility elsewhere in this app
+ *  (hookRouter.ts's own HOOK_SILENCE_MS), not the expected path. Claude-only,
+ *  same as poke-spawn itself (main/index.ts always spawns provider 'claude'
+ *  for it). */
 const POKE_SPAWN_TASK_FALLBACK_MS = 10_000;
 
 /** Advisor-flagged fix: typing straight into a just-spawned pty (as the
@@ -270,11 +273,19 @@ const POKE_SPAWN_TASK_FALLBACK_MS = 10_000;
  *  land before it's set raw mode/its input parser, and on a folder it
  *  hasn't seen before, the FIRST thing on screen is a trust-this-folder
  *  prompt that a bare `\r` would blindly accept while the real task text is
- *  lost. Waits for the new session's own `SessionStart` hook (with a
- *  fallback timer, since hooks can go quiet — same reasoning
- *  `armFirstPromptDelivery` used) before delivering `task` as its first
- *  typed message, then stamps `lastDispatch` at ACTUAL delivery time, not
- *  submission time. */
+ *  lost. Waits for the new session's own `SessionStart` hook before
+ *  delivering `task` as its first typed message, then stamps `lastDispatch`
+ *  at ACTUAL delivery time, not submission time.
+ *
+ *  Advisor follow-up: unlike the deleted `armFirstPromptDelivery` (whose
+ *  fallback timer delivered blind after a wait — safe there only because a
+ *  human was already looking at Arceus's own terminal and could recover),
+ *  this path is entirely unattended: nobody is watching a `poke-spawn`ed
+ *  worker's terminal at the moment it comes up. So the timeout does NOT
+ *  deliver blind — it gives up, toasts the user, and reports the gap back
+ *  into Arceus's own pty so he (and the user) know the task never went in,
+ *  rather than silently risking the exact trust-prompt/raw-mode race this
+ *  whole gate exists to avoid. */
 function armInitialTaskDelivery(id: string, task: string): void {
   let delivered = false;
   let offHook: (() => void) | null = null;
@@ -289,10 +300,28 @@ function armInitialTaskDelivery(id: string, task: string): void {
     useStore.getState().updateSession(id, { lastDispatch: { at: Date.now(), message: task } });
   };
 
+  const giveUp = (): void => {
+    if (delivered) return;
+    delivered = true;
+    offHook?.();
+    const label = useStore.getState().sessions.find((s) => s.id === id)?.title ?? id;
+    useStore
+      .getState()
+      .pushToast(`${label} spawned, but never signaled ready — its initial task was NOT delivered.`);
+    void window.api.writePty(
+      ARCEUS_SESSION_ID,
+      wrapBracketedPaste(
+        `poke-spawn outcome: ${label} (id ${id}) spawned but never signaled ready within ${
+          POKE_SPAWN_TASK_FALLBACK_MS / 1000
+        }s — its task was NOT delivered. Check on it, or try poke-spawn again.`
+      ) + '\r'
+    );
+  };
+
   offHook = window.api.onHookEvent(id, (evt) => {
     if (evt.event === 'SessionStart') deliver();
   });
-  timer = setTimeout(deliver, POKE_SPAWN_TASK_FALLBACK_MS);
+  timer = setTimeout(giveUp, POKE_SPAWN_TASK_FALLBACK_MS);
 }
 
 async function adoptPokeSpawn(spawned: PokeSpawnedNotice): Promise<void> {

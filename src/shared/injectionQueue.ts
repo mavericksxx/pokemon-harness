@@ -1,20 +1,22 @@
 /**
- * Shared idle-queue + pty-injection helper (BACKLOG phase E) — extracted
- * from main/arceusRelay.ts's original hand-rolled per-target `Map` so its
- * safety rail is isolated from the relay logic around it: never write into a
- * session's pty unless it's genuinely idle (a permission prompt must never
- * get auto-answered), queue the payload otherwise, and deliver it (FIFO) the
- * moment that session next goes idle — dropping the queue outright once the
- * session closes or finishes.
+ * Shared idle-queue + pty-injection helper (BACKLOG phase E) — originally
+ * extracted from the deleted main/arceusRelay.ts's hand-rolled per-target
+ * `Map` so its safety rail is isolated from the relay logic around it:
+ * never write into a session's pty unless it's genuinely idle (a permission
+ * prompt must never get auto-answered), queue the payload otherwise, and
+ * deliver it (FIFO) the moment that session next goes idle — dropping the
+ * queue outright once the session closes or finishes. Now used by
+ * main/pokeTools.ts's `PokeRelay` (Arceus v2's `poke-relay`, replacing
+ * arceusRelay.ts's own use of this class one-for-one).
  *
  * Dependency-free (no node/electron imports — same "shared wire shape"
  * convention as costTypes.ts/audioTypes.ts) so an instance can live main-side
- * (arceusRelay.ts, writing synchronously via ptyManager.write) without
- * pulling in electron itself; a renderer-side instance, writing over the
- * async `window.api.writePty` IPC bridge, would only need to supply its own
+ * (PokeRelay, writing synchronously via ptyManager.write) without pulling in
+ * electron itself; a renderer-side instance, writing over the async
+ * `window.api.writePty` IPC bridge, would only need to supply its own
  * `writePty` callback, `toPayload`, and logging/UI hooks.
  *
- * Generic over the queued item type `T` (plain `string` for arceusRelay) —
+ * Generic over the queued item type `T` (plain `string` for `PokeRelay`) —
  * `toPayload` is how the queue turns one `T` into the exact string written
  * to the pty.
  */
@@ -29,7 +31,7 @@ export interface InjectionQueueHooks<T> {
   onDropOldest?: (targetId: string, dropped: T) => void;
   /** Fires whenever `targetId`'s queued list changes shape — an item was
    *  queued, delivered, dropped (oldest-drop, target gone, or target done),
-   *  or removed. Not needed by arceusRelay (nothing renders its queue); a UI
+   *  or removed. Not needed by `PokeRelay` (nothing renders its queue); a UI
    *  (focus composer's chips) uses this to know when to re-`peek()`. */
   onChange?: (targetId: string) => void;
 }
@@ -48,7 +50,7 @@ export class InjectionQueue<T = string> {
    *  (FIFO, capped at `maxPerTarget` — oldest dropped first) for delivery
    *  once `flush` next sees `target` idle. Returns which happened, so a
    *  caller that wants to log the queued case with its own extra context
-   *  (e.g. arceusRelay.ts's directive `agent` field) can do so at the call
+   *  (e.g. a `poke-relay` request's own `agent` field) can do so at the call
    *  site rather than through a hook. */
   submit(target: SessionRecord, item: T): 'sent' | 'queued' {
     if (target.status === 'idle') {
@@ -92,9 +94,7 @@ export class InjectionQueue<T = string> {
     return this.queue.get(targetId) ?? [];
   }
 
-  /** True when nothing is queued for any target — arceusRelay.ts's cadence
-   *  gate reads this to know whether a still-queued relay is a reason to
-   *  keep polling. */
+  /** True when nothing is queued for any target. */
   isEmpty(): boolean {
     return this.queue.size === 0;
   }
@@ -111,8 +111,10 @@ export class InjectionQueue<T = string> {
   }
 
   /** Drops every queued item for every target — for a caller whose own
-   *  upstream source of truth just reset (arceusRelay.ts: a fresh Arceus
-   *  process has nothing left to resolve a stale queue against). */
+   *  upstream source of truth just reset (e.g. nothing left to resolve a
+   *  stale queue against). Not currently called by `PokeRelay` (it has no
+   *  such reset event — a real tool call, not a tailed transcript, discovers
+   *  each relay), kept as part of this class's general-purpose API. */
   clear(): void {
     for (const id of [...this.queue.keys()]) {
       this.queue.delete(id);

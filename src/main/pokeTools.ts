@@ -101,7 +101,12 @@ export class PokeRelay {
   submit(agentHint: string, message: string): { ok: boolean; error?: string; queued?: boolean } {
     const target = resolvePokeRelayTarget(agentHint, this.getSessions());
     if (!target) return { ok: false, error: `no such agent: ${agentHint}` };
-    const trimmed = message.trim().slice(0, MAX_MESSAGE_LEN);
+    // Advisor must-fix: a raw newline written into a target pty submits
+    // early (the same reason the deleted ArceusRelayWatcher's own
+    // `normalizeField` collapsed whitespace) — collapse any embedded
+    // whitespace, including a literal newline, into single spaces before
+    // it's ever queued/typed.
+    const trimmed = message.replace(/\s+/g, ' ').trim().slice(0, MAX_MESSAGE_LEN);
     if (!trimmed) return { ok: false, error: 'a message is required' };
     const result = this.queue.submit(target, trimmed);
     return { ok: true, queued: result === 'queued' };

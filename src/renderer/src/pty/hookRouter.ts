@@ -36,10 +36,10 @@ export function isHookAuthoritative(sessionId: string): boolean {
  *  `Stop` case below: `Stop` only counts as subagent-completion proof when
  *  this is 0 for that session — see taskNotificationWatcher.ts's header for
  *  the full evidence this is built on. Registered once, at module load,
- *  mirroring `onArceusRelayUnresolved`'s single-global-listener pattern
- *  (arceus.ts) — every parent session's events funnel through the same two
- *  channels, so there's no natural per-session subscribe/unsubscribe point
- *  the way `onHookEvent`/`onCostUpdate` have (terminalRegistry.ts). */
+ *  mirroring `onDelegateHookEvent`'s single-global-listener pattern
+ *  (preload/index.ts) — every parent session's events funnel through the
+ *  same two channels, so there's no natural per-session subscribe/unsubscribe
+ *  point the way `onHookEvent`/`onCostUpdate` have (terminalRegistry.ts). */
 const pendingAsyncLaunches = new Map<string, number>();
 
 /** True while `parentId` has at least one async dispatch launched (per the
@@ -420,8 +420,8 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
         //      consult is a sidechain transcript entry
         //      (`entry.isSidechain === true`), and taskNotificationWatcher.ts
         //      deliberately excludes sidechain entries from ever producing a
-        //      correlate/end signal (same convention as costWatcher.ts and
-        //      arceusRelay.ts) — so a companion spawned here could never be
+        //      correlate/end signal (same convention as costWatcher.ts) — so
+        //      a companion spawned here could never be
         //      despawned via that path and would sit orphaned until
         //      AdvisorManager's MAX_COMPANION_LIFETIME_MS backstop. Falling
         //      back to an ordinary battle-spawn instead would trade one

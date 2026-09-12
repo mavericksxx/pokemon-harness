@@ -10,8 +10,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ARCEUS_SYSTEM_PROMPT_TEMPLATE } from '../shared/arceus';
-import { arceusRosterFilePath } from './arceusRosterFile';
+import { ARCEUS_SYSTEM_PROMPT_TEMPLATE, ARCEUS_SYSTEM_PROMPT_TEMPLATE_V1 } from '../shared/arceus';
 
 function arceusDir(harnessHomeDir: string): string {
   return join(harnessHomeDir, 'agents', 'arceus');
@@ -29,23 +28,37 @@ export function arceusSystemPromptPath(harnessHomeDir: string): string {
 
 /** Ensures the file exists (seeding it from the template on first call
  *  only) and returns its CURRENT on-disk contents plus its path — called
- *  fresh on every summon (see arceus.ts's renderer-side `summonArceus`),
- *  so a user's edit to the file takes effect the very next time Arceus is
- *  summoned, no app restart needed. Also hands back the absolute path to
- *  the live roster file (arceusRosterFile.ts) — piggybacked on this same
- *  IPC round-trip rather than a new channel. The returned `prompt`/`path`
- *  are no longer used to build a first-prompt (pty.ts's `spawn()` re-reads
- *  the file itself at spawn time to compose his system prompt); calling
- *  this before every real spawn is still what guarantees the file — and
- *  roster.json — exist on disk before that read. */
+ *  fresh on every summon (see arceus.ts's renderer-side `summonArceus`), so
+ *  a user's edit to the file takes effect the very next time Arceus is
+ *  summoned, no app restart needed. The returned `prompt`/`path` are no
+ *  longer used to build a first-prompt (pty.ts's `spawn()` re-reads the file
+ *  itself at spawn time to compose his system prompt, appending the
+ *  code-owned tool contract regardless of what's here); calling this before
+ *  every real spawn is still what guarantees the file — and (via the
+ *  `arceus:ensureSystemPrompt` IPC handler's own extra call, ipc/app.ts) —
+ *  roster.json exist on disk before that read.
+ *
+ *  Arceus v2 migration (advisor must-fix): a real install's SYSTEM.md may
+ *  predate this change and still be the OLD v1 seed describing the deleted
+ *  `@@relay` directive — with `ArceusRelayWatcher` gone, that would have
+ *  Arceus emit `@@relay` lines into a void forever. If the on-disk file is
+ *  STILL byte-identical to `ARCEUS_SYSTEM_PROMPT_TEMPLATE_V1` (never
+ *  hand-edited), it's migrated to the current template; any OTHER content
+ *  (a genuine user edit, or an already-migrated v2 file) is left alone,
+ *  same "never overwritten once touched" contract this function always had. */
 export async function ensureArceusSystemPrompt(
   harnessHomeDir: string
-): Promise<{ path: string; prompt: string; rosterPath: string }> {
+): Promise<{ path: string; prompt: string }> {
   await mkdir(arceusDir(harnessHomeDir), { recursive: true });
   const p = arceusSystemPromptPath(harnessHomeDir);
   if (!existsSync(p)) {
     await writeFile(p, ARCEUS_SYSTEM_PROMPT_TEMPLATE, 'utf8');
+  } else {
+    const current = await readFile(p, 'utf8');
+    if (current === ARCEUS_SYSTEM_PROMPT_TEMPLATE_V1) {
+      await writeFile(p, ARCEUS_SYSTEM_PROMPT_TEMPLATE, 'utf8');
+    }
   }
   const prompt = await readFile(p, 'utf8');
-  return { path: p, prompt, rosterPath: arceusRosterFilePath(harnessHomeDir) };
+  return { path: p, prompt };
 }

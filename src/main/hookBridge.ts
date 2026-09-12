@@ -105,8 +105,22 @@ const POKE_TOOLS_SCRIPT_FILENAME = 'poke-tools.cjs';
 /** `permissions.allow` entries added to Arceus's own per-session settings
  *  (see `prepareSession`'s `extraAllowRules` param) so auto-mode-off doesn't
  *  stall him on an unattended permission prompt for any of the three new
- *  commands — mirrors `claude --help`'s own `Bash(<cmd>:*)` prefix-match
- *  syntax. */
+ *  commands — mirrors Claude Code's documented `Bash(<prefix>:*)` allow-rule
+ *  syntax (a prefix match against the Bash tool's own command STRING, a
+ *  decision made before the shell ever tries to resolve/run it — unrelated
+ *  to PATH).
+ *
+ *  UNVERIFIED, flagged rather than silently assumed: this repo has no prior
+ *  example of a `Bash(<cmd>:*)` allow-rule matching a BARE, PATH-resolved
+ *  command name (poke-delegate, the closest precedent, isn't gated by any
+ *  permission-allow rule at all — it relies on auto-mode/manual approval).
+ *  This app cannot launch a real `claude` session to confirm empirically.
+ *  Needs a live check before this feature is considered fully done: summon
+ *  Arceus with auto-mode OFF, ask him to call `poke-ask`, and confirm no
+ *  permission prompt appears. If it turns out prefix-matching needs an
+ *  absolute path instead of a bare name, `pty.ts`'s PATH-prepend approach
+ *  would need to change to something that stamps a resolved path into these
+ *  rules per-install. */
 export const POKE_TOOL_PERMISSION_RULES = ['Bash(poke-ask:*)', 'Bash(poke-spawn:*)', 'Bash(poke-relay:*)'];
 
 /** Cap on one UDS connection's buffered-so-far line (`bind()`'s

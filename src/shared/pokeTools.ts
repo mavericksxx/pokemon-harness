@@ -88,7 +88,6 @@ export interface PokeSpawnedNotice {
   workspaceName: string;
   cwd: string;
   command: string;
-  args: string[];
   task: string;
 }
 

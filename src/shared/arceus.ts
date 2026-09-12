@@ -80,15 +80,41 @@ export function buildArceusArgs(provider: AgentProviderId, model: string | undef
   return [...buildProviderArgs(provider, model), ...autoArgs];
 }
 
+/** The OLD (pre-Arceus-v2) template, verbatim — kept ONLY so
+ *  `main/arceusPrompt.ts`'s `ensureArceusSystemPrompt` can detect "this
+ *  install's SYSTEM.md is still exactly the v1 seed, never hand-edited" and
+ *  migrate it to the v2 seed below. A real install's SYSTEM.md predating
+ *  this change still describes the deleted `@@relay` directive — with
+ *  `ArceusRelayWatcher` gone, an unmigrated file would have Arceus emitting
+ *  `@@relay` lines into a void forever. Never used for anything else; do
+ *  not add new callers. */
+export const ARCEUS_SYSTEM_PROMPT_TEMPLATE_V1 = `You are Arceus, the orchestrator of this garden. You speak briefly and calmly — a benevolent creator who delegates rather than micromanages, with light Pokémon flavor and zero hamminess. Duties: triage what the user asks for, break it into tasks, assign work to the other agents in the garden, watch their progress, and surface only what genuinely needs the user's attention. When asked what's happening, give a short plain-language status of who's doing what. You do not implement things yourself unless directly asked. Keep every reply short.
+
+Below this message is a snapshot of who's in the garden right now, across every workspace — session title, pokémon species, provider, and status. It will go stale as sessions come and go; whenever the user assigns you a task through the dispatch box, the app automatically prepends a fresh one-line \`[roster: ...]\` tag to what you receive — trust that tag over this initial snapshot, and don't treat it as something to reply to. A live roster file at \`agents/arceus/roster.json\` (in the harness home directory) also exists on disk for you to read directly when in doubt.
+
+When — and ONLY when — the user explicitly asks you to relay, assign, or hand off a task to a specific named agent, end your reply with exactly one line per assignment, in this exact form:
+@@relay agent="<session title or pokémon species>" message="<the instruction, in your own words>"
+Use the agent's session title when you know it; its pokémon species name works too if that's what the user said and it's unambiguous. If the message needs a literal " or \\, escape it as \\" or \\\\. Never emit an @@relay line unprompted, speculatively, or to yourself — only in direct response to the user asking you to relay something. After emitting it, confirm in plain language what you relayed and to whom.
+`;
+
 /** Verbatim, user-approved draft (Phase 8.8 spec, rewritten for Arceus v2 —
  *  see docs/arceus-v2-plan.md §3.1/§7) — written to agents/arceus/SYSTEM.md
- *  on first summon ONLY (main/arceusPrompt.ts never overwrites an existing
- *  file), so the user can retune Arceus by editing that file directly. This
- *  constant is the seed, not a live source: once the file exists, its
- *  on-disk contents are what every summon reads, composed (with a roster-
- *  file pointer — see `buildArceusSystemPrompt` below) into the ONE system
- *  prompt file every Arceus spawn gets, at the shared `PtyManager.spawn`
- *  choke point (pty.ts), replacing HARNESS.md's own flag for his spawns only. */
+ *  on first summon, or migrated onto an untouched v1 install (see
+ *  `ARCEUS_SYSTEM_PROMPT_TEMPLATE_V1` above and `ensureArceusSystemPrompt`'s
+ *  own migration check) — never overwritten once the on-disk file no longer
+ *  byte-matches a known seed, so the user can retune Arceus by editing that
+ *  file directly. This constant is the seed, not a live source: once the
+ *  file exists, its on-disk contents are what every summon reads.
+ *
+ *  Deliberately holds ONLY the voice/persona paragraph and the dispatch
+ *  policy (identify workspace, reuse-vs-spawn, relay-on-request) — NOT the
+ *  poke-* tool mechanics (fire-and-forget, single-target, the Codex caveat,
+ *  bare-command invocation). Those live in code as `ARCEUS_TOOL_CONTRACT`
+ *  below, appended by `buildArceusSystemPrompt` on every spawn regardless of
+ *  what's on disk here — advisor-flagged: mechanics the app's own plumbing
+ *  depends on (Claude Code's `Bash(poke-ask:*)` permission-allow prefix
+ *  matching, in particular) must never be at the mercy of a user edit or a
+ *  stale on-disk file that predates them. */
 export const ARCEUS_SYSTEM_PROMPT_TEMPLATE = `You are Arceus, the orchestrator of this garden. You speak briefly and calmly — a benevolent creator who delegates rather than micromanages, with light Pokémon flavor and zero hamminess. You do not implement things yourself; you route work to other agents, across every project (workspace) in the garden.
 
 Every time the user gives you a task:
@@ -96,13 +122,25 @@ Every time the user gives you a task:
 2. Once the workspace is settled, check agents/arceus/roster.json for an idle agent already there. If one exists, ALWAYS call \`poke-ask\` and offer exactly two options — continue with that agent (mention what it was last working on, from its \`lastDispatch\`) or spawn a new one — even when you're sure which is right. That choice is the user's, never yours to make silently.
 3. If no idle agent exists there, call \`poke-spawn\` directly with the workspace and the task, and tell the user that's what you did.
 4. If the user explicitly asks you to relay or hand off a message to a specific already-running agent, call \`poke-relay\` with that agent's name (its title, or its pokémon species if unambiguous) and the message.
-
-Single target only for now — one workspace, one agent per task. Never fan a single request out across more than one agent or project.
-
-\`poke-ask\`, \`poke-spawn\`, and \`poke-relay\` are ordinary Bash commands. All three return IMMEDIATELY with just a short acknowledgment — none of them wait for the user's answer, the new agent to come up, or the relay to actually land. Once one returns, end your turn normally; never poll or wait for anything yourself. \`poke-ask\` and \`poke-spawn\` will send you a fresh follow-up message once their real outcome is known (the user's answer, or confirmation of which agent got spawned) — wait for that message before acting further. \`poke-relay\` does not send you anything further once accepted — a failure (no such agent) already shows in that command's own output before your turn even ends, so you'll know immediately if it didn't go through.
-
-If you are running on Codex rather than Claude, these three tools are not available to you (a sandboxing limitation) — say so plainly if the user asks you to do something that needs them, and stick to plain conversation/relay through what they type to you directly.
 `;
+
+/** Code-owned poke-* tool contract (Arceus v2 advisor follow-up) — appended
+ *  by `buildArceusSystemPrompt` after SYSTEM.md's own text, on EVERY spawn,
+ *  so it's guaranteed regardless of what's on disk (a stale pre-migration
+ *  file, or a user edit that happened to strip this part out). This is the
+ *  one place the "invoke as a bare command" rule lives: Claude Code's
+ *  `permissions.allow` prefix-matching (`Bash(poke-ask:*)` etc. — see
+ *  hookBridge.ts's `POKE_TOOL_PERMISSION_RULES`) matches against the
+ *  command line's own leading token, so `cd x && poke-ask ...` or
+ *  `FOO=1 poke-ask ...` may not match the allowlist at all and stalls on an
+ *  unattended permission prompt exactly like an unlisted command would. */
+const ARCEUS_TOOL_CONTRACT = `Tool contract for \`poke-ask\`, \`poke-spawn\`, and \`poke-relay\` (fixed — always current regardless of anything above, or of what SYSTEM.md says on a given install):
+- Invoke each as a plain, bare command — the very first token of the Bash call, nothing prepended or chained. Never \`cd <dir> && poke-ask ...\`, never \`FOO=1 poke-ask ...\`, never wrapped in a subshell or piped. Anything else may not match this app's permission allowlist and will stall waiting on a prompt nobody will answer.
+- Single target only, always: exactly one workspace, one agent per task. Never call more than one of these for the same request.
+- All three return IMMEDIATELY with just a short acknowledgment — none of them wait for the user's answer, the new agent to come up, or the relay to actually land. Once one returns, end your turn normally; never poll or wait for anything yourself.
+- \`poke-ask\` and \`poke-spawn\` will send you a fresh follow-up message once their real outcome is known (the user's answer, or confirmation of which agent got spawned) — wait for that message before acting further.
+- \`poke-relay\` does not send you anything further once accepted — a failure (no such agent) already shows in that command's own output before your turn even ends, so you'll know immediately if it didn't go through.
+- If you are running on Codex rather than Claude, these three tools are not available to you (a sandboxing limitation) — say so plainly if the user asks you to do something that needs them, and stick to plain conversation/relay through what they type to you directly.`;
 
 // ─── Roster formatting (BACKLOG "next up" item 3 §2) ───────────────────────
 // Pure/dependency-free, shared between the first-prompt delivery (renderer's
@@ -137,16 +175,26 @@ export function formatRosterLine(entries: ArceusRosterEntry[]): string {
 /** The ONE composed system-prompt file every Arceus spawn gets (claude or
  *  codex) — his persona (agents/arceus/SYSTEM.md's CURRENT on-disk contents,
  *  re-read fresh at every spawn, same "live source" rule HARNESS.md follows
- *  — see pty.ts's `spawn()`) plus a pointer to the always-current roster
- *  file. Built at the shared `PtyManager.spawn` choke point so all three
- *  real Arceus spawn paths (summonArceus/tryResumeArceus/sessionRespawn's
- *  respawnSession) get it automatically, replacing HARNESS.md's own
+ *  — see pty.ts's `spawn()`), the code-owned `ARCEUS_TOOL_CONTRACT` (always
+ *  appended, regardless of what's on disk — see that constant's own header),
+ *  and a pointer to the always-current roster file. Built at the shared
+ *  `PtyManager.spawn` choke point so all three real Arceus spawn paths
+ *  (summonArceus/tryResumeArceus/sessionRespawn's respawnSession) get it
+ *  automatically, replacing HARNESS.md's own
  *  `--append-system-prompt-file`/`-c developer_instructions=` flag for his
  *  spawns only (never both — the CLI flag is last-value-wins, and he
  *  doesn't write code, so HARNESS.md's instructions don't apply to him).
  *  `rosterFilePath` is the absolute path to `agents/arceus/roster.json`
- *  (main/arceusRosterFile.ts). */
+ *  (main/arceusRosterFile.ts).
+ *
+ *  TODO (advisor follow-up, flagged for whoever merges `arceus-relaunch-fix`
+ *  into this branch or vice versa): `main/sessionRespawn.ts` has a comment
+ *  on `shouldResume`/near its own header still describing Arceus's persona
+ *  as "re-typed on the renderer's next summon" (the OLD first-prompt
+ *  mechanism) — now stale, since persona composition happens HERE, at every
+ *  spawn including a `--resume`. That file lives in a different worktree;
+ *  update its comment once the two branches meet, don't fix it from here. */
 export function buildArceusSystemPrompt(personaText: string, rosterFilePath: string): string {
   const rosterNote = `A live roster file exists at ${rosterFilePath} — every workspace ({id, name, primaryFolder}) and every session ({title, pokemon, provider, status, workspace, lastDispatch}). Read it whenever you need to resolve who's in the garden or where a workspace lives; trust it over anything you remember.`;
-  return `${personaText.trim()}\n\n${rosterNote}`;
+  return `${personaText.trim()}\n\n${ARCEUS_TOOL_CONTRACT}\n\n${rosterNote}`;
 }

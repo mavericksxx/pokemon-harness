@@ -1,9 +1,9 @@
 /**
  * TaskNotificationWatcher — Bug B fix (2026-08-29): a real, per-subagent
  * completion signal for ASYNC `Task`/`Agent` dispatches, read from the
- * parent session's own transcript. Same tailing mechanism as costWatcher.ts/
- * arceusRelay.ts (tail by byte offset, carry a torn trailing line to the next
- * read, restart from scratch if the file shrinks). Same primarily-`fs.watch`,
+ * parent session's own transcript. Same tailing mechanism as costWatcher.ts
+ * (tail by byte offset, carry a torn trailing line to the next read, restart
+ * from scratch if the file shrinks). Same primarily-`fs.watch`,
  * slow-poll-as-safety-net read trigger as costWatcher.ts too — see that
  * file's header for why: `fs.watch` is the fast path, FALLBACK_POLL_MS below
  * only exists to catch a missed watch event.
@@ -125,9 +125,9 @@
  * wrongly at 0 and this watcher dark forever for that dispatch, since
  * nothing else would ever ask it to look again.
  *
- * Sidechain-excluded (`isSidechain: true`) same as costWatcher.ts/
- * arceusRelay.ts's own exclusion — those entries belong to a SUBAGENT's own
- * nested interleaving (e.g. a subagent that itself dispatches a nested
+ * Sidechain-excluded (`isSidechain: true`) same as costWatcher.ts's own
+ * exclusion — those entries belong to a SUBAGENT's own nested interleaving
+ * (e.g. a subagent that itself dispatches a nested
  * agent); this app spawns no battler for a grandchild, so a notification
  * living only on a sidechain must never surface here.
  */
@@ -149,11 +149,10 @@ const NOTIFIED_CAP = 2000;
 
 /** `message.content` on a transcript entry is either a plain string (both
  *  real captures — the task-notification injection) or an array of content
- *  blocks (costWatcher.ts/arceusRelay.ts's own header notes this shape is
- *  untyped upstream, and arceusRelay.ts's `extractAssistantText` already
- *  handles the array form for assistant replies) — handled the same way here
- *  defensively, even though only the string form has been observed for a
- *  task-notification injection specifically. */
+ *  blocks (this shape is untyped upstream, and other transcript readers in
+ *  this app handle the array form too, for assistant replies) — handled the
+ *  same way here defensively, even though only the string form has been
+ *  observed for a task-notification injection specifically. */
 export function extractUserContentText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -326,8 +325,7 @@ export class TaskNotificationWatcher {
    *  same path, same as costWatcher.ts's `registerSession`, safe to call on
    *  every hook payload. UNLIKE costWatcher (which replays a transcript whole
    *  because cost aggregation is idempotent to re-derive), this starts
-   *  tailing from the file's CURRENT size, same reasoning as
-   *  arceusRelay.ts's own `onHookPayload`: a `--resume` respawn points this
+   *  tailing from the file's CURRENT size: a `--resume` respawn points this
    *  at an EXISTING transcript that may carry async launches/notifications
    *  from a previous life, and replaying those would gate/queue off stale
    *  history. A fresh session's transcript is empty at registration time
@@ -418,7 +416,7 @@ export class TaskNotificationWatcher {
   }
 
   /** Hook payload observer — see hookBridge.ts's `onRawPayload` constructor
-   *  param (same chaining point costWatcher.ts/arceusRelay.ts use).
+   *  param (same chaining point costWatcher.ts/sessionTitleWatcher.ts use).
    *  `hookEventName`/`subagentAgentId` are forwarded only so `registerSession`
    *  can tell a genuine top-level SessionStart from a subagent-scoped payload
    *  (see its own comment). */
@@ -512,8 +510,8 @@ export class TaskNotificationWatcher {
     } catch {
       return; // a torn line read mid-write — will re-parse cleanly once complete
     }
-    // Same exclusion costWatcher.ts/arceusRelay.ts apply: a sidechain entry
-    // belongs to a SUBAGENT's own nested interleaving, not this parent.
+    // Same exclusion costWatcher.ts applies: a sidechain entry belongs to a
+    // SUBAGENT's own nested interleaving, not this parent.
     if (entry.type !== 'user' || entry.isSidechain === true) return;
 
     const launchId = extractAsyncLaunchId(entry);
