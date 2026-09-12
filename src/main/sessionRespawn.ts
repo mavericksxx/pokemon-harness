@@ -105,14 +105,16 @@ export async function respawnSession(
  *  provider/model from the saved summon config — `resolveEffectiveRespawn`
  *  below — before this function ever sees the record): a codex Arceus (per
  *  the saved config, regardless of what the stale on-disk record's own
- *  `provider` field says) simply respawns fresh here, persona re-typed on
- *  the renderer's next summon of him, same as arceus.ts's own
- *  `autoSummonArceus` already does for a mid-run (app-still-up) re-summon —
- *  see that function's comment for the parallel case. Not a gap to close:
- *  codex has no resumable-conversation flag in this app at all (no
- *  `--resume`-equivalent id captured for any codex session, Arceus or
- *  otherwise), so "fresh, persona re-typed" is the correct fallback rather
- *  than a workaround. */
+ *  `provider` field says) simply respawns fresh here. Persona delivery is
+ *  no longer a re-typed first prompt (see shared/arceus.ts's
+ *  `buildArceusSystemPrompt` / pty.ts's `PtyManager.spawn`) — it's composed
+ *  into a `--append-system-prompt-file` at the same shared spawn choke
+ *  point every Arceus spawn path (including this one) goes through, so a
+ *  fresh respawn picks it up automatically with no renderer-side step
+ *  needed. Not a gap to close: codex has no resumable-conversation flag in
+ *  this app at all (no `--resume`-equivalent id captured for any codex
+ *  session, Arceus or otherwise), so "fresh, persona composed at spawn" is
+ *  the correct fallback rather than a workaround. */
 export function shouldResume(record: SessionRecord): boolean {
   return record.provider === 'claude' && !!record.claudeSessionId;
 }

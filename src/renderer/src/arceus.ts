@@ -235,8 +235,8 @@ function sleep(ms: number): Promise<void> {
  *  of starting a brand-new one — the ONLY thing that keeps a mid-run
  *  re-summon (his process exited but the app itself never restarted, so
  *  main's own boot-time `--resume` in sessionRespawn.ts never got a chance
- *  to run) from silently abandoning a resumable conversation for a fresh one
- *  with the persona typed in again. `autoSummonArceus` below is the only
+ *  to run) from silently abandoning a resumable conversation for a fresh
+ *  one that starts over with no history. `autoSummonArceus` below is the only
  *  caller, and only tries this when the not-live record it already has still
  *  carries a `claudeSessionId` (set once by hookRouter.ts's SessionStart
  *  case and never cleared).
