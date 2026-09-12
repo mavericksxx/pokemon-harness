@@ -108,10 +108,12 @@ export async function respawnSession(
  *  `provider` field says) simply respawns fresh here. Persona delivery is
  *  no longer a re-typed first prompt (see shared/arceus.ts's
  *  `buildArceusSystemPrompt` / pty.ts's `PtyManager.spawn`) — it's composed
- *  into a `--append-system-prompt-file` at the same shared spawn choke
- *  point every Arceus spawn path (including this one) goes through, so a
- *  fresh respawn picks it up automatically with no renderer-side step
- *  needed. Not a gap to close: codex has no resumable-conversation flag in
+ *  into the provider's own system-prompt flag (`--append-system-prompt-file`
+ *  for claude, `-c developer_instructions=` for codex) at the same shared
+ *  spawn choke point every Arceus spawn path (including this one) goes
+ *  through, so a fresh respawn picks it up automatically with no
+ *  renderer-side step needed. Not a gap to close: codex has no
+ *  resumable-conversation flag in
  *  this app at all (no `--resume`-equivalent id captured for any codex
  *  session, Arceus or otherwise), so "fresh, persona composed at spawn" is
  *  the correct fallback rather than a workaround. */

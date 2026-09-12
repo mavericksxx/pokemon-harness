@@ -264,7 +264,9 @@ function sleep(ms: number): Promise<void> {
  *  harmless: `--append-system-prompt-file`/`-c developer_instructions=` set
  *  the CLI's own system prompt for THIS process, they don't inject a new
  *  conversation turn, so re-applying it against an already-resumed
- *  conversation has no user-visible effect.
+ *  conversation adds no new visible turn to the transcript — the system
+ *  prompt itself is still very much in effect, just not something the user
+ *  sees land as a message.
  *
  *  Returns whether the resume is still alive after the grace period; `false`
  *  (spawn failure, or a dead resume caught by the grace period) tells

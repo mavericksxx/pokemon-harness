@@ -100,9 +100,10 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   // Dev-only escape hatch (same shape as config:evolveSeconds/config:shinyOdds
   // above): this app must never spawn a REAL claude session for its own
   // testing, so summoning Arceus with POKE_ARCEUS_DEV_STANDIN=1 set swaps the
-  // real `claude` spawn (persona typed as his first prompt once ready — see
-  // shared/arceus.ts) for a plain shell tagged `isArceus` (see the renderer's
-  // arceus.ts `summonArceusDevStandin`) — everything BUT the real spawn (the
+  // real `claude` spawn (persona composed into a system-prompt file at spawn
+  // — see shared/arceus.ts's buildArceusSystemPrompt) for a plain shell
+  // tagged `isArceus` (see the renderer's arceus.ts `summonArceusDevStandin`)
+  // — everything BUT the real spawn (the
   // cosmos ascent, alpha card, dispatch box, persistence, cross-workspace
   // presence) is then exercisable live.
   handle('config:arceusDevStandin', () => process.env.POKE_ARCEUS_DEV_STANDIN === '1');

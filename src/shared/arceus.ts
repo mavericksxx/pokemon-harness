@@ -143,10 +143,8 @@ const ARCEUS_TOOL_CONTRACT = `Tool contract for \`poke-ask\`, \`poke-spawn\`, an
 - If you are running on Codex rather than Claude, these three tools are not available to you (a sandboxing limitation) — say so plainly if the user asks you to do something that needs them, and stick to plain conversation/relay through what they type to you directly.`;
 
 // ─── Roster formatting (BACKLOG "next up" item 3 §2) ───────────────────────
-// Pure/dependency-free, shared between the first-prompt delivery (renderer's
-// arceus.ts, once per fresh summon) and the dispatch box's per-message
-// roster tag (ArceusDispatchBox.tsx, every send) — same per-entry shape,
-// two different join styles. Deliberately takes the app's own SessionStatus
+// Pure/dependency-free — used by the dispatch box's per-message roster tag
+// (ArceusDispatchBox.tsx, every send). Deliberately takes the app's own SessionStatus
 // verbatim rather than the UI's "needs you" relabel (design/statusLabel.ts,
 // renderer-only): Arceus is a text reader, not the roster card, and shared/
 // stays dependency-free (no renderer imports).
@@ -165,8 +163,8 @@ function rosterEntryLine(e: ArceusRosterEntry): string {
 /** Single-line, compact form — the tag the dispatch box prepends to every
  *  message it sends into Arceus's pty (item 2's "app prepends a fresh
  *  roster line" mechanism, chosen over a separate change-triggered watcher
- *  as the simpler, less chatty option). Deliberately terser than
- *  formatRosterBlock since this rides along on every single dispatch. */
+ *  as the simpler, less chatty option). Deliberately terse since this rides
+ *  along on every single dispatch. */
 export function formatRosterLine(entries: ArceusRosterEntry[]): string {
   if (entries.length === 0) return '[roster: none]';
   return `[roster: ${entries.map(rosterEntryLine).join('; ')}]`;
@@ -185,15 +183,7 @@ export function formatRosterLine(entries: ArceusRosterEntry[]): string {
  *  spawns only (never both — the CLI flag is last-value-wins, and he
  *  doesn't write code, so HARNESS.md's instructions don't apply to him).
  *  `rosterFilePath` is the absolute path to `agents/arceus/roster.json`
- *  (main/arceusRosterFile.ts).
- *
- *  TODO (advisor follow-up, flagged for whoever merges `arceus-relaunch-fix`
- *  into this branch or vice versa): `main/sessionRespawn.ts` has a comment
- *  on `shouldResume`/near its own header still describing Arceus's persona
- *  as "re-typed on the renderer's next summon" (the OLD first-prompt
- *  mechanism) — now stale, since persona composition happens HERE, at every
- *  spawn including a `--resume`. That file lives in a different worktree;
- *  update its comment once the two branches meet, don't fix it from here. */
+ *  (main/arceusRosterFile.ts). */
 export function buildArceusSystemPrompt(personaText: string, rosterFilePath: string): string {
   const rosterNote = `A live roster file exists at ${rosterFilePath} — every workspace ({id, name, primaryFolder}) and every session ({title, pokemon, provider, status, workspace, lastDispatch}). Read it whenever you need to resolve who's in the garden or where a workspace lives; trust it over anything you remember.`;
   return `${personaText.trim()}\n\n${ARCEUS_TOOL_CONTRACT}\n\n${rosterNote}`;
