@@ -31,6 +31,9 @@ export function ArceusDispatchBox({ sessionId }: Props): JSX.Element {
     // `poke-spawn`/`poke-relay` stamp on their own targets; here it's on
     // Arceus's own record (this box only ever dispatches to him).
     useStore.getState().updateSession(sessionId, { lastDispatch: { at: Date.now(), message: trimmed } });
+    // Hall-of-Origin HUD exchange strip (docs/arceus-v2-plan.md §3.7) — a
+    // real (not fabricated) log entry for what the user actually sent.
+    useStore.getState().pushArceusExchange({ who: 'you', text: trimmed });
     setText('');
   };
 

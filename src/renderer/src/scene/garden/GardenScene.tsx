@@ -22,6 +22,7 @@ import { GardenCharm } from './gardenCharm';
 import { clearBattleFx, hasActiveFx } from './battle/battleFx';
 import { playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
+import { ArceusHud } from '@/components/ArceusHud';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { stopSession } from '@/sessions';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
@@ -1386,6 +1387,7 @@ export function GardenScene(): JSX.Element {
       <div className="garden-warp-frame">
         <div className="garden" ref={hostRef} />
         <ArceusWarp hostRef={hostRef} ascended={ascended} />
+        <ArceusHud ascended={ascended} />
         {crashed && (
           // Auto-rebuild attempt cap hit (garden-ui-crash triage,
           // 2026-08-29) — same "log it, offer a manual way out" idiom as

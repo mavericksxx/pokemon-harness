@@ -1096,9 +1096,6 @@ body.garden-lowres .garden canvas {
   opacity: 0;
   background: #0b0b24;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   pointer-events: none;
 }
 
@@ -1119,15 +1116,35 @@ body.garden-lowres .garden canvas {
  * PLATE ON HIS BODY is the type indicator, not a scene glow — see
  * ArceusWarp.tsx's forme cycling, which swaps the displayed sprite
  * between Showdown's per-type gen5ani formes). Stars are baked into the
- * nebula texture itself now (nebula.ts) — no separate CSS starfield layer. */
+ * nebula texture itself now (nebula.ts) — no separate CSS starfield layer.
+ *
+ * Arceus v2 visual redesign (docs/arceus-v2-plan.md §3.7, ported from
+ * `.reference/hall-of-origin-mockup.html`'s `.arceus-figure`): floats
+ * LEFT-of-center rather than dead-centered (absolute-positioned now, not a
+ * flex-centered child of `.garden-cosmos` — see that rule) — `left`/`top`
+ * here MUST stay in sync with nebula.ts's `ARCEUS_CLEAR_X_FRAC`/
+ * `ARCEUS_CLEAR_Y_FRAC`, which carve the backdrop's own calm zone around
+ * this same point. The radial `mask-image` blends his sprite's own baked-in
+ * dark background into the generated backdrop at its edges (a hard
+ * rectangle would otherwise show as a dark box floating over the nebula) —
+ * `ellipse ... at 50% 50%` is relative to THIS element's own box, so it
+ * blends regardless of where the box itself sits on the pane. */
 .garden-cosmos-figure {
-  position: relative;
+  position: absolute;
+  left: 38%;
+  top: 54%;
+  /* Baseline centering offset — folded into `arceus-bob`'s own keyframe
+   * below too (every frame re-states it), since a CSS animation's `transform`
+   * fully replaces this property rather than composing with it. */
+  transform: translate(-50%, -50%);
   z-index: 1;
   /* ~1.8x the original 96px (Phase 8.8 polish — "he's the god, give him
    * more presence"). nebula.ts's CLEAR_RADIUS keeps calm space behind him
    * at this size too. */
   width: 172px;
   height: 172px;
+  -webkit-mask-image: radial-gradient(ellipse 62% 58% at 50% 50%, #000 55%, transparent 100%);
+  mask-image: radial-gradient(ellipse 62% 58% at 50% 50%, #000 55%, transparent 100%);
   animation: arceus-bob 2600ms ease-in-out infinite;
 }
 
@@ -1151,11 +1168,348 @@ body.garden-lowres .garden canvas {
 @keyframes arceus-bob {
   0%,
   100% {
-    transform: translateY(0);
+    transform: translate(-50%, -50%) translateY(0);
   }
   50% {
-    transform: translateY(-10px);
+    transform: translate(-50%, -50%) translateY(-10px);
   }
+}
+
+/* ── Hall of Origin HUD (Arceus v2, docs/arceus-v2-plan.md §3.6/§3.7) ────── */
+/* Ported from the user-approved mockup (`.reference/hall-of-origin-
+ * mockup.html`'s `.hud-right`/`.summary-card`/`.board`/`.exchange-strip`/
+ * `.dispatch-box`) — translucent panels floating directly over the
+ * full-bleed cosmos (`rgba(...)` backgrounds + `backdrop-filter: blur(1px)`,
+ * hard-edged borders, `--shadow-hard`), never a separate solid side panel.
+ * Sits inside `.garden-warp-frame` alongside `.garden-cosmos` (z-index 4,
+ * above the nebula/figure/warp-burst layers below it) — ArceusHud.tsx
+ * toggles `.arceus-hud-visible` on a short delay past the warp's own
+ * transition (see that component) rather than via a CSS `transition`, since
+ * the delay only ever applies going FROM garden TO cosmos, not both ways. */
+.arceus-hud {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  bottom: 16px;
+  width: 360px;
+  max-width: calc(100% - 32px);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.arceus-hud-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.summary-card {
+  background: rgba(17, 21, 47, 0.92);
+  border: 1px solid var(--arceus-gold-deep);
+  box-shadow: var(--shadow-hard);
+  padding: 12px 13px;
+  flex: 0 0 auto;
+  backdrop-filter: blur(1px);
+}
+
+.hud-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.hud-who {
+  font-family: var(--font-display);
+  font-size: var(--font-display-md-size);
+  line-height: var(--font-display-md-line);
+  color: var(--arceus-gold-bright);
+}
+
+.hud-sentence {
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--arceus-ink);
+}
+
+.hud-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.ghost-btn {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--arceus-gold-bright);
+  background: transparent;
+  border: 1px solid var(--arceus-gold);
+  border-radius: var(--radius-lg);
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.ghost-btn:hover {
+  background: var(--arceus-ground-raised);
+}
+
+.ghost-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.ghost-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.model-link {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--arceus-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.model-link:hover {
+  color: var(--arceus-gold-bright);
+}
+
+.model-panel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--arceus-gold-deep);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-panel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.model-panel-field label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--arceus-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.model-panel-field select,
+.model-panel-field input {
+  background: var(--arceus-ground);
+  border: 1px solid var(--muted-dim);
+  color: var(--arceus-ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  padding: 6px 7px;
+  border-radius: var(--radius-sm);
+}
+
+.model-panel-field select:focus,
+.model-panel-field input:focus {
+  outline: 2px solid var(--arceus-gold);
+  outline-offset: 1px;
+}
+
+/* ── board (secondary, hidden by default) ─────────────────────────────── */
+.board {
+  background: rgba(29, 29, 34, 0.94);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-hard);
+  backdrop-filter: blur(1px);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.board-hidden {
+  display: none;
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.board-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-display-md-size);
+  line-height: var(--font-display-md-line);
+  font-weight: 400;
+  color: var(--text);
+}
+
+.board-live {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--status-done);
+}
+
+.board .rows {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.board .row-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.board .row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--muted-dim);
+}
+
+.board .row:last-child {
+  border-bottom: none;
+}
+
+.board .glyph {
+  width: 28px;
+  height: 28px;
+  background: var(--bg-terminal);
+  border: 1px solid var(--muted-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.board .who-what {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.board .who-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.board .who-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board .pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-lg);
+  white-space: nowrap;
+}
+
+.board .pill.idle {
+  color: var(--status-idle);
+  background: var(--status-idle-bg);
+}
+
+.board .pill.working {
+  color: var(--status-working);
+  background: var(--status-working-bg);
+}
+
+.board .pill.blocked {
+  color: var(--status-blocked);
+  background: var(--status-blocked-bg);
+}
+
+.board .pill.done {
+  color: var(--status-done);
+  background: var(--status-done-bg);
+}
+
+.board .pill.starting {
+  color: var(--muted);
+  background: var(--muted-dim);
+}
+
+/* ── exchange strip (real dispatch/poke-ask log — see store.ts's
+ * `arceusExchange`) ─────────────────────────────────────────────────────── */
+.exchange-strip {
+  flex: 1;
+  min-height: 120px;
+  background: rgba(26, 26, 31, 0.92);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  backdrop-filter: blur(1px);
+}
+
+.exchange-empty {
+  color: var(--muted);
+}
+
+.exchange-ln .exchange-prompt {
+  color: var(--muted);
+}
+
+.exchange-ln-arceus .exchange-prompt {
+  color: var(--arceus-gold-bright);
+}
+
+.exchange-ln .exchange-txt {
+  color: var(--text);
+}
+
+/* Arceus's own dispatch box (ArceusDispatchBox.tsx) is reused verbatim
+ * inside the HUD — this overrides its ordinary opaque `.panel-2` drawer
+ * styling (index.css's "Arceus dispatch box" rule, further down) with the
+ * mockup's translucent-panel treatment whenever it's rendered here, inside
+ * `.arceus-hud`. */
+.arceus-hud .dispatch-box {
+  background: rgba(38, 38, 44, 0.94);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  flex: 0 0 auto;
+  backdrop-filter: blur(1px);
 }
 
 /* ── terminal drawer ─────────────────────────────────────────────────────── */
@@ -1806,15 +2160,165 @@ body.garden-lowres .garden canvas {
 }
 
 /* ── poke-ask picker (Arceus v2, docs/arceus-v2-plan.md §3.2/§7) ─────────── */
-/* Vertical stack of option buttons, above the generic `.modal-actions`
- * dismiss row below it — deliberately plain (visual redesign is separate,
- * out-of-scope work per the plan's §6/§7). */
+/* Restyled per the user-approved mockup (`.reference/hall-of-origin-
+ * mockup.html`'s `.overlay`/`.modal`/`.option`) — a dedicated class family
+ * (not the generic `.modal-backdrop`/`.modal`) so this doesn't affect any
+ * other dialog in the app. Same `--arceus-gold`/`--arceus-ground` cosmic
+ * palette as the Hall of Origin HUD itself. */
+.poke-ask-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 11, 15, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding: 20px;
+}
+
+.poke-ask-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--arceus-ground-raised);
+  border: 2px solid var(--arceus-gold);
+  box-shadow:
+    inset 0 0 0 1px var(--arceus-gold-bright),
+    var(--shadow-hard);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+
+.poke-ask-kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--arceus-gold-bright);
+}
+
+.poke-ask-modal h3 {
+  margin: 8px 0 8px;
+  font-family: var(--font-display);
+  font-size: var(--font-display-md-size);
+  line-height: var(--font-display-md-line);
+  font-weight: 400;
+  color: var(--arceus-ink);
+}
+
+.poke-ask-sub {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--arceus-muted);
+}
+
 .poke-ask-options {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
-  margin-top: 8px;
+}
+
+.poke-ask-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  background: var(--arceus-ground);
+  border: 1px solid var(--muted-dim);
+  border-radius: var(--radius-sm);
+  padding: 10px 11px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--arceus-ink);
+}
+
+.poke-ask-option:hover:not(:disabled) {
+  border-color: var(--arceus-gold);
+}
+
+.poke-ask-option:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.poke-ask-option:disabled {
+  cursor: default;
+}
+
+.poke-ask-option-chosen {
+  border-color: var(--arceus-gold-bright);
+  background: var(--arceus-ground-raised);
+}
+
+.poke-ask-radio {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--arceus-muted);
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 1px;
+  position: relative;
+}
+
+.poke-ask-option-chosen .poke-ask-radio {
+  border-color: var(--arceus-gold-bright);
+}
+
+.poke-ask-option-chosen .poke-ask-radio::after {
+  content: '';
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 50%;
+  background: var(--arceus-gold-bright);
+}
+
+.poke-ask-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.poke-ask-option-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--arceus-ink);
+}
+
+.poke-ask-option-desc {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--arceus-muted);
+}
+
+.poke-ask-foot {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.poke-ask-hint {
+  font-size: 10.5px;
+  color: var(--arceus-muted);
+  font-family: var(--font-mono);
+}
+
+.poke-ask-dismiss {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--arceus-muted);
+  background: transparent;
+  border: 1px solid var(--muted-dim);
+  border-radius: var(--radius-lg);
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.poke-ask-dismiss:hover {
+  color: var(--arceus-ink);
+  border-color: var(--arceus-muted);
 }
 
 /* ── Quit-intercept dialog (parity sweep item 2) ─────────────────────────── */

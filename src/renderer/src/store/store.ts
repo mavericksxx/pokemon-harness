@@ -15,6 +15,11 @@ const ACCENTS = [0xffd166, 0x8ecae6, 0xff8fa3, 0xb5e48c, 0xc8a2ff, 0xffb27a];
 /** Auto-dismiss delay for a toast, ms. */
 const TOAST_DURATION_MS = 4500;
 
+/** Arceus v2 Hall-of-Origin HUD (docs/arceus-v2-plan.md §3.7) — how many
+ *  recent `arceusExchange` entries to keep. Ambient scrollback, not a
+ *  transcript — see that field's own comment. */
+const ARCEUS_EXCHANGE_LIMIT = 30;
+
 /** Dispatched on `window` by main.tsx's `window.api.onFullscreenChange`
  *  listener, right after `setIsFullScreen` commits — same "explicit resync
  *  after a window-geometry-affecting event" pattern gardenSplit.ts's
@@ -276,6 +281,14 @@ interface HarnessState {
    *  PokeAskModal.tsx is shown. Cleared either by an answer (which also
    *  injects it into Arceus's own pty) or a plain dismiss. */
   pokeAsk: { id: string; question: string; options: string[] } | null;
+  /** Arceus v2 Hall-of-Origin HUD (docs/arceus-v2-plan.md §3.7) — a rolling
+   *  log of REAL dispatch/poke-ask exchange events (never a fabricated
+   *  transcript — a full bespoke exchange log was explicitly cut, plan §6;
+   *  his actual pty transcript remains the source of truth, reachable via
+   *  the terminal drawer/'terminal' view mode). Capped to the most recent
+   *  `ARCEUS_EXCHANGE_LIMIT` entries so this never grows unbounded across a
+   *  long-running session. */
+  arceusExchange: { who: 'you' | 'arceus'; text: string; at: number }[];
   /** macOS fullscreen state, pushed from main (main.tsx's
    *  `window.api.onFullscreenChange` listener; see main/index.ts's
    *  `enter-full-screen`/`leave-full-screen` handlers). Drives the topbar's
@@ -357,6 +370,9 @@ interface HarnessState {
   setQuitDialogOpen(open: boolean, count?: number): void;
   /** Arceus v2 — shows/updates the `poke-ask` picker; `null` closes it. */
   setPokeAsk(ask: { id: string; question: string; options: string[] } | null): void;
+  /** Arceus v2 Hall-of-Origin HUD — appends one real exchange entry (see
+   *  `arceusExchange`'s own comment), trimming to the cap. */
+  pushArceusExchange(entry: { who: 'you' | 'arceus'; text: string }): void;
   setIsFullScreen(isFullScreen: boolean): void;
   setWindowVisible(windowVisible: boolean): void;
   /** Written only by App.tsx's `matchMedia` listener — never persisted, see
@@ -436,6 +452,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   quitDialogOpen: false,
   quitDialogCount: 0,
   pokeAsk: null,
+  arceusExchange: [],
   isFullScreen: false,
   windowVisible: true,
   narrowLayout: loadNarrowLayout(),
@@ -538,6 +555,10 @@ export const useStore = create<HarnessState>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setQuitDialogOpen: (open, count) => set((st) => ({ quitDialogOpen: open, quitDialogCount: count ?? st.quitDialogCount })),
   setPokeAsk: (ask) => set({ pokeAsk: ask }),
+  pushArceusExchange: (entry) =>
+    set((st) => ({
+      arceusExchange: [...st.arceusExchange, { ...entry, at: Date.now() }].slice(-ARCEUS_EXCHANGE_LIMIT)
+    })),
   setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
   setWindowVisible: (windowVisible) => set({ windowVisible }),
   setNarrowLayout: (narrowLayout) => set({ narrowLayout }),

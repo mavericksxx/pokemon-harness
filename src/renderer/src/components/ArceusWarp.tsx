@@ -16,7 +16,7 @@ interface Props {
  *  brief (~600-900ms), the SAME both ways (unlike the old ascent, which
  *  used a slower ascend and a faster descend): a warp reads the same
  *  whichever way it's run. */
-const WARP_MS = 720;
+export const WARP_MS = 720;
 
 /** Progress is a single continuous 0..1 value (0 = garden, 1 = cosmos) —
  *  same "one driver, not two CSS animations" approach the old ascent used,

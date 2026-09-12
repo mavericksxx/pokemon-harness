@@ -1,11 +1,15 @@
 /**
- * The cosmos backdrop's nebula texture (Phase 8.8 §4, final revision) — a
- * horizontal lower-third galaxy band (warm orange/salmon core, near-black
- * dust-lane clumps, violet haze, deep-indigo corners) with heavy irregular
- * dithering and a scattered multicolor starfield. It is generated
- * PROCEDURALLY from scratch here (value noise + a stochastic/Bayer dither
- * blend + fixed-seed placements), never by copying, tracing, or embedding
- * any external image.
+ * The cosmos backdrop's nebula texture (Arceus v2 visual redesign,
+ * docs/arceus-v2-plan.md §3.7 — ported from the user-approved mockup,
+ * `.reference/hall-of-origin-mockup.html`) — a full-bleed galaxy band
+ * (warm violet/salmon core, near-black dust-lane clumps, violet haze,
+ * deep-indigo corners) running through the MIDDLE of the frame (previous
+ * revision kept it in the lower third, which read as "plainer/more
+ * centrally cropped" than the mockup once stretched over a real pane), with
+ * heavy irregular dithering and a scattered multicolor starfield. It is
+ * generated PROCEDURALLY from scratch here (value noise + a stochastic/
+ * Bayer dither blend + fixed-seed placements), never by copying, tracing,
+ * or embedding any external image.
  *
  * Generated ONCE at module load as a small (low-res) canvas, exported as a
  * data URL; the CSS side (`index.css`'s `.garden-cosmos-nebula`) stretches
@@ -16,15 +20,20 @@
  * the SAME every time this module loads, not reshuffled on every launch.
  *
  * The band's peak brightness is placed off-center (see `BAND_A`/`BAND_B`/
- * `PEAK_T`), deliberately away from (0.5, 0.5) where Arceus's sprite floats
- * (`.garden-cosmos` centers its figure) — the reference's hottest core
- * would otherwise sit directly behind him — and `CLEAR_RADIUS` backs that
- * up with an explicit calm blend right around center, regardless of where
- * the band math lands.
+ * `PEAK_T`), deliberately away from (`ARCEUS_CLEAR_X_FRAC`,
+ * `ARCEUS_CLEAR_Y_FRAC`) — the same left-of-center point ArceusWarp.tsx's
+ * `.garden-cosmos-figure` is now positioned at (Arceus floats left-of-center,
+ * not dead-centered — see that file's own comment) — the reference's
+ * hottest core would otherwise sit directly behind him, and `CLEAR_RADIUS`
+ * backs that up with an explicit calm blend right around that point,
+ * regardless of where the band math lands. Keep these two fractions in sync
+ * with ArceusWarp.tsx/index.css's `left`/`top` figure position by hand — CSS
+ * can't import a JS constant, so this is the one place both sides' numbers
+ * are cross-referenced in comments instead.
  */
 
 /** A deliberately wide 16:9 source rectangle. CSS maps this whole rectangle
- * to the pane instead of cover-cropping it, keeping the lower band in frame
+ * to the pane instead of cover-cropping it, keeping the whole band in frame
  * on both tall and wide layouts. `RES_SCALE` keeps the source pixels fine
  * enough for a starfield while the coarse dither blocks preserve the chunky
  * pixel-art read after scaling. */
@@ -76,32 +85,40 @@ const C_DUST: [number, number, number] = [14, 9, 16];
  *  off-center placement — see CLEAR_RADIUS below). */
 const C_CLEAR: [number, number, number] = [44, 32, 70];
 
+/** Arceus's figure position (fraction of the pane) — MUST match
+ *  ArceusWarp.tsx's `.garden-cosmos-figure` `left`/`top` in index.css (see
+ *  this file's header). Left-of-center, not dead-centered. */
+const ARCEUS_CLEAR_X_FRAC = 0.38;
+const ARCEUS_CLEAR_Y_FRAC = 0.54;
+
 /** Band centerline (fractions of W/H), run just beyond both horizontal edges
- *  so it reads as one continuous galaxy crossing the full view. The slight
- *  upward tilt keeps it organic without pulling it out of the lower third;
- *  the canvas CENTER (where Arceus floats) stays in calm dark space above
- *  the core and its violet fringe. Peak brightness sits toward the left,
- *  away from the sprite's center. */
-const BAND_A = { x: -0.08, y: 0.85 };
-const BAND_B = { x: 1.08, y: 0.78 };
+ *  so it reads as one continuous galaxy crossing the full view, through the
+ *  MIDDLE of the frame (mockup's `BAND_T ~= 0.52`) rather than the lower
+ *  third the previous revision used — that read as "plainer/more centrally
+ *  cropped" once stretched to a real pane (most of the frame stayed flat
+ *  indigo, with only a thin warm strip at the bottom). The slight upward
+ *  tilt keeps it organic. Peak brightness sits toward the left; the clear
+ *  zone around Arceus's own (off-center) position still overrides whatever
+ *  heat the band puts there — see `CLEAR_RADIUS` below. */
+const BAND_A = { x: -0.08, y: 0.52 };
+const BAND_B = { x: 1.08, y: 0.46 };
 const PEAK_T = 0.28;
-/** Perpendicular falloff, fraction of the canvas diagonal — tight enough
- *  that the corners (and the area behind Arceus) actually read as dark,
- *  rather than the whole frame washing out toward the core. ~2/3 of the
- *  original 0.055 (backlog item: "backdrop looks zoomed in, not like the
- *  reference" — the band itself was reading as a wall filling the frame)
- *  so more deep-indigo sky/corners show and the band reads as one feature
- *  in a bigger frame rather than the whole frame. */
-const BAND_WIDTH = 0.055 * (2 / 3);
+/** Perpendicular falloff, fraction of the canvas diagonal — widened from the
+ *  previous revision's tight 0.055*(2/3) so the warm gradient actually
+ *  reads as filling the frame (full-bleed, per the mockup) instead of a
+ *  thin ribbon surrounded by mostly-flat indigo. Corners still read dark:
+ *  the falloff is a Gaussian, not a hard edge, and the canvas is much wider
+ *  than this radius. */
+const BAND_WIDTH = 0.09;
 /** Haze (violet, cooler than the core) extends further than the core
  *  itself before giving way to flat indigo — a wider multiple of
  *  BAND_WIDTH than the core's own falloff. */
 const HAZE_WIDTH_MULT = 4.5;
-/** Explicit clear zone around canvas CENTER (fraction of the diagonal) —
- *  guarantees calm space directly behind Arceus regardless of where the
- *  band math lands, rather than relying solely on the band's own
- *  off-center placement. */
-const CLEAR_RADIUS = 0.11;
+/** Explicit clear zone around Arceus's own position (`ARCEUS_CLEAR_X_FRAC`/
+ *  `ARCEUS_CLEAR_Y_FRAC`, fraction of the diagonal) — guarantees calm space
+ *  directly behind him regardless of where the band math lands, rather than
+ *  relying solely on the band's own off-center placement. */
+const CLEAR_RADIUS = 0.12;
 
 function generateNebulaDataUrl(): string {
   const canvas = document.createElement('canvas');
@@ -186,11 +203,12 @@ function generateNebulaDataUrl(): string {
         rgb = lerpRgb(rgb, C_DUST, dustAmt * 0.85);
       }
 
-      // Explicit clear zone directly behind Arceus (canvas center) — see
-      // CLEAR_RADIUS's own comment.
-      const distToCenter = Math.hypot(x - WIDTH / 2, y - HEIGHT / 2) / diag;
-      if (distToCenter < CLEAR_RADIUS) {
-        rgb = lerpRgb(rgb, C_CLEAR, (1 - distToCenter / CLEAR_RADIUS) * 0.65);
+      // Explicit clear zone directly behind Arceus (his own left-of-center
+      // position, not the canvas center) — see CLEAR_RADIUS's own comment.
+      const distToArceus =
+        Math.hypot(x - WIDTH * ARCEUS_CLEAR_X_FRAC, y - HEIGHT * ARCEUS_CLEAR_Y_FRAC) / diag;
+      if (distToArceus < CLEAR_RADIUS) {
+        rgb = lerpRgb(rgb, C_CLEAR, (1 - distToArceus / CLEAR_RADIUS) * 0.65);
       }
 
       // Heavy dithering, deliberately IRREGULAR — a plain per-pixel Bayer4
@@ -260,10 +278,10 @@ function drawStars(ctx: CanvasRenderingContext2D, rng: () => number): void {
   }
   ctx.globalAlpha = 1;
 
-  // A couple of "feature" stars with concentric pixel glow rings — kept
-  // away from canvas center (Arceus's sprite sits there) and away from the
-  // band's brightest core, same "stay a backdrop" reasoning as the heat
-  // falloff above.
+  // A couple of "feature" stars with concentric pixel glow rings — kept in
+  // the top corners, away from Arceus's own (off-center) position and away
+  // from the band's brightest core, same "stay a backdrop" reasoning as the
+  // heat falloff above.
   const featureStars = [
     { x: 0.11 * WIDTH, y: 0.13 * HEIGHT, color: '#bfe8ff' },
     { x: 0.87 * WIDTH, y: 0.17 * HEIGHT, color: '#ffe3c2' }
