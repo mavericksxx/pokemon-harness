@@ -37,7 +37,7 @@ import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessIns
 import { arceusSystemPromptPath } from './arceusPrompt';
 import { arceusRosterFilePath } from './arceusRosterFile';
 import { initWorkspaceRegistry, repairWorkspaceFolders, saveWorkspaceRegistry } from './workspacePersistence';
-import { checkForUpdate } from './updateCheck';
+import { initAutoUpdate, scheduleUpdateChecks } from './autoUpdate';
 import { getLogDir, initDiagnostics, log, setDiagnosticsLoggingEnabled } from './diagnostics';
 import type {
   DiskRestoreInfo,
@@ -1207,9 +1207,9 @@ function createWindow(backgroundColor: string): void {
   // into dead space. Renderer toggles an `is-fullscreen` class off this.
   // `leave-full-screen` in particular can fire mid-teardown (a fullscreen
   // window animates out of fullscreen before closing) — guarded the same
-  // way `requestQuitConfirmation`/`runBackgroundUpdateCheck` above are,
-  // since an unguarded throw here is a hard app kill (see the
-  // `uncaughtException` handler at the top of this file).
+  // way `requestQuitConfirmation` above (and autoUpdate.ts's own
+  // webContents pushes) are, since an unguarded throw here is a hard app
+  // kill (see the `uncaughtException` handler at the top of this file).
   win.on('enter-full-screen', () => {
     if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', true);
   });
@@ -1326,30 +1326,6 @@ let diskRestoreConsumed = false;
  *  `diskRestoreConsumed` above). */
 let codexHooksNoticePending = false;
 let claudeThemeNoticePending: string | null = null;
-
-// ─── Tier-1 update check (ship-cut item 4) ─────────────────────────────────
-const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-/** Runs one check and, only when it finds something actually newer, pushes
- *  it to the renderer for the update toast — never pushes a "no update"
- *  result (the Settings panel's own "check now" round-trip, below, is the
- *  only path that ever sees a negative result). Errors are already
- *  swallowed inside `checkForUpdate` itself; this has nothing further to
- *  catch. */
-async function runBackgroundUpdateCheck(): Promise<void> {
-  const result = await checkForUpdate();
-  if (!result?.available) return;
-  const wc = mainWindow?.webContents;
-  if (wc && !wc.isDestroyed()) wc.send('update:available', result);
-}
-
-/** Once at launch, then every 24h for as long as the app stays open — no
- *  persisted "next check due" timestamp, so a relaunch always re-checks
- *  immediately (cheap: it's one conditional GET, 304 on no change). */
-function scheduleUpdateChecks(): void {
-  void runBackgroundUpdateCheck();
-  setInterval(() => void runBackgroundUpdateCheck(), UPDATE_CHECK_INTERVAL_MS);
-}
 
 app.whenReady().then(async () => {
   // Independent of any live claude session — the socket must be up before the
@@ -1505,6 +1481,15 @@ app.whenReady().then(async () => {
   // hasn't gotten there yet," and, post this change, no longer "the user
   // closed the window" either, since a plain close just hides it now.
   app.on('second-instance', ensureWindowOpen);
+  initAutoUpdate({
+    getMainWindow: () => mainWindow,
+    setQuitConfirmed: (confirmed) => {
+      quitConfirmed = confirmed;
+    },
+    setLeaveSessionsRunning: (leaveRunning) => {
+      leaveSessionsRunning = leaveRunning;
+    }
+  });
   scheduleUpdateChecks();
 });
 

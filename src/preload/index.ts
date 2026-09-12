@@ -19,7 +19,7 @@ import type { TerminalSettings } from '../shared/terminalTypes';
 import type { SessionCostUpdate } from '../shared/costTypes';
 import type { AppSettings } from '../shared/appSettingsTypes';
 import type { WorkspaceMutationResult, WorkspaceSnapshot, WorkspaceUpdate } from '../shared/workspaceTypes';
-import type { UpdateCheckResult } from '../shared/updateTypes';
+import type { InstallResult, UpdateStatus } from '../shared/updateTypes';
 import type { ArceusSummonConfig } from '../shared/arceus';
 import type { PokeAskNotice, PokeRelayDeliveredNotice, PokeSpawnedNotice } from '../shared/pokeTools';
 import type { DiagnosticsInfo, ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
@@ -324,19 +324,22 @@ const api = {
     return () => ipcRenderer.removeListener('window:visibilityChanged', listener);
   },
 
-  // ─── App version + updates (ship-cut item 4) ───────────────────────────
+  // ─── App version + auto-update ──────────────────────────────────────────
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:openExternal', url),
-  /** Settings panel's "check now" — resolves either way, including a
-   *  "you're already up to date" (`available: false`) result. */
-  checkForUpdateNow: (): Promise<UpdateCheckResult | null> => ipcRenderer.invoke('update:checkNow'),
-  /** Fires only when the background 24h/launch check (main/index.ts's
-   *  `scheduleUpdateChecks`) actually finds something newer — never for a
-   *  "no update" result, which stays silent by design. */
-  onUpdateAvailable: (cb: (result: UpdateCheckResult) => void): (() => void) => {
-    const listener = (_e: IpcRendererEvent, result: UpdateCheckResult): void => cb(result);
-    ipcRenderer.on('update:available', listener);
-    return () => ipcRenderer.removeListener('update:available', listener);
+  /** Settings/QuickSettings' "check now" — fire-and-forget from the
+   *  caller's perspective; the result arrives via `onUpdateStatus` below,
+   *  same push both this and the background 4h check land on. */
+  checkForUpdateNow: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:checkNow'),
+  /** "Install" button (state === 'downloaded' only). */
+  installUpdate: (): Promise<InstallResult> => ipcRenderer.invoke('update:install'),
+  getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:getStatus'),
+  /** Pushed on every autoUpdater event (checking/available/downloading/
+   *  downloaded/not-available/error) — see main/autoUpdate.ts. */
+  onUpdateStatus: (cb: (status: UpdateStatus) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, status: UpdateStatus): void => cb(status);
+    ipcRenderer.on('update:status', listener);
+    return () => ipcRenderer.removeListener('update:status', listener);
   },
 
   /** Generic main→renderer toast push (hooks.sock self-heal — main/

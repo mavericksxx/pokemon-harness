@@ -1,32 +1,36 @@
 /**
- * Tier-1 update check (ship-cut item 4) — the renderer half. Main does the
- * actual GitHub check (launch + every 24h, main/index.ts's
- * `scheduleUpdateChecks`) and only ever pushes here when it found something
- * newer; this just turns that push into a toast. The Settings panel's own
- * "check now" button calls `window.api.checkForUpdateNow()` directly rather
- * than going through this listener — see SettingsPanel.tsx.
+ * Auto-update — the renderer half. Main does the actual check/download
+ * (electron-updater, main/autoUpdate.ts) and pushes every status change
+ * here (`update:status`); this is the only place that subscribes to that
+ * push, writing it into the shared store (`useStore`'s `updateStatus`) so
+ * SettingsPanel/QuickSettings both read one source instead of each running
+ * their own IPC subscription. On `'downloaded'`, also fires a toast with an
+ * "install" action — a convenience nudge, not the only path to install (the
+ * persistent affordance lives in Settings/QuickSettings, driven off the
+ * store).
  */
 import { useStore } from '@/store/store';
-import type { UpdateCheckResult } from '@shared/updateTypes';
+import type { UpdateStatus } from '@shared/updateTypes';
 
-/** Design-tone toast text for a found update — shared with SettingsPanel's
- *  "check now" path so the wording is identical either way it's triggered. */
-export function updateToastText(result: UpdateCheckResult): string {
-  return `pokéharness ${result.latestVersion} is out — download`;
-}
-
-export function showUpdateToast(result: UpdateCheckResult): void {
-  useStore.getState().pushToast(updateToastText(result), {
-    label: 'download',
-    onClick: () => void window.api.openExternal(result.releaseUrl)
+export function showUpdateDownloadedToast(status: UpdateStatus): void {
+  useStore.getState().pushToast(`pokéharness ${status.latestVersion ?? ''} downloaded — install`, {
+    label: 'install',
+    onClick: () => void window.api.installUpdate()
   });
 }
 
 /** Call once, at boot (main.tsx) — a single always-on IPC subscription wired
  *  before the async boot-recovery work, same shape as
- *  `startQuitInterceptListener` below. */
+ *  `startQuitInterceptListener` below. Also hydrates the store once from
+ *  `getUpdateStatus()` so a late-mounted renderer (a reload after the
+ *  background check already ran) starts with the real current status
+ *  instead of the store's `idle` default. */
 export function startUpdateCheckListener(): void {
-  window.api.onUpdateAvailable((result) => showUpdateToast(result));
+  void window.api.getUpdateStatus().then((status) => useStore.getState().setUpdateStatus(status));
+  window.api.onUpdateStatus((status) => {
+    useStore.getState().setUpdateStatus(status);
+    if (status.state === 'downloaded') showUpdateDownloadedToast(status);
+  });
 }
 
 /**
