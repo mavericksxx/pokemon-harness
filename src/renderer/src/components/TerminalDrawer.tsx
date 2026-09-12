@@ -27,7 +27,6 @@ export function TerminalDrawer(): JSX.Element | null {
   const selectedSession = useStore((s) => s.sessions.find((x) => x.id === s.selectedId) ?? undefined);
   const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
-  const drawerOpenPref = useStore((s) => s.drawerOpen);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const gardenSplit = useStore((s) => s.gardenSplit);
   const select = useStore((s) => s.select);
@@ -38,8 +37,10 @@ export function TerminalDrawer(): JSX.Element | null {
   // global (`useActiveWorkspaceSessions` includes him in every workspace)
   // and reachable from his own pinned rail card instead, not this tab strip.
   // `selectedSession`/`open` below don't read `tabSessions`, so selecting
-  // his rail card still opens his terminal even though the strip shows no
-  // active tab for it — intended, not a bug.
+  // his rail card still opens his terminal in 'terminal' mode even though
+  // the strip shows no active tab for it — intended, not a bug. (In
+  // 'garden' mode `open` is never true for him at all — see `drawerVisible`
+  // below.)
   const tabSessions = sessions.filter((s) => !s.isArceus && !(s.delegateParentId && s.status === 'done'));
   const mountRef = useRef<HTMLDivElement>(null);
   // Find-in-scrollback (item 3 §1) — closed whenever the selected session
@@ -49,13 +50,14 @@ export function TerminalDrawer(): JSX.Element | null {
   useEffect(() => setFindOpen(false), [selectedId]);
 
   // Phase 8 §1: 'terminal' always shows the terminal (it IS the view);
-  // 'gardenFull' never does; 'garden' keeps the old manual toggle.
-  const open = viewMode === 'terminal' || (viewMode === 'garden' && drawerOpenPref);
-  // Full-bleed in terminal-owning mode, OR when the narrow-layout collapse
-  // (issue #2 pt.1) has pushed 'garden' mode down to a single pane —
-  // effectiveLayout.ts is the one shared place this combination is computed
-  // (App.tsx and GardenScene.tsx read the same thing).
-  const { drawerWide: wide } = useEffectiveLayout();
+  // 'gardenFull' never does; 'garden' keeps the old manual toggle — EXCEPT
+  // for Arceus, whose Hall of Origin HUD already shows everything the
+  // drawer would, so 'garden' mode never opens it for him regardless of the
+  // shared `drawerOpen` preference's value. effectiveLayout.ts is the one
+  // shared place this (and `wide`, below) is computed — App.tsx and
+  // GardenScene.tsx read the same thing, so this can't drift from what
+  // actually gets laid out.
+  const { drawerWide: wide, drawerVisible: open } = useEffectiveLayout();
   // The bottom roster strip (terminal-focus mode; parity sweep item 5,
   // formerly a left sidebar) already offers session switching; the drawer's
   // own tab strip would just duplicate it.

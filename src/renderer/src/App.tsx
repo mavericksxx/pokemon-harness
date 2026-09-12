@@ -26,6 +26,7 @@ import { useStore } from '@/store/store';
 import type { ViewMode } from '@/store/store';
 import { useEffectiveLayout } from '@/effectiveLayout';
 import { NARROW_LAYOUT_MAX_PX } from '@/gardenSplit';
+import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
 
@@ -67,6 +68,12 @@ export function App(): JSX.Element {
   // exists when the drawer is actually showing.
   const drawerOpen = useStore((s) => s.drawerOpen);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
+  // The drawer never opens for Arceus in 'garden' mode regardless of
+  // `drawerOpen` (effectiveLayout.ts) — so its two toggle affordances below
+  // (the topbar chevron, GardenDrawerEdgeTab) are hidden for him too, rather
+  // than dangling controls that flip a preference with no visible effect
+  // until the user switches away from him.
+  const arceusSelected = useStore((s) => s.selectedId === ARCEUS_SESSION_ID);
   const setViewMode = useStore((s) => s.setViewMode);
   const isFullScreen = useStore((s) => s.isFullScreen);
   const setNarrowLayout = useStore((s) => s.setNarrowLayout);
@@ -223,7 +230,7 @@ export function App(): JSX.Element {
             <NotificationBell />
             <ThemeToggle />
             <QuickSettings />
-            {viewMode === 'garden' && (
+            {viewMode === 'garden' && !arceusSelected && (
               <button
                 type="button"
                 className="topbar-icon-btn tip"
@@ -278,7 +285,7 @@ export function App(): JSX.Element {
               to ride (see GardenDrawerEdgeTab.tsx's own header). The other
               half — closing it in the first place — is the topbar's
               restored hide-terminal chevron above. */}
-          {viewMode === 'garden' && !drawerOpen && <GardenDrawerEdgeTab />}
+          {viewMode === 'garden' && !drawerOpen && !arceusSelected && <GardenDrawerEdgeTab />}
           <TerminalDrawer />
         </div>
       </main>

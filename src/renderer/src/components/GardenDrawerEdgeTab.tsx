@@ -3,9 +3,12 @@ import { DoubleChevronLeftIcon } from '@/components/icons';
 
 /** Parity sweep item 4 — the "show terminal" half of the garden-split
  *  toggle, docked to `.body-row`'s own right edge. Rendered by App.tsx ONLY
- *  in 'garden' view mode while the drawer is closed — the "hide terminal"
- *  half lives back in the topbar instead (App.tsx's `.topbar-icon-btn` in
- *  the system zone), since this tab has nowhere to dock once the drawer
+ *  in 'garden' view mode while the drawer is closed AND Arceus isn't the
+ *  selected session (his drawer never opens regardless of this toggle —
+ *  see effectiveLayout.ts — so this affordance would otherwise do nothing
+ *  visible for him) — the "hide terminal" half lives back in the topbar
+ *  instead (App.tsx's `.topbar-icon-btn` in the system zone, same Arceus
+ *  exclusion), since this tab has nowhere to dock once the drawer
  *  (and the divider it would otherwise ride) is gone. Discoverability was
  *  the whole point of adding this half here (user report: the topbar's own
  *  show/hide icon was easy to lose track of, and losing the terminal pane

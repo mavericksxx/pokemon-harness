@@ -5,7 +5,6 @@ import { FocusHeader } from '@/components/FocusHeader';
 import { SessionStatusStrip } from '@/components/SessionStatusStrip';
 import { TerminalFindBar } from '@/components/TerminalFindBar';
 import { restartSessionFresh } from '@/sessions';
-import { useEffectiveLayout } from '@/effectiveLayout';
 
 interface Props {
   session: Session | undefined;
@@ -43,10 +42,13 @@ interface Props {
  *
  * 'terminal' view mode (BACKLOG phase E) is the per-agent command center:
  * FocusHeader above the terminal, Arceus's own dispatch box below it (see
- * the trailing block) when he's selected. Every other mode keeps the
- * pre-phase-E dispatch-box-above-terminal layout, unchanged (its old
- * `.drawer-meta` status/cwd/kill row moved into `SessionStatusStrip` below
- * the terminal instead).
+ * the trailing block) when he's selected — the only mode this component
+ * ever shows his dispatch box in: 'garden' mode's terminal drawer never
+ * opens for him at all now (effectiveLayout.ts), his Hall of Origin HUD
+ * (ArceusHud.tsx) has its own copy instead, and 'gardenFull' never showed
+ * this drawer either. Non-Arceus sessions in every mode just get the plain
+ * terminal + `SessionStatusStrip` below it (its old `.drawer-meta`
+ * status/cwd/kill row moved there instead).
  *
  * Parity sweep item 8 — the "queue" composer that used to sit below the
  * terminal in focus mode for every non-Arceus session is gone entirely (user
@@ -59,17 +61,6 @@ interface Props {
  */
 export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }: Props): JSX.Element {
   const focus = viewMode === 'terminal';
-  // Arceus v2 Hall-of-Origin HUD (docs/arceus-v2-plan.md §3.7) — his dispatch
-  // box now also lives in the cosmos HUD overlay (ArceusHud.tsx), which is
-  // visible exactly when the garden pane is (`gardenVisible` — 'garden' and
-  // 'gardenFull' view modes). Showing this one too there would just be a
-  // second, redundant dispatch box on screen at once — suppressed below,
-  // gated on `!gardenVisible` rather than dropped outright, so the narrow-
-  // layout single-pane collapse (issue #2 pt.1, where the garden/cosmos pane
-  // itself is hidden even in 'garden' mode) still has SOME way to dispatch a
-  // task to him. 'terminal' view mode never shows the cosmos at all, so its
-  // own copy (the `focus` branch below) is untouched.
-  const { gardenVisible } = useEffectiveLayout();
 
   if (!session) {
     return (
@@ -96,13 +87,6 @@ export function FocusView({ session, viewMode, mountRef, findOpen, onCloseFind }
           </button>
         </p>
       )}
-
-      {/* Garden/gardenFull mode used to keep Arceus's dispatch box ABOVE the
-          terminal here (Phase 8.8 §6) — now suppressed whenever the cosmos
-          HUD already shows one (see this component's own header comment);
-          focus mode moves it below, into the composer's own slot — see the
-          trailing block. */}
-      {!focus && session.isArceus && !gardenVisible && <ArceusDispatchBox sessionId={session.id} />}
 
       <div className={focus ? 'terminal-panel terminal-panel-focus' : 'terminal-panel'}>
         <div className="terminal-mount-wrap">

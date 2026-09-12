@@ -231,8 +231,9 @@ export function GardenScene(): JSX.Element {
         // effectiveLayout.ts's `gardenVisible` is exactly App.tsx's own
         // mount-visibility flag, so this is the same check, not a
         // reimplementation of it.
-        const { viewMode, drawerOpen, narrowLayout } = useStore.getState();
-        return computeEffectiveLayout(viewMode, drawerOpen, narrowLayout).gardenVisible;
+        const { viewMode, drawerOpen, narrowLayout, selectedId } = useStore.getState();
+        return computeEffectiveLayout(viewMode, drawerOpen, narrowLayout, selectedId === ARCEUS_SESSION_ID)
+          .gardenVisible;
       };
       const syncRenderState = (): void => {
         if (destroyed) return;
