@@ -1,17 +1,27 @@
 /**
- * Tier-1 update check (ship-cut item 4) — main checks GitHub's "latest
- * release" endpoint on launch and every 24h, compares semver against the
- * running app, and tells the renderer only when there's something newer.
- * See src/main/updateCheck.ts for the actual check.
+ * Auto-update (electron-updater on top of the manually-triggered GitHub
+ * Action release) — the status machine main pushes to the renderer.
+ * See src/main/autoUpdate.ts for the actual check/download/install logic.
  */
-export interface UpdateCheckResult {
-  /** True only when `latestVersion` is a strictly newer semver than
-   *  `currentVersion` — a 304 Not Modified, a network failure, or a latest
-   *  release that's the same or older all report `available: false`. */
-  available: boolean;
+export type UpdateState = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'not-available' | 'error';
+
+export interface UpdateStatus {
+  state: UpdateState;
   currentVersion: string;
-  latestVersion: string;
-  /** The GitHub release page — window.api.openExternal target for the
-   *  update toast's "download" action and the Settings row's link. */
-  releaseUrl: string;
+  latestVersion?: string;
+  /** 'downloading' only — 0-100. */
+  progress?: number;
+  /** 'downloaded' only — the raw update zip electron-updater downloaded to
+   *  its cache dir (NOT a ready-to-run installer). Also used as the
+   *  install-failure fallback's `shell.showItemInFolder` target — see
+   *  SettingsPanel.tsx/QuickSettings.tsx's 'error' copy for what the user
+   *  actually has to do with it (quit, unzip, drag to Applications). */
+  downloadedFilePath?: string;
+  /** 'error' only. */
+  message?: string;
+}
+
+export interface InstallResult {
+  ok: boolean;
+  reason?: 'not-downloaded' | 'install-failed';
 }

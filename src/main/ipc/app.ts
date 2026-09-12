@@ -7,7 +7,7 @@ import { loadAppSettings } from '../appSettings';
 import { writeArceusRosterFile } from '../arceusRosterFile';
 import { ensureArceusSystemPrompt } from '../arceusPrompt';
 import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig } from '../arceusSummonConfig';
-import { checkForUpdate } from '../updateCheck';
+import { checkForUpdateNow, getUpdateStatus, installUpdate } from '../autoUpdate';
 import { getLogDir, getRecentErrorCount, log } from '../diagnostics';
 import { buildDiagnosticsBundle, defaultBundleFilename } from '../diagnosticsExport';
 import type { PtyManager } from '../pty';
@@ -17,7 +17,7 @@ import type { CostWatcher } from '../costWatcher';
 import type { RendererCrashInfo, SessionRecord } from '../../shared/types';
 import type { ArceusSummonConfig } from '../../shared/arceus';
 import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
-import type { UpdateCheckResult } from '../../shared/updateTypes';
+import type { InstallResult, UpdateStatus } from '../../shared/updateTypes';
 import type { ExportDiagnosticsResult, LogLevel } from '../../shared/diagnosticsTypes';
 
 export interface AppIpcDeps {
@@ -135,14 +135,19 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   // the user's own interactive shell, which only main can read off $SHELL.
   handle('config:defaultShell', () => process.env.SHELL || '/bin/zsh');
 
-  // ─── App version + updates (ship-cut item 4) ───────────────────────────────
+  // ─── App version + auto-update ─────────────────────────────────────────────
   handle('app:getVersion', () => app.getVersion());
   handle('app:openExternal', (_e, url: string) => openExternalIfSafe(url));
-  // Settings panel's "check now" — unlike the background 24h check
-  // (`scheduleUpdateChecks`), this reports its result either way (including
-  // "you're up to date"), since a user who clicked the button is owed an
-  // answer, not silence.
-  handle('update:checkNow', (): Promise<UpdateCheckResult | null> => checkForUpdate());
+  // Settings/QuickSettings' "check now" — same channel name as the old
+  // tier-1 checker; the result now arrives via the `update:status` push
+  // (see autoUpdate.ts) rather than this handler's own return value, so
+  // every caller (background 4h tick or this on-demand button) converges on
+  // one status object.
+  handle('update:checkNow', (): Promise<UpdateStatus> => checkForUpdateNow());
+  // "Install" button (state === 'downloaded' only) — attempts
+  // `quitAndInstall()`, falling back to revealing the download in Finder.
+  handle('update:install', (): Promise<InstallResult> => installUpdate());
+  handle('update:getStatus', (): UpdateStatus => getUpdateStatus());
 
   // ─── Usage limits (BACKLOG "next up" item 1) ───────────────────────────────
   // `getSnapshot` is a plain cache read (never triggers a fetch) — the

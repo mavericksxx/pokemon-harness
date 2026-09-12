@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SessionRecord } from '@shared/types';
+import type { UpdateStatus } from '@shared/updateTypes';
 import { DEFAULT_GARDEN_SPLIT, NARROW_LAYOUT_MAX_PX } from '@/gardenSplit';
 
 /** Field-for-field `SessionRecord` (shared/types.ts) — kept as a local alias
@@ -269,6 +270,10 @@ interface HarnessState {
   /** Settings panel (Phase 8 §5) — a topbar gear button and (Phase 8 §7)
    *  the garden's well prop both open it. */
   settingsOpen: boolean;
+  /** Auto-update status machine (autoUpdate.ts) — the single source both
+   *  SettingsPanel and QuickSettings read from (updateNotifier.ts is the
+   *  only place that subscribes to the main-process push and writes here). */
+  updateStatus: UpdateStatus;
   /** Quit-intercept dialog (parity sweep item 2) — opened when main prevents
    *  an actual quit (Cmd+Q / Dock quit / app-menu Quit) because sessions are
    *  still live; a plain window close never opens this, it just hides the
@@ -378,6 +383,8 @@ interface HarnessState {
   /** Written only by App.tsx's `matchMedia` listener — never persisted, see
    *  `narrowLayout`'s own comment above. */
   setNarrowLayout(narrowLayout: boolean): void;
+  /** Written only by updateNotifier.ts's `startUpdateCheckListener`. */
+  setUpdateStatus(status: UpdateStatus): void;
   /** Toggles the party rail's manual collapse and persists it (survives
    *  relaunch, same pattern as `setViewMode`). */
   setRailCollapsed(collapsed: boolean): void;
@@ -449,6 +456,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   collapsedParentIds: [],
   sessionsOverviewOpen: false,
   settingsOpen: false,
+  updateStatus: { state: 'idle', currentVersion: '' },
   quitDialogOpen: false,
   quitDialogCount: 0,
   pokeAsk: null,
@@ -562,6 +570,7 @@ export const useStore = create<HarnessState>((set, get) => ({
   setIsFullScreen: (isFullScreen) => set({ isFullScreen }),
   setWindowVisible: (windowVisible) => set({ windowVisible }),
   setNarrowLayout: (narrowLayout) => set({ narrowLayout }),
+  setUpdateStatus: (updateStatus) => set({ updateStatus }),
   setRailCollapsed: (collapsed) => {
     try {
       window.localStorage.setItem(RAIL_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');

@@ -6,10 +6,15 @@
  * explicitly passed) the `gh release create` command to actually publish it.
  *
  * This is deliberately conservative: a real GitHub release is a one-way,
- * user-facing action (it's what the in-app update checker — updateCheck.ts —
+ * user-facing action (it's what the in-app auto-updater — autoUpdate.ts —
  * starts pointing everyone at), so this script never does it on its own
  * say-so. Default behavior does all the LOCAL work (version bump, commit,
  * tag, build) and stops at the door.
+ *
+ * .github/workflows/release.yml (manual `workflow_dispatch` from the Actions
+ * tab) is now an alternative way to cut a release — it builds on GitHub's
+ * runners from an already-pushed tag instead of the local machine. Both
+ * paths remain independent; this script's logic below is unchanged.
  *
  * Usage:
  *   node tools/release.cjs [patch|minor|major|<x.y.z>]   # default: patch

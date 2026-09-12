@@ -1,0 +1,56 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v1.18.4) — must already exist on origin'
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  build-and-publish:
+    runs-on: macos-14
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Check out the exact tagged commit
+        run: |
+          git fetch origin --tags --force
+          git rev-parse -q --verify "refs/tags/$TAG" || { echo "::error::tag not found on origin"; exit 1; }
+          git checkout --detach "$TAG"
+      - name: Verify package.json version matches the tag
+        run: |
+          V="v$(node -p "require('./package.json').version")"
+          [ "$V" = "$TAG" ] || { echo "::error::package.json ($V) != tag ($TAG)"; exit 1; }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # Draft first, publish (undraft) only after electron-builder has
+      # uploaded every asset (latest-mac.yml included) below — a non-draft
+      # release is live at /releases/latest the instant it's created, so
+      # creating it non-draft up front would give every installed app's
+      # background update tick a window (from here until the upload step
+      # finishes) where it sees the release but not its channel file
+      # (electron-updater fails that as ERR_UPDATER_CHANNEL_FILE_NOT_FOUND).
+      # electron-builder finds and reuses an existing release by tag
+      # regardless of its draft state, so the --publish step below uploads
+      # into this same draft rather than creating a second one. Idempotent
+      # across re-runs: a pre-existing draft (a previous run's partial
+      # attempt) or a pre-existing published release are both left as-is by
+      # `gh release view`'s check, and `--publish always` re-uploads
+      # (replacing) whatever assets already exist either way.
+      - name: Create the release as a draft (idempotent)
+        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --verify-tag --title "Pokéharness $TAG" --generate-notes
+      - run: npx electron-builder --mac --publish always
+      - name: Publish the release (undraft) now that its assets are uploaded
+        run: gh release edit "$TAG" --draft=false

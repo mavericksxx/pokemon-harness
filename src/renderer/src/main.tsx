@@ -51,8 +51,8 @@ applyTheme('dark');
 // async recovery work, same as initAudio() below.
 startQuitInterceptListener();
 
-// Tier-1 update check (ship-cut item 4) — same independent-of-boot()
-// wiring as the quit-intercept listener above.
+// Auto-update (electron-updater — see main/autoUpdate.ts) — same
+// independent-of-boot() wiring as the quit-intercept listener above.
 startUpdateCheckListener();
 
 // macOS fullscreen-aware topbar inset — registered synchronously here
