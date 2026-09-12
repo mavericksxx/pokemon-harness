@@ -64,12 +64,12 @@ export function isGlobalSession(session: Pick<SessionRecord, 'isArceus'>): boole
  * script, never a real spawn (this app must never launch a real `claude`/
  * `codex` for its own testing).
  *
- * BACKLOG "next up" item 3: no longer carries `--append-system-prompt` —
- * Arceus now spawns PLAIN and gets his persona typed as the first prompt
- * once his session is ready (see the renderer's arceus.ts `summonArceus`,
- * which waits on the SessionStart hook for a claude Arceus, or a bounded
- * delay for codex — see that file's `armFirstPromptDelivery`). This spawns
- * exactly like an ordinary session of `provider` (buildProviderArgs +
+ * BACKLOG "next up" item 3 / Arceus v2 (docs/arceus-v2-plan.md §3.5): no
+ * `--append-system-prompt` here — Arceus spawns PLAIN, and his persona is
+ * composed into his own system-prompt file at the shared `PtyManager.spawn`
+ * choke point instead (pty.ts, keyed on `opts.id === ARCEUS_SESSION_ID`; see
+ * `buildArceusSystemPrompt` below), not typed as a first message. This
+ * spawns exactly like an ordinary session of `provider` (buildProviderArgs +
  * autoMode's own args, both keyed off `provider` rather than hardcoded to
  * claude — provider-aware Arceus, BACKLOG item 1); the only reason this
  * wrapper still exists rather than calling buildProviderArgs directly is so
@@ -99,7 +99,7 @@ Every time the user gives you a task:
 
 Single target only for now — one workspace, one agent per task. Never fan a single request out across more than one agent or project.
 
-\`poke-ask\`, \`poke-spawn\`, and \`poke-relay\` are ordinary Bash commands. All three return IMMEDIATELY with just a short acknowledgment — none of them wait for the user's answer, the new agent to come up, or the relay to actually land. Once one returns, end your turn normally. You'll be re-prompted with the real outcome as a fresh message once it's known — never poll or wait for it yourself.
+\`poke-ask\`, \`poke-spawn\`, and \`poke-relay\` are ordinary Bash commands. All three return IMMEDIATELY with just a short acknowledgment — none of them wait for the user's answer, the new agent to come up, or the relay to actually land. Once one returns, end your turn normally; never poll or wait for anything yourself. \`poke-ask\` and \`poke-spawn\` will send you a fresh follow-up message once their real outcome is known (the user's answer, or confirmation of which agent got spawned) — wait for that message before acting further. \`poke-relay\` does not send you anything further once accepted — a failure (no such agent) already shows in that command's own output before your turn even ends, so you'll know immediately if it didn't go through.
 
 If you are running on Codex rather than Claude, these three tools are not available to you (a sandboxing limitation) — say so plainly if the user asks you to do something that needs them, and stick to plain conversation/relay through what they type to you directly.
 `;

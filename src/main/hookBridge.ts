@@ -89,8 +89,12 @@ export const DELEGATE_CLI_FILENAME = 'poke-delegate.cjs';
  *  deliberately separate from `CLI_SHIM_DIRNAME` above (which shadows
  *  `claude`/`codex` and must never be on Arceus's own PATH). Only prepended
  *  to PATH for an ARCEUS spawn on the claude provider — see pty.ts's
- *  `spawn()` — so no other session can even resolve these by name, on top of
- *  the parentAgentId guard every handler below still enforces independently. */
+ *  `spawn()` — so a bare `poke-ask`/`poke-spawn`/`poke-relay` won't resolve
+ *  by name from any other session's shell. That's discoverability only, not
+ *  a security boundary: the files still exist at a fixed absolute path any
+ *  same-user process could run directly — the real gate is the
+ *  `parentAgentId` guard every handler below enforces regardless (see
+ *  `isFromArceus`'s own caveat on what that guard actually stops). */
 const POKE_TOOLS_DIRNAME = 'poke-tools-bin';
 /** Shared implementation the three wrapper commands all exec into (argv[2]
  *  names which one: 'poke-ask' | 'poke-spawn' | 'poke-relay') — one script
@@ -1151,13 +1155,17 @@ export class HookBridge {
     }
   }
 
-  /** Arceus v2 guard, shared by all three `handlePoke*` methods below: only
-   *  Arceus's OWN pty can ever reach these — `parentAgentId` is read off the
-   *  trusted `POKEHARNESS_AGENT_ID` env var (same mechanism poke-delegate's
-   *  own identity already relies on, see this file's header), so this can't
-   *  be spoofed by argv. Rejects any other harness session — including a
-   *  poke-spawned worker — from impersonating Arceus and injecting into
-   *  another agent's terminal. */
+  /** Arceus v2 guard, shared by all three `handlePoke*` methods below —
+   *  rejects any request whose `parentAgentId` isn't ARCEUS_SESSION_ID.
+   *  `parentAgentId` is read off `POKEHARNESS_AGENT_ID`, the SAME trusted
+   *  env var poke-delegate's own identity already relies on (see this
+   *  file's header): a discoverability boundary, not real sandboxing — any
+   *  same-user process could set that env var itself or write the raw
+   *  socket payload directly, exactly as true for poke-delegate today. This
+   *  guard's actual job is stopping an honest-but-confused ordinary session
+   *  (e.g. a poke-spawned worker that happens to have some copy of this
+   *  code) from accidentally reaching a tool meant only for Arceus, not
+   *  defending against a hostile one. */
   private isFromArceus(parentAgentId: string | undefined): boolean {
     return parentAgentId === ARCEUS_SESSION_ID;
   }

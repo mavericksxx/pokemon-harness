@@ -468,7 +468,13 @@ const hookBridge: HookBridge = new HookBridge(
     }
     const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const command = AGENT_PROVIDERS.claude.defaultCommand;
-    const args = buildProviderArgs('claude', undefined);
+    // Advisor follow-up (docs/arceus-v2-plan.md §3.4) — respects the user's
+    // OWN per-provider auto-mode default (same setting NewSessionDialog.tsx
+    // seeds from), so this worker doesn't block on an unattended permission
+    // prompt when the user has already told the app workers act without
+    // asking. `arceusSpawnAutoMode` mirrors `appSettings.autoModeByProvider.claude`.
+    const autoArgs = arceusSpawnAutoMode ? AGENT_PROVIDERS.claude.autoModeArgs ?? [] : [];
+    const args = [...buildProviderArgs('claude', undefined), ...autoArgs];
     const result = ptyManager.spawn({ id, cwd: ws.primaryFolder, command, args, provider: 'claude' });
     if (!result.ok) return { ok: false, error: result.error ?? 'spawn failed' };
     const wc = mainWindow?.webContents;
@@ -494,7 +500,13 @@ const hookBridge: HookBridge = new HookBridge(
   (req: PokeRelayRequest): PokeToolResponse => {
     const result = pokeRelay.submit(req.agent, req.message);
     if (!result.ok) return result;
-    return { ok: true, note: `message accepted for delivery to ${req.agent}` };
+    // Advisor follow-up — distinguishes "typed in already" from "queued,
+    // will deliver once the target goes idle" so this note never overstates
+    // what actually happened yet.
+    const note = result.queued
+      ? `${req.agent} is busy — message queued, will deliver once idle`
+      : `message delivered to ${req.agent}`;
+    return { ok: true, note };
   }
 );
 // Third arg (GitHub #8) — mirrors `pty:kill`'s own
@@ -517,6 +529,16 @@ let activeTheme: AppSettings['theme'] = 'system';
  *  `-m` at all" — see appSettingsTypes.ts's own field comment for why that's
  *  already Codex's own equivalent of "use the best available model." */
 let codexDelegateModel = '';
+/** `appSettings.autoModeByProvider.claude` (Arceus v2, docs/arceus-v2-plan.md
+ *  §3.4 advisor follow-up) — same module-level mirror pattern as
+ *  `codexDelegateModel` above, read by `poke-spawn`'s spawn handler (wired
+ *  into `hookBridge` below, long before `appSettings` loads) so a
+ *  `poke-spawn`ed worker respects the SAME per-provider auto-mode default a
+ *  manually-created session would (NewSessionDialog.tsx) — without this, a
+ *  worker spawned with the user's auto-mode default OFF blocks on its first
+ *  permission prompt in a terminal nobody is watching, the exact failure
+ *  §3.4 fixed for Arceus himself, just moved one hop downstream. */
+let arceusSpawnAutoMode = false;
 nativeTheme.on('updated', () => {
   if (activeTheme === 'system') {
     ptyManager.setTerminalAppearance(resolveTerminalAppearance(activeTheme));
@@ -1397,6 +1419,7 @@ app.whenReady().then(async () => {
   // needs these paths already resolved to compose his system prompt.
   ptyManager.setArceusPaths(arceusSystemPromptPath(harnessHomeDir), arceusRosterFilePath(harnessHomeDir));
   codexDelegateModel = appSettings.codexDelegateModel;
+  arceusSpawnAutoMode = appSettings.autoModeByProvider.claude ?? false;
   initDiagnostics(harnessHomeDir);
   setDiagnosticsLoggingEnabled(appSettings.diagnosticsLoggingEnabled);
   // The log file's existence must never depend on the diagnostics toggle
@@ -1573,6 +1596,9 @@ registerSettingsIpc({
   },
   setCodexDelegateModel: (model) => {
     codexDelegateModel = model;
+  },
+  setArceusSpawnAutoMode: (enabled) => {
+    arceusSpawnAutoMode = enabled;
   },
   getHarnessHomeDir: () => harnessHomeDir,
   setHarnessHomeDir: (dir) => {

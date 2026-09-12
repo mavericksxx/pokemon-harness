@@ -7,16 +7,20 @@
  *
  * All three are guarded main-side (HookBridge) to callers whose
  * `parentAgentId` is exactly ARCEUS_SESSION_ID — read off the trusted
- * POKEHARNESS_AGENT_ID env var the CLI script inherits, same mechanism
- * poke-delegate's own `parentAgentId` already relies on — so only Arceus's
- * own pty can ever reach these, never another harness session impersonating
- * him.
+ * POKEHARNESS_AGENT_ID env var the CLI script inherits, same mechanism (and
+ * same trust model) poke-delegate's own `parentAgentId` already relies on:
+ * a discoverability boundary against an ordinary session accidentally
+ * reaching a tool meant only for Arceus, not real sandboxing against a
+ * hostile one (see HookBridge's `isFromArceus` for the fuller caveat).
  *
  * Fire-and-return-immediately by design (plan §3.2 / spike 1): Claude Code's
  * own Bash tool refuses to block synchronously waiting on an external event,
  * so every response here is a fast ack ("accepted"), never the eventual
- * outcome — that arrives later as a fresh pty message into Arceus's own
- * session (see each request's own doc comment for exactly how).
+ * outcome. For `poke-ask`/`poke-spawn`, that outcome arrives later as a
+ * fresh pty message into Arceus's OWN session (see each request's own doc
+ * comment for exactly how); `poke-relay` never messages Arceus back at
+ * all — a failure already shows in the command's own output before his
+ * turn ends, and a success just lands, silently, in the target's pty.
  */
 
 export interface PokeToolResponse {

@@ -26,6 +26,11 @@ export interface SettingsIpcDeps {
   setActiveTheme: (theme: AppSettings['theme']) => void;
   setKeepAwakeEnabled: (enabled: boolean) => void;
   setCodexDelegateModel: (model: string) => void;
+  /** Arceus v2 (docs/arceus-v2-plan.md §3.4 advisor follow-up) — mirrors
+   *  `appSettings.autoModeByProvider.claude` so `poke-spawn`'s spawn handler
+   *  (main/index.ts) respects the user's own per-provider auto-mode default,
+   *  same as a manually-created session would. */
+  setArceusSpawnAutoMode: (enabled: boolean) => void;
   getHarnessHomeDir: () => string;
   setHarnessHomeDir: (dir: string) => void;
   getWorkspaceRegistry: () => WorkspaceSnapshot;
@@ -42,6 +47,7 @@ export function registerSettingsIpc(deps: SettingsIpcDeps): void {
     setActiveTheme,
     setKeepAwakeEnabled,
     setCodexDelegateModel,
+    setArceusSpawnAutoMode,
     getHarnessHomeDir,
     setHarnessHomeDir,
     getWorkspaceRegistry,
@@ -114,6 +120,7 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
       arceusRosterFilePath(getHarnessHomeDir())
     );
     setCodexDelegateModel(settings.codexDelegateModel);
+    setArceusSpawnAutoMode(settings.autoModeByProvider.claude ?? false);
 
     await saveAppSettings(settings);
     return getHarnessHomeDir();

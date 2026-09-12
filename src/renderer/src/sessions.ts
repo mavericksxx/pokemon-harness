@@ -3,6 +3,7 @@ import { AGENT_PROVIDERS, buildProviderArgs } from '@shared/agentProvider';
 import type { NewSessionRequest, SessionStatus } from '@shared/types';
 import type { DelegateSessionSpawned } from '@shared/delegateSpawn';
 import type { PokeRelayDeliveredNotice, PokeSpawnedNotice } from '@shared/pokeTools';
+import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { wrapBracketedPaste } from '@/arceus';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
@@ -256,6 +257,44 @@ export function startPokeSpawnListener(): void {
   });
 }
 
+/** How long a `poke-spawn`ed session's first-message delivery waits for its
+ *  OWN `SessionStart` hook before delivering anyway — same rare-path
+ *  backstop role (and value) as the deleted `armFirstPromptDelivery`'s
+ *  `FIRST_PROMPT_FALLBACK_MS` used for Arceus's own old first-prompt
+ *  mechanism. Claude-only, same as poke-spawn itself (main/index.ts always
+ *  spawns provider 'claude' for it). */
+const POKE_SPAWN_TASK_FALLBACK_MS = 10_000;
+
+/** Advisor-flagged fix: typing straight into a just-spawned pty (as the
+ *  first version of this did) races Claude Code's own startup — bytes can
+ *  land before it's set raw mode/its input parser, and on a folder it
+ *  hasn't seen before, the FIRST thing on screen is a trust-this-folder
+ *  prompt that a bare `\r` would blindly accept while the real task text is
+ *  lost. Waits for the new session's own `SessionStart` hook (with a
+ *  fallback timer, since hooks can go quiet — same reasoning
+ *  `armFirstPromptDelivery` used) before delivering `task` as its first
+ *  typed message, then stamps `lastDispatch` at ACTUAL delivery time, not
+ *  submission time. */
+function armInitialTaskDelivery(id: string, task: string): void {
+  let delivered = false;
+  let offHook: (() => void) | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const deliver = (): void => {
+    if (delivered) return;
+    delivered = true;
+    offHook?.();
+    if (timer !== null) clearTimeout(timer);
+    void window.api.writePty(id, wrapBracketedPaste(task) + '\r');
+    useStore.getState().updateSession(id, { lastDispatch: { at: Date.now(), message: task } });
+  };
+
+  offHook = window.api.onHookEvent(id, (evt) => {
+    if (evt.event === 'SessionStart') deliver();
+  });
+  timer = setTimeout(deliver, POKE_SPAWN_TASK_FALLBACK_MS);
+}
+
 async function adoptPokeSpawn(spawned: PokeSpawnedNotice): Promise<void> {
   if (hasTerminal(spawned.id)) return; // defensive — should never double-fire
 
@@ -283,12 +322,27 @@ async function adoptPokeSpawn(spawned: PokeSpawnedNotice): Promise<void> {
   );
   useStore.getState().updateSession(spawned.id, { status: 'idle' });
 
-  void window.api.writePty(spawned.id, wrapBracketedPaste(spawned.task) + '\r');
-  useStore.getState().updateSession(spawned.id, { lastDispatch: { at: Date.now(), message: spawned.task } });
+  armInitialTaskDelivery(spawned.id, spawned.task);
+
   // A `poke-spawn` is an autonomous action the user may not be watching for
   // — a plain confirmation toast, same spirit as `swapSessionPokemon`'s own,
   // is the one place `spawned.workspaceName` earns its spot on the wire.
   useStore.getState().pushToast(`arceus spawned ${picked.name} in ${spawned.workspaceName}.`);
+
+  // Plan §7 item 1 — reports the outcome back into ARCEUS'S OWN pty (same
+  // wrapBracketedPaste + writePty mechanism, not a return value over the
+  // socket — his own `poke-spawn` call already returned long before this
+  // resolves) so his persona's "you'll be re-prompted with the outcome"
+  // promise actually holds for spawn, not just for poke-ask. Fires
+  // immediately (species pick is already known), independent of
+  // `armInitialTaskDelivery`'s own readiness wait for the CHILD session —
+  // those are two different ptys with two different readiness concerns.
+  void window.api.writePty(
+    ARCEUS_SESSION_ID,
+    wrapBracketedPaste(
+      `poke-spawn outcome: spawned ${picked.name} (id ${spawned.id}) in workspace "${spawned.workspaceName}", now working on: "${title}"`
+    ) + '\r'
+  );
 }
 
 /** Arceus v2 — `poke-relay`'s renderer half. Main already resolved the

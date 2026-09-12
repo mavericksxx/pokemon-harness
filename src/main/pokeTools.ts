@@ -92,14 +92,19 @@ export class PokeRelay {
   }
 
   /** Resolves `agentHint` and queues/sends `message` — returns whether a
-   *  target was found (accepted), not whether it's actually been typed yet. */
-  submit(agentHint: string, message: string): { ok: boolean; error?: string } {
+   *  target was found (accepted), not whether it's actually been typed yet.
+   *  `queued: true` (advisor follow-up) tells the caller the target wasn't
+   *  idle at submit time, so its own ack/note can say "queued" rather than
+   *  implying immediate delivery — a relay to a busy agent can otherwise sit
+   *  silently for minutes while `poke-relay`'s own CLI output claimed
+   *  success. */
+  submit(agentHint: string, message: string): { ok: boolean; error?: string; queued?: boolean } {
     const target = resolvePokeRelayTarget(agentHint, this.getSessions());
     if (!target) return { ok: false, error: `no such agent: ${agentHint}` };
     const trimmed = message.trim().slice(0, MAX_MESSAGE_LEN);
     if (!trimmed) return { ok: false, error: 'a message is required' };
-    this.queue.submit(target, trimmed);
-    return { ok: true };
+    const result = this.queue.submit(target, trimmed);
+    return { ok: true, queued: result === 'queued' };
   }
 
   /** Call on every session-list checkpoint (main/ipc/sessions.ts) — flushes
