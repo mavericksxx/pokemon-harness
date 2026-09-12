@@ -81,6 +81,16 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
     ? `${arceusSession.provider} · ${arceusSession.model || 'default'} ✎`
     : 'arceus ✎';
 
+  // Advisor fix: the dev stand-in (`POKE_ARCEUS_DEV_STANDIN`, arceus.ts's
+  // `summonArceusDevStandin`) runs Arceus as a plain shell tagged `provider:
+  // 'shell'` — outside `ARCEUS_HUD_PROVIDERS`'s claude/codex pair. Without
+  // this guard the `<select>` would silently show no matching option, and
+  // "apply" would call the REAL `summonArceus`, spawning an actual claude/
+  // codex process — this app's own repo rule is that nothing here ever does
+  // that for its own dev/testing. Hidden outright rather than disabled, same
+  // as the link simply not existing for a not-yet-summoned Arceus.
+  const showModelSwitch = !arceusSession || ARCEUS_HUD_PROVIDERS.includes(arceusSession.provider);
+
   const applyModelChange = async (): Promise<void> => {
     if (!arceusSession) return;
     const newProvider = providerDraft;
@@ -95,13 +105,27 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
     try {
       // Model change, Claude -> Claude: cheapest path — type `/model <name>`
       // straight into his live pty (no respawn, no conversation loss), per
-      // plan §3.8. Every other case (a provider change, or any change that
-      // involves codex either side — codex's `/model` is an interactive
-      // picker, not a flag) needs a fresh summon; `summonArceus` already
-      // kills the existing session/terminal before spawning anew (see
-      // `spawnArceus` in arceus.ts) — reusing it here IS the kill-and-
-      // resummon path, not a second implementation of one.
-      const needsRespawn = newProvider !== arceusSession.provider || newProvider === 'codex';
+      // plan §3.8. Every other case needs a fresh summon (`summonArceus`
+      // already kills the existing session/terminal before spawning anew —
+      // see `spawnArceus` in arceus.ts — reusing it here IS the kill-and-
+      // resummon path, not a second implementation of one):
+      //  - a provider change, either direction;
+      //  - any change that involves codex on either side — codex's `/model`
+      //    is an interactive picker, not a flag;
+      //  - clearing a previously-set model back to "provider default" —
+      //    there's no verified `/model <provider-default>` incantation to
+      //    type into a live pty, so this resets him the same way a fresh
+      //    summon with no `model` arg does;
+      //  - Arceus isn't actually live right now (`status === 'done'`) — his
+      //    pty may be a dead process, or (if the app's shell-fallback ever
+      //    rode in under his id) a fallback shell that would silently no-op
+      //    a `/model` write instead of erroring on it.
+      const clearingModel = !newModel && !!arceusSession.model;
+      const needsRespawn =
+        newProvider !== arceusSession.provider ||
+        newProvider === 'codex' ||
+        clearingModel ||
+        arceusSession.status === 'done';
       const saved = await loadArceusSummonConfig();
       const cwd = saved?.cwd ?? arceusSession.cwd;
       const autoMode = saved?.autoMode ?? false;
@@ -111,6 +135,12 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
       } else if (newModel) {
         const res = await window.api.writePty(ARCEUS_SESSION_ID, `/model ${newModel}\r`);
         if (!res.ok) throw new Error(res.error ?? 'failed to send /model to arceus.');
+        // Advisor fix: `summonArceus` (the `needsRespawn` branch above)
+        // already stamps the new `model` via its own `addSession` call —
+        // this is the cheap-path's equivalent for the live-pty case, so the
+        // link label/`unchanged` short-circuit/next panel-open all read the
+        // model that's ACTUALLY running instead of stale state.
+        useStore.getState().updateSession(ARCEUS_SESSION_ID, { model: newModel });
       }
       await saveArceusSummonConfig(req);
       setModelPanelOpen(false);
@@ -123,29 +153,31 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
 
   return (
     <div className={showHud ? 'arceus-hud arceus-hud-visible' : 'arceus-hud'} aria-hidden={!showHud}>
-      <div className="summary-card">
+      <div className="hud-summary-card">
         <div className="hud-head">
           <span className="hud-who">Arceus</span>
-          <button
-            type="button"
-            className="model-link"
-            onClick={() => (modelPanelOpen ? setModelPanelOpen(false) : openModelPanel())}
-          >
-            {modelLinkLabel}
-          </button>
+          {showModelSwitch && (
+            <button
+              type="button"
+              className="hud-model-link"
+              onClick={() => (modelPanelOpen ? setModelPanelOpen(false) : openModelPanel())}
+            >
+              {modelLinkLabel}
+            </button>
+          )}
         </div>
         <div className="hud-sentence">{summary}</div>
         <div className="hud-actions">
-          <button type="button" className="ghost-btn" onClick={() => setDetailsOpen((v) => !v)}>
+          <button type="button" className="hud-ghost-btn" onClick={() => setDetailsOpen((v) => !v)}>
             {detailsOpen ? 'hide details' : 'show details'}
           </button>
-          <button type="button" className="ghost-btn" onClick={() => setRefreshNonce((n) => n + 1)}>
+          <button type="button" className="hud-ghost-btn" onClick={() => setRefreshNonce((n) => n + 1)}>
             refresh
           </button>
         </div>
-        {modelPanelOpen && (
-          <div className="model-panel">
-            <div className="model-panel-field">
+        {modelPanelOpen && showModelSwitch && (
+          <div className="hud-model-panel">
+            <div className="hud-model-panel-field">
               <label>provider</label>
               <select value={providerDraft} onChange={(e) => setProviderDraft(e.target.value as AgentProviderId)}>
                 {ARCEUS_HUD_PROVIDERS.map((id) => (
@@ -155,7 +187,7 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
                 ))}
               </select>
             </div>
-            <div className="model-panel-field">
+            <div className="hud-model-panel-field">
               <label>model (optional)</label>
               <input
                 value={modelDraft}
@@ -167,7 +199,7 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
             {applyError && <p className="error">{applyError}</p>}
             <button
               type="button"
-              className="ghost-btn"
+              className="hud-ghost-btn"
               style={{ alignSelf: 'flex-start' }}
               onClick={() => void applyModelChange()}
               disabled={applyBusy}
@@ -178,32 +210,35 @@ export function ArceusHud({ ascended }: { ascended: boolean }): JSX.Element {
         )}
       </div>
 
-      <div className={detailsOpen ? 'board' : 'board board-hidden'}>
-        <div className="board-head">
+      <div className={detailsOpen ? 'hud-board' : 'hud-board hud-board-hidden'}>
+        <div className="hud-board-head">
           <h2>garden status</h2>
-          <span className="board-live">● live</span>
+          <span className="hud-board-live">● live</span>
         </div>
-        <div className="rows">
-          {rows.length === 0 && <div className="row-empty">no other agents in the garden yet.</div>}
+        <div className="hud-board-rows">
+          {rows.length === 0 && <div className="hud-board-row-empty">no other agents in the garden yet.</div>}
           {rows.map((row) => (
-            <div className="row" key={row.id}>
-              <div className="glyph">{row.glyph}</div>
-              <div className="who-what">
-                <div className="who-name">{row.name}</div>
-                <div className="who-meta">{row.projectLabel}</div>
+            <div className="hud-board-row" key={row.id}>
+              <div className="hud-board-glyph">{row.glyph}</div>
+              <div className="hud-board-who">
+                <div className="hud-board-name">{row.name}</div>
+                <div className="hud-board-meta">{row.projectLabel}</div>
               </div>
-              <div className={`pill ${row.status}`}>{row.label}</div>
+              <div className={`hud-pill hud-pill-${row.status}`}>{row.label}</div>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="exchange-strip" ref={exchangeRef}>
-        {exchange.length === 0 && <div className="exchange-empty">nothing dispatched yet.</div>}
+      <div className="hud-exchange-strip" ref={exchangeRef}>
+        {exchange.length === 0 && <div className="hud-exchange-empty">nothing dispatched yet.</div>}
         {exchange.map((entry, i) => (
-          <div key={i} className={entry.who === 'arceus' ? 'exchange-ln exchange-ln-arceus' : 'exchange-ln'}>
-            <span className="exchange-prompt">{entry.who === 'you' ? 'you>' : 'arceus>'}</span>{' '}
-            <span className="exchange-txt">{entry.text}</span>
+          <div
+            key={`${entry.at}-${i}`}
+            className={entry.who === 'arceus' ? 'hud-exchange-ln hud-exchange-ln-arceus' : 'hud-exchange-ln'}
+          >
+            <span className="hud-exchange-prompt">{entry.who === 'you' ? 'you>' : 'arceus>'}</span>{' '}
+            <span className="hud-exchange-txt">{entry.text}</span>
           </div>
         ))}
       </div>

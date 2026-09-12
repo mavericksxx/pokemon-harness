@@ -14,11 +14,16 @@
  * subscription below), fired once regardless of how many times
  * `statusSinceMs` itself is called.
  *
- * Caveat, worth knowing: a session whose status was already sitting at its
- * current value before this module first loaded (practically: before
- * GardenScene ever mounted, i.e. essentially never in a normal app session)
- * reads as "just changed" the first time it's observed — there's no
- * historical record to recover for that case.
+ * Caveat, worth knowing: a session's FIRST observation by this module (most
+ * commonly: every session restored on app launch, all at once, before any of
+ * them have had a real status transition since) has no history to recover —
+ * this is the normal case on every boot, not an edge case. Seeding `since`
+ * with `Date.now()` for that first sight would read as "just changed" for a
+ * session that's actually been idle/blocked for a while; seeding it instead
+ * with the latest of its creation time or its last dispatch (below) is a
+ * truthful LOWER bound — never later than the real transition, so a shown
+ * duration is never overstated, even though it can still understate one for
+ * a session that's been idle a long time with no dispatch since it changed.
  */
 import { useStore, type Session } from '@/store/store';
 
@@ -34,7 +39,12 @@ function sync(sessions: Session[]): void {
   for (const s of sessions) {
     liveIds.add(s.id);
     const rec = statusSince.get(s.id);
-    if (!rec || rec.status !== s.status) {
+    if (!rec) {
+      // First sight of this session (see this file's header) — best
+      // available truthful lower bound, not "just changed."
+      statusSince.set(s.id, { status: s.status, since: Math.max(s.createdAt, s.lastDispatch?.at ?? 0) });
+    } else if (rec.status !== s.status) {
+      // A real transition this module actually witnessed.
       statusSince.set(s.id, { status: s.status, since: Date.now() });
     }
   }

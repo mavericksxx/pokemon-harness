@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { wrapBracketedPaste } from '@/arceus';
@@ -43,8 +43,17 @@ export function PokeAskModal(): JSX.Element | null {
   const setPokeAsk = useStore((s) => s.setPokeAsk);
   // Transient "chosen" highlight (mirrors the mockup's own brief flash
   // before the modal closes) — purely cosmetic; the real answer is written
-  // to Arceus's pty as soon as this settles, below.
+  // to Arceus's pty as soon as this settles, below. `chosen !== null` also
+  // doubles as "an answer is already in flight" — see `dismiss`/
+  // `useEscapeToClose` below, which both need to stop firing once it is.
   const [chosen, setChosen] = useState<string | null>(null);
+  // The `answer()` deferral timer (advisor fix: a race between choosing an
+  // option and dismissing within the 250ms window could previously send
+  // Arceus BOTH outcomes for the same question, with `setPokeAsk(null)`
+  // running twice) — cleared on unmount and on every new `ask` so a stale
+  // timer from a question that's already gone can never fire against the
+  // next one.
+  const pendingAnswerTimer = useRef<number | null>(null);
 
   // Hall-of-Origin HUD exchange strip (docs/arceus-v2-plan.md §3.7) — logs
   // the question itself the moment a new poke-ask actually appears (not on
@@ -53,13 +62,22 @@ export function PokeAskModal(): JSX.Element | null {
   useEffect(() => {
     if (ask) useStore.getState().pushArceusExchange({ who: 'arceus', text: ask.question });
     setChosen(null);
+    return () => {
+      if (pendingAnswerTimer.current !== null) {
+        window.clearTimeout(pendingAnswerTimer.current);
+        pendingAnswerTimer.current = null;
+      }
+    };
   }, [ask]);
 
-  // Advisor fix: guarded on `ask !== null`, same as every other dialog in
+  // Advisor fix: guarded on `ask !== null` (same as every other dialog in
   // this codebase — an always-armed listener would fire Escape into this
-  // handler even while no picker is showing.
+  // handler even while no picker is showing) AND on `chosen === null` — once
+  // an option has been chosen, an answer is already in flight (see `answer`
+  // below) and a dismiss (Escape/backdrop/button) landing in the same
+  // 250ms window must no longer fire a SECOND, contradictory outcome.
   const dismiss = (): void => {
-    if (!ask) return;
+    if (!ask || chosen !== null) return;
     // Advisor follow-up: his persona tells him to wait for a follow-up
     // message once poke-ask is accepted — without this, dismissing (Escape,
     // backdrop click, or the button below) leaves him waiting forever with
@@ -72,13 +90,14 @@ export function PokeAskModal(): JSX.Element | null {
     setPokeAsk(null);
   };
 
-  useEscapeToClose(dismiss, ask !== null);
+  useEscapeToClose(dismiss, ask !== null && chosen === null);
 
   if (!ask) return null;
 
   const answer = (option: string): void => {
     setChosen(option);
-    window.setTimeout(() => {
+    pendingAnswerTimer.current = window.setTimeout(() => {
+      pendingAnswerTimer.current = null;
       const message = `Arceus asked: "${ask.question}" — the user chose: "${option}"`;
       void window.api.writePty(ARCEUS_SESSION_ID, wrapBracketedPaste(message) + '\r');
       useStore.getState().pushArceusExchange({ who: 'you', text: option });
@@ -115,7 +134,7 @@ export function PokeAskModal(): JSX.Element | null {
         </div>
         <div className="poke-ask-foot">
           <span className="poke-ask-hint">pick one — this pauses until you do</span>
-          <button type="button" className="poke-ask-dismiss" onClick={dismiss}>
+          <button type="button" className="poke-ask-dismiss" onClick={dismiss} disabled={chosen !== null}>
             dismiss
           </button>
         </div>

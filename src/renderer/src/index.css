@@ -1124,11 +1124,13 @@ body.garden-lowres .garden canvas {
  * flex-centered child of `.garden-cosmos` — see that rule) — `left`/`top`
  * here MUST stay in sync with nebula.ts's `ARCEUS_CLEAR_X_FRAC`/
  * `ARCEUS_CLEAR_Y_FRAC`, which carve the backdrop's own calm zone around
- * this same point. The radial `mask-image` blends his sprite's own baked-in
- * dark background into the generated backdrop at its edges (a hard
- * rectangle would otherwise show as a dark box floating over the nebula) —
- * `ellipse ... at 50% 50%` is relative to THIS element's own box, so it
- * blends regardless of where the box itself sits on the pane. */
+ * this same point. (The mockup also masked its figure with a radial
+ * gradient, to blend a screenshot's own baked-in dark background — the real
+ * sprite here is a transparent Showdown gen5ani GIF with no such background,
+ * so that mask isn't needed and was dropped: over this element's actual
+ * 172px box, `ellipse 62% 58%, #000 55%` starts eroding opacity ~58px from
+ * center, right around his head/hooves/wheel-rim, ghosting him instead of
+ * blending anything.) */
 .garden-cosmos-figure {
   position: absolute;
   left: 38%;
@@ -1143,8 +1145,6 @@ body.garden-lowres .garden canvas {
    * at this size too. */
   width: 172px;
   height: 172px;
-  -webkit-mask-image: radial-gradient(ellipse 62% 58% at 50% 50%, #000 55%, transparent 100%);
-  mask-image: radial-gradient(ellipse 62% 58% at 50% 50%, #000 55%, transparent 100%);
   animation: arceus-bob 2600ms ease-in-out infinite;
 }
 
@@ -1185,7 +1185,14 @@ body.garden-lowres .garden canvas {
  * above the nebula/figure/warp-burst layers below it) — ArceusHud.tsx
  * toggles `.arceus-hud-visible` on a short delay past the warp's own
  * transition (see that component) rather than via a CSS `transition`, since
- * the delay only ever applies going FROM garden TO cosmos, not both ways. */
+ * the delay only ever applies going FROM garden TO cosmos, not both ways.
+ *
+ * `hud-*`-prefixed throughout (advisor fix) — matches this codebase's own
+ * convention for a feature-scoped class family (`roster-card-*`,
+ * `party-rail-*`, this file's own `poke-ask-*`) rather than the mockup's
+ * bare English-word names (`.board`, `.pill`, `.row`, ...), which risk
+ * colliding with an unrelated future class of the same generic name
+ * elsewhere in this ~3000-line stylesheet. */
 .arceus-hud {
   position: absolute;
   right: 16px;
@@ -1210,7 +1217,7 @@ body.garden-lowres .garden canvas {
   pointer-events: auto;
 }
 
-.summary-card {
+.hud-summary-card {
   background: rgba(17, 21, 47, 0.92);
   border: 1px solid var(--arceus-gold-deep);
   box-shadow: var(--shadow-hard);
@@ -1246,7 +1253,7 @@ body.garden-lowres .garden canvas {
   gap: 8px;
 }
 
-.ghost-btn {
+.hud-ghost-btn {
   font-family: var(--font-ui);
   font-weight: 600;
   font-size: 11px;
@@ -1258,21 +1265,21 @@ body.garden-lowres .garden canvas {
   cursor: pointer;
 }
 
-.ghost-btn:hover {
+.hud-ghost-btn:hover {
   background: var(--arceus-ground-raised);
 }
 
-.ghost-btn:focus-visible {
+.hud-ghost-btn:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
 
-.ghost-btn:disabled {
+.hud-ghost-btn:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
-.model-link {
+.hud-model-link {
   font-family: var(--font-ui);
   font-weight: 600;
   font-size: 11px;
@@ -1286,11 +1293,11 @@ body.garden-lowres .garden canvas {
   white-space: nowrap;
 }
 
-.model-link:hover {
+.hud-model-link:hover {
   color: var(--arceus-gold-bright);
 }
 
-.model-panel {
+.hud-model-panel {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--arceus-gold-deep);
@@ -1299,13 +1306,13 @@ body.garden-lowres .garden canvas {
   gap: 8px;
 }
 
-.model-panel-field {
+.hud-model-panel-field {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.model-panel-field label {
+.hud-model-panel-field label {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--arceus-muted);
@@ -1313,8 +1320,8 @@ body.garden-lowres .garden canvas {
   letter-spacing: 0.03em;
 }
 
-.model-panel-field select,
-.model-panel-field input {
+.hud-model-panel-field select,
+.hud-model-panel-field input {
   background: var(--arceus-ground);
   border: 1px solid var(--muted-dim);
   color: var(--arceus-ink);
@@ -1324,16 +1331,16 @@ body.garden-lowres .garden canvas {
   border-radius: var(--radius-sm);
 }
 
-.model-panel-field select:focus,
-.model-panel-field input:focus {
+.hud-model-panel-field select:focus,
+.hud-model-panel-field input:focus {
   outline: 2px solid var(--arceus-gold);
   outline-offset: 1px;
 }
 
 /* ── board (secondary, hidden by default) ─────────────────────────────── */
-.board {
+.hud-board {
   background: rgba(29, 29, 34, 0.94);
-  border: 1px solid var(--line);
+  border: 1px solid var(--arceus-gold-deep);
   box-shadow: var(--shadow-hard);
   backdrop-filter: blur(1px);
   flex: 1;
@@ -1343,96 +1350,96 @@ body.garden-lowres .garden canvas {
   overflow: hidden;
 }
 
-.board-hidden {
+.hud-board-hidden {
   display: none;
 }
 
-.board-head {
+.hud-board-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 9px 10px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--arceus-gold-deep);
   flex: 0 0 auto;
 }
 
-.board-head h2 {
+.hud-board-head h2 {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--font-display-md-size);
   line-height: var(--font-display-md-line);
   font-weight: 400;
-  color: var(--text);
+  color: var(--arceus-ink);
 }
 
-.board-live {
+.hud-board-live {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--status-done);
 }
 
-.board .rows {
+.hud-board-rows {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
 }
 
-.board .row-empty {
+.hud-board-row-empty {
   padding: 10px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--arceus-muted);
 }
 
-.board .row {
+.hud-board-row {
   display: grid;
   grid-template-columns: 28px 1fr auto;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--muted-dim);
+  border-bottom: 1px solid var(--arceus-gold-deep);
 }
 
-.board .row:last-child {
+.hud-board-row:last-child {
   border-bottom: none;
 }
 
-.board .glyph {
+.hud-board-glyph {
   width: 28px;
   height: 28px;
-  background: var(--bg-terminal);
-  border: 1px solid var(--muted-dim);
+  background: var(--arceus-ground);
+  border: 1px solid var(--arceus-gold-deep);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
   font-size: 9px;
-  color: var(--muted);
+  color: var(--arceus-muted);
   text-transform: uppercase;
 }
 
-.board .who-what {
+.hud-board-who {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
 }
 
-.board .who-name {
+.hud-board-name {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--arceus-ink);
 }
 
-.board .who-meta {
+.hud-board-meta {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--muted);
+  color: var(--arceus-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.board .pill {
+.hud-pill {
   font-family: var(--font-mono);
   font-size: 10px;
   padding: 2px 6px;
@@ -1440,38 +1447,41 @@ body.garden-lowres .garden canvas {
   white-space: nowrap;
 }
 
-.board .pill.idle {
+.hud-pill-idle {
   color: var(--status-idle);
   background: var(--status-idle-bg);
 }
 
-.board .pill.working {
+.hud-pill-working {
   color: var(--status-working);
   background: var(--status-working-bg);
 }
 
-.board .pill.blocked {
+.hud-pill-blocked {
   color: var(--status-blocked);
   background: var(--status-blocked-bg);
 }
 
-.board .pill.done {
+.hud-pill-done {
   color: var(--status-done);
   background: var(--status-done-bg);
 }
 
-.board .pill.starting {
-  color: var(--muted);
-  background: var(--muted-dim);
+/* Fixed cosmos-palette pairing (not `--muted`/`--muted-dim`, same light-
+ * theme-readability reasoning as the rest of this HUD — see this block's
+ * own header). */
+.hud-pill-starting {
+  color: var(--arceus-muted);
+  background: var(--arceus-ground-raised);
 }
 
 /* ── exchange strip (real dispatch/poke-ask log — see store.ts's
  * `arceusExchange`) ─────────────────────────────────────────────────────── */
-.exchange-strip {
+.hud-exchange-strip {
   flex: 1;
   min-height: 120px;
   background: rgba(26, 26, 31, 0.92);
-  border: 1px solid var(--line);
+  border: 1px solid var(--arceus-gold-deep);
   padding: 8px 12px;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1483,31 +1493,32 @@ body.garden-lowres .garden canvas {
   backdrop-filter: blur(1px);
 }
 
-.exchange-empty {
-  color: var(--muted);
+.hud-exchange-empty {
+  color: var(--arceus-muted);
 }
 
-.exchange-ln .exchange-prompt {
-  color: var(--muted);
+.hud-exchange-ln .hud-exchange-prompt {
+  color: var(--arceus-muted);
 }
 
-.exchange-ln-arceus .exchange-prompt {
+.hud-exchange-ln-arceus .hud-exchange-prompt {
   color: var(--arceus-gold-bright);
 }
 
-.exchange-ln .exchange-txt {
-  color: var(--text);
+.hud-exchange-ln .hud-exchange-txt {
+  color: var(--arceus-ink);
 }
 
 /* Arceus's own dispatch box (ArceusDispatchBox.tsx) is reused verbatim
  * inside the HUD — this overrides its ordinary opaque `.panel-2` drawer
  * styling (index.css's "Arceus dispatch box" rule, further down) with the
  * mockup's translucent-panel treatment whenever it's rendered here, inside
- * `.arceus-hud`. */
+ * `.arceus-hud`. `.dispatch-box` itself stays unprefixed — it's the
+ * pre-existing shared class ArceusDispatchBox.tsx always renders, reused
+ * (not duplicated) for its non-HUD instance too. */
 .arceus-hud .dispatch-box {
   background: rgba(38, 38, 44, 0.94);
-  border: 1px solid var(--line);
-  border-bottom: none;
+  border: 1px solid var(--arceus-gold-deep);
   flex: 0 0 auto;
   backdrop-filter: blur(1px);
 }

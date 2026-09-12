@@ -43,7 +43,7 @@ function truncate(text: string, max = 42): string {
  *  ambient status, not a stopwatch. */
 export function formatDuration(ms: number): string {
   const totalMinutes = Math.floor(ms / 60_000);
-  if (totalMinutes < 1) return 'moments';
+  if (totalMinutes < 1) return 'just now';
   if (totalMinutes < 60) return `${totalMinutes}m`;
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -132,9 +132,10 @@ export interface ArceusBoardRow {
   name: string;
   glyph: string;
   projectLabel: string;
-  /** Real `SessionStatus` — always one of the four pill tokens (idle/
-   *  working/blocked/done), even while `label` below reads "napping"/
-   *  "starting" — so the pill's CSS class always resolves to a real color. */
+  /** Real `SessionStatus` — one of all five real values (starting/idle/
+   *  working/blocked/done), even while `label` below reads "napping" — so
+   *  the pill's CSS class always resolves to a real color (every one of the
+   *  five has its own `.hud-pill-*` rule). */
   status: Session['status'];
   /** What the pill actually shows — "napping" overrides the raw status
    *  text (a plain-shell session gone quiet, or a claude session between a

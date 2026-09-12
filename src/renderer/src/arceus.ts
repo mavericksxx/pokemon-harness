@@ -28,7 +28,7 @@ import {
   type ArceusSummonConfig
 } from '@shared/arceus';
 import { useStore, type Session } from '@/store/store';
-import { createTerminal, disposeTerminal, hasTerminal, recreateTerminal } from '@/pty/terminalRegistry';
+import { disposeTerminal, hasTerminal, recreateTerminal } from '@/pty/terminalRegistry';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { RESUME_GRACE_MS } from '@shared/resumeTiming';
 
@@ -69,7 +69,6 @@ async function spawnArceus(
   // the same id rather than updating the existing one.
   const existing = arceusRecord();
   if (existing) useStore.getState().removeSession(existing.id);
-  if (hasTerminal(ARCEUS_SESSION_ID)) disposeTerminal(ARCEUS_SESSION_ID);
 
   // Mirrors sessions.ts's `startSession`: `addSession` below selects Arceus
   // by default, so a failed summon must not leave whatever was selected
@@ -78,7 +77,19 @@ async function spawnArceus(
   const previousSelectedId = useStore.getState().selectedId;
   let sessionAdded = false;
   try {
-    createTerminal(ARCEUS_SESSION_ID, provider);
+    // `recreateTerminal` (not a plain disposeTerminal + createTerminal pair)
+    // — a provider/model-switch re-summon (Arceus v2, docs/arceus-v2-plan.md
+    // §3.8, ArceusHud.tsx) happens while Arceus is ALREADY the selected
+    // session, so `removeSession`/`addSession` below never actually change
+    // `selectedId` (arceus -> arceus). TerminalDrawer.tsx's attach effect is
+    // keyed on `[open, selectedId]` only, so a bare disposeTerminal +
+    // createTerminal pair here would leave the drawer's mount div attached to
+    // the disposed entry and his terminal blank until the user clicked away
+    // and back — the exact bug `recreateTerminal` exists to close (see its
+    // own comment; same fix `tryResumeArceus`/`restartSessionFresh` already
+    // rely on). Safe on a genuine first summon too: it no-ops the dispose
+    // half when nothing exists yet under this id.
+    recreateTerminal(ARCEUS_SESSION_ID, provider);
     useStore.getState().addSession({
       id: ARCEUS_SESSION_ID,
       title: ARCEUS_TITLE,
@@ -157,8 +168,18 @@ export function toRosterEntries(sessions: Session[]): ArceusRosterEntry[] {
  *  that gap at its one shared choke point. */
 let summonInFlight: Promise<void> | null = null;
 
+/** Advisor fix: silently returning the ALREADY-in-flight promise here (the
+ *  original behavior) means a caller whose own request never actually ran
+ *  can't tell — `ArceusHud.tsx`'s `applyModelChange` (Arceus v2 §3.8) still
+ *  called `saveArceusSummonConfig(req)` for ITS `req` right after, even
+ *  though the in-flight summon it silently piggybacked on may have used a
+ *  different provider/model. Throwing instead makes the overlap an explicit,
+ *  catchable failure for whichever caller loses the race — a real (if rare)
+ *  case, not just the model-switch UI: the rail card's own resummon click
+ *  can race a still-in-flight boot-time `autoSummonArceus`, and now surfaces
+ *  that instead of quietly no-oping. */
 function guardedSummon(run: () => Promise<void>): Promise<void> {
-  if (summonInFlight) return summonInFlight;
+  if (summonInFlight) throw new Error('arceus is already being summoned — try again in a moment.');
   const p = run().finally(() => {
     if (summonInFlight === p) summonInFlight = null;
   });
@@ -210,8 +231,11 @@ export function loadArceusSummonConfig(): Promise<ArceusSummonConfig | null> {
   return window.api.getArceusSummonConfig();
 }
 
-/** Called once, right after a successful FIRST summon — see
- *  SummonArceusDialog's submit handler, the only caller. */
+/** Called right after a successful FIRST summon (SummonArceusDialog's submit
+ *  handler) — and, since Arceus v2's inline model-switch UI (docs/arceus-v2-
+ *  plan.md §3.8, ArceusHud.tsx's `applyModelChange`), also after a live
+ *  provider/model change, so a later relaunch reads back whichever config
+ *  actually reflects his currently-running process. */
 export function saveArceusSummonConfig(config: ArceusSummonConfig): Promise<void> {
   return window.api.saveArceusSummonConfig(config);
 }
