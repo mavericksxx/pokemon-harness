@@ -62,6 +62,10 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     // ORIGINAL task (if the prompt were persisted instead) would be worse: a
     // delegate still live when the app quits is simply not resurrected, same
     // as a session closed in-app via stopSession never reaching this file.
+    // This is also why pty.ts's `detachAllToKeepers` (the "leave running"
+    // quit path) kills a delegate outright instead of detaching it to a
+    // keeper — a keeper nothing here ever persists would just run orphaned,
+    // never found by a later `tryReattach`.
     sessionPersistence.schedule({
       sessions: sessions.filter((s) => !s.delegateParentId),
       lastSelectedId: selectedId

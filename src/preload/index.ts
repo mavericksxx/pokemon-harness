@@ -295,15 +295,10 @@ const api = {
     ipcRenderer.on('app:quitRequested', listener);
     return () => ipcRenderer.removeListener('app:quitRequested', listener);
   },
-  /** "kill it & quit" — quits immediately. */
-  forceQuit: (): Promise<void> => ipcRenderer.invoke('app:forceQuit'),
   /** "quit, leave running" — quits immediately, but detaches every live
    *  session's CLI to a background "keeper" process instead of killing it;
    *  a later relaunch reattaches to whatever's still going. */
   leaveRunningAndQuit: (): Promise<void> => ipcRenderer.invoke('app:leaveRunningAndQuit'),
-  /** "clear & quit" — wipes the session registry and quits: the next launch
-   *  opens to an empty garden (nothing resumes). */
-  wipeGardenAndQuit: (): Promise<void> => ipcRenderer.invoke('app:wipeGardenAndQuit'),
 
   /** macOS fullscreen state — fires on enter/leave-full-screen plus once per
    *  page load (main/index.ts) so a reload starts with the right topbar

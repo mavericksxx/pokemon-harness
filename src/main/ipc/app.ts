@@ -10,8 +10,6 @@ import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig
 import { checkForUpdate } from '../updateCheck';
 import { getLogDir, getRecentErrorCount, log } from '../diagnostics';
 import { buildDiagnosticsBundle, defaultBundleFilename } from '../diagnosticsExport';
-import type { PtyManager } from '../pty';
-import type { SessionPersistence } from '../sessionPersistence';
 import type { UsageService } from '../usageService';
 import type { CostWatcher } from '../costWatcher';
 import type { RendererCrashInfo, SessionRecord } from '../../shared/types';
@@ -21,8 +19,6 @@ import type { UpdateCheckResult } from '../../shared/updateTypes';
 import type { ExportDiagnosticsResult, LogLevel } from '../../shared/diagnosticsTypes';
 
 export interface AppIpcDeps {
-  ptyManager: PtyManager;
-  sessionPersistence: SessionPersistence;
   usageService: UsageService;
   costWatcher: CostWatcher;
   getMainWindow: () => BrowserWindow | null;
@@ -44,8 +40,6 @@ export interface AppIpcDeps {
 
 export function registerAppIpc(deps: AppIpcDeps): void {
   const {
-    ptyManager,
-    sessionPersistence,
     usageService,
     costWatcher,
     getMainWindow,
@@ -216,16 +210,9 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   );
 
   // ─── App lifecycle ──────────────────────────────────────────────────────────
-  // "kill it & quit" — the quit dialog's destructive action (parity sweep item
-  // 2). `before-quit`'s existing flush + killAll still runs.
-  handle('app:forceQuit', () => {
-    setQuitConfirmed(true);
-    app.quit();
-  });
-
-  // "leave them running" — the quit dialog's non-destructive action: quits
-  // the app but hands each live session's pty master off to a small
-  // detached "keeper" process instead of killing it (pty.ts's
+  // "quit, leave running" — the quit dialog's only quit action: quits the
+  // app but hands each live session's pty master off to a small detached
+  // "keeper" process instead of killing it (pty.ts's
   // `detachAllToKeepers`/ptyKeeper.ts), so the underlying CLI keeps running
   // in the background until it finishes on its own; a later relaunch
   // reattaches to it (sessionRespawn.ts's `tryReattach`) instead of
@@ -235,21 +222,6 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   handle('app:leaveRunningAndQuit', () => {
     setQuitConfirmed(true);
     setLeaveSessionsRunning(true);
-    app.quit();
-  });
-
-  // "clear & quit" — the quit dialog's most destructive action: quits AND
-  // wipes the session registry so the next launch opens to a genuinely empty
-  // garden (nothing resumes, nothing respawns). Kill ptys BEFORE flushEmpty —
-  // same ordering concern as sessionPersistence.ts's flush() doc comment, but
-  // reversed: an exit handler firing during killAll re-checkpoints a
-  // non-empty registry, so that must happen before the empty write, not
-  // after. `before-quit`'s own `sessionPersistence.flush()` then no-ops
-  // safely since `pending` is already null.
-  handle('app:wipeGardenAndQuit', () => {
-    setQuitConfirmed(true);
-    ptyManager.killAll();
-    sessionPersistence.flushEmpty();
     app.quit();
   });
 
