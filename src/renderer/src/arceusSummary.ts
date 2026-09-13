@@ -20,7 +20,6 @@ import type { Session } from '@/store/store';
 import type { WorkspaceRecord } from '@shared/workspaceTypes';
 import { sessionWorkspaceId } from '@/store/workspaceStore';
 import { speciesEntry } from '@/scene/garden/dexData';
-import { statusSinceMs } from '@/arceusStatusHistory';
 
 /** Arceus routes/watches every workspace at once — same cross-workspace
  *  scope `toRosterEntries` (arceus.ts) and `writeArceusRosterFile`
@@ -53,30 +52,42 @@ export function formatDuration(ms: number): string {
 interface SummaryAgent {
   name: string;
   status: Session['status'];
-  statusMs: number;
+  /** ms since this session entered its current status, or `undefined` when
+   *  `statusChangedAt` isn't known (legacy record) — callers must drop the
+   *  duration clause rather than show a misleading number. */
+  statusMs: number | undefined;
   lastDispatchMessage?: string;
+}
+
+function statusMsFor(session: Session): number | undefined {
+  return session.statusChangedAt === undefined ? undefined : Math.max(0, Date.now() - session.statusChangedAt);
 }
 
 function toSummaryAgent(session: Session): SummaryAgent {
   return {
     name: displayName(session),
     status: session.status,
-    statusMs: statusSinceMs(session),
+    statusMs: statusMsFor(session),
     lastDispatchMessage: session.lastDispatch?.message
   };
 }
 
 function describeAgent(agent: SummaryAgent): string {
-  const { name, status, lastDispatchMessage: task } = agent;
+  const { name, status, lastDispatchMessage: task, statusMs } = agent;
   switch (status) {
     case 'working':
       return task ? `${name}'s working on "${truncate(task)}"` : `${name}'s working`;
     case 'blocked':
-      return `${name}'s been blocked for ${formatDuration(agent.statusMs)} and probably wants a look`;
+      return statusMs === undefined
+        ? `${name}'s blocked and probably wants a look`
+        : `${name}'s been blocked for ${formatDuration(statusMs)} and probably wants a look`;
     case 'idle':
-      return task
-        ? `${name} wrapped up "${truncate(task)}" and has been idle ${formatDuration(agent.statusMs)}`
-        : `${name}'s been idle for ${formatDuration(agent.statusMs)}`;
+      if (task) {
+        return statusMs === undefined
+          ? `${name} wrapped up "${truncate(task)}" and is idle`
+          : `${name} wrapped up "${truncate(task)}" and has been idle ${formatDuration(statusMs)}`;
+      }
+      return statusMs === undefined ? `${name}'s idle` : `${name}'s been idle for ${formatDuration(statusMs)}`;
     case 'done':
       return `${name} just wrapped up cleanly`;
     case 'starting':
@@ -154,7 +165,8 @@ export function buildArceusBoardRows(sessions: Session[], workspaces: WorkspaceR
     const projectLabel = `${workspace?.name ?? 'unknown project'} · ${session.provider}`;
     const showsDuration = session.status !== 'working' && session.status !== 'starting';
     const statusText = session.napping ? 'napping' : session.status;
-    const label = showsDuration ? `${statusText} ${formatDuration(statusSinceMs(session))}` : statusText;
+    const statusMs = statusMsFor(session);
+    const label = showsDuration && statusMs !== undefined ? `${statusText} ${formatDuration(statusMs)}` : statusText;
     return {
       id: session.id,
       name,
