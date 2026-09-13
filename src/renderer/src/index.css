@@ -370,6 +370,14 @@ body {
   .topbar-actions .audio-popover {
     display: none;
   }
+
+  /* A long workspace name can otherwise still push the garden-picker trigger
+   * past its 200px base cap (~line 513) far enough to shove the rest of the
+   * cluster off the right edge at the 640px window floor — clamp it tighter
+   * here so the trigger's own ellipsis kicks in instead. */
+  .topbar-actions .garden-picker-trigger {
+    max-width: 120px;
+  }
 }
 
 /* `.session-chips`/`.chip*` (the topbar's own instantiation of this generic
@@ -3694,10 +3702,13 @@ body.garden-lowres .garden canvas {
   /* Narrow-rail hardening: `width: 100%` below plus this card's own padding
    * and border used to add on top of that 100% (content-box sizing), which
    * is what let a card's real rendered box run past its `.roster-card-wrap`
-   * bounds at the rail's narrower widths. `overflow: hidden` is safe here —
-   * the corner badges (`.roster-card-disclosure`/`.roster-card-swap`/
-   * `.roster-card-despawn`) are siblings of this button inside `.roster-
-   * card-wrap`, not its children, so they aren't affected. */
+   * bounds at the rail's narrower widths. `overflow: hidden` is safe for the
+   * corner badges (`.roster-card-disclosure`/`.roster-card-swap`/
+   * `.roster-card-despawn`) — they're siblings of this button inside
+   * `.roster-card-wrap`, not its children, so they aren't affected — but it
+   * DID clip `.roster-card-arceus::after`'s gold crest bar, previously
+   * positioned at `top: -2px` to sit just above this box; see that rule's
+   * own comment for the `top: 0` adjustment that keeps it visible. */
   box-sizing: border-box;
   overflow: hidden;
   display: flex;
@@ -3786,19 +3797,23 @@ body.garden-lowres .garden canvas {
 }
 
 /* A squared central crest rail, visible above and below the content without
- * competing with Arceus's sprite. */
+ * competing with Arceus's sprite. Was `top: -2px` (sitting just above the
+ * card's own box) with a two-step shadow riding down onto the border — now
+ * `top: 0` since `.roster-card`'s `overflow: hidden` (narrow-rail hardening,
+ * above) would otherwise clip anything positioned outside the card's own
+ * box entirely. Shifted the shadow steps down by that same 2px so the crest
+ * still reads as a stepped ledge sitting on the card's top edge instead of
+ * floating above it. */
 .roster-card-arceus::after {
   content: '';
   position: absolute;
-  top: -2px;
+  top: 0;
   left: 50%;
   width: 28px;
   height: 2px;
   transform: translateX(-50%);
   background: var(--arceus-gold-bright);
-  box-shadow:
-    0 2px 0 var(--arceus-ground),
-    0 3px 0 var(--arceus-green);
+  box-shadow: 0 1px 0 var(--arceus-green);
   pointer-events: none;
   z-index: 3;
 }
