@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- **added: "clear garden & quit…" in settings → diagnostics** — the wipe action removed from the quit dialog now lives in a danger-zone card with an inline confirm. Hardened while restoring it: keeper-reattached sessions are SIGKILLed by process group (the keeper's soft SIGTERM could leave them orphaned once the registry is emptied), leftover keeper sockets/meta from earlier runs are swept, and `flushEmpty()` seals persistence so a late checkpoint during teardown can't undo the wipe. Stale quit-dialog CSS dropped from `site/public/demo.html` (the page is otherwise ~700 lines behind `index.css`; a full regen is a separate task). Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
+
 - **changed: the quit dialog is down to two buttons — cancel and quit** — the four-action dialog (keep running / kill & quit / quit, leave running / clear & quit) had an unlabeled wipe button, a hint that contradicted its own options, and two near-identical red buttons. Quit now always leaves sessions running in the background and reattaches them next launch (Enter quits, Esc cancels). The kill and wipe quit paths are removed end to end (`app:forceQuit`, `app:wipeGardenAndQuit`, `sessionPersistence.flushEmpty`). Also fixed: codex delegate sessions were detached to keepers on that path but never persisted, so they ran orphaned forever — they're now killed at quit. Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
 
 ## v1.19.2 — 2026-09-13
