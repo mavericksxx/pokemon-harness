@@ -875,7 +875,7 @@ export class PtyManager {
     }
   }
 
-  /** "Leave them running" quit path (QuitDialog.tsx's 5th action) — hands
+  /** "Leave them running" quit path (QuitDialog.tsx's "quit" action) — hands
    *  session `id`'s live pty master off to a small detached `ptyKeeper.ts`
    *  helper process instead of killing it, so the underlying CLI survives
    *  this app quitting entirely (see ptyKeeper.ts's own header for the
@@ -1035,10 +1035,19 @@ export class PtyManager {
    *  loop, but detaches each session to its own keeper instead of signaling
    *  it. Falls back to a normal kill for any one session `detachToKeeper`
    *  can't handle, so nothing is silently orphaned by this quit path.
-   *  Snapshots the id list first since `detachToKeeper`/`kill` both mutate
-   *  `this.sessions` as they go. */
+   *  Delegate sessions (`session.isDelegate`) are killed outright rather
+   *  than detached: `ipc/sessions.ts` deliberately excludes delegates from
+   *  disk persistence, so a keeper holding one open would never be found by
+   *  `tryReattach` on the next launch — it'd just run orphaned forever
+   *  instead of reattaching. Snapshots the id list first since
+   *  `detachToKeeper`/`kill` both mutate `this.sessions` as they go. */
   detachAllToKeepers(): void {
     for (const id of [...this.sessions.keys()]) {
+      const session = this.sessions.get(id);
+      if (session?.isDelegate) {
+        this.kill(id);
+        continue;
+      }
       if (!this.detachToKeeper(id)) this.kill(id);
     }
   }

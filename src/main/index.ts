@@ -217,9 +217,8 @@ function ensureWindowOpen(): void {
 }
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
-// Set once a quit is CONFIRMED — either the quit dialog's "kill it & quit"
-// (`app:forceQuit`), "leave them running" (`app:leaveRunningAndQuit`), or
-// "clear & quit" (`app:wipeGardenAndQuit`) action, or by `before-quit` itself
+// Set once a quit is CONFIRMED — either the quit dialog's "leave them
+// running" (`app:leaveRunningAndQuit`) action, or by `before-quit` itself
 // the moment its own gate passes with zero live sessions to confirm about
 // (see that handler). While false, an app quit is intercepted whenever a
 // session is still live, and the renderer is asked to show the quit dialog
@@ -228,7 +227,7 @@ function ensureWindowOpen(): void {
 // flag so it lets an in-progress quit's own window-close through instead of
 // re-hiding it.
 let quitConfirmed = false;
-/** "Leave them running" quit path (QuitDialog.tsx's 3rd action) — set ONLY
+/** "Leave them running" quit path (QuitDialog.tsx's "quit" action) — set ONLY
  *  by the `app:leaveRunningAndQuit` handler (app.ts), alongside
  *  `quitConfirmed`, same pattern as that flag. `before-quit`'s finalization
  *  block below reads this to decide `ptyManager.detachAllToKeepers()` vs.
@@ -1547,8 +1546,7 @@ app.on('before-quit', (e) => {
   // anymore — it just hides the window — so it has nothing to hand off to
   // this handler. Never fires a second dialog once a quit is already
   // confirmed — `quitConfirmed` is set by the quit dialog's own
-  // `app:forceQuit`/`app:leaveRunningAndQuit`/`app:wipeGardenAndQuit`
-  // handlers before any of them calls `app.quit()`.
+  // `app:leaveRunningAndQuit` handler before it calls `app.quit()`.
   if (!quitConfirmed && hasLiveSessions()) {
     e.preventDefault();
     requestQuitConfirmation();
@@ -1558,10 +1556,10 @@ app.on('before-quit', (e) => {
   // — either a session-owning path already confirmed, or there were no live
   // sessions to confirm about). Set here, not at the top of this handler
   // before the gate, so a request that gets intercepted above (dialog shown,
-  // `e.preventDefault()`'d) never flips this — a "leave them running"/"kill
-  // it" pick still sets it earlier via app.ts, and a cancelled dialog
-  // doesn't call anything here at all, so this never gets stuck true from a
-  // cancelled attempt. Needed so the `close` handler above lets THIS
+  // `e.preventDefault()`'d) never flips this — a "leave them running" pick
+  // still sets it earlier via app.ts, and a cancelled dialog doesn't call
+  // anything here at all, so this never gets stuck true from a cancelled
+  // attempt. Needed so the `close` handler above lets THIS
   // teardown's own window-close through instead of re-hiding it and hanging
   // `app.quit()` — the specific bug that motivated this flag being read
   // there in the first place.
@@ -1655,8 +1653,6 @@ registerWorkspacesIpc({
 });
 
 registerAppIpc({
-  ptyManager,
-  sessionPersistence,
   usageService,
   costWatcher,
   getMainWindow: () => mainWindow,

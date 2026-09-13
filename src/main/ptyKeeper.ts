@@ -1,6 +1,6 @@
 /**
  * ptyKeeper — standalone helper process for the "leave them running" quit
- * path (QuitDialog.tsx's 5th action).
+ * path (QuitDialog.tsx's "quit" action).
  *
  * Spawned via ELECTRON_RUN_AS_NODE (same launcher pattern as hookBridge.ts's
  * node launcher — see pty.ts's `detachToKeeper`), NOT part of the normal
