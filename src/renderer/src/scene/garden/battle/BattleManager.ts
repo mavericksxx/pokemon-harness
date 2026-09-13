@@ -332,6 +332,7 @@ import {
   MAX_RING,
   MAX_ROAM_MS,
   MIN_ROAM_MS,
+  RETIRED_DESPAWN_MS,
   RETIRED_TASK_INFO_CAP,
   RETURN_MS,
   ROAM_LABEL_CYCLE_MAX_MS,
@@ -913,6 +914,15 @@ export class BattleManager {
         // after the fight — driving a walker whose movement GardenScene owns,
         // and which its own reconcile is meanwhile trying to keep parked.
         this.updateRoaming(sub, dt);
+        // Auto-despawn after a grace period (RETIRED_DESPAWN_MS, mirroring
+        // MAX_ROAM_MS) instead of leaving this sub wandering indefinitely —
+        // the manual despawn button (SubagentRosterCard) still works for
+        // early dismissal in the meantime. `despawnBattler` is a no-op once
+        // a recall is already in flight, so this is safe to call every tick
+        // past the deadline.
+        if (sub.retiredSince !== null && Date.now() - sub.retiredSince >= RETIRED_DESPAWN_MS) {
+          this.despawnBattler(sub.key);
+        }
       }
       sub.battler.update(dt);
       if (!sub.visibleLogged && !sub.battler.isSpawning) {
@@ -1096,6 +1106,11 @@ export class BattleManager {
       wanderTimer: 0,
       wanderDelay: WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY),
       roamingSince: Date.now(),
+      // Recovered already-retired (respawnFromStore) starts its despawn
+      // clock fresh from rebuild time — no original retirement moment
+      // survives a renderer rebuild, same latitude this recovery path
+      // already takes elsewhere (see this method's own call site comment).
+      retiredSince: lifecycle === 'retired' ? Date.now() : null,
       queuedSince: 0,
       queueEligibleAt: null,
       visibleLogged,
@@ -1229,6 +1244,10 @@ export class BattleManager {
       wanderTimer: 0,
       wanderDelay: 0,
       roamingSince: Date.now(),
+      // A delegate never reaches the auto-despawn check (excluded alongside
+      // every other `isDelegateSub` skip in `updateOneBattle`'s retired
+      // branch) — this stays null for its whole life.
+      retiredSince: null,
       queuedSince: 0,
       queueEligibleAt: null,
       // Pre-set: that flag exists to catch a battler whose poof-in never
@@ -2274,6 +2293,7 @@ export class BattleManager {
    *  removes it. */
   private retireSub(sub: SubBattler): void {
     sub.lifecycle = 'retired';
+    sub.retiredSince = Date.now();
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
     // Battle stance is released for EVERY sub here, delegate included —
@@ -2312,6 +2332,7 @@ export class BattleManager {
    *  `setBattlerDone(key, false)` clears `doneAt`. */
   private reviveRetired(sub: SubBattler): void {
     sub.lifecycle = 'roaming';
+    sub.retiredSince = null;
     // Issue #7 (dirty-flag predicate) — this is reached from `onSignal`
     // (a `correlate` battle signal), entirely OUTSIDE the render ticker's
     // own per-tick call chain, at whatever real-world moment the CLI's

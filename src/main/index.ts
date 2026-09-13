@@ -1067,10 +1067,22 @@ function createWindow(backgroundColor: string): void {
       // by the main process, so Chromium's renderer sandbox stays on.
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false,
-      // The renderer drives the garden ticker and the PTY parsers; Chromium
-      // throttles timers in occluded windows, which would stall both.
-      backgroundThrottling: false
+      nodeIntegration: false
+      // `backgroundThrottling: false` used to sit here (Phase 1 scaffold) on
+      // the theory that Chromium's background timer/rAF throttling would
+      // stall the garden ticker and PTY output parsing. Removed
+      // (multi-day-idle fix, 2026-09-13): PTY output actually reaches the
+      // renderer over push IPC (`pty:data:<id>`, see preload/index.ts's
+      // `onPtyData` and main/pty.ts's `safeSend`), which isn't a timer/rAF
+      // callback and was never subject to this throttling either way; the
+      // garden ticker's own expensive work is now explicitly gated on
+      // `renderPaused` (GardenScene.tsx) instead of relying on staying
+      // unthrottled. Leaving throttling disabled for the whole app meant
+      // every renderer poller (settings panel, day-night overlay, usage
+      // chip / trainer card / subagent roster card countdowns) also kept
+      // ticking at full cadence while backgrounded, scaling with an
+      // ever-growing session over a multi-day run — exactly what left the
+      // packaged app unresponsive after being left running for ~2 days.
     }
   });
 
@@ -1238,9 +1250,9 @@ function createWindow(backgroundColor: string): void {
   // GPU/CPU work the OS counts toward "Significant Energy" even while
   // nothing is visible. `document.hidden` (checked in the renderer) already
   // flips correctly on minimize — that's a Chromium page-visibility signal,
-  // independent of this window's `backgroundThrottling: false` (which only
-  // disables Chromium's timer/rAF THROTTLING, not visibility reporting) —
-  // but macOS's Cmd+H "Hide <app>" (wired to the app menu's `role: 'hide'`
+  // independent of timer/rAF throttling (a separate concern — see
+  // `createWindow`'s webPreferences comment) — but macOS's Cmd+H "Hide
+  // <app>" (wired to the app menu's `role: 'hide'`
   // above) hides every window without necessarily flipping it, so
   // GardenScene's `syncRenderState` needs this main-authoritative signal too.
   // `win.isVisible()` is false for both hidden and minimized, so this and

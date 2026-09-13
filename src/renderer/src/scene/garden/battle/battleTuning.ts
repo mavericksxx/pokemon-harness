@@ -130,6 +130,15 @@ export const MAX_ROAM_MS = 30 * 60_000;
  *  routinely trims real resume memory. */
 export const RETIRED_TASK_INFO_CAP = 500;
 
+/** Grace period a `'retired'` (done, off-duty) battler is left wandering
+ *  before auto-despawning on its own — without this, only the manual
+ *  despawn button (`SubagentRosterCard`) ever removed one, so a long-running
+ *  session's retired population only grew, each entry still updated every
+ *  frame. Mirrors `MAX_ROAM_MS`, the existing age-out duration for the
+ *  sibling `'roaming'` lifecycle, for consistency rather than a new
+ *  arbitrary number. Manual despawn still works for early dismissal. */
+export const RETIRED_DESPAWN_MS = MAX_ROAM_MS;
+
 /** Gap enforced, in ms, between the end of one completion battle and the
  *  start of the next — GLOBALLY, across every parent (the queue in
  *  `pickNextQueued`/`nextBattleEarliestAt` is what makes the lock global,

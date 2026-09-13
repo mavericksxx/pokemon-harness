@@ -197,19 +197,28 @@ export function GardenScene(): JSX.Element {
       app.ticker.remove(app.render, app);
 
       // Render pause while hidden or off-screen (idle-energy pass,
-      // 2026-09-01): this ticker's own game-logic listener (added below,
-      // near `app.ticker.add((ticker) => {...`) and its `dt` clamp are left
-      // completely untouched by any of this — `workAccumMs` and
-      // BattleManager's timeouts/age-outs keep advancing on real wall-clock
-      // time exactly as before, hidden or not, because that listener simply
-      // never stops. What's toggled: the listener's own end-of-tick render
-      // call (see below) is skipped outright while `renderPaused`, and
-      // `Ticker.shared` (the walker sprites' animation clock, see above) is
-      // paused/resumed the same way it always was. `renderPaused` starts
-      // false to match the state `app.init()` actually left things in
-      // (`Ticker.shared` running for any already-playing sprite) — the first
-      // `syncRenderState()` call (from `applyState()`'s initial call, below)
-      // corrects it immediately if the scene mounts already-hidden.
+      // 2026-09-01; extended to the logic side, multi-day-idle fix,
+      // 2026-09-13): this ticker's own game-logic listener (added below,
+      // near `app.ticker.add((ticker) => {...`) keeps firing every tick
+      // regardless of `renderPaused` — `app.ticker` itself is never
+      // stopped, only `Ticker.shared` (see below) is — but its per-runtime
+      // `walker.update()`, `battleManager.update()`, `advisorManager.update()`,
+      // and `camera.update()` calls are now individually gated on
+      // `!renderPaused` (see each call site), so they stop doing real work
+      // while hidden/minimized/occluded instead of ticking at full rate
+      // forever. `workAccumMs` and BattleManager's timeouts/age-outs are
+      // keyed off `Date.now()`, not accumulated `dt`, so pausing these calls
+      // never loses time — a paused age-out simply resolves against the
+      // correct elapsed wall-clock time the moment ticking resumes. What's
+      // still unconditional: the 1Hz evolution/charm block, despawn/recall
+      // draining, and the listener's own end-of-tick render call, which is
+      // skipped outright while `renderPaused` as before, and `Ticker.shared`
+      // (the walker sprites' animation clock, see above) is paused/resumed
+      // the same way it always was. `renderPaused` starts false to match the
+      // state `app.init()` actually left things in (`Ticker.shared` running
+      // for any already-playing sprite) — the first `syncRenderState()` call
+      // (from `applyState()`'s initial call, below) corrects it immediately
+      // if the scene mounts already-hidden.
       let renderPaused = false;
       const shouldRender = (): boolean => {
         // Fail-open: `document.hidden` is the browser's own signal (reliable,
@@ -1038,9 +1047,14 @@ export function GardenScene(): JSX.Element {
         try {
         const dt = Math.min(ticker.deltaMS / 1000, 0.1);
         if (map.update(dt * 1000)) markDirty(); // pond water animation / enclosed-structure roof fade
-        for (const rt of runtimes.values()) {
-          rt.walker.update(dt);
-          if (rt.status === 'working') rt.workAccumMs += dt * 1000;
+        // Gated on renderPaused (multi-day-idle fix, 2026-09-13) — see this
+        // effect's own `renderPaused` comment above. Foreground behavior is
+        // unchanged: `renderPaused` is false whenever the garden is visible.
+        if (!renderPaused) {
+          for (const rt of runtimes.values()) {
+            rt.walker.update(dt);
+            if (rt.status === 'working') rt.workAccumMs += dt * 1000;
+          }
         }
         // Runs after every walker's own update() so battle positioning always
         // overwrites with a fresh absolute (base + offset) value rather than
@@ -1067,6 +1081,11 @@ export function GardenScene(): JSX.Element {
         // ticker) is unaffected either way — it's already in `this.battles`/
         // `active` by the time this line runs, however it got there.
         const battleOrFxWasActive = battleManager.hasActiveBattles() || hasActiveFx();
+        // battleManager.update()/advisorManager.update() gated on
+        // renderPaused (multi-day-idle fix, 2026-09-13) — see this effect's
+        // own `renderPaused` comment above. Foreground behavior is
+        // unchanged: `renderPaused` is false whenever the garden is visible.
+        if (!renderPaused) {
         try {
           battleManager.update(dt);
           // A live wave's own choreography (alert/approach/faceoff/attack
@@ -1126,6 +1145,7 @@ export function GardenScene(): JSX.Element {
               error: e instanceof Error ? (e.stack ?? e.message) : String(e)
             });
           }
+        }
         }
         dayNight.update(dt);
         if (dayNight.isAnimating) markDirty(); // lamp flicker/sway — no-op (and thus no-op here) by day
@@ -1261,8 +1281,11 @@ export function GardenScene(): JSX.Element {
         // transform actually moved (see Camera.ts's own comment on
         // `lastApplied*`), which is the one dirtiness source here that isn't
         // a discrete event (pan/zoom/focus are, but the lerp settling toward
-        // them each frame is not).
-        if (camera.update()) markDirty();
+        // them each frame is not). Gated on renderPaused (multi-day-idle
+        // fix, 2026-09-13) like the other per-frame updates above — nothing
+        // is on screen to see the lerp settle while hidden, and resuming
+        // already forces a markDirty() (see syncRenderState).
+        if (!renderPaused && camera.update()) markDirty();
         } catch (e) {
           console.error('[garden] ticker threw — skipping this frame:', e);
           if (!loggedTickerThrow) {

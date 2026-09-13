@@ -135,6 +135,12 @@ export interface SubBattler {
   /** Epoch ms this battler started roaming — the basis for `MIN_ROAM_MS`
    *  (`handleParentDone`) and `handleEnd`'s oldest-first tie-break. */
   roamingSince: number;
+  /** Epoch ms this battler entered `'retired'` (`retireSub`), or the moment
+   *  it was recovered already-retired (`respawnFromStore`) — the basis for
+   *  auto-despawning it after `RETIRED_DESPAWN_MS` instead of leaving it
+   *  wandering forever (see `updateOneBattle`'s retired branch). Null while
+   *  not retired; reset to null by `reviveRetired`. */
+  retiredSince: number | null;
   /** Set by `handleParentDone` when a `parentDone` signal arrives before
    *  this sub has cleared `MIN_ROAM_MS` — the epoch ms it BECOMES eligible
    *  to queue (checked every tick in `updateOneBattle`), rather than the
