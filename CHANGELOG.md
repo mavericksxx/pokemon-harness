@@ -4,7 +4,11 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+## v1.19.1 — 2026-09-13
+
 - **fixed: small app windows broke the agent rail and clipped the top bar** — the existing narrow-width rules (compact icon-only rail below 1100px, top-bar low-priority hides below 820px) never actually applied: each `display: none` used a single-class selector that lost the cascade to a later equal-specificity `display` rule for the same element, so model chips truncated, Arceus rows and corner badges spilled out of cards, and harness.md and later top-bar items clipped off the right edge. Selectors are now scoped under `.party-rail` / `.topbar-actions`; `.roster-card` gets `box-sizing: border-box` + `overflow: hidden` (Arceus crest `::after` moved inside so it isn't clipped); the workspace picker caps at 120px under 820px so the top bar fits at the 640px window floor even with long names. A ResizeObserver `⋯` overflow menu was considered and skipped — an in-file comment already documents why duplicating the popover-owning top-bar controls into one menu conflicts. Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
+
+- **fixed: the terminal status bar clipped at narrow widths** — at a small window the context group ("N% used/limit") was squeezed and the kill button cut off the right edge. `.status-strip` is now a size container tracking the pane (not the window, since the rail/split vary it independently); every non-path child is `flex-shrink:0`/`nowrap` so the path is the only thing that compresses, the HP bar hides and gaps tighten under 600px, and the multitask glyph hides under 520px (two-class selectors, avoiding the same cascade trap as the rail fix). Advisor review raised the initial 480/380 breakpoints, which would never have fired at the 640px window floor. Claude Sonnet subagent, reviewed/merged by the orchestrator
 
 ## v1.19.0 — 2026-09-13
 
