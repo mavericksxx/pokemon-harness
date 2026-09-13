@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+## v1.19.2 — 2026-09-13
+
 - **fixed: Arceus showed wildly inflated idle/blocked durations (e.g. "idle for 97h 59m")** — `arceusStatusHistory.ts` seeded a restored session's status-entry time from `max(createdAt, lastDispatch.at)`, both of which precede the transition, so every relaunched session read as idle since it was created. Sessions now persist `statusChangedAt`, stamped in `updateSession` only on a real status change (the per-chunk no-op guard is untouched); the guessing module is deleted, legacy records omit the duration until their next transition, and the roster file exposes the field. Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
 
 ## v1.19.1 — 2026-09-13
