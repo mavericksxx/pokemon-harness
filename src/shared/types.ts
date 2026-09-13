@@ -135,6 +135,11 @@ export interface SessionRecord {
   exitCode?: number;
   error?: string;
   createdAt: number;
+  /** Epoch ms this session last ENTERED its current `status` — used to show
+   *  truthful idle/blocked durations (how long has it been in this status,
+   *  not how long has it existed). Persisted; absent on legacy records
+   *  created before this field existed. */
+  statusChangedAt?: number;
   /** The `claude` CLI's own session id, captured off the SessionStart hook
    *  payload (Phase 8.5 #1) — lets a disk-persisted claude session respawn
    *  with `claude --resume <id>` after a full app quit/relaunch instead of

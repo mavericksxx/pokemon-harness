@@ -460,13 +460,15 @@ export const useStore = create<HarnessState>((set, get) => ({
   partyRailOrder: loadPartyRailOrder(),
 
   addSession: (s, options) => {
+    const now = Date.now();
     const session: Session = {
       ...s,
       status: 'starting',
       station: 'wander',
       workedMs: 0,
       accent: ACCENTS[get().sessions.length % ACCENTS.length],
-      createdAt: Date.now()
+      createdAt: now,
+      statusChangedAt: now
     };
     set((st) => ({
       sessions: [...st.sessions, session],
@@ -491,8 +493,9 @@ export const useStore = create<HarnessState>((set, get) => ({
       // currently defined (Object.is(defined, undefined) is false).
       const keys = Object.keys(patch) as Array<keyof Session>;
       if (keys.every((k) => Object.is(current[k], patch[k]))) return st;
+      const statusChanged = patch.status !== undefined && patch.status !== current.status;
       const next = st.sessions.slice();
-      next[i] = { ...current, ...patch };
+      next[i] = { ...current, ...patch, ...(statusChanged ? { statusChangedAt: Date.now() } : {}) };
       return { sessions: next };
     }),
 

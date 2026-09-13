@@ -40,6 +40,8 @@ interface RosterFileEntry {
    *  Arceus v2's dispatch flow (docs/arceus-v2-plan.md §3.1) reads to offer
    *  reuse-vs-spawn-fresh for an idle agent. */
   lastDispatch?: { at: number; message: string };
+  /** See `SessionRecord.statusChangedAt`'s own comment. */
+  statusChangedAt?: number;
 }
 
 /** Arceus v2 (docs/arceus-v2-plan.md §3.4/§7 item 2) — the workspaces
@@ -98,7 +100,8 @@ export function writeArceusRosterFile(
       provider: s.provider,
       status: s.status,
       workspace: s.workspaceId,
-      lastDispatch: s.lastDispatch
+      lastDispatch: s.lastDispatch,
+      statusChangedAt: s.statusChangedAt
     }));
   const workspaceEntries: RosterWorkspaceEntry[] = workspaces.map((w) => ({
     id: w.id,
