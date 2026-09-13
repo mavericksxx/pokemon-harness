@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- **changed: the quit dialog is down to two buttons — cancel and quit** — the four-action dialog (keep running / kill & quit / quit, leave running / clear & quit) had an unlabeled wipe button, a hint that contradicted its own options, and two near-identical red buttons. Quit now always leaves sessions running in the background and reattaches them next launch (Enter quits, Esc cancels). The kill and wipe quit paths are removed end to end (`app:forceQuit`, `app:wipeGardenAndQuit`, `sessionPersistence.flushEmpty`). Also fixed: codex delegate sessions were detached to keepers on that path but never persisted, so they ran orphaned forever — they're now killed at quit. Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
+
 ## v1.19.2 — 2026-09-13
 
 - **fixed: Arceus showed wildly inflated idle/blocked durations (e.g. "idle for 97h 59m")** — `arceusStatusHistory.ts` seeded a restored session's status-entry time from `max(createdAt, lastDispatch.at)`, both of which precede the transition, so every relaunched session read as idle since it was created. Sessions now persist `statusChangedAt`, stamped in `updateSession` only on a real status change (the per-chunk no-op guard is untouched); the guessing module is deleted, legacy records omit the duration until their next transition, and the roster file exposes the field. Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
