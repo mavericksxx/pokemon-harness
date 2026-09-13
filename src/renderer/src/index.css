@@ -353,11 +353,30 @@ body {
  * earlier than the topbar itself ever needed to. Kept at its own
  * independently-tuned 820px instead. */
 @media (max-width: 820px) {
-  .harness-instructions-chip,
-  .usage-popover,
-  .theme-toggle,
-  .audio-popover {
+  /* `.topbar-actions` prefix on each of these (rather than the bare class)
+   * isn't decorative — `.harness-instructions-chip` and `.theme-toggle` each
+   * have a later, unscoped, equal-specificity rule of their own
+   * (`.harness-instructions-chip { display: inline-flex }`, and
+   * `.theme-toggle`'s element also matches `.topbar-icon-btn { display:
+   * inline-flex }`) that would otherwise win the cascade by source order
+   * alone and silently cancel this `display: none` even while this query
+   * matches — which is exactly what let harness.md (and, via the same bug,
+   * everything the topbar tries to hide past it) stay rendered and clip off
+   * the right edge instead of actually disappearing at a narrow window.
+   * Bumping to two classes here is what actually wins. */
+  .topbar-actions .harness-instructions-chip,
+  .topbar-actions .usage-popover,
+  .topbar-actions .theme-toggle,
+  .topbar-actions .audio-popover {
     display: none;
+  }
+
+  /* A long workspace name can otherwise still push the garden-picker trigger
+   * past its 200px base cap (~line 513) far enough to shove the rest of the
+   * cluster off the right edge at the 640px window floor — clamp it tighter
+   * here so the trigger's own ellipsis kicks in instead. */
+  .topbar-actions .garden-picker-trigger {
+    max-width: 120px;
   }
 }
 
@@ -3542,19 +3561,26 @@ body.garden-lowres .garden canvas {
   .party-rail-garden-name,
   .party-rail-counts,
   .party-rail-heading,
-  .roster-card-title-compact,
-  .roster-card-meta-line,
-  .roster-card-parent-compact,
-  .roster-card-row3-medium,
-  .roster-card-ctx-sliver,
-  .roster-card-ctx-sliver-md,
-  .roster-card-arceus-status-row,
-  .roster-card-arceus-model-row,
-  .roster-card-arceus-context-row,
-  .roster-card-swap,
-  .roster-card-despawn,
-  .roster-card-disclosure,
-  .roster-card-trainer-trigger,
+  /* `.party-rail` prefix on every `.roster-card-*` selector below (unlike the
+   * plain `.party-rail-*` ones above) isn't decorative — each of these has a
+   * later, unscoped, equal-specificity rule of its own (e.g. `.roster-card-
+   * row3-medium { display: flex }`) that would otherwise win the cascade by
+   * source order alone and silently cancel this `display: none`, regardless
+   * of whether this media query matches. Bumping to two classes here is what
+   * actually wins. */
+  .party-rail .roster-card-title-compact,
+  .party-rail .roster-card-meta-line,
+  .party-rail .roster-card-parent-compact,
+  .party-rail .roster-card-row3-medium,
+  .party-rail .roster-card-ctx-sliver,
+  .party-rail .roster-card-ctx-sliver-md,
+  .party-rail .roster-card-arceus-status-row,
+  .party-rail .roster-card-arceus-model-row,
+  .party-rail .roster-card-arceus-context-row,
+  .party-rail .roster-card-swap,
+  .party-rail .roster-card-despawn,
+  .party-rail .roster-card-disclosure,
+  .party-rail .roster-card-trainer-trigger,
   /* The manual collapse toggle has nothing to do at this width — the rail
    * is already forced to this same 56px icon-only treatment regardless of
    * `railCollapsed`, so an "expand" chevron here would click to no visible
@@ -3673,6 +3699,18 @@ body.garden-lowres .garden canvas {
 
 .roster-card {
   position: relative;
+  /* Narrow-rail hardening: `width: 100%` below plus this card's own padding
+   * and border used to add on top of that 100% (content-box sizing), which
+   * is what let a card's real rendered box run past its `.roster-card-wrap`
+   * bounds at the rail's narrower widths. `overflow: hidden` is safe for the
+   * corner badges (`.roster-card-disclosure`/`.roster-card-swap`/
+   * `.roster-card-despawn`) — they're siblings of this button inside
+   * `.roster-card-wrap`, not its children, so they aren't affected — but it
+   * DID clip `.roster-card-arceus::after`'s gold crest bar, previously
+   * positioned at `top: -2px` to sit just above this box; see that rule's
+   * own comment for the `top: 0` adjustment that keeps it visible. */
+  box-sizing: border-box;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3759,19 +3797,23 @@ body.garden-lowres .garden canvas {
 }
 
 /* A squared central crest rail, visible above and below the content without
- * competing with Arceus's sprite. */
+ * competing with Arceus's sprite. Was `top: -2px` (sitting just above the
+ * card's own box) with a two-step shadow riding down onto the border — now
+ * `top: 0` since `.roster-card`'s `overflow: hidden` (narrow-rail hardening,
+ * above) would otherwise clip anything positioned outside the card's own
+ * box entirely. Shifted the shadow steps down by that same 2px so the crest
+ * still reads as a stepped ledge sitting on the card's top edge instead of
+ * floating above it. */
 .roster-card-arceus::after {
   content: '';
   position: absolute;
-  top: -2px;
+  top: 0;
   left: 50%;
   width: 28px;
   height: 2px;
   transform: translateX(-50%);
   background: var(--arceus-gold-bright);
-  box-shadow:
-    0 2px 0 var(--arceus-ground),
-    0 3px 0 var(--arceus-green);
+  box-shadow: 0 1px 0 var(--arceus-green);
   pointer-events: none;
   z-index: 3;
 }
