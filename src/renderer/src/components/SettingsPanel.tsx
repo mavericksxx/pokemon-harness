@@ -14,6 +14,7 @@ import {
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { ResetArceusDialog } from '@/components/ResetArceusDialog';
 import { PROVIDER_LIST } from '@shared/agentProvider';
+import { showUpdateToast } from '@/updateNotifier';
 import { counterSnapshot } from '@/diagnosticsCounters';
 import type { DiagnosticsInfo } from '@shared/diagnosticsTypes';
 import type { UsageProviderId } from '@shared/usageTypes';
@@ -123,28 +124,27 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   // IPC round trip just for a label.
   const liveSessionCount = useStore((s) => s.sessions.filter((sess) => sess.status !== 'done').length);
 
-  // Auto-update — "check now"/"install" row. `appVersion` fetched once on
-  // open rather than kept live: it can't change during a running process.
-  // `updateStatus` is the shared store field (updateNotifier.ts) both this
-  // panel and QuickSettings read — the background 4h check and this row's
-  // own "check now" button converge on the same `update:status` push, so
-  // there's no separate local status machine here anymore. `installing` is
-  // purely this row's own optimistic feedback for the click-to-install
-  // button: the app either quits (success, nothing left to render) or a
-  // follow-up status arrives (e.g. 'error' on the ad-hoc-signing fallback),
-  // which resets it.
+  // Tier-1 update check (ship-cut item 4) — "check now" row. `appVersion`
+  // fetched once on open rather than kept live: it can't change during a
+  // running process. `checkStatus` is purely this row's own local feedback
+  // (idle/checking/result text) — a found update ALSO fires the shared
+  // toast (showUpdateToast, same one main's background check triggers), so
+  // clicking "check now" and finding something newer looks identical to the
+  // passive 24h check finding it, just on demand.
   const [appVersion, setAppVersion] = useState('');
-  const updateStatus = useStore((s) => s.updateStatus);
-  const [installing, setInstalling] = useState(false);
+  const [checkStatus, setCheckStatus] = useState<'idle' | 'checking' | 'up to date' | 'checked — offline?'>('idle');
   useEffect(() => {
     void window.api.getAppVersion().then(setAppVersion);
   }, []);
-  useEffect(() => {
-    if (updateStatus.state !== 'downloaded') setInstalling(false);
-  }, [updateStatus.state]);
-  const installUpdateNow = (): void => {
-    setInstalling(true);
-    void window.api.installUpdate();
+  const checkForUpdateNow = async (): Promise<void> => {
+    setCheckStatus('checking');
+    const result = await window.api.checkForUpdateNow();
+    if (result?.available) {
+      showUpdateToast(result);
+      setCheckStatus('idle');
+    } else {
+      setCheckStatus(result ? 'up to date' : 'checked — offline?');
+    }
   };
 
   // Harness home directory (Phase 8.7) — folder picker + the currently
@@ -666,30 +666,12 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                 <div className="settings-card">
                   <div className="row settings-version-row">
                     <span>pokéharness {appVersion && `v${appVersion}`}</span>
-                    {updateStatus.state === 'downloaded' ? (
-                      <button type="button" onClick={installUpdateNow} disabled={installing}>
-                        {installing ? 'installing…' : 'install'}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void window.api.checkForUpdateNow()}
-                        disabled={updateStatus.state === 'checking'}
-                      >
-                        {updateStatus.state === 'checking' ? 'checking…' : 'check now'}
-                      </button>
-                    )}
+                    <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
+                      {checkStatus === 'checking' ? 'checking…' : 'check now'}
+                    </button>
                   </div>
-                  {updateStatus.state === 'not-available' && <p className="hint">up to date</p>}
-                  {updateStatus.state === 'downloading' && (
-                    <p className="hint">downloading update… {Math.round(updateStatus.progress ?? 0)}%</p>
-                  )}
-                  {updateStatus.state === 'error' && (
-                    <p className="hint" title={updateStatus.message}>
-                      {updateStatus.downloadedFilePath
-                        ? "couldn't install automatically — revealed the update in Finder. Quit Pokéharness, unzip it, and drag it to Applications to finish (same right-click → Open step as installing fresh)."
-                        : 'checked — offline?'}
-                    </p>
+                  {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
+                    <p className="hint">{checkStatus}</p>
                   )}
                 </div>
               )}

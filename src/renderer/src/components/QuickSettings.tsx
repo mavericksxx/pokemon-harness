@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useAudioStore } from '@/audio/audioStore';
 import { useTerminalSettingsStore } from '@/terminal/terminalSettingsStore';
+import { showUpdateToast } from '@/updateNotifier';
 import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '@shared/terminalTypes';
 
 /**
@@ -44,11 +45,9 @@ export function QuickSettings(): JSX.Element {
   const terminalFontSize = useTerminalSettingsStore((s) => s.settings.fontSize);
   const setTerminalFontSize = useTerminalSettingsStore((s) => s.setFontSize);
 
-  const updateStatus = useStore((s) => s.updateStatus);
-  const [installing, setInstalling] = useState(false);
-  useEffect(() => {
-    if (updateStatus.state !== 'downloaded') setInstalling(false);
-  }, [updateStatus.state]);
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<
+    'idle' | 'checking' | 'up to date' | 'checked — offline?'
+  >('idle');
 
   useEffect(() => {
     if (!open) return;
@@ -76,9 +75,15 @@ export function QuickSettings(): JSX.Element {
     setFullSettingsOpen(true);
   };
 
-  const installUpdateNow = (): void => {
-    setInstalling(true);
-    void window.api.installUpdate();
+  const checkForUpdateNow = async (): Promise<void> => {
+    setUpdateCheckStatus('checking');
+    const result = await window.api.checkForUpdateNow();
+    if (result?.available) {
+      showUpdateToast(result);
+      setUpdateCheckStatus('idle');
+    } else {
+      setUpdateCheckStatus(result ? 'up to date' : 'checked — offline?');
+    }
   };
 
   return (
@@ -205,40 +210,17 @@ export function QuickSettings(): JSX.Element {
           </div>
 
           <div className="quick-settings-update">
-            {updateStatus.state === 'downloaded' ? (
-              <button
-                type="button"
-                className="quick-settings-all"
-                onClick={installUpdateNow}
-                disabled={installing}
-              >
-                {installing ? 'installing…' : 'install update'}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="quick-settings-all"
-                onClick={() => void window.api.checkForUpdateNow()}
-                disabled={updateStatus.state === 'checking'}
-              >
-                {updateStatus.state === 'checking' ? 'checking…' : 'check for updates'}
-              </button>
-            )}
-            {updateStatus.state === 'not-available' && (
+            <button
+              type="button"
+              className="quick-settings-all"
+              onClick={() => void checkForUpdateNow()}
+              disabled={updateCheckStatus === 'checking'}
+            >
+              {updateCheckStatus === 'checking' ? 'checking…' : 'check for updates'}
+            </button>
+            {updateCheckStatus !== 'idle' && updateCheckStatus !== 'checking' && (
               <p className="hint" aria-live="polite">
-                up to date
-              </p>
-            )}
-            {updateStatus.state === 'downloading' && (
-              <p className="hint" aria-live="polite">
-                downloading… {Math.round(updateStatus.progress ?? 0)}%
-              </p>
-            )}
-            {updateStatus.state === 'error' && (
-              <p className="hint" aria-live="polite" title={updateStatus.message}>
-                {updateStatus.downloadedFilePath
-                  ? 'revealed in Finder — quit, unzip, drag to Applications'
-                  : 'checked — offline?'}
+                {updateCheckStatus}
               </p>
             )}
           </div>

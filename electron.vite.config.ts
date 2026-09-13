@@ -4,12 +4,7 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   main: {
-    // `electron-updater` is excluded from externalization (unlike every
-    // other main dep) so Rollup inlines its source into out/main/index.js —
-    // `build.files` in package.json only copies node_modules/node-pty/**/*
-    // into the packaged app, so a plain externalized `require('electron-updater')`
-    // would crash at runtime with "Cannot find module" (see autoUpdate.ts).
-    plugins: [externalizeDepsPlugin({ exclude: ['electron-updater'] })],
+    plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
         // `ptyKeeper` — the "leave them running" quit path's detached
