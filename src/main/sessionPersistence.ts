@@ -50,11 +50,15 @@ export async function loadPersistedSessions(userDataDir: string): Promise<Persis
 export class SessionPersistence {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: PersistedSessions | null = null;
+  /** Set only by `flushEmpty()` — once true, `schedule()`/`flush()` become
+   *  permanent no-ops. See that method's own comment for why. */
+  private sealed = false;
 
   constructor(private readonly userDataDir: string) {}
 
   /** Schedule a debounced write. Call on every checkpoint. */
   schedule(state: PersistedSessions): void {
+    if (this.sealed) return;
     this.pending = state;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => this.flush(), PERSIST_DEBOUNCE_MS);
@@ -67,6 +71,7 @@ export class SessionPersistence {
    *  registry where every session looks like it finished on its own, not
    *  that the app quit out from under it. */
   flush(): void {
+    if (this.sealed) return;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -78,12 +83,19 @@ export class SessionPersistence {
   }
 
   /** Force-write an empty registry immediately, discarding any pending
-   *  debounced write. Used by Settings' "clear garden & quit" danger action:
-   *  unlike `flush()`, this must win even if something re-checkpointed a
-   *  non-empty state after the last `schedule()` call — the whole point is
-   *  that the next launch finds nothing to resume. Call AFTER killing all
-   *  ptys, so no exit-handler checkpoint can re-schedule a non-empty write
-   *  afterward. */
+   *  debounced write, then SEALS this instance so nothing written after
+   *  this point can ever land on disk. Used by Settings' "clear garden &
+   *  quit" danger action: unlike `flush()`, this must win even if something
+   *  re-checkpointed a non-empty state after the last `schedule()` call —
+   *  the whole point is that the next launch finds nothing to resume. Call
+   *  AFTER killing all ptys, so no exit-handler checkpoint can win a race
+   *  against this write — but killing ptys is asynchronous-enough that one
+   *  can still fire its exit handler AFTER this call returns (before
+   *  `app.quit()` actually tears the process down), and `before-quit`'s own
+   *  finalization block always calls `flush()` once more regardless of which
+   *  quit path ran. Without sealing, that late `schedule()` would repopulate
+   *  `pending`, and the routine `flush()` right after would dutifully write
+   *  it — quietly undoing the wipe this method exists to guarantee. */
   flushEmpty(): void {
     if (this.timer) {
       clearTimeout(this.timer);
@@ -91,6 +103,7 @@ export class SessionPersistence {
     }
     this.pending = null;
     this.writeNow(EMPTY);
+    this.sealed = true;
   }
 
   private writeNow(state: PersistedSessions): void {

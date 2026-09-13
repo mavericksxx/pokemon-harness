@@ -236,15 +236,25 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   // dialog, which only ever offers "leave running" above). Quits AND wipes
   // the session registry so the next launch opens to a genuinely empty
   // garden (nothing resumes, nothing respawns) — works the same whether or
-  // not any session is live. Kill ptys BEFORE flushEmpty — same ordering
-  // concern as sessionPersistence.ts's flush() doc comment, but reversed: an
-  // exit handler firing during killAll re-checkpoints a non-empty registry,
-  // so that must happen before the empty write, not after. `before-quit`'s
-  // own `sessionPersistence.flush()` then no-ops safely since `pending` is
-  // already null.
+  // not any session is live. `killAll(true)` (the "hard" path — see its own
+  // doc comment) rather than the plain `killAll()` the other quit paths use:
+  // a keeper-reattached session's normal kill is a fire-and-forget signal
+  // the (separate, detached) keeper process might not act on, and with the
+  // registry about to be wiped, nothing would ever `tryReattach` it again —
+  // a permanent orphan instead of merely a leaked process this app could
+  // still recover next launch. `sweepStaleKeepers()` right after catches the
+  // same failure mode for keepers from a previous run/attempt this
+  // instance's own session map never knew about. Kill ptys BEFORE
+  // flushEmpty — same ordering concern as sessionPersistence.ts's flush()
+  // doc comment, but reversed: an exit handler firing during killAll
+  // re-checkpoints a non-empty registry, so that must happen before the
+  // empty write, not after. `before-quit`'s own `sessionPersistence.flush()`
+  // then no-ops safely regardless — `flushEmpty()` seals the instance, not
+  // just `pending`, against exactly that kind of late race (see its comment).
   handle('app:wipeGardenAndQuit', () => {
     setQuitConfirmed(true);
-    ptyManager.killAll();
+    ptyManager.killAll(true);
+    ptyManager.sweepStaleKeepers();
     sessionPersistence.flushEmpty();
     app.quit();
   });

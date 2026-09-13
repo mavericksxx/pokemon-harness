@@ -11,7 +11,7 @@
  */
 import * as pty from 'node-pty';
 import type { WebContents } from 'electron';
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn as spawnProcess } from 'node:child_process';
@@ -1019,9 +1019,44 @@ export class PtyManager {
   }
 
   /** Bulk-kill for app quit. Closing the pty HUPs the child's process group, so
-   *  trees die with it on POSIX. */
-  killAll(): void {
-    for (const s of this.sessions.values()) {
+   *  trees die with it on POSIX.
+   *
+   *  `hard` upgrades a `KeeperClient` session's kill for Settings' "clear
+   *  garden & quit" danger action: that class's own `.kill()` (used below
+   *  when `hard` is false) is a fire-and-forget `FRAME_KILL` — the
+   *  (separate, detached) keeper process's handler for it is a single
+   *  `SIGTERM` to the child pid (ptyKeeper.ts), no retry, no escalation. If
+   *  the reattached CLI ignores that, both it and its keeper survive this
+   *  app quitting — and since the wipe path is about to empty the session
+   *  registry too, nothing will ever `tryReattach` them again: a permanent
+   *  orphan. `hard` instead `SIGKILL`s the keeper-held process group
+   *  directly from here and removes its socket/meta files itself, so
+   *  nothing is left for a keeper (dead or not) to still be holding open. A
+   *  native (non-keeper) session's plain `.kill()` already reliably HUPs
+   *  its whole tree, so it's untouched either way. */
+  killAll(hard = false): void {
+    for (const [id, s] of this.sessions) {
+      if (hard && s.proc instanceof KeeperClient) {
+        const pid = s.proc.pid;
+        if (pid > 0) {
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch {
+            /* already gone */
+          }
+        }
+        try {
+          unlinkSync(keeperSockPath(id));
+        } catch {
+          /* already gone */
+        }
+        try {
+          unlinkSync(keeperMetaPath(id));
+        } catch {
+          /* already gone */
+        }
+        continue;
+      }
       try {
         s.proc.kill();
       } catch {
@@ -1029,6 +1064,57 @@ export class PtyManager {
       }
     }
     this.sessions.clear();
+  }
+
+  /** Settings' "clear garden & quit" danger action's other half of orphan
+   *  prevention (see `killAll`'s `hard` doc comment): cleans up keeper
+   *  socket/meta files this instance's own `this.sessions` never knew about
+   *  in the first place — a keeper detached during a PREVIOUS run whose
+   *  reattach never happened this launch (still alive from days ago), or
+   *  leftovers from an earlier wipe attempt that didn't fully clean up.
+   *  With the registry about to be wiped empty, `tryReattach` will never be
+   *  called for any of these again, so leaving them running would orphan
+   *  them exactly the same way. Best-effort throughout: a missing/corrupt
+   *  meta file just skips the SIGKILL (nothing to signal) but still removes
+   *  both files for that id. */
+  sweepStaleKeepers(): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(keeperDir());
+    } catch {
+      return; // no keeper dir — nothing to sweep
+    }
+    const ids = new Set<string>();
+    for (const entry of entries) {
+      if (entry.endsWith('.sock') || entry.endsWith('.json')) {
+        ids.add(entry.slice(0, entry.lastIndexOf('.')));
+      }
+    }
+    for (const id of ids) {
+      let pid = 0;
+      try {
+        pid = (JSON.parse(readFileSync(keeperMetaPath(id), 'utf8')) as KeeperMeta).pid;
+      } catch {
+        /* meta missing/corrupt — files still get removed below */
+      }
+      if (pid > 0) {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+      try {
+        unlinkSync(keeperSockPath(id));
+      } catch {
+        /* already gone */
+      }
+      try {
+        unlinkSync(keeperMetaPath(id));
+      } catch {
+        /* already gone */
+      }
+    }
   }
 
   /** Bulk hand-off for "leave them running" quit — mirrors `killAll()`'s
