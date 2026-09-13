@@ -1896,6 +1896,57 @@ body.garden-lowres .garden canvas {
   font-size: 10.5px;
   color: var(--muted);
   flex-wrap: nowrap;
+  /* Container query context for the narrow-pane degradation below — this
+   * strip's width tracks the terminal pane (split/rail dependent), not the
+   * window, so a container query reads the real available space where a
+   * window-width media query would guess wrong. */
+  container-type: inline-size;
+  container-name: status-strip;
+}
+
+/* Everything in the strip except the path keeps its intrinsic size (no
+ * shrinking) so `.status-strip-path` — the one flex:1 item — absorbs all
+ * the squeeze via its own ellipsis instead of every segment shrinking (and
+ * overlapping/clipping) at once. The status label, ctx number and kill
+ * button must never clip, so they get this treatment explicitly too. */
+.status-strip > .status,
+.status-strip-seg,
+.status-strip-divider,
+.multitask-glyph,
+.status-strip-ctx-num,
+.status-strip-kill {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Narrow-pane degradation, lowest priority first: shrink the path (default
+ * behavior above, once everything else stops shrinking) → hide the context
+ * progress bar, keeping the "N% used/limit" text → hide the secondary
+ * "⇶ idle" multitask group. The status label, ctx number and kill button
+ * are never hidden.
+ *
+ * Selectors below are scoped under `.status-strip` (two classes) rather
+ * than bare — `.hp-bar` and `.multitask-glyph` each already have a later,
+ * unscoped, equal-specificity base rule elsewhere in this file
+ * (`.hp-bar { display: inline-block }`, `.multitask-glyph { display:
+ * inline-flex }`) that would otherwise win the cascade by source order
+ * alone and silently cancel a bare `display: none` here regardless of
+ * whether the container query matches — the exact trap fixed in the
+ * party-rail/topbar breakpoints above. */
+@container status-strip (max-width: 600px) {
+  .status-strip {
+    gap: 8px;
+  }
+
+  .status-strip .hp-bar {
+    display: none;
+  }
+}
+
+@container status-strip (max-width: 520px) {
+  .status-strip .multitask-glyph {
+    display: none;
+  }
 }
 
 .status-strip-path {
