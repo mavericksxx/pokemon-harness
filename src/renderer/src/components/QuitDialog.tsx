@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useStore } from '@/store/store';
 import { sessionWorkspaceId } from '@/store/workspaceStore';
 import { useEscapeToClose } from './useEscapeToClose';
@@ -7,14 +6,12 @@ import { useEscapeToClose } from './useEscapeToClose';
  * Quit-intercept dialog (parity sweep item 2). Main prevents an actual QUIT
  * (Cmd+Q / Dock quit / app-menu Quit) whenever sessions are still live and
  * asks the renderer to show this instead (see updateNotifier.ts's
- * `startQuitInterceptListener`) — four actions: cancel, kill everything and
- * quit immediately, quit but leave every session running in the background
- * (reattached on the next launch — see main/pty.ts's
- * `detachAllToKeepers`/`tryReattach`), or (behind its own confirmation step,
- * see below) wipe every session and quit. A plain window close (traffic
- * light / Cmd+W) never triggers this — it just hides the window. No dialog
- * when zero sessions are live: main only ever sends the request in that
- * case, so this component just never opens.
+ * `startQuitInterceptListener`) — two actions: cancel, or quit and leave
+ * every session running in the background (reattached on the next launch —
+ * see main/pty.ts's `detachAllToKeepers`/`tryReattach`). A plain window
+ * close (traffic light / Cmd+W) never triggers this — it just hides the
+ * window. No dialog when zero sessions are live: main only ever sends the
+ * request in that case, so this component just never opens.
  *
  * `count` (main's own authoritative live-session count) spans every
  * workspace already (Phase 8.7 — main's ptyManager isn't workspace-scoped);
@@ -30,15 +27,7 @@ export function QuitDialog(): JSX.Element | null {
     sessions.filter((s) => s.status !== 'done').map((s) => sessionWorkspaceId(s))
   ).size;
 
-  // "clear & quit" is destructive in a way none of the other three actions
-  // are — it can't be undone via --resume — so clicking it once must never
-  // fire it. This just gates the second, confirming step in the same modal;
-  // reset whenever the dialog itself closes/reopens so a stale confirm step
-  // never carries over to the next time it's shown.
-  const [confirmingWipe, setConfirmingWipe] = useState(false);
-
   const keepRunning = (): void => {
-    setConfirmingWipe(false);
     setOpen(false);
   };
 
@@ -46,40 +35,10 @@ export function QuitDialog(): JSX.Element | null {
 
   if (!open) return null;
 
-  const killAndQuit = (): void => {
-    setOpen(false);
-    void window.api.forceQuit();
-  };
   const leaveRunningAndQuit = (): void => {
     setOpen(false);
     void window.api.leaveRunningAndQuit();
   };
-  const wipeGardenAndQuit = (): void => {
-    setOpen(false);
-    void window.api.wipeGardenAndQuit();
-  };
-
-  if (confirmingWipe) {
-    return (
-      <div className="modal-backdrop" onClick={keepRunning}>
-        <div className="modal quit-dialog-modal" onClick={(e) => e.stopPropagation()}>
-          <h2>clear the garden?</h2>
-          <p className="hint">
-            this wipes every session for good — the next launch opens to an empty garden. nothing
-            resumes, nothing respawns. this cannot be undone.
-          </p>
-          <div className="modal-actions">
-            <button type="button" onClick={() => setConfirmingWipe(false)}>
-              wait, go back
-            </button>
-            <button type="button" className="danger" onClick={wipeGardenAndQuit}>
-              yes, clear &amp; quit
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="modal-backdrop" onClick={keepRunning}>
@@ -90,47 +49,15 @@ export function QuitDialog(): JSX.Element | null {
           {liveWorkspaceCount > 1 ? ` across ${liveWorkspaceCount} gardens` : ''}
         </p>
         <p className="hint">
-          quitting stops every session where it stands. claude sessions resume next launch
-          (--resume) — only whatever was still mid-response, plus any shell or codex session, is
-          actually gone.
+          they&apos;ll keep working in the background and reattach next launch.
         </p>
-        <div className="modal-actions quit-dialog-actions">
-          <div className="quit-dialog-action">
-            <button type="button" onClick={keepRunning}>
-              keep them running
-            </button>
-            <span className="hint quit-dialog-action-hint">nothing quits — back to the garden</span>
-          </div>
-          <div className="quit-dialog-action">
-            <button type="button" className="danger" onClick={killAndQuit}>
-              kill it &amp; quit
-            </button>
-            <span className="hint quit-dialog-action-hint">
-              quit now — claude sessions resume next launch, shells don't
-            </span>
-          </div>
-          <div className="quit-dialog-action">
-            <button type="button" onClick={leaveRunningAndQuit}>
-              quit, leave running
-            </button>
-            <span className="hint quit-dialog-action-hint">
-              quit now — sessions keep going in the background until they finish on their own.
-              reattach next launch.
-            </span>
-          </div>
-          <div className="quit-dialog-action">
-            <button
-              type="button"
-              className="danger quit-dialog-wipe"
-              onClick={() => setConfirmingWipe(true)}
-            >
-              clear &amp; quit
-            </button>
-            <span className="hint quit-dialog-action-hint">
-              wipes every session for good — next launch opens to an empty garden. cannot be
-              undone.
-            </span>
-          </div>
+        <div className="modal-actions">
+          <button type="button" onClick={keepRunning}>
+            cancel
+          </button>
+          <button type="button" className="primary" onClick={leaveRunningAndQuit} autoFocus>
+            quit
+          </button>
         </div>
       </div>
     </div>
