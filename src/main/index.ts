@@ -217,8 +217,9 @@ function ensureWindowOpen(): void {
 }
 
 // ─── Quit-intercept dialog (parity sweep item 2) ───────────────────────────
-// Set once a quit is CONFIRMED — either the quit dialog's "leave them
-// running" (`app:leaveRunningAndQuit`) action, or by `before-quit` itself
+// Set once a quit is CONFIRMED — the quit dialog's "leave them running"
+// (`app:leaveRunningAndQuit`) action, the Settings panel's "clear garden &
+// quit" danger action (`app:wipeGardenAndQuit`), or by `before-quit` itself
 // the moment its own gate passes with zero live sessions to confirm about
 // (see that handler). While false, an app quit is intercepted whenever a
 // session is still live, and the renderer is asked to show the quit dialog
@@ -1546,7 +1547,8 @@ app.on('before-quit', (e) => {
   // anymore — it just hides the window — so it has nothing to hand off to
   // this handler. Never fires a second dialog once a quit is already
   // confirmed — `quitConfirmed` is set by the quit dialog's own
-  // `app:leaveRunningAndQuit` handler before it calls `app.quit()`.
+  // `app:leaveRunningAndQuit` handler, or by Settings' `app:wipeGardenAndQuit`
+  // handler, before either calls `app.quit()`.
   if (!quitConfirmed && hasLiveSessions()) {
     e.preventDefault();
     requestQuitConfirmation();
@@ -1653,6 +1655,8 @@ registerWorkspacesIpc({
 });
 
 registerAppIpc({
+  ptyManager,
+  sessionPersistence,
   usageService,
   costWatcher,
   getMainWindow: () => mainWindow,

@@ -299,6 +299,11 @@ const api = {
    *  session's CLI to a background "keeper" process instead of killing it;
    *  a later relaunch reattaches to whatever's still going. */
   leaveRunningAndQuit: (): Promise<void> => ipcRenderer.invoke('app:leaveRunningAndQuit'),
+  /** Settings panel's "clear garden & quit" danger action (its own inline
+   *  confirm gates this, not the quit-intercept dialog above) — wipes the
+   *  session registry and quits: the next launch opens to an empty garden
+   *  (nothing resumes). Works the same with zero live sessions. */
+  wipeGardenAndQuit: (): Promise<void> => ipcRenderer.invoke('app:wipeGardenAndQuit'),
 
   /** macOS fullscreen state — fires on enter/leave-full-screen plus once per
    *  page load (main/index.ts) so a reload starts with the right topbar

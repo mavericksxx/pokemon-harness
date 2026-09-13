@@ -90,6 +90,12 @@ export function SettingsPanel(): JSX.Element | null {
   const setOpen = useStore((s) => s.setSettingsOpen);
   const [activeSection, setActiveSection] = useState<SectionId>('appearance');
   const [resetArceusOpen, setResetArceusOpen] = useState(false);
+  // Diagnostics section's danger zone (recovered wipe path, ex-QuitDialog's
+  // "clear & quit" step) — gates the destructive `wipeGardenAndQuit` call
+  // behind an inline confirm, same two-step shape the old quit-dialog step
+  // used. Reset alongside `activeSection` below so a stale confirm never
+  // carries over to the next time Settings is opened.
+  const [confirmingClearGarden, setConfirmingClearGarden] = useState(false);
   const settings = useAudioStore((s) => s.settings);
   const musicUnavailable = useAudioStore((s) => s.musicUnavailable);
   const setMasterMuted = useAudioStore((s) => s.setMasterMuted);
@@ -222,10 +228,19 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
 
   // Every open starts back at the first section — mirrors most settings
   // pages (System Preferences, VS Code) rather than remembering where you
-  // last were.
+  // last were. Also resets the danger zone's confirm step for the same
+  // reason `confirmingClearGarden`'s own comment gives.
   useEffect(() => {
-    if (open) setActiveSection('appearance');
+    if (open) {
+      setActiveSection('appearance');
+      setConfirmingClearGarden(false);
+    }
   }, [open]);
+
+  const clearGardenAndQuit = (): void => {
+    setOpen(false);
+    void window.api.wipeGardenAndQuit();
+  };
 
   if (!open) return null;
 
@@ -677,74 +692,100 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
               )}
 
               {activeSection === 'diagnostics' && (
-                <div className="settings-card">
-                  <p className="hint">local-only — logs stay on this machine and are only shared if you export them below.</p>
-                  <label className="settings-row">
-                    <input
-                      type="checkbox"
-                      checked={appSettings.diagnosticsLoggingEnabled}
-                      onChange={(e) => setDiagnosticsLoggingEnabled(e.target.checked)}
-                    />
-                    <span className="settings-row-text">
-                      <span className="settings-row-label">diagnostics logging</span>
-                      <span className="settings-row-hint">
-                        {appSettings.diagnosticsLoggingEnabled
-                          ? 'logging the routine stuff (counters, battle events) alongside errors and warnings.'
-                          : 'off: routine logging is paused. errors and warnings are always captured — they\'re cheap, and losing them defeats the point of a bug report.'}
+                <>
+                  <div className="settings-card">
+                    <p className="hint">local-only — logs stay on this machine and are only shared if you export them below.</p>
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.diagnosticsLoggingEnabled}
+                        onChange={(e) => setDiagnosticsLoggingEnabled(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">diagnostics logging</span>
+                        <span className="settings-row-hint">
+                          {appSettings.diagnosticsLoggingEnabled
+                            ? 'logging the routine stuff (counters, battle events) alongside errors and warnings.'
+                            : 'off: routine logging is paused. errors and warnings are always captured — they\'re cheap, and losing them defeats the point of a bug report.'}
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                  <label className="settings-row">
-                    <input
-                      type="checkbox"
-                      checked={appSettings.lowResGarden}
-                      onChange={(e) => setLowResGarden(e.target.checked)}
-                    />
-                    <span className="settings-row-text">
-                      <span className="settings-row-label">low-res garden (experiment)</span>
-                      <span className="settings-row-hint">
-                        renders the garden at 1x and lets the display upscale it — saves gpu on retina; labels get
-                        softer. restart pokéharness to apply.
+                    </label>
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.lowResGarden}
+                        onChange={(e) => setLowResGarden(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">low-res garden (experiment)</span>
+                        <span className="settings-row-hint">
+                          renders the garden at 1x and lets the display upscale it — saves gpu on retina; labels get
+                          softer. restart pokéharness to apply.
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                  <dl className="settings-config-list">
-                    <dt>app version</dt>
-                    <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
-                    <dt>electron</dt>
-                    <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
-                    <dt>errors this session</dt>
-                    <dd>{diagnosticsInfo ? diagnosticsInfo.recentErrorCount : '—'}</dd>
-                    <dt>rendered frames / ticks</dt>
-                    <dd>
-                      {counters
-                        ? `${counters.renderedFrames} / ${counters.rendererTicks} (${
-                            counters.rendererTicks > 0
-                              ? (counters.renderedFrames / counters.rendererTicks).toFixed(3)
-                              : '—'
-                          }, idle target well under 0.25)`
-                        : '—'}
-                    </dd>
-                  </dl>
-                  <div className="row harness-home-row">
-                    <input
-                      value={diagnosticsInfo?.logDir ?? ''}
-                      readOnly
-                      spellCheck={false}
-                      title={diagnosticsInfo?.logDir ?? ''}
-                    />
-                    <button type="button" onClick={() => void window.api.openLogsFolder()}>
-                      open logs folder
-                    </button>
+                    </label>
+                    <dl className="settings-config-list">
+                      <dt>app version</dt>
+                      <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
+                      <dt>electron</dt>
+                      <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
+                      <dt>errors this session</dt>
+                      <dd>{diagnosticsInfo ? diagnosticsInfo.recentErrorCount : '—'}</dd>
+                      <dt>rendered frames / ticks</dt>
+                      <dd>
+                        {counters
+                          ? `${counters.renderedFrames} / ${counters.rendererTicks} (${
+                              counters.rendererTicks > 0
+                                ? (counters.renderedFrames / counters.rendererTicks).toFixed(3)
+                                : '—'
+                            }, idle target well under 0.25)`
+                          : '—'}
+                      </dd>
+                    </dl>
+                    <div className="row harness-home-row">
+                      <input
+                        value={diagnosticsInfo?.logDir ?? ''}
+                        readOnly
+                        spellCheck={false}
+                        title={diagnosticsInfo?.logDir ?? ''}
+                      />
+                      <button type="button" onClick={() => void window.api.openLogsFolder()}>
+                        open logs folder
+                      </button>
+                    </div>
+                    <div className="row settings-version-row">
+                      <button type="button" onClick={() => void exportBundle()} disabled={exportStatus === 'exporting'}>
+                        {exportStatus === 'exporting' ? 'exporting…' : 'export diagnostics bundle'}
+                      </button>
+                    </div>
+                    {exportStatus === 'done' && <p className="hint">saved — revealed in Finder.</p>}
+                    {exportStatus === 'error' && <p className="hint">export failed — try again, or use "open logs folder" instead.</p>}
                   </div>
-                  <div className="row settings-version-row">
-                    <button type="button" onClick={() => void exportBundle()} disabled={exportStatus === 'exporting'}>
-                      {exportStatus === 'exporting' ? 'exporting…' : 'export diagnostics bundle'}
-                    </button>
+
+                  <div className="settings-card">
+                    <p className="settings-card-label">danger zone</p>
+                    {confirmingClearGarden ? (
+                      <>
+                        <p className="hint">
+                          this wipes every session for good — the next launch opens to an empty garden. nothing
+                          resumes, nothing respawns. this cannot be undone.
+                        </p>
+                        <div className="modal-actions">
+                          <button type="button" onClick={() => setConfirmingClearGarden(false)}>
+                            wait, go back
+                          </button>
+                          <button type="button" className="danger" onClick={clearGardenAndQuit}>
+                            yes, clear &amp; quit
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button type="button" className="danger" onClick={() => setConfirmingClearGarden(true)}>
+                        clear garden &amp; quit…
+                      </button>
+                    )}
                   </div>
-                  {exportStatus === 'done' && <p className="hint">saved — revealed in Finder.</p>}
-                  {exportStatus === 'error' && <p className="hint">export failed — try again, or use "open logs folder" instead.</p>}
-                </div>
+                </>
               )}
             </div>
           </div>

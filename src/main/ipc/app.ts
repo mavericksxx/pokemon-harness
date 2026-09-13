@@ -10,6 +10,8 @@ import { loadArceusSummonConfig, resetArceusSummonConfig, saveArceusSummonConfig
 import { checkForUpdate } from '../updateCheck';
 import { getLogDir, getRecentErrorCount, log } from '../diagnostics';
 import { buildDiagnosticsBundle, defaultBundleFilename } from '../diagnosticsExport';
+import type { PtyManager } from '../pty';
+import type { SessionPersistence } from '../sessionPersistence';
 import type { UsageService } from '../usageService';
 import type { CostWatcher } from '../costWatcher';
 import type { RendererCrashInfo, SessionRecord } from '../../shared/types';
@@ -19,6 +21,8 @@ import type { UpdateCheckResult } from '../../shared/updateTypes';
 import type { ExportDiagnosticsResult, LogLevel } from '../../shared/diagnosticsTypes';
 
 export interface AppIpcDeps {
+  ptyManager: PtyManager;
+  sessionPersistence: SessionPersistence;
   usageService: UsageService;
   costWatcher: CostWatcher;
   getMainWindow: () => BrowserWindow | null;
@@ -40,6 +44,8 @@ export interface AppIpcDeps {
 
 export function registerAppIpc(deps: AppIpcDeps): void {
   const {
+    ptyManager,
+    sessionPersistence,
     usageService,
     costWatcher,
     getMainWindow,
@@ -222,6 +228,24 @@ export function registerAppIpc(deps: AppIpcDeps): void {
   handle('app:leaveRunningAndQuit', () => {
     setQuitConfirmed(true);
     setLeaveSessionsRunning(true);
+    app.quit();
+  });
+
+  // "clear garden & quit" — Settings panel's danger-zone action (its own
+  // inline confirm step gates this; not reachable from the quit-intercept
+  // dialog, which only ever offers "leave running" above). Quits AND wipes
+  // the session registry so the next launch opens to a genuinely empty
+  // garden (nothing resumes, nothing respawns) — works the same whether or
+  // not any session is live. Kill ptys BEFORE flushEmpty — same ordering
+  // concern as sessionPersistence.ts's flush() doc comment, but reversed: an
+  // exit handler firing during killAll re-checkpoints a non-empty registry,
+  // so that must happen before the empty write, not after. `before-quit`'s
+  // own `sessionPersistence.flush()` then no-ops safely since `pending` is
+  // already null.
+  handle('app:wipeGardenAndQuit', () => {
+    setQuitConfirmed(true);
+    ptyManager.killAll();
+    sessionPersistence.flushEmpty();
     app.quit();
   });
 
