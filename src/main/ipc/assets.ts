@@ -1,5 +1,5 @@
 import { handle } from './handle';
-import { fetchSpriteGif, getCachedSprite, saveCachedSprite } from '../spriteCache';
+import { fetchSpriteGif, getCachedSprite, getCachedThumbnail, saveCachedSprite, saveCachedThumbnail } from '../spriteCache';
 import { cancelPrefetch, ensureMusicTrack, getCacheStatus, prefetchTrack } from '../musicCache';
 import { ensureCry } from '../cryCache';
 import type { LazySpriteMeta, SpriteView } from '../../shared/types';
@@ -22,6 +22,12 @@ export function registerAssetsIpc(): void {
     'sprites:saveCache',
     (_e, id: string, view: SpriteView, shiny: boolean, png: ArrayBuffer, meta: LazySpriteMeta) =>
       saveCachedSprite(id, view, shiny, png, meta)
+  );
+  // Picker thumbnail disk cache — separate from the per-view sheet cache
+  // above (see spriteCache.ts's getCachedThumbnail/saveCachedThumbnail).
+  handle('sprites:getCachedThumbnail', (_e, id: string, shiny: boolean) => getCachedThumbnail(id, shiny));
+  handle('sprites:saveCachedThumbnail', (_e, id: string, shiny: boolean, png: ArrayBuffer) =>
+    saveCachedThumbnail(id, shiny, png)
   );
 
   // `id` is any mini-player catalog id (musicCatalog.ts), not just the 9

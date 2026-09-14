@@ -823,6 +823,19 @@ function cropFrame0(front: FrameSet): string | null {
   return dataUrl;
 }
 
+/** Raw PNG bytes (from the main-process disk thumbnail cache — see
+ *  spriteCache.ts's `getCachedThumbnail`) as a data URL string, matching the
+ *  shape every other `loadLazyThumbnail` path already returns
+ *  (`cropFrame0`/`canvas.toDataURL`). */
+function bytesToDataUrl(bytes: ArrayBuffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('failed to read cached thumbnail bytes'));
+    reader.readAsDataURL(new Blob([bytes], { type: 'image/png' }));
+  });
+}
+
 /** A single still frame of a lazy species, as a data URL, for the picker's
  *  search results and (`shiny`, Phase 5 §4) a shiny session's face thumbnail.
  *  Deliberately does NOT share `loadView`'s cache: a search result page can
@@ -842,30 +855,46 @@ export function loadLazyThumbnail(id: string, shiny = false): Promise<string | n
     return existing;
   }
 
-  const promise = thumbnailGate(async (): Promise<string | null> => {
+  const promise = (async (): Promise<string | null> => {
     try {
       const alreadyDecoded = viewCache.get(`${id}:front:${shiny ? 'shiny' : 'normal'}`);
       if (alreadyDecoded) {
         const front = await alreadyDecoded;
         if (front) return cropFrame0(front);
       }
-      const canvas = await decodeThumbnailFrameWithShinyFallback(id, shiny);
-      if (!canvas) return null;
-      const dataUrl = canvas.toDataURL('image/png');
-      // `canvas` here is either `decodeGifFirstFrame`'s composited first frame
-      // or (for a static species) a one-off `fetchAndDecodeStatic` sheet built
-      // just for this thumbnail — either way it's never wrapped in a Pixi
-      // Texture on this path, so nothing else retains it once the data URL
-      // above has been read out. Release it now rather than waiting on GC.
-      canvas.width = canvas.height = 0;
-      return dataUrl;
+
+      // Disk thumbnail cache (persists across launches — see
+      // spriteCache.ts's getCachedThumbnail) is checked BEFORE thumbnailGate
+      // below, so a cached hit is never throttled behind in-flight network
+      // decodes; only an actual miss pays the gate + network cost.
+      const diskThumb = await window.api.getCachedThumbnail(id, shiny);
+      if (diskThumb) return bytesToDataUrl(diskThumb);
+
+      return await thumbnailGate(async (): Promise<string | null> => {
+        const canvas = await decodeThumbnailFrameWithShinyFallback(id, shiny);
+        if (!canvas) return null;
+        // Fire-and-forget disk cache write, same contract as loadView's
+        // full-sheet cache write above — a failed write must not break the
+        // picker. Only fires on a real decode, never on a null/failed one.
+        void canvasToPng(canvas)
+          .then((png) => window.api.saveCachedThumbnail(id, shiny, png))
+          .catch((err) => console.error(`[lazySprites] ${id}: failed to cache thumbnail —`, err));
+        const dataUrl = canvas.toDataURL('image/png');
+        // `canvas` here is either `decodeGifFirstFrame`'s composited first frame
+        // or (for a static species) a one-off `fetchAndDecodeStatic` sheet built
+        // just for this thumbnail — either way it's never wrapped in a Pixi
+        // Texture on this path, so nothing else retains it once the data URL
+        // above has been read out. Release it now rather than waiting on GC.
+        canvas.width = canvas.height = 0;
+        return dataUrl;
+      });
     } catch (err) {
       // Same rejection-must-not-poison-the-cache rule as `loadView` above —
       // see that catch block's comment.
       console.error(`[lazySprites] ${id}: failed to load thumbnail —`, err);
       return null;
     }
-  });
+  })();
 
   thumbnailCache.set(key, promise);
   void promise.then((result) => {

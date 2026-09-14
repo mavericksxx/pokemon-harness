@@ -123,6 +123,10 @@ const api = {
     png: ArrayBuffer,
     meta: LazySpriteMeta
   ): Promise<void> => ipcRenderer.invoke('sprites:saveCache', id, view, shiny, png, meta),
+  getCachedThumbnail: (id: string, shiny: boolean): Promise<ArrayBuffer | null> =>
+    ipcRenderer.invoke('sprites:getCachedThumbnail', id, shiny),
+  saveCachedThumbnail: (id: string, shiny: boolean, png: ArrayBuffer): Promise<void> =>
+    ipcRenderer.invoke('sprites:saveCachedThumbnail', id, shiny, png),
 
   getEvolveSecondsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:evolveSeconds'),
   getShinyOddsOverride: (): Promise<string | null> => ipcRenderer.invoke('config:shinyOdds'),

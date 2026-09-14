@@ -56,6 +56,10 @@ function cachePaths(id: string, view: SpriteView, shiny: boolean): { png: string
   return { png: `${base}.png`, meta: `${base}.json` };
 }
 
+function thumbPath(id: string, shiny: boolean): string {
+  return join(cacheDir(), `thumb-${id}${shiny ? '-shiny' : ''}.png`);
+}
+
 /** A previously-cached sheet, if this species/view/shininess has been fetched
  *  before — so a second pick never hits the network again. */
 export async function getCachedSprite(
@@ -96,6 +100,37 @@ export async function saveCachedSprite(
   await mkdir(cacheDir(), { recursive: true });
   const { png: pngPath, meta: metaPath } = cachePaths(id, view, shiny);
   await Promise.all([writeFile(pngPath, Buffer.from(png)), writeFile(metaPath, JSON.stringify(meta))]);
+}
+
+/** A previously-cached picker thumbnail, if this species/shininess has been
+ *  shown in the picker before — so re-opening the picker never re-downloads
+ *  a full sheet just to show frame 0 again. Small PNG, keyed separately from
+ *  the full sprite cache above (`getCachedSprite`/`saveCachedSprite`), which
+ *  caches per-view sheets, not per-species thumbnails. */
+export async function getCachedThumbnail(id: string, shiny: boolean): Promise<ArrayBuffer | null> {
+  if (!isValidSpeciesId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return null;
+  }
+  const path = thumbPath(id, shiny);
+  if (!existsSync(path)) return null;
+  try {
+    const buf = await readFile(path);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  } catch {
+    // A half-written or corrupt cache entry must not crash the pick — treat it
+    // as a miss and let the caller re-fetch.
+    return null;
+  }
+}
+
+export async function saveCachedThumbnail(id: string, shiny: boolean, png: ArrayBuffer): Promise<void> {
+  if (!isValidSpeciesId(id)) {
+    log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return;
+  }
+  await mkdir(cacheDir(), { recursive: true });
+  await writeFile(thumbPath(id, shiny), Buffer.from(png));
 }
 
 /** Raw sprite bytes — an animated GIF for #1-649, a static PNG for #650-1025
