@@ -5223,6 +5223,51 @@ body.is-splitting .garden-split-line {
   border-color: var(--gold);
 }
 
+/* Day/night manual override (DayNightToggle.tsx) — docked to the garden
+ * pane's own top-right corner, inside `.garden-warp-frame` (positioning
+ * context: that element's `position: relative`, same as `.garden-mat`'s row
+ * gives `.garden-drawer-edge-tab` above). Same always-visible floating-chrome
+ * treatment as `.garden-drawer-edge-tab` (panel-2 background, hairline
+ * border, muted->gold on hover) rather than `.topbar-icon-btn`'s
+ * transparent-at-rest GHOST weight: this button floats directly over varied
+ * map art with no toolbar panel underneath it, so it needs its own resting
+ * box to stay legible. `min-width`, not `width` — the 'auto' state renders a
+ * short text label instead of a square icon, and forcing that into a fixed
+ * square would either clip it or leave the icon states looking oversized. */
+.garden-daynight-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--topbar-icon-size);
+  height: var(--topbar-icon-size);
+  padding: 0 6px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.garden-daynight-toggle:hover {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+/* The 'auto' state's text label — small uppercase mono, same recipe
+ * `.party-rail-heading` uses for its own small section labels. */
+.garden-daynight-toggle-label {
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 /* Drag-time hygiene (toggled on <body> by GardenSplitHandle.tsx's
  * pointerdown/up handlers): killing text selection and canvas pointer
  * events app-wide stops a fast drag from "sticking" to the Pixi canvas or

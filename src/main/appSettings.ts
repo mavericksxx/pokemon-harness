@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { writeJsonAtomic } from './atomicWrite';
 import { AGENT_PROVIDERS, type AgentProviderId, DEFAULT_PROVIDER } from '../shared/agentProvider';
-import { DEFAULT_APP_SETTINGS, type AppSettings, type ThemeMode } from '../shared/appSettingsTypes';
+import { DEFAULT_APP_SETTINGS, type AppSettings, type DayNightMode, type ThemeMode } from '../shared/appSettingsTypes';
 import type { UsageProviderId } from '../shared/usageTypes';
 
 function settingsPath(): string {
@@ -19,6 +19,7 @@ function settingsPath(): string {
 
 const THEME_MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
 const USAGE_PROVIDER_IDS: readonly UsageProviderId[] = ['claude', 'codex'];
+const DAY_NIGHT_MODES: readonly DayNightMode[] = ['auto', 'day', 'night'];
 
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
@@ -80,6 +81,7 @@ function sanitizeAppSettings(settings: AppSettings): AppSettings {
   settings.advisorModel = str(settings.advisorModel, DEFAULT_APP_SETTINGS.advisorModel);
   settings.codexDelegateModel = str(settings.codexDelegateModel, DEFAULT_APP_SETTINGS.codexDelegateModel);
   settings.onboardingDone = bool(settings.onboardingDone, DEFAULT_APP_SETTINGS.onboardingDone);
+  settings.dayNightMode = oneOf(settings.dayNightMode, DAY_NIGHT_MODES, DEFAULT_APP_SETTINGS.dayNightMode);
   return settings;
 }
 

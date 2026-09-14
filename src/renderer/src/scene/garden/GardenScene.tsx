@@ -23,6 +23,7 @@ import { clearBattleFx, hasActiveFx } from './battle/battleFx';
 import { playSelectCry } from '@/audio/audioEngine';
 import { ArceusWarp } from '@/components/ArceusWarp';
 import { ArceusHud } from '@/components/ArceusHud';
+import { DayNightToggle } from '@/components/DayNightToggle';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { stopSession } from '@/sessions';
 // The map keeps its Tiled `.tmj` extension so a real Tiled export can be dropped
@@ -407,6 +408,24 @@ export function GardenScene(): JSX.Element {
         applyCanopyNightTint: (tintForY) => map.setNightTint(tintForY)
       });
       dayNight.mount(app.renderer, world);
+
+      // Manual day/night override (DayNightToggle.tsx, top-right of the
+      // garden pane) — applied immediately here, before anything ever
+      // paints a frame, so a persisted 'day'/'night' choice never flashes
+      // `mount()`'s 'auto' default first. Kept live-synced the same way
+      // `onThemeSettingChange` above tracks theme: the store fires on ANY
+      // settings change, so `lastDayNightMode` skips the recompute when
+      // it's some unrelated field that changed.
+      let lastDayNightMode = useAppSettingsStore.getState().settings.dayNightMode;
+      dayNight.setModeOverride(lastDayNightMode);
+      const onDayNightModeChange = (): void => {
+        const mode = useAppSettingsStore.getState().settings.dayNightMode;
+        if (mode === lastDayNightMode) return;
+        lastDayNightMode = mode;
+        dayNight.setModeOverride(mode);
+        markDirty();
+      };
+      const unsubscribeDayNightMode = useAppSettingsStore.subscribe(onDayNightModeChange);
 
       // The canvas/camera's ONE source of truth for "how big is the pane
       // right now" — re-measures `host.clientWidth/Height` fresh rather
@@ -1355,6 +1374,7 @@ export function GardenScene(): JSX.Element {
       cleanup = (): void => {
         ro.disconnect();
         unsubscribeThemeSetting();
+        unsubscribeDayNightMode();
         systemThemeQuery.removeEventListener('change', onSystemThemeChange);
         window.removeEventListener(GARDEN_SPLIT_DRAG_END_EVENT, onSplitDragEnd);
         window.removeEventListener(GARDEN_FULLSCREEN_CHANGE_EVENT, onFullscreenChange);
@@ -1410,6 +1430,10 @@ export function GardenScene(): JSX.Element {
     <div className="garden-mat">
       <div className="garden-warp-frame">
         <div className="garden" ref={hostRef} />
+        {/* Garden-only control — hidden once ascended: the garden itself is
+         *  warped away then, and `.arceus-hud` (ArceusHud.tsx) occupies this
+         *  same top-right corner for the Hall of Origin HUD instead. */}
+        {!ascended && <DayNightToggle />}
         <ArceusWarp hostRef={hostRef} ascended={ascended} />
         <ArceusHud ascended={ascended} />
         {crashed && (

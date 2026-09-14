@@ -1,6 +1,7 @@
 import { Container, RenderTexture, Sprite, Texture } from 'pixi.js';
 import type { Renderer } from 'pixi.js';
 import type { Point } from './TiledMapRenderer';
+import type { DayNightMode } from '@shared/appSettingsTypes';
 
 // Day/night cycle overlay (Backlog: "day/night animation pass"). Recipe
 // finalized in a canvas2D mock (garden-daynight.html, 4 design iterations)
@@ -292,6 +293,12 @@ export class DayNightOverlay {
   private readonly reducedMotion: boolean;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private clockSeconds = 0;
+  /** Manual override (garden top-right toggle, appSettingsStore's
+   *  `dayNightMode`) — 'auto' (default) leaves `recompute()`'s time-of-day
+   *  curve exactly as before; 'day'/'night' pin it to one end. Set via
+   *  `setModeOverride()`, which GardenScene.tsx calls once at mount (with
+   *  the persisted setting) and again on every live settings change. */
+  private modeOverride: DayNightMode = 'auto';
 
   constructor(opts: DayNightOverlayOptions) {
     this.opts = opts;
@@ -476,11 +483,27 @@ export class DayNightOverlay {
     }
   }
 
+  /** Sets the manual override and immediately recomputes — a mode switch
+   *  should never wait for the next 60s interval tick. GardenScene.tsx
+   *  calls this once at mount (the persisted setting) and again on every
+   *  live settings-store change; safe to call with the same value it
+   *  already has (recompute() is cheap and idempotent). */
+  setModeOverride(mode: DayNightMode): void {
+    this.modeOverride = mode;
+    this.recompute();
+  }
+
   /** Recomputes `nightWeight` from local time (or the QA override) — cheap
-   *  (a few multiplies), called once at mount and every 60s after. Nothing
-   *  here touches per-frame animation state. */
+   *  (a few multiplies), called once at mount, every 60s after, and again
+   *  whenever `setModeOverride()` changes `modeOverride`. Nothing here
+   *  touches per-frame animation state. */
   private recompute(): void {
-    const nightWeight = nightWeightAt(localHourNow());
+    // `modeOverride` short-circuits the same time-of-day curve the 60s
+    // interval keeps re-evaluating — 'day'/'night' pin `nightWeight` to one
+    // end so a later interval tick (or the QA hour override) can't quietly
+    // pull it back toward 'auto' behavior.
+    const nightWeight =
+      this.modeOverride === 'day' ? 0 : this.modeOverride === 'night' ? 1 : nightWeightAt(localHourNow());
     this.nightLayer.alpha = nightWeight;
     this.lampLayer.alpha = nightWeight;
     // `envWash`/`borderTierWash` aren't descendants of `nightLayer` (they

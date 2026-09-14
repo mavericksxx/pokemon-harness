@@ -8,7 +8,13 @@
  */
 import { create } from 'zustand';
 import type { AgentProviderId } from '@shared/agentProvider';
-import { DEFAULT_APP_SETTINGS, MAX_RECENT_FOLDERS, type AppSettings, type ThemeMode } from '@shared/appSettingsTypes';
+import {
+  DEFAULT_APP_SETTINGS,
+  MAX_RECENT_FOLDERS,
+  type AppSettings,
+  type DayNightMode,
+  type ThemeMode
+} from '@shared/appSettingsTypes';
 import type { UsageProviderId } from '@shared/usageTypes';
 import { applyTheme } from '@/design/tokens';
 import { resolveEffectiveTheme } from '@/design/theme';
@@ -90,6 +96,11 @@ setHideClaudeStatusline(v: boolean): void;
    *  appSettingsTypes.ts's `harnessHomeDir` field comment for what changing
    *  this does and doesn't do. */
   setHarnessHomeDir(dir: string | null): void;
+  /** Garden day/night manual override (top-right toggle in the garden view)
+   *  — same persist-immediately pattern as every other setter here.
+   *  DayNightOverlay.ts reads this live off the store; there's no main-side
+   *  reach, this is display-only. */
+  setDayNightMode(mode: DayNightMode): void;
 }
 
 // Render-resolution experiment's CSS hook: `.garden canvas`'s `image-rendering`
@@ -237,6 +248,12 @@ setHideClaudeStatusline: (v) => {
 
   setHarnessHomeDir: (dir) => {
     const settings = { ...get().settings, harnessHomeDir: dir };
+    set({ settings });
+    persist(settings);
+  },
+
+  setDayNightMode: (mode) => {
+    const settings = { ...get().settings, dayNightMode: mode };
     set({ settings });
     persist(settings);
   }

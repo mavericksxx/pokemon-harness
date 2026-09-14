@@ -10,6 +10,12 @@ import type { UsageProviderId } from './usageTypes';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+/** Garden day/night manual override (see DayNightOverlay.ts). 'auto'
+ *  (default) is today's behavior unchanged — the overlay's own
+ *  `nightWeightAt(localHourNow())` time-of-day curve. 'day'/'night' pin the
+ *  overlay to one end of that curve regardless of the clock. */
+export type DayNightMode = 'auto' | 'day' | 'night';
+
 /** Cap on the recent-folders quick-pick (item 6) — most-recent-first, deduped. */
 export const MAX_RECENT_FOLDERS = 10;
 
@@ -161,6 +167,10 @@ export interface AppSettings {
    *  button ("not now" never deletes it), so nothing about their Arceus
    *  setup is lost, they just see the welcome copy once. */
   onboardingDone: boolean;
+  /** Garden day/night manual override (top-right toggle in the garden view)
+   *  — default 'auto' so an existing install sees no change on upgrade. See
+   *  `DayNightMode`'s own comment above. */
+  dayNightMode: DayNightMode;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -181,5 +191,6 @@ hideClaudeStatusline: false,
   harnessInstructionsEnabled: true,
   advisorModel: 'fable',
   codexDelegateModel: '',
-  onboardingDone: false
+  onboardingDone: false,
+  dayNightMode: 'auto'
 };
