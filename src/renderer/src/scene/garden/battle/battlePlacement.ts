@@ -192,12 +192,14 @@ export function findMeetingAnchor(
  * never on its top/right side (2026-09-04 facing swap: the challenger now
  * takes the SW corner so the parent, unmirrored, can face the camera — see
  * BattleManager.ts's file header). This is what lets `applyBattleStance`
- * skip all direction math: a native/unmirrored back sheet drawn facing
- * up-right already points at anything placed down-left of it. Up to
- * MAX_RING slots fan across the arc (roughly SW, WSW, SSW) at the same
- * radius so they spread out rather than stacking. Every candidate is
- * BFS-reachable from `anchor` — not just "walkable" — so goTo() is
- * guaranteed to actually get there (no permanently-stuck battler).
+ * skip all direction math: every challenger mirrors its FRONT sheet (no
+ * back view — see WalkerSprite.ts), which only ever aims horizontally, so
+ * anchoring it down-left of the parent is what makes that horizontal aim
+ * actually point toward it. Up to MAX_RING slots fan across the arc
+ * (roughly SW, WSW, SSW) at the same radius so they spread out rather than
+ * stacking. Every candidate is BFS-reachable from `anchor` — not just
+ * "walkable" — so goTo() is guaranteed to actually get there (no
+ * permanently-stuck battler).
  */
 export function pickChallengerStandTileFor(
   map: TiledMapRenderer,

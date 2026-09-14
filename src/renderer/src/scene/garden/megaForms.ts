@@ -156,10 +156,8 @@ export async function loadMegaAnimation(
       sheetUrl: '',
       line: base?.line ?? baseId,
       stage: base?.stage ?? 1,
-      evolvesTo: [],
-      hasBack: !!frames.back
+      evolvesTo: []
     },
-    front: frames.front,
-    back: frames.back
+    front: frames.front
   };
 }

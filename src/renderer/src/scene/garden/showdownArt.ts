@@ -23,8 +23,7 @@ import { safeLogDiagnostic } from '@/diagnosticsClient';
 export type Locomotion = 'walk' | 'fly' | 'levitate';
 
 interface ManifestSheet {
-  /** Sheet filename, relative to assets/showdown/ (back sheets: relative to
-   *  assets/showdown/back/). */
+  /** Sheet filename, relative to assets/showdown/. */
   image: string;
   frameWidth: number;
   frameHeight: number;
@@ -37,8 +36,6 @@ interface ManifestSheet {
 interface ManifestEntry extends ManifestSheet {
   name: string;
   dex: number;
-  hasBack?: boolean;
-  back?: ManifestSheet;
   locomotion?: Locomotion;
   /** Evolution data: the line's id, this species' 1-based stage within it, and
    *  the name(s) of the next stage (branching for Eevee, empty at the top). */
@@ -74,32 +71,16 @@ if (ENTRIES.length === 0) {
 // Sheets are found rather than listed, so the roster is the manifest's alone.
 // The path is relative (not via the @assets alias) because Vite resolves glob
 // patterns against this file on disk. `_preview.png` is a human contact sheet,
-// not art the app uses; excluding it keeps it out of the bundle. The glob is
-// deliberately non-recursive, so `back/*.png` needs its own glob below.
+// not art the app uses; excluding it keeps it out of the bundle.
 const SHEET_MODULES = import.meta.glob(
   ['../../../../../assets/showdown/*.png', '!../../../../../assets/showdown/_*.png'],
   { eager: true, query: '?url', import: 'default' }
 ) as Record<string, string>;
 
-const BACK_SHEET_MODULES = import.meta.glob('../../../../../assets/showdown/back/*.png', {
-  eager: true,
-  query: '?url',
-  import: 'default'
-}) as Record<string, string>;
-
 /** Sheet filename (as the manifest's `image` names it) → bundled URL. */
 export const SHEET_URLS: Record<string, string> = {};
 for (const [path, url] of Object.entries(SHEET_MODULES)) {
   SHEET_URLS[path.slice(path.lastIndexOf('/') + 1)] = url;
-}
-
-/** Back-sheet filename (as the manifest's `back.image` names it, e.g.
- *  `back/bulbasaur.png`) → bundled URL. */
-export const BACK_SHEET_URLS: Record<string, string> = {};
-for (const [path, url] of Object.entries(BACK_SHEET_MODULES)) {
-  const slash = path.lastIndexOf('/');
-  const dir = path.slice(0, slash).split('/').pop();
-  BACK_SHEET_URLS[`${dir}/${path.slice(slash + 1)}`] = url;
 }
 
 /** Hold time for frame `i`, whichever form the manifest used. */
@@ -178,7 +159,6 @@ export interface PokemonInfo {
   line: string;
   stage: number;
   evolvesTo: string[];
-  hasBack: boolean;
 }
 
 /** One direction's idle loop: Pixi FrameObjects (texture + hold time in ms). */
@@ -188,12 +168,11 @@ export interface FrameSet {
   frames: { texture: Texture; time: number }[];
 }
 
-/** One species' art: the front loop always, the back loop when a back sheet
- *  exists (Phase 3 §3 — walking predominantly upward uses it). */
+/** One species' art: the front idle loop — the only view walkers ever show
+ *  (see WalkerSprite.ts). */
 export interface PokemonAnimation {
   info: PokemonInfo;
   front: FrameSet;
-  back?: FrameSet;
 }
 
 const toInfo = (entry: ManifestEntry): PokemonInfo => ({
@@ -206,8 +185,7 @@ const toInfo = (entry: ManifestEntry): PokemonInfo => ({
   sheetUrl: SHEET_URLS[entry.image] ?? '',
   line: entry.line ?? entry.name,
   stage: entry.stage ?? 1,
-  evolvesTo: entry.evolvesTo ?? [],
-  hasBack: !!entry.hasBack
+  evolvesTo: entry.evolvesTo ?? []
 });
 
 export const POKEMON_ROSTER: readonly PokemonInfo[] = ENTRIES.map(toInfo);
@@ -247,18 +225,7 @@ export async function loadPokemonAnimations(): Promise<Map<string, PokemonAnimat
       try {
         if (!info.sheetUrl) throw new Error('no sheet file on disk for this manifest entry');
         const front = await loadFrameSet(entry, info.sheetUrl);
-        let back: FrameSet | undefined;
-        if (entry.back) {
-          const backUrl = BACK_SHEET_URLS[entry.back.image];
-          if (backUrl) {
-            try {
-              back = await loadFrameSet(entry.back, backUrl);
-            } catch (err) {
-              console.error(`[showdown] ${entry.name}: back sheet failed to load —`, err);
-            }
-          }
-        }
-        return [entry.name, { info, front, back }] as const;
+        return [entry.name, { info, front }] as const;
       } catch (err) {
         // One missing sheet must not take the whole garden down with it, but it
         // must be findable — say which species and why, then stand a pokeball in.

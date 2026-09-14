@@ -129,35 +129,23 @@ export class WalkerChallenger implements Challenger {
 
   /** The same fixed stance `Battler.setBattleStance` sets — the challenger is
    *  always placed in the parent's SW arc (see BattleManager's file header on
-   *  facing being a fixed arrangement), so a native/unmirrored BACK sheet
-   *  (gen5ani draws it already facing up-right) points straight at the
-   *  parent for free when this species has one. A species with no back sheet
-   *  falls back to a MIRRORED front sheet (gen5ani front art is drawn facing
-   *  down-left, so mirroring it points down-right instead — at least
-   *  horizontally toward the parent). Both branches are cheap idempotent
-   *  no-ops when already correct, which is what makes `applyBattleStance`
+   *  facing being a fixed arrangement). Delegate walkers never show a back
+   *  view (see WalkerSprite.ts), so this mirrors the front sheet (gen5ani
+   *  front art is drawn facing down-left, so mirroring it points down-right
+   *  instead — at least horizontally toward the parent). A cheap idempotent
+   *  no-op when already correct, which is what makes `applyBattleStance`
    *  safe to re-run every tick. */
   setBattleStance(): void {
-    if (this.walker.hasBackView) {
-      this.walker.setForcedBackView(true);
-      this.walker.faceDirection('left');
-    } else {
-      this.walker.setForcedBackView(false);
-      this.walker.faceDirection('right');
-    }
+    this.walker.faceDirection('right');
   }
 
-  /** Undoes `setBattleStance` — releasing `setForcedBackView` also resets
-   *  the walk-direction hysteresis state (`backViewBias`/`facingTarget`) it
-   *  accumulated during battle, so this is the one call needed; normal
-   *  wandering picks its own facing back up from there. Called at every
-   *  point a delegate challenger leaves battle stance — retire
-   *  (`retireSub`, for a delegate mid-wave when the parent goes idle with no
-   *  clean signal — `handleEndAll`), recall (`dropChallenger`), and teardown
-   *  (`destroyBattle`'s delegate branch), see
-   *  BattleManager.ts's checklist in its file header. */
+  /** Undoes `setBattleStance`. Battle stance is now just a `faceDirection`
+   *  call, and normal wandering re-derives its own facing the next time this
+   *  walker moves horizontally (see `Walker.updateWalk`) — nothing left to
+   *  release, but kept as a documented no-op so the shared `Challenger`
+   *  interface stays uniform with `Battler`'s own `clearBattleStance`. */
   clearBattleStance(): void {
-    this.walker.setForcedBackView(false);
+    /* intentionally empty — see doc comment */
   }
 
   /** BUBBLES REUSE THE WALKER'S OWN, rather than this adapter owning a second

@@ -41,8 +41,6 @@ export class WalkerSprite {
   private tileSize: number;
 
   private frontFrames!: FrameSet;
-  private backFrames?: FrameSet;
-  private usingBack = false;
   /** The species currently configured, for the evolution ceremony's
    *  silhouette (it needs both the outgoing and incoming form's frame 0). */
   private currentAnimation!: PokemonAnimation;
@@ -64,12 +62,11 @@ export class WalkerSprite {
     // `_updateTexture()` actually swaps the displayed texture — driven by
     // ordinary idle-loop frame stepping (Ticker.shared, every tick this
     // sprite is playing), AND by a plain `.textures = ...` reassignment
-    // (configure()'s species swap, setBackView()'s front/back swap both do
-    // this — Pixi's own `set textures` resets `currentFrame` to 0 and calls
-    // `_updateTexture()` itself). One hookup here on construction covers
-    // every texture-driven visual change this sprite will ever make, for
-    // its whole lifetime — no need to instrument configure()/setBackView()
-    // separately.
+    // (configure()'s species swap — Pixi's own `set textures` resets
+    // `currentFrame` to 0 and calls `_updateTexture()` itself). One hookup
+    // here on construction covers every texture-driven visual change this
+    // sprite will ever make, for its whole lifetime — no need to instrument
+    // configure() separately.
     this.body.onFrameChange = () => markDirty();
     this.body.play();
 
@@ -86,13 +83,8 @@ export class WalkerSprite {
   configure(animation: PokemonAnimation): void {
     this.currentAnimation = animation;
     this.locomotion = animation.info.locomotion;
-    // Scale is derived from the FRONT sheet only: front and back geometry
-    // differ per species (e.g. Pikachu front 50x46, back 40x47), and rescaling
-    // per view would make a walker visibly resize when it turns around.
     this.scale = spriteScale(animation.info.name, animation.front.frameHeight, this.tileSize);
     this.frontFrames = animation.front;
-    this.backFrames = animation.back;
-    this.usingBack = false;
 
     // The shadow stays on the ground while the body bobs and lifts above it,
     // which is what sells the float. Three stacked ellipses in place of a blur:
@@ -117,7 +109,7 @@ export class WalkerSprite {
   }
 
   /** Mirror to face the direction of travel. Vertical movement keeps the
-   *  previous facing — there is no back view to turn to. */
+   *  previous facing — there is no other view to turn to. */
   setFacing(facing: Facing): void {
     this.facing = facing;
     this.applyTransform();
@@ -134,29 +126,10 @@ export class WalkerSprite {
     return this.currentAnimation;
   }
 
-  /** Switch between the front and back sheet (Phase 3 §3: predominantly
-   *  upward movement uses the back view). A no-op when the species has none —
-   *  the front view is kept, which is the documented fallback. */
-  setBackView(useBack: boolean): void {
-    const target = useBack && this.backFrames ? this.backFrames : this.frontFrames;
-    const targetIsBack = target === this.backFrames;
-    if (targetIsBack === this.usingBack) return;
-    this.usingBack = targetIsBack;
-    this.body.textures = target.frames;
-    this.body.play();
-  }
-
-  get hasBackView(): boolean {
-    return !!this.backFrames;
-  }
-
-  /** Frame 0 of the sheet CURRENTLY on screen (front or back) — the mega
-   *  ceremony silhouettes whatever the battle stance is actually showing,
-   *  unlike the evolution ceremony, which always faces the camera first and
-   *  can therefore just take the front sheet. */
+  /** Frame 0 of the front sheet — used for the mega/evolution ceremonies'
+   *  silhouette. */
   get displayedFrameTexture(): Texture {
-    const set = this.usingBack && this.backFrames ? this.backFrames : this.frontFrames;
-    return set.frames[0].texture;
+    return this.frontFrames.frames[0].texture;
   }
 
   /** The uniform scale the body is drawn at. Exposed so an overlay sprite
@@ -234,7 +207,7 @@ export class WalkerSprite {
     // left/right mirroring. Called from update() every frame this sprite is
     // moving or float-locomotion (whileStill), and once more when it settles
     // back to rest — see update()'s own branches. `markSceneDirty` defaults
-    // true for every discrete call site (setFacing, configure, setBackView,
+    // true for every discrete call site (setFacing, configure,
     // update()'s own moving/settle branches) — only the stationary-bob branch
     // above throttles it, per `STILL_BOB_DIRTY_EVERY_N_FRAMES`'s comment.
     if (markSceneDirty) markDirty();

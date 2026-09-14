@@ -21,11 +21,10 @@
  * all, so a shiny pick ALWAYS comes through this lazy path, even for one of
  * the 42 bundled species — see GardenScene's `resolveAnimation`. If a shiny
  * FRONT sheet 404s, `loadLazyAnimation` falls back to the normal front sheet
- * (logged) rather than showing a pokeball forever; a shiny BACK sheet 404
- * (most species genuinely lack a shiny-specific back distinct from front's
- * fallback) just leaves `back` undefined, same as the existing "some species
- * have no back view at all" case — falling back to a normal-palette back
- * would give one walker two palettes depending on facing.
+ * (logged) rather than showing a pokeball forever.
+ *
+ * Walkers never show a back view (see WalkerSprite.ts), so this file only
+ * ever loads the front sheet — no back fetch/decode/cache to pay for.
  */
 import { decompressFrame, decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
 import { Texture } from 'pixi.js';
@@ -95,10 +94,10 @@ const animationTouchStamp = new Map<string, number>();
  *  to what a normal session actually keeps on screen at once, so eviction is
  *  a rare-churn safety valve, not something that fires every pick. */
 const MAX_UNPINNED_VIEWS = 48;
-/** Budget for `animationCache`'s `{info, front, back}` wrapper objects. Much
+/** Budget for `animationCache`'s `{info, front}` wrapper objects. Much
  *  cheaper to evict than a view — a wrapper owns no texture of its own (its
- *  `front`/`back` are the exact FrameSet objects `viewCache` already tracks
- *  and independently bounds/destroys, see `evictAnimationOverflow`) — so this
+ *  `front` is the exact FrameSet object `viewCache` already tracks and
+ *  independently bounds/destroys, see `evictAnimationOverflow`) — so this
  *  budget exists mainly to bound the map's own size. */
 const MAX_UNPINNED_ANIMATIONS = 24;
 /** `thumbnailCache` entries are plain data URL strings (see
@@ -110,8 +109,8 @@ const viewOrder = new LruTracker<string>(MAX_UNPINNED_VIEWS);
 const animationOrder = new LruTracker<string>(MAX_UNPINNED_ANIMATIONS);
 const thumbnailOrder = new LruTracker<string>(MAX_THUMBNAILS);
 
-/** How many live walkers/battlers currently have each FrameSet on screen
- *  (front and/or back) — see pinAnimation/unpinAnimation. Keyed by the exact
+/** How many live walkers/battlers currently have each FrameSet on screen —
+ *  see pinAnimation/unpinAnimation. Keyed by the exact
  *  FrameSet OBJECT `viewCache` resolved to, not a species/view/shiny string:
  *  the front sheet's shiny->normal 404 fallback (see
  *  `loadFrontWithShinyFallback`) makes "which string key actually holds the
@@ -164,23 +163,20 @@ function unpinFrameSet(frameSet: FrameSet): void {
   }
 }
 
-/** Protect every sheet `animation` is currently showing (front, and back
- *  when it has one) from eviction — call once a caller (Walker/Battler)
- *  actually puts this exact `PokemonAnimation` on screen. Safe to call on a
- *  bundled or placeholder animation too: its FrameSets are never in
- *  `viewCache`, so this just tracks an unused refcount for them. Reference-
- *  counted, so two callers sharing the same species+shiny (two walkers, or a
- *  walker and a still-staged evolution/mega target) don't fight over one
- *  count — see Walker.ts. Always pair with `unpinAnimation`. */
+/** Protect the sheet `animation` is currently showing from eviction — call
+ *  once a caller (Walker/Battler) actually puts this exact `PokemonAnimation`
+ *  on screen. Safe to call on a bundled or placeholder animation too: its
+ *  FrameSets are never in `viewCache`, so this just tracks an unused refcount
+ *  for them. Reference-counted, so two callers sharing the same species+shiny
+ *  (two walkers, or a walker and a still-staged evolution/mega target) don't
+ *  fight over one count — see Walker.ts. Always pair with `unpinAnimation`. */
 export function pinAnimation(animation: PokemonAnimation): void {
   pinFrameSet(animation.front);
-  if (animation.back) pinFrameSet(animation.back);
 }
 
 /** Releases one `pinAnimation` call's hold on `animation`. */
 export function unpinAnimation(animation: PokemonAnimation): void {
   unpinFrameSet(animation.front);
-  if (animation.back) unpinFrameSet(animation.back);
 }
 
 /** Frees the GPU texture(s) backing one resolved view/thumbnail sheet.
@@ -297,11 +293,11 @@ function evictAnimationOverflow(): void {
       animationTouchStamp.delete(key);
       if (animationCache.get(key) === pending) animationCache.delete(key);
       if (resolvedAnimations.get(key) === anim) resolvedAnimations.delete(key);
-      // No destroy here, deliberately: `front`/`back` are the exact FrameSet
-      // objects `viewCache` owns and independently LRU-bounds/destroys (see
-      // evictViewOverflow above) — this cache is only a thin
-      // {info, front, back} wrapper over those, so evicting it just forgets
-      // the wrapper object. A later `loadLazyAnimation` for the same species
+      // No destroy here, deliberately: `front` is the exact FrameSet object
+      // `viewCache` owns and independently LRU-bounds/destroys (see
+      // evictViewOverflow above) — this cache is only a thin {info, front}
+      // wrapper over that, so evicting it just forgets the wrapper object.
+      // A later `loadLazyAnimation` for the same species
       // rebuilds it cheaply, straight from viewCache's still-resolved
       // promises.
     });
@@ -435,8 +431,8 @@ const STATIC_FRAME_MS = 1000;
 
 /**
  * Species #650-1025 (Phase 6 §1): no gen5ani animation exists, so their art
- * is a single static PNG (Smogon Sprite Project's Gen-5-style set,
- * `gen5`/`gen5-back`) rather than a GIF to decode. `fetchSpriteGif` (shared
+ * is a single static PNG (Smogon Sprite Project's Gen-5-style set, `gen5`)
+ * rather than a GIF to decode. `fetchSpriteGif` (shared
  * IPC call, name predates statics — see `spriteCache.ts`) already returns the
  * right bytes for either kind; this just skips the GIF-specific decode and
  * wraps the single image as a 1-frame sheet, so everything downstream
@@ -480,9 +476,10 @@ async function fetchAndDecodeStatic(
 /** Bounds how many GIF decodes/sheet builds (`fetchAndDecode`/
  *  `fetchAndDecodeStatic`, below) run at once. Each one allocates working
  *  canvases and can hold dozens-to-hundreds of frames' worth of pixel data
- *  mid-decode; a burst of spawns (each pokemon = front + back, sometimes
- *  shiny) used to fire all of them at once, which is what actually drove
- *  canvas/GPU memory pressure high enough to evict the garden's own WebGL
+ *  mid-decode; a burst of spawns (each pokemon a front sheet, sometimes
+ *  shiny, and back then also a back sheet) used to fire all of them at once,
+ *  which is what actually drove canvas/GPU memory pressure high enough to
+ *  evict the garden's own WebGL
  *  context — see this file's header and the leak fixes above. `loadView`
  *  below still returns its usual promise immediately; extra requests just
  *  wait their turn behind this gate before decoding starts. Uses `makeGate`
@@ -491,16 +488,13 @@ async function fetchAndDecodeStatic(
  *  this guards against). */
 const decodeGate = makeGate(2);
 
-/** One view (front or back) of one species: cache-hit from disk, or fetch +
- *  decode + cache-write. Returns null when the species has no such sprite at
- *  all (a real 404 — most species have no back-view alternate, which is
- *  expected, not an error) or the fetch failed outright (offline).
+/** The front view of one species: cache-hit from disk, or fetch + decode +
+ *  cache-write. Returns null when the fetch fails outright (offline) or the
+ *  species has no such sprite at all.
  *
- * `evictOnNull` (default true, for the front view a walker actually needs)
- * drops a failed lookup from the cache immediately so the NEXT pick of the
- * same species retries the network instead of remembering the failure
- * forever. The back view is left cached even on failure: most species
- * genuinely have none, and that fact doesn't change between picks. */
+ * `evictOnNull` (default true) drops a failed lookup from the cache
+ * immediately so the NEXT pick of the same species retries the network
+ * instead of remembering the failure forever. */
 async function loadView(
   id: string,
   view: SpriteView,
@@ -576,9 +570,8 @@ async function loadView(
 
 /** `loadView`, plus the shiny-specific fallback: a shiny FRONT 404 falls back
  *  to the normal front sheet (logged) rather than leaving the walker on a
- *  pokeball forever. Non-shiny calls, and the back view, pass straight
- *  through with no fallback — see this file's header for why the back view
- *  doesn't get one. */
+ *  pokeball forever. A non-shiny call passes straight through with no
+ *  fallback. */
 async function loadFrontWithShinyFallback(
   id: string,
   shiny: boolean,
@@ -590,12 +583,11 @@ async function loadFrontWithShinyFallback(
   return loadView(id, 'front', false, true, forceKind);
 }
 
-/** Front (required, shiny->normal fallback) + back (best-effort) FrameSets
- *  for an id that has no DexEntry at all — battle-only mega forms
- *  (megaForms.ts), which fetch through the explicitly selected gen5ani or
- *  gen5 tier (mega ids have no DexEntry/dexIndex entry to infer it from) but
- *  carry no dex number/line/evolution data to build a PokemonInfo from — the
- *  caller supplies that itself. Reuses loadView's own cache (keyed by
+/** Front FrameSet for an id that has no DexEntry at all — battle-only mega
+ *  forms (megaForms.ts), which fetch through the explicitly selected gen5ani
+ *  or gen5 tier (mega ids have no DexEntry/dexIndex entry to infer it from)
+ *  but carry no dex number/line/evolution data to build a PokemonInfo from —
+ *  the caller supplies that itself. Reuses loadView's own cache (keyed by
  *  id/view/shiny), so a mega id never collides with a real species' entries.
  *  Returns null only when even the normal front sprite can't be obtained —
  *  same contract as loadLazyAnimation. */
@@ -603,18 +595,15 @@ export async function loadRawFrameSets(
   id: string,
   shiny: boolean,
   forceKind?: 'animated' | 'static'
-): Promise<{ front: FrameSet; back?: FrameSet } | null> {
+): Promise<{ front: FrameSet } | null> {
   const front = await loadFrontWithShinyFallback(id, shiny, forceKind);
-  if (!front) return null;
-  const back = await loadView(id, 'back', shiny, false, forceKind).catch(() => null);
-  return { front, back: back ?? undefined };
+  return front ? { front } : null;
 }
 
-/** Full animation for a lazily-loaded species: front required (falling back
- *  from shiny to normal on a 404 — see loadFrontWithShinyFallback), back
- *  best-effort (no such fallback — see this file's header). Returns null
- *  only when the front view could not be obtained at all, shiny or normal
- *  (offline) — the caller shows a pokeball and a toast.
+/** Full animation for a lazily-loaded species: the front sheet, falling back
+ *  from shiny to normal on a 404 (see loadFrontWithShinyFallback). Returns
+ *  null only when the front view could not be obtained at all, shiny or
+ *  normal (offline) — the caller shows a pokeball and a toast.
  *
  * `shiny` (Phase 5 §2, default false) selects the Showdown/Smogon shiny
  * variant. Bundled species have no local shiny sheets, so a shiny pick
@@ -641,7 +630,6 @@ export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAni
       if (!entry) return null;
       const front = await loadFrontWithShinyFallback(id, shiny);
       if (!front) return null;
-      const back = await loadView(id, 'back', shiny, false).catch(() => null);
       return {
         info: {
           name: entry.id,
@@ -653,11 +641,9 @@ export function loadLazyAnimation(id: string, shiny = false): Promise<PokemonAni
           sheetUrl: '',
           line: entry.line,
           stage: entry.stage,
-          evolvesTo: entry.evolvesTo,
-          hasBack: !!back
+          evolvesTo: entry.evolvesTo
         },
-        front,
-        back: back ?? undefined
+        front
       };
     } catch (err) {
       // Same rejection-must-not-poison-the-cache rule as `loadView` above —
@@ -696,8 +682,7 @@ export function placeholderAnimation(id: string): PokemonAnimation {
       sheetUrl: '',
       line: entry?.line ?? id,
       stage: entry?.stage ?? 1,
-      evolvesTo: entry?.evolvesTo ?? [],
-      hasBack: false
+      evolvesTo: entry?.evolvesTo ?? []
     },
     front
   };
