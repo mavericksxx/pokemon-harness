@@ -26,13 +26,6 @@ const SPEED = 44; // px/sec at tileSize 16
 const WANDER_MIN_DELAY = 1.5;
 const WANDER_MAX_DELAY = 4.5;
 
-/** Consecutive up-moving tiles before the back sheet kicks in, and consecutive
- *  non-up tiles before it drops back to front — two different thresholds so a
- *  path that zigzags between up and sideways segments doesn't flip every tile. */
-const BACK_VIEW_ON = 2;
-const BACK_VIEW_OFF = -1;
-const BACK_VIEW_BIAS_MAX = 3;
-
 interface WalkerOptions {
   sessionId: string;
   map: TiledMapRenderer;
@@ -81,14 +74,6 @@ export class Walker {
   private wandering = true;
   private wanderTimer = 0;
   private wanderDelay = WANDER_MIN_DELAY;
-
-  /** Which target the current up/down/left/right bias vote was computed for,
-   *  so it only fires once per path segment rather than every frame. */
-  private facingTarget: { x: number; y: number } | null = null;
-  private backViewBias = 0;
-  /** Battle stance owns the sheet while true; idle/napping rest logic must
-   *  not overwrite it when a battle movement segment completes. */
-  private forcedBackView = false;
 
   private status: SessionStatus = 'starting';
   private badgePulse = 0;
@@ -306,14 +291,6 @@ export class Walker {
     return this.sprite.drawnHeight;
   }
 
-  /** Whether this species has back-view art at all — `WalkerChallenger`
-   *  (battle facing) checks this before forcing a back view, since a species
-   *  with no back sheet silently keeps showing front (see
-   *  `WalkerSprite.setBackView`'s documented fallback). */
-  get hasBackView(): boolean {
-    return this.sprite.hasBackView;
-  }
-
   /** Play the shared pokéball recall sequence over this session walker. The
    *  inner sprite container is passed separately so the ball holds its size
    *  while the Pokemon shrinks, exactly as it does for a subagent Battler. */
@@ -405,7 +382,6 @@ export class Walker {
     if (this.path.length === 0) {
       this.walking = false;
       this.sprite.setMoving(false);
-      this.resetRestingView();
     }
   }
 
@@ -425,27 +401,6 @@ export class Walker {
    *  «Tool»!" move text. */
   showFloatingText(text: string): void {
     this.spawnFloatingText(text);
-  }
-
-  /** Force the back sheet on/off regardless of the walk-direction hysteresis
-   *  — used by the battle system to put a fighter in its "facing away from
-   *  camera, toward the opponent" battle stance. Today that's a delegate
-   *  challenger's own walker, driven by `WalkerChallenger.setBattleStance`
-   *  (the parent shows FRONT during battle instead — see BattleManager.ts's
-   *  file header on the 2026-09-04 facing swap); falls back to the front
-   *  sheet automatically when the species has no back view (see
-   *  WalkerSprite.setBackView). The sprite update is skipped while an
-   *  evolution ceremony is running, which owns the sprite's view. */
-  setForcedBackView(useBack: boolean): void {
-    this.forcedBackView = useBack;
-    if (!useBack) {
-      // Battle is releasing ownership of the sheet; discard any walk vote
-      // accumulated before/during the stance before normal wandering resumes.
-      this.backViewBias = 0;
-      this.facingTarget = null;
-    }
-    if (this.ceremony) return;
-    this.sprite.setBackView(useBack);
   }
 
   /** Force left/right mirroring without moving — used by the battle system so
@@ -588,11 +543,6 @@ export class Walker {
     this.sprite.configure(animation);
     this.locomotion = animation.info.locomotion;
     this.layoutForSprite();
-    // configure() resets the sprite to its front view; match that here so a
-    // walker that evolves mid-upward-walk doesn't show front while its bias
-    // counter (still primed from before) silently disagrees.
-    this.backViewBias = 0;
-    this.facingTarget = null;
   }
 
   /** Transfers the `pinnedLive` protection (lazySprites.ts's eviction guard)
@@ -620,12 +570,9 @@ export class Walker {
   /** Battle-only mega evolution's sprite swap (BattleManager's
    *  startMega/revertMega) — same runtime configure() swap `setAnimation`
    *  uses, but remembers what was showing before so a later call with
-   *  `null` restores it exactly, and (unlike `setAnimation`, whose other
-   *  callers never fire mid-battle-stance) re-applies whatever back-view
-   *  stance battle currently forces, since `configure()` always resets to
-   *  the front sheet. Wrapped in a short flash rather than an instant cut —
-   *  see flashSwap(). A no-op while an evolution ceremony owns the sprite
-   *  (file header invariant): the caller (BattleManager) is expected to
+   *  `null` restores it exactly. Wrapped in a short flash rather than an
+   *  instant cut — see flashSwap(). A no-op while an evolution ceremony owns
+   *  the sprite (file header invariant): the caller (BattleManager) is expected to
    *  check `isEvolving` itself before calling this, and if evolution starts
    *  anyway while a mega is active, `setAnimation`'s own reset above already
    *  makes a later `setTemporaryForm(null)` a harmless no-op (nothing left
@@ -750,12 +697,7 @@ export class Walker {
   private applyTempForm(animation: PokemonAnimation): void {
     this.swapPinnedLive(animation);
     this.sprite.configure(animation);
-    // configure() always resets to the front sheet; battle stance (the only
-    // context this runs in) may currently be forcing the back one.
-    this.sprite.setBackView(this.forcedBackView);
     this.layoutForSprite();
-    this.backViewBias = 0;
-    this.facingTarget = null;
   }
 
   /** A half-second white pulse over the sprite's own footprint, the actual
@@ -904,16 +846,10 @@ export class Walker {
     if (this.path.length === 0) {
       this.walking = false;
       this.sprite.setMoving(false);
-      this.resetRestingView();
       return;
     }
 
     const target = this.path[0];
-    if (target !== this.facingTarget) {
-      this.facingTarget = target;
-      this.noteSegmentDirection(target);
-    }
-
     const ts = this.map.tileSize;
     // Feet at the tile's BOTTOM edge — matches the sprite's (0.5, 1) anchor.
     const targetPx = target.x * ts + ts / 2;
@@ -926,9 +862,7 @@ export class Walker {
       this.px = targetPx;
       this.py = targetPy;
       this.path.shift();
-      this.facingTarget = null;
       this.syncPosition();
-      if (this.path.length === 0) this.resetRestingView();
       return;
     }
 
@@ -937,37 +871,13 @@ export class Walker {
     this.py += (dy / dist) * step;
     // Only horizontal travel changes left/right facing: there is no side view
     // to turn to, so a walker heading straight up or down keeps the way it was
-    // already pointing (the back sheet, when in use, mirrors the same way).
+    // already pointing.
     if (Math.abs(dx) > Math.abs(dy)) {
       this.facing = dx > 0 ? 'right' : 'left';
       this.sprite.setFacing(this.facing);
     }
     this.sprite.setMoving(true);
     this.syncPosition();
-  }
-
-  /** BFS paths move one cardinal tile at a time, so every segment is purely
-   *  horizontal or purely vertical — no diagonals to average. Vote on this
-   *  segment's direction with hysteresis so a path that zigzags between an "up"
-   *  tile and a sideways tile doesn't flip the sheet every step. */
-  private noteSegmentDirection(target: { x: number; y: number }): void {
-    const cur = this.tile;
-    const goingUp = target.y < cur.y && target.x === cur.x;
-    this.backViewBias = goingUp
-      ? Math.min(this.backViewBias + 1, BACK_VIEW_BIAS_MAX)
-      : Math.max(this.backViewBias - 1, -BACK_VIEW_BIAS_MAX);
-    if (this.backViewBias >= BACK_VIEW_ON) this.sprite.setBackView(true);
-    else if (this.backViewBias <= BACK_VIEW_OFF) this.sprite.setBackView(false);
-  }
-
-  /** Face the camera only after the final allowed segment has ended. Resetting
-   * the hysteresis here keeps the next normal wander from inheriting a stale
-   * back-view vote. Battle stance is explicitly excluded. */
-  private resetRestingView(): void {
-    if (this.ceremony || this.forcedBackView || (this.status === 'working' && !this.napping)) return;
-    this.backViewBias = 0;
-    this.facingTarget = null;
-    this.sprite.setBackView(false);
   }
 
   private updateWander(dt: number): void {

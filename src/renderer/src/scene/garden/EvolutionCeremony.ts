@@ -334,11 +334,6 @@ export class EvolutionCeremony {
       });
     }
 
-    // Face the camera before anything else: a walker mid-upward-walk halts on
-    // its back sheet, and evolving with its back turned reads badly. The
-    // silhouettes below already force front frames regardless, but the
-    // colored sprite visible through halt/crossfade needs the same turn.
-    deps.sprite.setBackView(false);
     deps.sprite.freeze(true);
     deps.setChromeHidden(true);
     deps.spawnText(`What? ${deps.fromLabel} is evolving!`);

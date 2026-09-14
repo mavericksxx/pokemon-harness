@@ -6,20 +6,24 @@
  * the renderer (`lazySprites.ts`), which has a DOM/canvas; main does not.
  *
  * Phase 6 §1/§3: species #650-1025 have no Showdown gen5ani animation, so
- * they use the Smogon Sprite Project's static Gen-5-style PNGs (`gen5`,
- * `gen5-back`) instead of the animated GIF sets. `fetchSpriteGif` (name kept
- * for the existing IPC contract in `src/main/index.ts` — Phase 6 stays out of
- * that file) picks the right base URL and extension per id by consulting the
+ * they use the Smogon Sprite Project's static Gen-5-style PNGs (`gen5`)
+ * instead of the animated GIF sets. `fetchSpriteGif` (name kept for the
+ * existing IPC contract in `src/main/index.ts` — Phase 6 stays out of that
+ * file) picks the right base URL and extension per id by consulting the
  * generated dex's `static` flag; it returns raw bytes either way; the
  * renderer decides how to decode them the same way it already knows a
  * species is static (`dexData.ts`).
  *
  * Phase 5 §2: shiny variants live one path segment over — Showdown/Smogon
  * both name them by appending `-shiny` to the same base directory
- * (`gen5ani` → `gen5ani-shiny`, `gen5-back` → `gen5-back-shiny`, etc.), so a
- * shiny fetch is the same URL with that suffix tacked on. Cache files get a
- * `-shiny` filename suffix too, so a shiny and normal pick of the same
- * species/view never collide on disk.
+ * (`gen5ani` → `gen5ani-shiny`, etc.), so a shiny fetch is the same URL with
+ * that suffix tacked on. Cache files get a `-shiny` filename suffix too, so a
+ * shiny and normal pick of the same species never collide on disk.
+ *
+ * Walkers never show a back view (see WalkerSprite.ts), so this only ever
+ * fetches/caches the front sheet — `view` stays part of the signature (and
+ * the on-disk cache filename) purely to match the existing IPC contract and
+ * cache layout; `SpriteView` (shared/types.ts) is now front-only.
  */
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
@@ -40,10 +44,6 @@ const SPRITE_BASE = {
   front: {
     animated: 'https://play.pokemonshowdown.com/sprites/gen5ani',
     static: 'https://play.pokemonshowdown.com/sprites/gen5'
-  },
-  back: {
-    animated: 'https://play.pokemonshowdown.com/sprites/gen5ani-back',
-    static: 'https://play.pokemonshowdown.com/sprites/gen5-back'
   }
 } satisfies Record<SpriteView, Record<'animated' | 'static', string>>;
 

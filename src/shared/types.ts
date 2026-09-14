@@ -80,8 +80,9 @@ export interface NewSessionRequest {
   plainTerminal?: boolean;
 }
 
-/** Front or back sprite sheet, for the lazy (unbundled-species) sprite cache. */
-export type SpriteView = 'front' | 'back';
+/** Sprite sheet view for the lazy (unbundled-species) sprite cache — front
+ *  only; walkers never show a back view (see WalkerSprite.ts). */
+export type SpriteView = 'front';
 
 /** Sidecar JSON next to a cached, runtime-decoded sheet PNG. */
 export interface LazySpriteMeta {

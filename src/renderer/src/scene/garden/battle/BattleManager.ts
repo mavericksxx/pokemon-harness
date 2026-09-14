@@ -160,37 +160,36 @@
  * FACING IS A FIXED ARRANGEMENT, NOT COMPUTED MIRRORING. The parent stays
  * roughly where it already was — the anchor tile of a battle pair — and the
  * challenger(s) always end up somewhere in the SW arc from there — never the
- * reverse, never a same-row placement (see pickChallengerStandTileFor).
- * Because native gen5ani sprites are drawn front-facing down-left and
- * back-facing up-right, an UNMIRRORED front sheet already looks like it's
- * facing the bottom-left corner and an UNMIRRORED back sheet already looks
- * like it's facing the top-right one — so the parent (front, unmirrored,
- * facing the camera) and the challenger (back, unmirrored, where the species
- * has a back sheet) simply aim at each other by construction the moment
- * they're placed correctly. `applyBattleStance` sets both to that fixed
- * stance and never computes a direction from position.
+ * reverse, never a same-row placement (see pickChallengerStandTileFor). Both
+ * sides show their FRONT sheet, unmirrored for the parent (native gen5ani art
+ * already faces the bottom-left corner, i.e. the camera) and MIRRORED for
+ * every challenger (gen5ani front art is drawn facing down-left, so
+ * mirroring it points down-right — horizontally toward the parent, the best
+ * a front-only sheet can aim without a back view to face up-right with).
+ * `applyBattleStance` sets both to that fixed stance and never computes a
+ * direction from position.
  *
- * FLIPPED 2026-09-04 (user complaint: mega evolution reveals happen on the
- * PARENT, and a parent glued to its back view for the whole fight meant the
- * player could never actually see its own pokemon's face, mega reveal
- * included). The original arrangement had this the other way around —
- * parent on the bottom-left showing BACK, challenger in the top/right arc
- * showing FRONT — mirroring mainline Pokemon's "your own party shows its
- * back" convention. Swapping which corner is which (`findMeetingAnchor`'s
+ * NEITHER SIDE EVER SHOWS A BACK VIEW (removed entirely — walkers/battlers
+ * have no back sheet to fetch, decode or switch to any more, see
+ * WalkerSprite.ts). Until this changed, a challenger favored an unmirrored
+ * BACK sheet where its species had one, falling back to the mirrored front
+ * sheet above only when it didn't; every challenger now takes the fallback
+ * unconditionally. FLIPPED 2026-09-04 before that (user complaint: mega
+ * evolution reveals happen on the PARENT, and a parent glued to its back
+ * view for the whole fight meant the player could never actually see its own
+ * pokemon's face, mega reveal included) — the original arrangement had the
+ * parent on the bottom-left showing BACK and the challenger in the top/right
+ * arc showing FRONT, mirroring mainline Pokemon's "your own party shows its
+ * back" convention; swapping which corner is which (`findMeetingAnchor`'s
  * partner search direction, `pickChallengerStandTileFor`'s arc offsets) and
- * which stance each side gets (`applyBattleStance`) was enough: the parent
- * stays an unmirrored FRONT sheet (still zero mirroring math — it just now
- * plays the role the challenger used to), and the challenger becomes an
- * unmirrored BACK sheet where its species has one (`Battler.hasBackView`/
- * `Walker.hasBackView`), falling back to a mirrored front sheet where it
- * doesn't (no back art to show at all, so at least point it horizontally
- * back toward the parent rather than leaving it facing away).
+ * which stance each side got (`applyBattleStance`) put the parent on FRONT
+ * permanently, well before back views were dropped altogether.
  *
  * Composes with the rest of the garden entirely from the outside: battlers
  * are their own lightweight class (`Battler`, reusing `WalkerSprite` +
  * `findPath`), and the parent's `Walker` is touched only through its
- * already-public `container` (position/FX) plus the two small wrapper
- * methods added for this feature (`showFloatingText`, `setForcedBackView`).
+ * already-public `container` (position/FX) plus the small wrapper method
+ * added for this feature (`showFloatingText`).
  * The evolution ceremony's exclusivity is respected by simply not touching
  * a walker's container while `walker.isEvolving` — the ceremony reparents
  * it, and fighting over its transform would corrupt both.
@@ -1158,11 +1157,9 @@ export class BattleManager {
    *     interrupted mid-attack would otherwise leave baked into the
    *     container forever: this sub stops being ticked here, and a
    *     stationary `Walker` never calls `syncPosition` on its own.
-   *   - `clearBattleStance()` — releases the forced back view (if this
-   *     species ever got one); without it, the walker's own idle-facing bias
-   *     logic stays skipped forever (see Walker.ts's own update guard),
-   *     leaving it stuck facing away from the camera for the rest of its
-   *     life. */
+   *   - `clearBattleStance()` — undoes the battle-facing mirror; without it,
+   *     the walker would stay stuck facing the way battle stance left it for
+   *     the rest of its life. */
   private releaseDelegate(sub: SubBattler): void {
     sub.battler.hideBubble();
     sub.battler.update(0);
@@ -1692,7 +1689,6 @@ export class BattleManager {
       pb.wave = 'idle';
       pb.waveRing = [];
       pb.currentAttack = null;
-      pb.parentWalker.setForcedBackView(false);
       this.revertMega(pb);
       this.nextBattleEarliestAt = Date.now() + this.randomCooldown();
       this.deps.onBattleEnd(parentId);
@@ -1875,22 +1871,20 @@ export class BattleManager {
    * anchor of the pair) shows its FRONT sheet UNMIRRORED, facing the camera
    * — so the player can actually see it (and its mega evolution reveal).
    * Every ring member (always somewhere in the parent's SW arc) shows its
-   * BACK sheet UNMIRRORED where the species has one, which gen5ani draws
-   * already aimed up-right at the parent; a species with no back sheet falls
-   * back to a mirrored front sheet instead (see `Battler.setBattleStance`).
+   * FRONT sheet MIRRORED instead — see `Battler.setBattleStance` — pointing
+   * horizontally back toward the parent (no back view to aim more precisely
+   * with, see WalkerSprite.ts).
    *
    * Re-derived and re-applied EVERY TICK the wave is 'faceoff'/'looping'
    * (see `update`'s own call to this, below the phase switch) — not just
    * once at the transition into 'faceoff' — so a lunge or an evolution
-   * mid-battle can never leave the mirroring stale. `setForcedBackView`/
-   * `faceDirection` are cheap no-ops when already correct, which is what
-   * makes calling this every frame safe; `startMega` is NOT idempotent the
-   * same way (an async fetch, a floating-text spawn), so it is deliberately
-   * called once, at the ONE-TIME transition site (`updateApproaching`), not
-   * from here.
+   * mid-battle can never leave the mirroring stale. `faceDirection` is a
+   * cheap no-op when already correct, which is what makes calling this
+   * every frame safe; `startMega` is NOT idempotent the same way (an async
+   * fetch, a floating-text spawn), so it is deliberately called once, at the
+   * ONE-TIME transition site (`updateApproaching`), not from here.
    */
   private applyBattleStance(pb: ParentBattle): void {
-    pb.parentWalker.setForcedBackView(false);
     pb.parentWalker.faceDirection('left'); // native/unmirrored, faces the camera
     for (const sub of pb.waveRing) sub.battler.setBattleStance();
   }
@@ -2198,7 +2192,6 @@ export class BattleManager {
     pb.waveElapsedMs = 0;
     pb.currentAttack = null;
     for (const sub of pb.waveRing) sub.battler.showBubbleLabel();
-    pb.parentWalker.setForcedBackView(false);
     this.revertMega(pb);
     // No dedicated victory/celebration SPRITE ANIMATION exists to play here —
     // confirmed against the actual sprite pipeline (see file header). This
@@ -2226,7 +2219,6 @@ export class BattleManager {
     pb.waveRing = [];
     pb.wave = 'idle';
     bumpCounter('battlesResolved');
-    pb.parentWalker.setForcedBackView(false);
     this.revertMega(pb);
     this.nextBattleEarliestAt = Date.now() + this.randomCooldown();
     this.deps.onBattleEnd(pb.parentId);
@@ -2263,7 +2255,6 @@ export class BattleManager {
     pb.wave = 'idle';
     pb.currentAttack = null;
     try {
-      pb.parentWalker.setForcedBackView(false);
       this.revertMega(pb);
     } catch {
       /* best-effort */
@@ -2297,12 +2288,10 @@ export class BattleManager {
     sub.roamBubbleMode = 'hidden';
     sub.battler.hideBubble();
     // Battle stance is released for EVERY sub here, delegate included —
-    // unlike the wander/onBattlerDone duo below, leaving a delegate's
-    // forced back view in place would freeze its own idle-facing bias logic
-    // forever (see Walker.ts's own resting-view guard), stranding a live
-    // session's pokemon facing away from the camera indefinitely — not just
-    // "until recalled" but for however long the player leaves it be, which
-    // defeats the entire point of this facing swap.
+    // unlike the wander/onBattlerDone duo below, leaving a delegate's battle
+    // facing mirror in place would strand a live session's pokemon facing
+    // away from the camera indefinitely — not just "until recalled" but for
+    // however long the player leaves it be.
     sub.battler.clearBattleStance();
     // A delegate challenger stops here for everything else. The wander/
     // onBattlerDone duo below is off-duty presentation for a battler this
@@ -2593,7 +2582,6 @@ export class BattleManager {
     // teardown of `pb.parentWalker`) may already have destroyed.
     pb.wave = 'idle';
     pb.currentAttack = null;
-    pb.parentWalker.setForcedBackView(false);
     this.revertMega(pb);
   }
 }
