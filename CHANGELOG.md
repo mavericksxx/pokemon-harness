@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- Arceus's party-rail card now uses the same ceremonial look in the garden + terminal split as in full terminal view.
+
 ## v1.20.2 — 2026-09-14
 
 - Garden day/night toggle (top-right): cycles Auto → Day → Night; Auto keeps the time-based cycle, choice persists.
