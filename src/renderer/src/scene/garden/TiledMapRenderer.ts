@@ -139,8 +139,10 @@ export class TiledMapRenderer {
    *  foliage) — excluded when scanning that container for walker occupants. */
   private canopySprites: Set<Sprite> = new Set();
   /** Reused across `updateStructureFade` calls instead of allocating a fresh
-   *  array each frame — cleared via `.length = 0` and refilled every scan. */
-  private readonly structureFadeOccupantTiles: Point[] = [];
+   *  array each frame — cleared via `.length = 0` and refilled every scan.
+   *  Tile-space AABBs (inclusive), not single points — see that function's
+   *  own comment for why. */
+  private readonly structureFadeOccupantRects: { x0: number; y0: number; x1: number; y1: number }[] = [];
   /** Time (ms) accumulated since the last occupancy scan; see
    *  `STRUCTURE_FADE_SCAN_MS`. */
   private structureFadeScanElapsedMs = 0;
@@ -495,11 +497,18 @@ export class TiledMapRenderer {
   }
 
   /** Tween each enclosed structure's roof toward transparent while a walker's
-   *  anchor tile sits inside its zone, and back to opaque once it's empty.
+   *  DRAWN SPRITE overlaps its zone, and back to opaque once it's empty.
    *  Walker positions are read straight off `characterContainer`'s children —
-   *  every sprite this renderer put there itself is in `canopySprites` and
+   *  every sprite this renderer put here itself is in `canopySprites` and
    *  skipped, so whatever's left is a walker's body or speech-bubble
-   *  container (both track the walker's world position via `.x`/`.y`). */
+   *  container. Uses each child's own painted bounds (`getLocalBounds()`,
+   *  offset by its `.x`/`.y` feet position — local, not `getBounds()`, so a
+   *  camera pan/zoom ancestor never leaks in) rather than just its feet
+   *  point: a walker far taller than one tile (Charizard, the tallest
+   *  bundled species — see spriteScale.ts) can have its head/wings reach
+   *  into a structure's roof while its feet are still outside the zone, and
+   *  a feet-only test left that roof fully opaque and drawn on top of the
+   *  walker's body instead of fading for it. */
   private updateStructureFade(deltaMs: number): boolean {
     if (this.structureZones.size === 0) return false;
 
@@ -510,8 +519,8 @@ export class TiledMapRenderer {
     const elapsedMs = this.structureFadeScanElapsedMs;
     this.structureFadeScanElapsedMs = 0;
 
-    const occupantTiles = this.structureFadeOccupantTiles;
-    occupantTiles.length = 0;
+    const occupantRects = this.structureFadeOccupantRects;
+    occupantRects.length = 0;
     for (const child of this.characterContainer.children) {
       // Every tile sprite this renderer put here itself is in canopySprites;
       // skip it. Whatever's left is a walker's body or bubble container.
@@ -521,14 +530,20 @@ export class TiledMapRenderer {
       // An idle bubble container parked at the origin would otherwise read as
       // a permanent occupant of tile (0, 0).
       if (px === 0 && py === 0) continue;
-      occupantTiles.push(this.pixelToTile(px, py - 1));
+      const local = child.getLocalBounds();
+      occupantRects.push({
+        x0: Math.floor((px + local.x) / this.tileSize),
+        y0: Math.floor((py + local.y) / this.tileSize),
+        x1: Math.floor((px + local.x + local.width) / this.tileSize),
+        y1: Math.floor((py + local.y + local.height) / this.tileSize)
+      });
     }
 
     let changed = false;
     const rate = Math.min(1, elapsedMs / STRUCTURE_FADE_MS);
     for (const [name, rect] of this.structureZones) {
-      const occupied = occupantTiles.some(
-        (t) => t.x >= rect.x && t.x < rect.x + rect.width && t.y >= rect.y && t.y < rect.y + rect.height
+      const occupied = occupantRects.some(
+        (r) => r.x1 >= rect.x && r.x0 < rect.x + rect.width && r.y1 >= rect.y && r.y0 < rect.y + rect.height
       );
       const target = occupied ? STRUCTURE_FADE_ALPHA : 1;
       const current = this.structureAlpha.get(name) ?? 1;
