@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+## v1.20.1 — 2026-09-14
+
 - Pokémon picker thumbnails load much faster: they are cached on disk after the first download, up to 8 load at once (newest first), and tiles scrolled past before loading are cancelled.
 
 ## v1.20.0 — 2026-09-14
