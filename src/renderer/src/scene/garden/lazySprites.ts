@@ -704,28 +704,53 @@ export function placeholderAnimation(id: string): PokemonAnimation {
 }
 
 /** Small concurrency gate so a burst of requests doesn't run unboundedly at
- *  once — only `limit` calls run at a time, the rest queue in order. */
-function makeGate(limit: number): <T>(fn: () => Promise<T>) => Promise<T> {
+ *  once — only `limit` calls run at a time, the rest queue in order (or,
+ *  with `order: 'lifo'`, most-recently-queued-first — see `thumbnailGate`
+ *  below, where that means the tile the user is CURRENTLY looking at jumps
+ *  ahead of ones queued earlier while scrolling past them).
+ *
+ * `signal` lets a caller abandon a job that hasn't started yet: aborting
+ * before its turn comes up splices it out of the queue and rejects with the
+ * abort reason instead of ever running `fn`. Aborting after it's already
+ * started is a no-op — same as no signal at all, the job runs to completion
+ * and settles normally; only a still-queued job can be dropped for free. */
+function makeGate(
+  limit: number,
+  order: 'fifo' | 'lifo' = 'fifo'
+): <T>(fn: () => Promise<T>, signal?: AbortSignal) => Promise<T> {
   let active = 0;
   const queue: (() => void)[] = [];
   const next = (): void => {
     if (active >= limit || queue.length === 0) return;
     active++;
-    queue.shift()!();
+    (order === 'lifo' ? queue.pop() : queue.shift())!();
   };
-  return (fn) =>
+  return (fn, signal) =>
     new Promise((resolve, reject) => {
-      queue.push(() => {
+      if (signal?.aborted) {
+        reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
+        return;
+      }
+      const task = (): void => {
+        signal?.removeEventListener('abort', onAbort);
         fn().then(resolve, reject).finally(() => {
           active--;
           next();
         });
-      });
+      };
+      const onAbort = (): void => {
+        const idx = queue.indexOf(task);
+        if (idx === -1) return; // already started (or finished) — runs to completion
+        queue.splice(idx, 1);
+        reject(signal!.reason ?? new DOMException('aborted', 'AbortError'));
+      };
+      queue.push(task);
+      signal?.addEventListener('abort', onAbort, { once: true });
       next();
     });
 }
 
-const thumbnailGate = makeGate(4);
+const thumbnailGate = makeGate(8, 'lifo');
 
 /** Decode ONLY a GIF's first frame — no `coalesceGifToSheet`. Frame 0 has no
  *  prior canvas state to composite against, so its own patch drawn onto an
@@ -831,8 +856,16 @@ function cropFrame0(front: FrameSet): string | null {
  *  of it is what used to balloon memory from picker browsing alone — see this
  *  file's header. If a full pick has already decoded this species (it's an
  *  actual walker), this reuses that decode instead of fetching a second time.
- *  Falls back shiny→normal on a 404, same as loadLazyAnimation. */
-export function loadLazyThumbnail(id: string, shiny = false): Promise<string | null> {
+ *  Falls back shiny→normal on a 404, same as loadLazyAnimation.
+ *
+ * `signal` (optional) lets a caller abandon this request while it's still
+ * queued behind `thumbnailGate` — see PokemonFace, which aborts on unmount
+ * (including a PokemonPicker tile scrolling out of view before its turn
+ * comes up). Only meaningful on the call that actually creates the job
+ * below; a caller that instead joins an already-in-flight/cached promise for
+ * the same `key` can't unilaterally cancel work other callers may still
+ * want, so its `signal` has nothing to attach to there. */
+export function loadLazyThumbnail(id: string, shiny = false, signal?: AbortSignal): Promise<string | null> {
   const key = shiny ? `${id}:shiny` : id;
   const existing = thumbnailCache.get(key);
   if (existing) {
@@ -865,6 +898,18 @@ export function loadLazyThumbnail(id: string, shiny = false): Promise<string | n
       console.error(`[lazySprites] ${id}: failed to load thumbnail —`, err);
       return null;
     }
+  }, signal).catch((err) => {
+    // The only way this gate promise itself rejects (as opposed to `fn`
+    // above, which already converts every failure to a resolved `null`) is
+    // `signal` aborting the job before its queued turn arrived. Convert to
+    // the same "unavailable" `null` outcome rather than leaving a REJECTED
+    // promise sitting in `thumbnailCache` forever — the eviction just below
+    // already drops a `null` result, so a later request (e.g. scrolling
+    // back onto this tile) re-queues fresh instead of replaying the abort.
+    if (!(err instanceof DOMException && err.name === 'AbortError')) {
+      console.error(`[lazySprites] ${id}: thumbnail job rejected —`, err);
+    }
+    return null;
   });
 
   thumbnailCache.set(key, promise);

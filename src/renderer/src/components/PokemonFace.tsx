@@ -34,19 +34,35 @@ interface Props {
   /** Show the shiny variant. Forces the lazy-thumbnail path — see this
    *  file's header. */
   shiny?: boolean;
+  /** Fires once this face actually has real art to show — a resolved lazy
+   *  thumbnail, or (immediately) a bundled species, which never goes
+   *  through the async path below at all. Lets a caller that conditionally
+   *  unmounts this component based on scroll position (see PokemonPicker's
+   *  `shown`) tell an already-loaded face apart from one still mid-fetch, so
+   *  only the latter gets cancelled when it scrolls out of view.
+   *  Deliberately NOT in the effect's dependency list below: it only needs
+   *  to fire once per load, not resubscribe every time the caller re-renders
+   *  with a new closure identity. */
+  onLoaded?(): void;
 }
 
-export function PokemonFace({ name, box = DEFAULT_BOX, shiny = false }: Props): JSX.Element {
+export function PokemonFace({ name, box = DEFAULT_BOX, shiny = false, onLoaded }: Props): JSX.Element {
   const bundled = shiny ? undefined : POKEMON_ROSTER.find((p) => p.name === name);
   const [lazyUrl, setLazyUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (bundled) return;
+    if (bundled) {
+      onLoaded?.();
+      return;
+    }
     setLazyUrl(null);
     let cancelled = false;
-    loadLazyThumbnail(name, shiny)
+    const controller = new AbortController();
+    loadLazyThumbnail(name, shiny, controller.signal)
       .then((url) => {
-        if (!cancelled) setLazyUrl(url);
+        if (cancelled) return;
+        setLazyUrl(url);
+        if (url) onLoaded?.();
       })
       // Defense in depth: lazySprites.ts's own caches now convert every
       // failure to a resolved `null` internally, so this shouldn't fire, but
@@ -59,6 +75,11 @@ export function PokemonFace({ name, box = DEFAULT_BOX, shiny = false }: Props): 
       });
     return () => {
       cancelled = true;
+      // Drops this job from thumbnailGate's queue if it hasn't started yet
+      // (this face unmounting, e.g. PokemonPicker's `shown` dropping a
+      // scrolled-past id — see that file) — a no-op once the job is already
+      // running or done, see lazySprites' `makeGate`.
+      controller.abort();
     };
   }, [name, bundled, shiny]);
 

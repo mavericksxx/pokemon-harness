@@ -26,13 +26,18 @@ interface Props {
  * the OOM-fix path — see PokemonFace/lazySprites) the instant it mounts, so
  * an IntersectionObserver gates each option's `PokemonFace` behind actually
  * scrolling it into the grid's own viewport (`root`), not just being in the
- * DOM. `rootMargin` primes a little ahead of the visible area; once an id
- * has been shown it stays shown (scrolling back up doesn't re-hide/re-fetch
- * it — `loadLazyThumbnail`'s own cache would no-op a re-fetch anyway, this
- * just avoids the pop-out). Options not yet shown render the same
- * `.pokemon-face.loading` placeholder `PokemonFace` itself uses while ITS
- * fetch is pending, so there's one consistent "still loading" look rather
- * than a distinct stuck-looking ghost.
+ * DOM. `rootMargin` primes a little ahead of the visible area. Once an id's
+ * `PokemonFace` has actually finished loading, it stays shown for good
+ * (scrolling back up doesn't re-hide/re-fetch it — `loadLazyThumbnail`'s own
+ * cache would no-op a re-fetch anyway, this just avoids the pop-out); an id
+ * that's still mid-fetch when it scrolls back OUT of view, though, gets
+ * dropped from `shown` so its `PokemonFace` unmounts and abandons its
+ * still-queued `thumbnailGate` job — see the observer effect below and
+ * PokemonFace's `onLoaded`/`AbortSignal` handling — rather than making the
+ * tile the user actually stopped on wait behind it. Options not yet shown
+ * render the same `.pokemon-face.loading` placeholder `PokemonFace` itself
+ * uses while ITS fetch is pending, so there's one consistent "still loading"
+ * look rather than a distinct stuck-looking ghost.
  */
 export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX.Element {
   const sessions = useStore((s) => s.sessions);
@@ -74,26 +79,51 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
 
   const gridRef = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Set<string>>(new Set());
+  // Ids whose `PokemonFace` has actually finished loading (a resolved
+  // thumbnail, or a bundled species — see `PokemonFace`'s `onLoaded`).
+  // Consulted, not reacted to, by the observer callback below, so a tile
+  // that's already showing real art never gets dropped from `shown` just
+  // because it scrolled out of view. A ref rather than state: nothing needs
+  // to re-render when a face finishes loading, only the NEXT leave/enter
+  // callback needs the latest value.
+  const loadedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        const newlyVisible = entries.filter((e) => e.isIntersecting).map((e) => (e.target as HTMLElement).dataset.pokeId);
-        if (newlyVisible.length === 0) return;
         setShown((prev) => {
-          const next = new Set(prev);
-          for (const id of newlyVisible) if (id) next.add(id);
-          // Same size means every "newly visible" id was already shown (the
-          // observer's initial callback re-reports everything currently
-          // intersecting, not just genuinely new ones) — returning `prev`
-          // here is what makes React skip the re-render. Without it: a
-          // no-op update still re-renders, `searchDex`'s RESULT array is
-          // rebuilt fresh (unlike DEX_LIST's stable reference), the effect
-          // below sees a changed dependency and re-observes, the observer's
-          // initial callback fires again — an infinite loop the whole time
-          // the search box has text.
-          return next.size === prev.size ? prev : next;
+          // Left null (and `prev` returned as-is) unless this batch actually
+          // adds or removes something — see the no-op case at the bottom.
+          let next: Set<string> | null = null;
+          for (const entry of entries) {
+            const id = (entry.target as HTMLElement).dataset.pokeId;
+            if (!id) continue;
+            if (entry.isIntersecting) {
+              if (prev.has(id)) continue;
+              next = next ?? new Set(prev);
+              next.add(id);
+            } else if (prev.has(id) && !loadedRef.current.has(id)) {
+              // Scrolled past before its thumbnail ever resolved — drop it
+              // so its `PokemonFace` unmounts, which aborts its still-queued
+              // `thumbnailGate` job (see lazySprites' AbortSignal handling)
+              // instead of leaving it to load behind whatever the user
+              // actually stopped on. An id that already loaded stays in
+              // `shown` regardless — see `loadedRef` above.
+              next = next ?? new Set(prev);
+              next.delete(id);
+            }
+          }
+          // No actual add/remove this batch (the observer's initial
+          // callback re-reports every currently-observed element's CURRENT
+          // state, not just changes) — returning `prev` here is what makes
+          // React skip the re-render. Without it: a no-op update still
+          // re-renders, `searchDex`'s RESULT array is rebuilt fresh (unlike
+          // DEX_LIST's stable reference), the effect below sees a changed
+          // dependency and re-observes, the observer's initial callback
+          // fires again — an infinite loop the whole time the search box
+          // has text.
+          return next ?? prev;
         });
       },
       { root: grid, rootMargin: '200px 0px' }
@@ -159,7 +189,7 @@ export function PokemonPicker({ value, onChange, excludeSessionId }: Props): JSX
                 ) : (
                   // Phase C item 3: bigger thumbnail (was the 44px default) —
                   // `.pokemon-option-face` below is sized to match.
-                  <PokemonFace name={entry.id} box={72} />
+                  <PokemonFace name={entry.id} box={72} onLoaded={() => loadedRef.current.add(entry.id)} />
                 )}
               </span>
               <span className="pokemon-option-name">{entry.name}</span>
