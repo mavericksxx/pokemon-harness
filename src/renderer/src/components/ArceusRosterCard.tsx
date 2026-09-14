@@ -15,15 +15,17 @@ import { SummonArceusDialog } from '@/components/SummonArceusDialog';
 interface Props {
   /** The rail expands the selected card in place. Arceus uses the same
    *  compact/medium states as an ordinary session, with his medium state
-   *  carrying the live status/model/context/cost HUD. */
+   *  carrying the live status/model/context/cost HUD; RosterStrip.tsx always
+   *  passes 'medium' so his card looks the same in every view mode. */
   variant?: 'compact' | 'medium';
-  /** 'terminal' view mode has no garden pane of its own drawing his cosmic
-   *  ascent, so RosterStrip.tsx forces `variant="medium"` there regardless
-   *  of selection — this flag layers a little extra weight on top (heavier
-   *  gold edge, more breathing room) so that forced-medium state still
-   *  reads as a distinct, ceremonial entry rather than just another agent
-   *  card that happens to be expanded. Reuses the existing Arceus tokens
-   *  (`--arceus-gold*`) rather than inventing a second look. */
+  /** RosterStrip.tsx always sets this — his card has no garden pane of its
+   *  own drawing his cosmic ascent, so the rail is the one place he reads as
+   *  the garden's god, in every view mode alike. This flag layers a little
+   *  extra weight on top of `variant="medium"` (heavier gold edge, more
+   *  breathing room) so that state reads as a distinct, ceremonial entry
+   *  rather than just another agent card that happens to be expanded.
+   *  Reuses the existing Arceus tokens (`--arceus-gold*`) rather than
+   *  inventing a second look. */
   ceremonial?: boolean;
 }
 
@@ -45,11 +47,10 @@ interface Props {
  *
  * Garden-split roster-strip rework — Arceus only ever renders here
  * (SessionsOverview still filters him out of its own session list), so
- * there is no 'full' size to preserve. The rail supplies the same
- * compact/medium selection states as an ordinary session. Sized ~1.3× an
- * ordinary compact card when unselected, and the ordinary medium width when
- * selected (or forced via `ceremonial`) so his telemetry has room to
- * breathe.
+ * there is no 'full' size to preserve. `variant`/`ceremonial` still exist as
+ * the same compact/medium selection states an ordinary session card uses,
+ * but RosterStrip.tsx always passes 'medium'/`ceremonial` regardless of
+ * selection or view mode, so his telemetry always has room to breathe.
  */
 export function ArceusRosterCard({ variant = 'compact', ceremonial = false }: Props): JSX.Element {
   const session = useStore((s) => s.sessions.find((x) => x.id === ARCEUS_SESSION_ID));

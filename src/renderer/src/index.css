@@ -3981,10 +3981,11 @@ body.garden-lowres .garden canvas {
 
 /* ── Compact/medium roster cards (garden-split roster-strip rework, now the
  * party rail's own card sizes) ──────────────────────────────────────────────
- * `.roster-card-compact` is shared by Arceus's ceremonial card and the
- * subagent card (the ordinary session card is always `.roster-card-medium`
- * in the rail now — see AgentRosterCard.tsx's own comment on why 'compact'
- * was retired for it). `.party-rail .roster-card`'s `height: auto` (above)
+ * `.roster-card-compact` is the subagent card's size now (Arceus's rail card
+ * is always `.roster-card-medium` + ceremonial — RosterStrip.tsx — and the
+ * ordinary session card is always `.roster-card-medium` too, in the rail now
+ * — see AgentRosterCard.tsx's own comment on why 'compact' was retired for
+ * it). `.party-rail .roster-card`'s `height: auto` (above)
  * means both variants just size to their own content — no stretch-then-
  * recenter to reconcile here. `.roster-card-medium` needs no layout override
  * of its own — its three custom rows below (`.roster-card-meta-line`/`-row3-
@@ -4178,13 +4179,13 @@ body.garden-lowres .garden canvas {
   height: 10px;
 }
 
-/* 'terminal' view mode forces Arceus's rail card to 'medium' regardless of
- * selection (RosterStrip.tsx, since that mode has no garden pane of its own
- * drawing his cosmic ascent) — this extra weight is what keeps that forced
- * state reading as genuinely ceremonial rather than "just another expanded
- * card": a heavier gold edge and a bit more breathing room, layered on top
- * of (not replacing) `.roster-card-arceus.roster-card-medium` above, reusing
- * the existing Arceus gold tokens rather than a second look. */
+/* RosterStrip.tsx always renders Arceus's rail card as 'medium' + ceremonial,
+ * in every view mode and regardless of selection — this extra weight is what
+ * keeps that permanent state reading as genuinely ceremonial rather than
+ * "just another expanded card": a heavier gold edge and a bit more breathing
+ * room, layered on top of (not replacing) `.roster-card-arceus.roster-card-
+ * medium` above, reusing the existing Arceus gold tokens rather than a
+ * second look. */
 .roster-card-arceus.roster-card-arceus-ceremonial {
   padding: 10px 8px;
   box-shadow:
@@ -4193,11 +4194,12 @@ body.garden-lowres .garden canvas {
     4px 4px 0 var(--arceus-violet);
 }
 
-/* Selected AND ceremonial at once (Arceus selected while in 'terminal' view
- * mode) — `.roster-card-arceus.selected`'s own outer selection ring above
- * would otherwise be clobbered outright (same `box-shadow` property, later
- * source order wins the whole value, not a merge), so this re-adds it on
- * top of the ceremonial treatment's own heavier inset instead of losing it. */
+/* Selected AND ceremonial at once (Arceus is always ceremonial in the rail
+ * now, so this is just "Arceus selected") — `.roster-card-arceus.selected`'s
+ * own outer selection ring above would otherwise be clobbered outright (same
+ * `box-shadow` property, later source order wins the whole value, not a
+ * merge), so this re-adds it on top of the ceremonial treatment's own
+ * heavier inset instead of losing it. */
 .roster-card-arceus-ceremonial.selected {
   box-shadow:
     inset 0 0 0 1px var(--arceus-gold-bright),

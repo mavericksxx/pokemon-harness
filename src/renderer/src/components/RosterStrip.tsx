@@ -6,7 +6,6 @@ import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { ArceusRosterCard } from '@/components/ArceusRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
 import { DoubleChevronLeftIcon, DoubleChevronRightIcon } from '@/components/icons';
-import { ARCEUS_SESSION_ID } from '@shared/arceus';
 
 interface Props {
   onNewSession(): void;
@@ -93,7 +92,6 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const selectedId = useStore((s) => s.selectedId);
   const select = useStore((s) => s.select);
   const battlers = useStore((s) => s.battlers);
-  const viewMode = useStore((s) => s.viewMode);
   const collapsedParentIds = useStore((s) => s.collapsedParentIds);
   const toggleParentCollapsed = useStore((s) => s.toggleParentCollapsed);
   const toggleAllParentsCollapsed = useStore((s) => s.toggleAllParentsCollapsed);
@@ -249,17 +247,13 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
       </div>
       <div className="party-rail-list">
         {/* Arceus is global, not scoped to any one garden, so he's pinned
-            first with no section heading of his own. His card reads as
-            distinctly ceremonial (not just another row) in 'terminal' view
-            mode specifically — that mode has no garden pane of its own
-            drawing his cosmic ascent, so the rail is the one place he still
-            reads as the garden's god rather than an ordinary agent; 'medium'
-            there regardless of selection, same as an actual selection
-            anywhere else. */}
-        <ArceusRosterCard
-          variant={selectedId === ARCEUS_SESSION_ID || viewMode === 'terminal' ? 'medium' : 'compact'}
-          ceremonial={viewMode === 'terminal'}
-        />
+            first with no section heading of his own. His card always reads
+            as distinctly ceremonial (not just another row) — 'medium' and
+            `ceremonial` regardless of view mode or selection, so he looks
+            identical in the garden+terminal split as he does in full
+            terminal view; the rail is the one place he reads as the
+            garden's god rather than an ordinary agent. */}
+        <ArceusRosterCard variant="medium" ceremonial />
         {liveSessions.length > 0 && <div className="party-rail-heading">agents</div>}
         {orderedLiveSessions.map((s) => renderSession(s, true))}
         {doneSessions.length > 0 && (
