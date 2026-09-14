@@ -752,6 +752,46 @@ function makeGate(
 
 const thumbnailGate = makeGate(8, 'lifo');
 
+/** Ref-counts callers sharing one in-flight `loadLazyThumbnail` job, keyed
+ *  the same as `thumbnailCache` — entries exist ONLY while a job hasn't
+ *  settled yet (see the `.finally` cleanup in `loadLazyThumbnail`), never
+ *  for an already-resolved cache hit. `controller` is the ONE AbortSignal
+ *  actually threaded into `thumbnailGate` for this job; a caller's own
+ *  `signal` (its own AbortController — see PokemonFace) never aborts that
+ *  gate job directly, only this shared `controller`, and only once every
+ *  ref has dropped it (see `joinInFlightThumbnail` below). This is what
+ *  stops one caller's cancellation (e.g. a picker dialog's faces unmounting
+ *  on submit) from also cancelling a DIFFERENT caller that joined the same
+ *  promise via `loadLazyThumbnail`'s `existing` branch and still wants the
+ *  result (e.g. the new session's roster face, mounting in that same effect
+ *  flush and reusing the doomed promise) — without this, that second caller
+ *  would resolve to `null` and sit on the pokeball forever. */
+const inFlightThumbnails = new Map<string, { controller: AbortController; refs: number }>();
+
+/** Registers one caller's interest in the in-flight job for `key` (a no-op
+ *  if `key` isn't in flight — i.e. `existing` in `loadLazyThumbnail` was
+ *  already a settled, cached result, nothing left to ref-count or abort).
+ *  A caller with no `signal` at all "pins" the job: it bumps `refs` but has
+ *  nothing that can ever decrement it, so `refs` can never reach 0 (and the
+ *  shared controller can never abort) while that caller is still relying on
+ *  it — matching `loadLazyThumbnail`'s own doc comment on a signal-less
+ *  call, generalized to a joiner arriving after the creator too. */
+function joinInFlightThumbnail(key: string, signal?: AbortSignal): void {
+  const entry = inFlightThumbnails.get(key);
+  if (!entry) return;
+  entry.refs++;
+  if (!signal) return;
+  const onAbort = (): void => {
+    entry.refs--;
+    if (entry.refs <= 0) entry.controller.abort();
+  };
+  if (signal.aborted) {
+    onAbort();
+    return;
+  }
+  signal.addEventListener('abort', onAbort, { once: true });
+}
+
 /** Decode ONLY a GIF's first frame — no `coalesceGifToSheet`. Frame 0 has no
  *  prior canvas state to composite against, so its own patch drawn onto an
  *  `lsd.width x lsd.height` canvas at its own (left, top) offset already IS
@@ -874,10 +914,13 @@ function bytesToDataUrl(bytes: ArrayBuffer): Promise<string> {
  * `signal` (optional) lets a caller abandon this request while it's still
  * queued behind `thumbnailGate` — see PokemonFace, which aborts on unmount
  * (including a PokemonPicker tile scrolling out of view before its turn
- * comes up). Only meaningful on the call that actually creates the job
- * below; a caller that instead joins an already-in-flight/cached promise for
- * the same `key` can't unilaterally cancel work other callers may still
- * want, so its `signal` has nothing to attach to there. */
+ * comes up). Ref-counted via `inFlightThumbnails`/`joinInFlightThumbnail`
+ * above: both the call that creates the job AND one that instead joins an
+ * already-in-flight promise for the same `key` (`existing` below) register
+ * their own `signal`, so one caller aborting only abandons the shared job
+ * once every OTHER caller relying on it has also aborted (or never had a
+ * signal to begin with — see `joinInFlightThumbnail`). A caller joining an
+ * already-SETTLED, cached promise has nothing to ref-count — see there. */
 export function loadLazyThumbnail(id: string, shiny = false, signal?: AbortSignal): Promise<string | null> {
   const key = shiny ? `${id}:shiny` : id;
   const existing = thumbnailCache.get(key);
@@ -885,8 +928,17 @@ export function loadLazyThumbnail(id: string, shiny = false, signal?: AbortSigna
     void existing.then((result) => {
       if (result) touchThumbnail(key);
     });
+    joinInFlightThumbnail(key, signal);
     return existing;
   }
+
+  // The ONE controller actually threaded into `thumbnailGate` below — every
+  // caller's own `signal` (this creator's included, via `joinInFlightThumbnail`
+  // right after) only ever aborts THIS, and only once every ref has dropped
+  // it, never the gate job directly. See `inFlightThumbnails`'s comment.
+  const controller = new AbortController();
+  inFlightThumbnails.set(key, { controller, refs: 0 });
+  joinInFlightThumbnail(key, signal);
 
   const promise = (async (): Promise<string | null> => {
     try {
@@ -920,12 +972,13 @@ export function loadLazyThumbnail(id: string, shiny = false, signal?: AbortSigna
         // above has been read out. Release it now rather than waiting on GC.
         canvas.width = canvas.height = 0;
         return dataUrl;
-      }, signal);
+      }, controller.signal);
     } catch (err) {
       // Same rejection-must-not-poison-the-cache rule as `loadView` above —
-      // see that catch block's comment. `signal` aborting the gate job before
-      // its turn is also a rejection here; it resolves to `null` too, so the
-      // eviction below drops it and a later request re-queues fresh.
+      // see that catch block's comment. `controller` aborting the gate job
+      // before its turn (because every ref-counted caller gave up on it) is
+      // also a rejection here; it resolves to `null` too, so the eviction
+      // below drops it and a later request re-queues fresh.
       if (err instanceof DOMException && err.name === 'AbortError') return null;
       console.error(`[lazySprites] ${id}: failed to load thumbnail —`, err);
       return null;
@@ -938,6 +991,12 @@ export function loadLazyThumbnail(id: string, shiny = false, signal?: AbortSigna
   });
   void promise.then((result) => {
     if (result) touchThumbnail(key);
+  });
+  // Once this job settles (however it settles) it's no longer "in flight" —
+  // nothing left for a late `signal` abort to ref-count against, so drop the
+  // entry rather than leaking one per species ever browsed.
+  void promise.finally(() => {
+    inFlightThumbnails.delete(key);
   });
   return promise;
 }
