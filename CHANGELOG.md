@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+## v1.20.2 — 2026-09-14
+
 - Garden day/night toggle (top-right): cycles Auto → Day → Night; Auto keeps the time-based cycle, choice persists.
 
 ## v1.20.1 — 2026-09-14
