@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- Pokémon picker thumbnails load much faster: they are cached on disk after the first download, up to 8 load at once (newest first), and tiles scrolled past before loading are cancelled.
+
 ## v1.20.0 — 2026-09-14
 
 - **added: "clear garden & quit…" in settings → diagnostics** — the wipe action removed from the quit dialog now lives in a danger-zone card with an inline confirm. Hardened while restoring it: keeper-reattached sessions are SIGKILLed by process group (the keeper's soft SIGTERM could leave them orphaned once the registry is emptied), leftover keeper sockets/meta from earlier runs are swept, and `flushEmpty()` seals persistence so a late checkpoint during teardown can't undo the wipe. Stale quit-dialog CSS dropped from `site/public/demo.html` (the page is otherwise ~700 lines behind `index.css`; a full regen is a separate task). Advisor-reviewed. Claude Sonnet subagent, reviewed/merged by the orchestrator
