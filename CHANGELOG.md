@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+## v1.20.3 — 2026-09-14
+
 - Arceus's party-rail card now uses the same ceremonial look in the garden + terminal split as in full terminal view.
 
 ## v1.20.2 — 2026-09-14
