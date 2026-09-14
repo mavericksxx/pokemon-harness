@@ -4,6 +4,9 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- Large walkers (e.g. Charizard) no longer get a structure roof drawn over their body — roof fade now tests the sprite's full bounds, not just its feet tile.
+- Pokémon only ever show their front: back-view sprites removed from walkers and battles (challengers use a mirrored front sheet), and back sheets are no longer fetched.
+
 ## v1.20.3 — 2026-09-14
 
 - Arceus's party-rail card now uses the same ceremonial look in the garden + terminal split as in full terminal view.
