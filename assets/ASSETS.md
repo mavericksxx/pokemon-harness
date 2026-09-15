@@ -24,8 +24,9 @@ tilesets".
 ## assets/showdown/ -- animated battle sprites (garden pets)
 
 - Source: Pokemon Showdown (https://play.pokemonshowdown.com/sprites/), the
-  Gen-5 (Black/White style) animated battle sprite sets: `gen5ani/` (front-facing)
-  and `gen5ani-back/` (back-facing). Same fan-use non-commercial disclaimer as
+  Gen-5 (Black/White style) animated battle sprite set `gen5ani/` (front-facing
+  -- walkers and battlers always show front, see "Remove back-facing sprites"
+  in git history). Same fan-use non-commercial disclaimer as
   above applies: these sprites are copyright (c) Nintendo, Game Freak, and
   Creatures Inc.; the Gen-5 animations themselves are the work of the
   Smogon/Pokemon Showdown community pixel artists. Used here purely as
@@ -38,10 +39,7 @@ tilesets".
 - Format delivered: one `<name>.png` per Pokemon at `assets/showdown/<name>.png`
   -- a horizontal spritesheet of every animation frame at the source GIF's
   native size (not scaled), laid out left-to-right, RGBA with transparency
-  preserved. Back-facing versions are under `assets/showdown/back/<name>.png`
-  (delivered for all 42; front and back sheets are NOT guaranteed to share the
-  same frame size or frame count -- e.g. Pikachu front is 50x46/61 frames,
-  back is 40x47/60 frames).
+  preserved.
 - Frames were coalesced from each animated GIF with Pillow (each output frame
   is a complete image reflecting the GIF's own disposal method between frames)
   so there is no ghosting or partial-frame artifacts. Verified: every sheet's
@@ -61,15 +59,14 @@ tilesets".
   frame geometry (`frameWidth`/`frameHeight`/`frameCount`), per-frame
   `durations` in ms (a single number when uniform across all frames, else an
   array -- the consumer's `frameTime()` handles both forms), `sourceUrl`,
-  `image` path, and `hasBack` plus a nested `back` object
-  (geometry/durations/sourceUrl/image) when a back sheet was delivered.
+  `image` path.
 - Roster delivered (42/42 requested, full evolution lines): Pichu-Pikachu-Raichu;
   Eevee + all seven Eeveelutions (Vaporeon, Jolteon, Flareon, Espeon, Umbreon,
   Leafeon, Glaceon); Bulbasaur-Ivysaur-Venusaur; Charmander-Charmeleon-Charizard;
   Squirtle-Wartortle-Blastoise; Chikorita-Bayleef-Meganium;
   Cyndaquil-Quilava-Typhlosion; Totodile-Croconaw-Feraligatr; Psyduck-Golduck;
   Igglybuff-Jigglypuff-Wigglytuff; Gastly-Haunter-Gengar; Munchlax-Snorlax;
-  Larvitar-Pupitar-Tyranitar. No 404s encountered; every front and back GIF in
+  Larvitar-Pupitar-Tyranitar. No 404s encountered; every front GIF in
   the roster fetched successfully.
 - `assets/showdown/_preview.png` is a contact sheet (dex-order grid) of the
   first frame of all 42 Pokemon for a quick human eyeball check.
@@ -87,30 +84,28 @@ runtime-fetched ships in this repository or its releases.
 
 Two art kinds, by dex number:
 
-- **#1-649 (Gen 1-5): animated.** Same `gen5ani`/`gen5ani-back` sets as the
+- **#1-649 (Gen 1-5): animated.** Same `gen5ani` set as the
   bundled sheets. The main process fetches
-  `https://play.pokemonshowdown.com/sprites/gen5ani/<id>.gif` (and
-  `gen5ani-back/<id>.gif`), the renderer decodes the GIF and coalesces its
-  frames the same way the bundled sheets were produced (each output frame
-  reflecting the source GIF's own disposal method). A sheet that would exceed
-  8192px wide wraps into multiple rows, recorded in the cache sidecar (below).
+  `https://play.pokemonshowdown.com/sprites/gen5ani/<id>.gif`, the renderer
+  decodes the GIF and coalesces its frames the same way the bundled sheets
+  were produced (each output frame reflecting the source GIF's own disposal
+  method). A sheet that would exceed 8192px wide wraps into multiple rows,
+  recorded in the cache sidecar (below).
 - **#650-1025 (Gen 6-9): static.** Showdown never drew Gen-5-style pixel art
   past Gen 5, so these use the Smogon Sprite Project's fan-made
   Gen-5-STYLE STATIC sprites instead -- one still PNG per species, no
   animation. Same fan-use disclaimer, same hosting: the main process fetches
-  `https://play.pokemonshowdown.com/sprites/gen5/<id>.png` (and
-  `gen5-back/<id>.png`), and the renderer wraps the single image as a 1-frame
-  sheet rather than decoding a GIF -- everything downstream (the disk cache,
-  `WalkerSprite`'s bob/mirror/shadow treatment) is oblivious to the
-  difference; it just sees a sheet with one frame instead of many.
+  `https://play.pokemonshowdown.com/sprites/gen5/<id>.png`, and the renderer
+  wraps the single image as a 1-frame sheet rather than decoding a GIF --
+  everything downstream (the disk cache, `WalkerSprite`'s bob/mirror/shadow
+  treatment) is oblivious to the difference; it just sees a sheet with one
+  frame instead of many.
 
 Either way the result is cached to
-`app.getPath('userData')/sprites/<id>-front.png` /
-`<id>-back.png` (plus a `.json` sidecar of frame geometry and durations) so
-each species is fetched at most once per machine. A failed fetch (offline,
-404 -- most species have no back sprite, which is expected and not an error)
-shows a pokeball placeholder and a toast, and is not cached, so the next pick
-retries.
+`app.getPath('userData')/sprites/<id>-front.png` (plus a `.json` sidecar of
+frame geometry and durations) so each species is fetched at most once per
+machine. A failed fetch (offline, 404) shows a pokeball placeholder and a
+toast, and is not cached, so the next pick retries.
 
 **Sprite coverage for #650-1025** is not guaranteed complete -- the Smogon
 Sprite Project is fan-drawn and its coverage of the newest species varies.
@@ -185,7 +180,6 @@ BellBlitzKing. Assets will be removed on request from the rights holders.
 ## Files in this directory
 
 - `assets/showdown/<name>.png` -- 42 animated front-facing spritesheets (see above)
-- `assets/showdown/back/<name>.png` -- 42 animated back-facing spritesheets
 - `assets/showdown/manifest.json` -- machine-readable per-Pokemon source/format/evolution details
 - `assets/showdown/_preview.png` -- human-eyeball contact sheet
 - `assets/dex/*.json` -- full #1-1025 dex index and evolution lines (for the

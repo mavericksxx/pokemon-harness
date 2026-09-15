@@ -71,6 +71,14 @@ export async function getCachedSprite(
     log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
     return null;
   }
+  // `view` crosses IPC unvalidated and gets interpolated straight into the
+  // cache path below — reject anything but the one real view before it ever
+  // touches disk. (`SpriteView` is TS-only front-only; this is the runtime
+  // check for a caller that doesn't go through the type.)
+  if (view !== 'front') {
+    log('sprite-cache', 'warn', 'rejected non-front sprite view', { view });
+    return null;
+  }
   const { png, meta } = cachePaths(id, view, shiny);
   if (!existsSync(png) || !existsSync(meta)) return null;
   try {
@@ -95,6 +103,12 @@ export async function saveCachedSprite(
 ): Promise<void> {
   if (!isValidSpeciesId(id)) {
     log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return;
+  }
+  // See getCachedSprite above: `view` crosses IPC unvalidated and is
+  // interpolated into the cache path, so reject anything but the real view.
+  if (view !== 'front') {
+    log('sprite-cache', 'warn', 'rejected non-front sprite view', { view });
     return;
   }
   await mkdir(cacheDir(), { recursive: true });
@@ -146,6 +160,12 @@ export async function fetchSpriteGif(
 ): Promise<ArrayBuffer | null> {
   if (!isValidSpeciesId(id)) {
     log('sprite-cache', 'warn', 'rejected unknown/invalid sprite id', { id });
+    return null;
+  }
+  // See getCachedSprite above: `view` crosses IPC unvalidated and indexes
+  // SPRITE_BASE, so reject anything but the real view.
+  if (view !== 'front') {
+    log('sprite-cache', 'warn', 'rejected non-front sprite view', { view });
     return null;
   }
   const kind = explicitKind ?? (DEX[id]?.static ? 'static' : 'animated');

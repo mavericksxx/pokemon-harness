@@ -525,10 +525,17 @@ export class TiledMapRenderer {
       // Every tile sprite this renderer put here itself is in canopySprites;
       // skip it. Whatever's left is a walker's body or bubble container.
       if (this.canopySprites.has(child as Sprite)) continue;
+      // getLocalBounds() measures a container's contents regardless of its
+      // own `visible` — a walker's idle ToolBubble (positioned every frame
+      // but invisible) or a hidden walker/sub-battler (BattleManager on
+      // workspace switch) would otherwise still count as an occupant.
+      if (!child.visible) continue;
       const px = child.x;
       const py = child.y;
       // An idle bubble container parked at the origin would otherwise read as
-      // a permanent occupant of tile (0, 0).
+      // a permanent occupant of tile (0, 0) — this also happens to be what
+      // excludes gardenCharm's propsLayer (gardenCharm.ts:106-108), a
+      // whole-map container parented into characterContainer at (0, 0).
       if (px === 0 && py === 0) continue;
       const local = child.getLocalBounds();
       occupantRects.push({
