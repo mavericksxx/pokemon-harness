@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- Hidden garden elements (idle tool bubbles, walkers in other workspaces) no longer fade structure roofs; sprite cache rejects non-front views; unused back-sprite assets removed.
+
 - Large walkers (e.g. Charizard) no longer get a structure roof drawn over their body — roof fade now tests the sprite's full bounds, not just its feet tile.
 - Pokémon only ever show their front: back-view sprites removed from walkers and battles (challengers use a mirrored front sheet), and back sheets are no longer fetched.
 
