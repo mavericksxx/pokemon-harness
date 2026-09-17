@@ -149,6 +149,25 @@ export class CostHistoryService {
     return this.refresh();
   }
 
+  /** Synchronous, non-triggering read of the current cache — added for the
+   *  tray menu (tray.ts's `buildTemplate`), which pops up immediately from
+   *  whatever's cached rather than awaiting `getSnapshot()`'s possible scan
+   *  (a native menu has no "loading…" state to show while it waits, unlike
+   *  the old popover's IPC-fetched HTML). Never starts or joins a scan,
+   *  unlike `getSnapshot()` — always returns instantly, even before `start()`
+   *  has resolved its first warm-up scan. */
+  peek(): CostHistorySnapshot {
+    return this.cached ?? emptySnapshot();
+  }
+
+  /** True once at least one scan attempt (success or failure) has completed
+   *  — lets a `peek()`-based synchronous reader tell "still computing the
+   *  very first scan" apart from "every attempt so far has failed", since
+   *  both cases hand `peek()` back the same empty snapshot. */
+  hasAttempted(): boolean {
+    return this.lastAttemptAt > 0;
+  }
+
   private refresh(): Promise<CostHistorySnapshot> {
     if (this.inFlight) return this.inFlight;
     const root = join(homedir(), '.claude', 'projects');

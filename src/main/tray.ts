@@ -1,73 +1,67 @@
 /**
- * TrayController — macOS menu-bar (Tray) item, GitHub issue #17. Custom
- * popover panel (not a native `Menu`), per the issue's locked-in design
- * decision: progress bars and a cost sparkline can't be drawn inside a
- * native `NSMenu` item, so the popover is its own small frameless/
- * transparent `BrowserWindow`, positioned under the tray icon
- * (`tray.getBounds()`), shown on click and hidden on blur — the standard
- * Electron tray-popover recipe.
+ * TrayController — macOS menu-bar (Tray) item, GitHub issue #17.
  *
- * This is NOT the main renderer's React app — a second, much lighter
- * `BrowserWindow` with its own tiny preload (trayPopoverPreload.ts) and a
- * whole-document HTML string (trayPopoverHtml.ts) loaded via a `data:` URL,
- * plain DOM/vanilla JS, no bundler step. That's a deliberate scope choice,
- * not an oversight: this panel only ever needs to render three read-only
- * sections off data this process already has in memory or cheaply caches
- * (usage snapshot, cost history, session counts) — pulling in React/the
- * renderer's build pipeline for that would be real weight for no benefit.
- * One visual tradeoff that choice costs: the main app's self-hosted Press
- * Start 2P pixel font isn't loaded here (shipping a font asset to a page
- * outside the renderer's own vite pipeline is packaging work this panel's
- * three-section, read-only scope didn't seem to justify) — every color,
- * border, radius, shadow and gauge-tone threshold below is still copied
- * from design/tokens.ts, just not the pixel typeface.
+ * Was a custom popover panel (a transparent, frameless `BrowserWindow`
+ * rendering a whole-document HTML string — see git history for
+ * trayPopoverHtml.ts/trayPopoverPreload.ts, both deleted by this pass).
+ * That design hit an AppKit boundary the popover could never route around:
+ * a `BrowserWindow` owned by this app cannot reliably draw over ANOTHER
+ * app's native-fullscreen Space, no matter what `setVisibleOnAllWorkspaces`/
+ * `setAlwaysOnTop` combination is thrown at it — a window is fundamentally
+ * scoped to this app's own Spaces. The user explicitly wants the tray to
+ * work while they're in a fullscreen app, which means it can't be a window
+ * at all. A native `NSMenu` (via Electron's `Tray.popUpContextMenu`) is NOT
+ * a window — it's OS chrome, drawn by the same layer that puts the actual
+ * menu bar above every fullscreen Space — so it opens above everything for
+ * free, no workspace/fullscreen wiring needed anywhere in this file.
  *
- * Data sources, one per popover section:
- *  - usage limits   → UsageService.refreshNow() (usageService.ts) — same
- *                      throttled (>=60s) popover-open refresh UsageChip.tsx
- *                      already does, so opening the tray popover can't
- *                      hammer the usage endpoint any harder than the
- *                      in-app chip already doesn't.
- *  - cost history    → CostHistoryService.getSnapshot() (costHistory.ts) —
- *                      TTL-cached; see that file's own header.
- *  - agent statuses   → the `sessionRegistry` mirror (main/index.ts),
- *                      passed in as a getter (same forward-reference
- *                      pattern `pokeRelay`/`sessionTitleWatcher` already
- *                      use for the same field).
+ * The cost of that switch: an `NSMenuItem` can't run arbitrary HTML/CSS, so
+ * the popover's progress-bar gauges and cost sparkline (both CSS) become
+ * `nativeImage`s hand-drawn into each item's icon slot instead — see
+ * `buildMeterImage`/`buildSparklineImage` below. Both are redrawn from
+ * scratch on every menu open (see `openMenu`), reading `nativeTheme`
+ * directly (NOT the app's own theme setting — a status-item menu is OS
+ * chrome with an OS-owned background, unlike the popover which painted its
+ * own; picking the palette from the app's setting instead of the actual
+ * menu-bar appearance would paint a light palette onto a dark menu, or vice
+ * versa, whenever they disagree), so there's no cached image to invalidate
+ * when the OS theme flips and no `syncTheme`/reload-on-theme-change
+ * machinery to carry over from the old popover (a persisted `BrowserWindow`
+ * had to be told to reload; a menu that doesn't exist until the moment it's
+ * clicked doesn't).
+ *
+ * Latency: `openMenu()` pops up from whatever's already cached in
+ * `UsageService`/`CostHistoryService` (both synchronous reads —
+ * `getSnapshot()`/`peek()`) and only AFTER popping fires off a real refresh
+ * for next time. The first version of this file awaited that refresh
+ * BEFORE showing the menu, which is fine for a popover (it has a window to
+ * show a "loading…" state in while it waits) but wrong for a menu, which
+ * has no such state — a click ≥60s after the last one would silently hang
+ * for however long `UsageService.refreshNow()`'s network calls take, then
+ * pop a menu the user may have already moved on from.
+ *
+ * Data sources, same three as the old popover:
+ *  - usage limits   → UsageService.getSnapshot()/refreshNow() — the refresh
+ *                      is still throttled (>=60s) per-call, so opening the
+ *                      tray menu can't hammer the usage endpoint any harder
+ *                      than the in-app chip already doesn't.
+ *  - cost history    → CostHistoryService.peek()/getSnapshot() — TTL-cached;
+ *                      see that file's own header.
+ *  - agent statuses   → the `sessionRegistry` mirror (main/index.ts), passed
+ *                      in as a getter (same forward-reference pattern
+ *                      `pokeRelay`/`sessionTitleWatcher` already use for the
+ *                      same field).
  */
-import { BrowserWindow, ipcMain, nativeImage, screen, Tray, type NativeImage } from 'electron';
+import { Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions, type NativeImage } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { UsageService } from './usageService';
 import type { CostHistoryService } from './costHistory';
 import type { SessionRecord } from '../shared/types';
-import type { TrayPopoverData, TraySessionCounts } from '../shared/trayTypes';
-import { buildTrayPopoverHtml } from './trayPopoverHtml';
+import type { TraySessionCounts } from '../shared/trayTypes';
+import type { UsageSnapshot, UsageWindow } from '../shared/usageTypes';
+import type { CostHistoryDay, CostHistorySnapshot } from '../shared/costHistoryTypes';
 import { log } from './diagnostics';
-
-/** Fallback for the `tray:getData` handler's own catch — `collectData()`
- *  shouldn't actually be able to throw (both its underlying calls already
- *  swallow their own errors), but the handler must never let an `invoke()`
- *  reject: the popover's pull-based fetch (see `init()`'s own comment) has
- *  no retry path of its own for a rejected promise. */
-const EMPTY_TRAY_DATA: TrayPopoverData = {
-  usage: { enabled: false, providers: [], updatedAt: 0 },
-  costHistory: { generatedAt: 0, days: [], todayCostUsd: 0, last30dCostUsd: 0, latestTurnTokens: null, last30dTokens: 0, topModel: null },
-  sessions: { working: 0, idle: 0, needsYou: 0 }
-};
-
-/** The panel's own visual width — trayPopoverHtml.ts's `.frame` fills
- *  whatever width the transparent window gives it, minus its own left/right
- *  margin (reserved for the hard-offset CSS shadow — see that file's
- *  `.frame` rule). `WINDOW_WIDTH` below is what actually gets handed to
- *  `BrowserWindow`/`setBounds`; kept as one constant used in BOTH
- *  `createPopover` and `positionUnderTray` so the window is never resized
- *  between creation and first position (which would show as a visible
- *  jump). */
-const POPOVER_WIDTH = 340;
-const SHADOW_MARGIN_PX = 12;
-const WINDOW_WIDTH = POPOVER_WIDTH + SHADOW_MARGIN_PX;
-const POPOVER_HEIGHT = 560;
 
 /** 'working'/'idle'/'needs you' bucket, from `SessionRecord.status` — issue
  *  #17's agreed baseline scope. `'done'` sessions are excluded from every
@@ -83,35 +77,290 @@ function countSessions(sessions: SessionRecord[]): TraySessionCounts {
   return counts;
 }
 
+// ─── HP-bar / sparkline pixel rendering ─────────────────────────────────────
+// Every color role a meter/sparkline image needs, hand-matched to
+// design/tokens.ts's dark constants and their `*Light` counterparts (same
+// values the deleted trayPopoverHtml.ts copied in for the same reason: this
+// file has no build step that can resolve a TS import into a raw pixel
+// buffer, so the hexes are literal here too). Meters are colour-coded by
+// fill level, so — unlike the tray icon itself — they can never be a
+// monochrome `setTemplateImage(true)` image; theme adaptation instead means
+// picking the right palette and redrawing before every open (see
+// `TrayController.openMenu`).
+interface TrayPalette {
+  /** Segment/track outline — ground[300]/groundLight[300]. */
+  border: string;
+  /** Empty-segment fill — ground.terminal/groundLight.terminal. */
+  barTrack: string;
+  /** Low-usage (comfortable) segment fill — status.done/statusLight.done. */
+  done: string;
+  /** Mid-usage segment fill — status.working/statusLight.working. */
+  warn: string;
+  /** High-usage segment fill — status.blocked/statusLight.blocked. */
+  danger: string;
+  /** Sparkline bar fill — gold/goldLight. */
+  accent: string;
+  /** Zero-cost sparkline bar fill — ground.disabled/groundLight.disabled. */
+  disabled: string;
+}
+
+const DARK_PALETTE: TrayPalette = {
+  border: '#787684',
+  barTrack: '#1A1A1F',
+  done: '#6FB88B',
+  warn: '#D8B052',
+  danger: '#DF8078',
+  accent: '#E8B740',
+  disabled: '#313139'
+};
+
+const LIGHT_PALETTE: TrayPalette = {
+  border: '#A899B5',
+  barTrack: '#FCFAF0',
+  done: '#5CA97A',
+  warn: '#DCAB3C',
+  danger: '#D96A62',
+  accent: '#DCAB3C',
+  disabled: '#E8D9A0'
+};
+
+interface Rgb {
+  r: number;
+  g: number;
+  b: number;
+}
+
+function hexToRgb(hex: string): Rgb {
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+}
+
+/** `nativeImage.createFromBuffer`'s raw format is BGRA (Skia's native
+ *  little-endian bitmap layout, same as Chromium uses internally) — NOT the
+ *  RGBA order the color roles above are written in, hence `paintPixel`
+ *  swapping r/b on write rather than the palette itself. */
+function makeBitmap(widthPx: number, heightPx: number): Buffer {
+  return Buffer.alloc(widthPx * heightPx * 4);
+}
+
+function paintPixel(buf: Buffer, widthPx: number, x: number, y: number, c: Rgb): void {
+  const i = (y * widthPx + x) * 4;
+  buf[i] = c.b;
+  buf[i + 1] = c.g;
+  buf[i + 2] = c.r;
+  buf[i + 3] = 255;
+}
+
+/** Every pixel in the rect is painted at full opacity with no blending —
+ *  the source of this file's "hard pixel edges, no antialiasing" look
+ *  (there's nothing here that could ever produce a partial-alpha edge
+ *  pixel, unlike a vector/canvas rect fill would at a non-integer boundary). */
+function paintRect(buf: Buffer, widthPx: number, heightPx: number, x0: number, y0: number, w: number, h: number, c: Rgb): void {
+  const xEnd = Math.min(widthPx, x0 + w);
+  const yEnd = Math.min(heightPx, y0 + h);
+  for (let y = Math.max(0, y0); y < yEnd; y++) {
+    for (let x = Math.max(0, x0); x < xEnd; x++) paintPixel(buf, widthPx, x, y, c);
+  }
+}
+
+/** Drawn at 2x and handed to `createFromBuffer` with `scaleFactor: 2` for
+ *  every meter/sparkline image below — plain 1x pixel art would look soft
+ *  on a Retina menu bar (macOS scales a 1x `NativeImage` up rather than
+ *  trusting it's already crisp), and the whole point of the segmented,
+ *  hard-edged HP-bar look is that it reads as pixel art, not a blur. */
+const IMAGE_SCALE = 2;
+
+function gaugeTone(percent: number): 'normal' | 'warn' | 'danger' {
+  if (percent >= 80) return 'danger';
+  if (percent >= 50) return 'warn';
+  return 'normal';
+}
+
+const METER_SEGMENTS = 14;
+const METER_WIDTH_PT = 120;
+const METER_HEIGHT_PT = 9;
+
+/** One HP-style gauge — the app's Game Boy visual identity applied to a
+ *  usage percentage: `METER_SEGMENTS` discrete pixel blocks (not a
+ *  continuous fill bar), each segment either fully lit (fill color) or
+ *  fully unlit (track color) — a segment is never partially lit, matching
+ *  a real Game Boy HP bar's all-or-nothing block granularity rather than a
+ *  smooth progress meter. */
+function buildMeterImage(percent: number, palette: TrayPalette): NativeImage {
+  const w = METER_WIDTH_PT * IMAGE_SCALE;
+  const h = METER_HEIGHT_PT * IMAGE_SCALE;
+  const buf = makeBitmap(w, h);
+  const tone = gaugeTone(percent);
+  const fillRgb = hexToRgb(tone === 'danger' ? palette.danger : tone === 'warn' ? palette.warn : palette.done);
+  const trackRgb = hexToRgb(palette.barTrack);
+  const borderRgb = hexToRgb(palette.border);
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filledSegments = Math.round((clamped / 100) * METER_SEGMENTS);
+  const gap = IMAGE_SCALE;
+  const segW = Math.floor((w - gap * (METER_SEGMENTS - 1)) / METER_SEGMENTS);
+  let x = 0;
+  for (let i = 0; i < METER_SEGMENTS; i++) {
+    paintRect(buf, w, h, x, 0, segW, h, borderRgb);
+    paintRect(buf, w, h, x + IMAGE_SCALE, IMAGE_SCALE, segW - 2 * IMAGE_SCALE, h - 2 * IMAGE_SCALE, i < filledSegments ? fillRgb : trackRgb);
+    x += segW + gap;
+  }
+  return nativeImage.createFromBuffer(buf, { width: w, height: h, scaleFactor: IMAGE_SCALE });
+}
+
+const SPARK_WIDTH_PT = 120;
+const SPARK_HEIGHT_PT = 24;
+
+/** 30-day cost sparkline — one hard-edged bar per `days[]` entry, height
+ *  proportional to that day's cost against the window's own max (a zero-cost
+ *  day still draws a minimum-height `disabled`-colored bar rather than
+ *  nothing, so the axis stays readable). */
+function buildSparklineImage(days: CostHistoryDay[], palette: TrayPalette): NativeImage {
+  const w = SPARK_WIDTH_PT * IMAGE_SCALE;
+  const h = SPARK_HEIGHT_PT * IMAGE_SCALE;
+  const buf = makeBitmap(w, h);
+  const accentRgb = hexToRgb(palette.accent);
+  const zeroRgb = hexToRgb(palette.disabled);
+  const max = days.reduce((m, d) => Math.max(m, d.costUsd), 0);
+  const n = Math.max(1, days.length);
+  const gap = IMAGE_SCALE;
+  const barW = Math.max(IMAGE_SCALE, Math.floor((w - gap * (n - 1)) / n));
+  let x = 0;
+  for (const d of days) {
+    const isZero = d.costUsd <= 0;
+    const barH = isZero ? IMAGE_SCALE : Math.max(2 * IMAGE_SCALE, Math.round((d.costUsd / max) * h));
+    paintRect(buf, w, h, x, h - barH, barW, barH, isZero ? zeroRgb : accentRgb);
+    x += barW + gap;
+  }
+  return nativeImage.createFromBuffer(buf, { width: w, height: h, scaleFactor: IMAGE_SCALE });
+}
+
+// ─── Text formatting (unchanged behavior from the deleted popover's own
+// inline script — same rounding/thresholds, just TypeScript instead of a
+// string-embedded <script>) ──────────────────────────────────────────────
+
+/** `UsageWindow.label`'s short chip form ('5h' | '7d' | 'credits' | ...) to
+ *  the friendlier phrase this menu's rows use — anything else (a
+ *  model-scoped promotional window's bare scope name) is shown as-is. */
+function friendlyWindowLabel(label: string): string {
+  if (label === '5h') return 'session (5h)';
+  if (label === '7d') return 'weekly (7d)';
+  if (label === 'credits') return 'extra credits';
+  return label;
+}
+
+function fmtResetIn(resetsAt: number | null, now: number): string | null {
+  if (resetsAt == null) return null;
+  const diffMs = resetsAt - now;
+  if (diffMs <= 0) return 'resets soon';
+  const totalMin = Math.round(diffMs / 60000);
+  const totalHours = Math.floor(totalMin / 60);
+  if (totalHours < 1) return `resets in ${totalMin}m`;
+  if (totalHours < 24) return `resets in ${totalHours}h ${totalMin % 60}m`;
+  const days = Math.floor(totalHours / 24);
+  return `resets in ${days}d ${totalHours % 24}h`;
+}
+
+function fmtAgo(updatedAt: number | undefined, now: number): string {
+  if (!updatedAt) return '';
+  const diffMin = Math.max(0, Math.round((now - updatedAt) / 60000));
+  return diffMin <= 0 ? 'as of just now' : `as of ${diffMin}m ago`;
+}
+
+function fmtUsd(n: number): string {
+  return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+}
+
+function fmtTokens(n: number | null): string {
+  if (n == null) return '—';
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}m`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex CLI' };
+
+/** One `UsageWindow` → one disabled, icon-carrying menu row. `balanceOnly`
+ *  rows (Codex's credit balance — no known max) skip the meter entirely,
+ *  same as the deleted popover: there's no percentage to draw a gauge
+ *  against. */
+function buildWindowItem(w: UsageWindow, now: number, palette: TrayPalette): MenuItemConstructorOptions {
+  const label = friendlyWindowLabel(w.label);
+  if (w.balanceOnly) {
+    return { label: w.balanceText ? `${label} — ${w.balanceText}` : label, enabled: false };
+  }
+  const bits: string[] = [];
+  const percent = w.spend ? (w.spend.limitCents > 0 ? (w.spend.usedCents / w.spend.limitCents) * 100 : 0) : w.usedPercent;
+  bits.push(w.spend ? `${fmtUsd(w.spend.usedCents / 100)} / ${fmtUsd(w.spend.limitCents / 100)} ${w.spend.currency}` : `${Math.round(w.usedPercent)}%`);
+  const resetText = fmtResetIn(w.resetsAt, now);
+  if (resetText) bits.push(resetText);
+  return { label: `${label} — ${bits.join(' · ')}`, enabled: false, icon: buildMeterImage(percent, palette) };
+}
+
+/** The "Limits" section's rows — one block per provider that has anything to
+ *  report (a provider sub-header only when more than one provider is
+ *  present, so the common single-provider case stays as flat as the spec's
+ *  three bullet rows). */
+function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemConstructorOptions[] {
+  if (!usage.enabled) return [{ label: 'usage limits are off — enable them in settings', enabled: false }];
+  if (usage.providers.length === 0) return [{ label: 'no usage data yet', enabled: false }];
+  const now = Date.now();
+  const multiProvider = usage.providers.length > 1;
+  const items: MenuItemConstructorOptions[] = [];
+  for (const p of usage.providers) {
+    if (multiProvider) items.push({ label: PROVIDER_LABEL[p.provider] ?? p.provider, enabled: false });
+    if (p.state === 'ok' || p.state === 'stale') {
+      if (p.state === 'stale') {
+        // `message`/`fmtAgo` can each independently be empty — join only the
+        // non-empty ones so a missing one never leaves a dangling leading or
+        // trailing " · ".
+        const bits = [p.message, fmtAgo(p.updatedAt, now)].filter((bit): bit is string => Boolean(bit));
+        if (bits.length > 0) items.push({ label: bits.join(' · '), enabled: false });
+      }
+      if (p.windows.length === 0) items.push({ label: 'no usage windows reported', enabled: false });
+      for (const w of p.windows) items.push(buildWindowItem(w, now, palette));
+    } else {
+      items.push({ label: p.message ?? 'usage unavailable', enabled: false });
+    }
+  }
+  return items;
+}
+
+/** The "Cost" section's rows — sparkline first, then the four stats the
+ *  spec kept (today, 30d total, latest turn, top model); `last30dTokens`
+ *  the deleted popover also showed is dropped here, per that same spec.
+ *  `hasAttempted` (`CostHistoryService.hasAttempted()`) disambiguates the
+ *  empty-`days` case: `peek()` returns the same zeroed snapshot whether the
+ *  first scan just hasn't finished yet OR every attempt so far has failed
+ *  (`CostHistoryService`'s own `emptySnapshot()` fallback covers both), and
+ *  those read very differently to a user — "computing…" implies it'll
+ *  resolve on its own, which isn't true for the second case. */
+function buildCostItems(cost: CostHistorySnapshot, hasAttempted: boolean, palette: TrayPalette): MenuItemConstructorOptions[] {
+  if (cost.days.length === 0) {
+    return [{ label: hasAttempted ? 'cost history unavailable' : 'computing…', enabled: false }];
+  }
+  const items: MenuItemConstructorOptions[] = [
+    { label: '30-day trend', enabled: false, icon: buildSparklineImage(cost.days, palette) },
+    { label: `today — ${fmtUsd(cost.todayCostUsd)}`, enabled: false },
+    { label: `last 30 days — ${fmtUsd(cost.last30dCostUsd)}`, enabled: false },
+    { label: `last turn — ${fmtTokens(cost.latestTurnTokens)} tok`, enabled: false }
+  ];
+  if (cost.topModel) items.push({ label: `top model — ${cost.topModel.model} (${fmtTokens(cost.topModel.tokens)})`, enabled: false });
+  return items;
+}
+
 export interface TrayControllerDeps {
   usageService: UsageService;
   costHistory: CostHistoryService;
   getSessionRegistry: () => SessionRecord[];
-  /** Same resolver `index.ts` already uses for `resolveWindowBg`/
-   *  `ptyManager.setTerminalAppearance` — so the popover's light/dark call
-   *  for `'system'` mode matches the rest of the app exactly rather than
-   *  re-deriving its own. */
-  getEffectiveTheme: () => 'light' | 'dark';
-  /** Invoked as early as possible on any tray interaction (see `init()`'s
-   *  `mouse-down` listener, which fires ahead of `click`) — lets the main
-   *  window's fullscreen listener distinguish an OS-forced fullscreen exit
-   *  (caused by the tray click activating the app) from a legitimate
-   *  user-initiated one. */
-  onLikelyActivate: () => void;
+  /** "Open Pokéharness" menu item — the popover never needed an explicit
+   *  "show the app" action (it WAS the visible surface); a menu is
+   *  read-only, so this is new. Wired to the same `ensureWindowOpen()`
+   *  index.ts already uses for the Dock icon / second-instance case. */
+  onOpenWindow: () => void;
 }
 
 export class TrayController {
   private tray: Tray | null = null;
-  private popover: BrowserWindow | null = null;
-  /** The theme `popover`'s current document was last built with — `null`
-   *  until the popover exists. Compared against `deps.getEffectiveTheme()`
-   *  to decide whether an existing (possibly hidden/reused) popover needs a
-   *  fresh `loadURL()` rather than always rebuilding on every open. */
-  private popoverTheme: 'light' | 'dark' | null = null;
-  /** Guards against the classic Electron tray-popover double-fire — see
-   *  `toggle()`'s own comment. */
-  private static readonly REOPEN_GUARD_MS = 250;
-  private lastHideAt = 0;
 
   constructor(private deps: TrayControllerDeps) {}
 
@@ -131,28 +380,20 @@ export class TrayController {
     }
     const tray = new Tray(icon);
     tray.setToolTip('Pokéharness');
-    tray.on('click', () => this.toggle());
-    // Fires earlier/closer to the actual native click than `click` above —
-    // see `onLikelyActivate`'s doc comment for why that matters.
-    tray.on('mouse-down', () => this.deps.onLikelyActivate());
+    // No `setContextMenu()` — that would build the menu once and let
+    // Electron cache it, showing stale figures on every open after the
+    // first. Building it fresh in `openMenu()` and popping it up explicitly
+    // is what makes "fresh on every open" (this file's whole reason for
+    // being simpler than the popover it replaced) actually true. No
+    // `mouse-down`/tray-activation-likely listener here (there was one in
+    // this file's first pass) — a status-item menu opens WITHOUT activating
+    // the app the way the old popover BrowserWindow's `show()`/`focus()`
+    // did, so there's nothing left for that listener to guard against; see
+    // git history / index.ts's `leave-full-screen` listener comment for
+    // what it used to catch.
+    tray.on('click', () => this.openMenu());
+    tray.on('right-click', () => this.openMenu());
     this.tray = tray;
-    ipcMain.on('tray:close', () => this.hide());
-    // Pull, not push: the popover page calls this itself (on load, and again
-    // every time it becomes visible — see trayPopoverHtml.ts's own comment)
-    // rather than main pushing a snapshot after `show()`. A push raced the
-    // page's own listener registration on a cold first open — `show()` could
-    // `send()` before the page had even started executing its inline
-    // `<script>`, silently dropping the one-and-only message and leaving the
-    // popover stuck on its static "loading…" markup forever. Pulling has no
-    // such ordering dependency: whenever the page asks, the answer is ready.
-    ipcMain.handle('tray:getData', async (): Promise<TrayPopoverData> => {
-      try {
-        return await this.collectData();
-      } catch (e) {
-        log('tray', 'warn', 'failed to collect popover data', { message: e instanceof Error ? e.message : String(e) });
-        return EMPTY_TRAY_DATA;
-      }
-    });
   }
 
   /** App-teardown cleanup — mirrors every other main-process watcher's own
@@ -161,181 +402,81 @@ export class TrayController {
    *  keeps this controller symmetric with the rest of the app's lifecycle
    *  hygiene rather than being the one exception. */
   destroy(): void {
-    ipcMain.removeAllListeners('tray:close');
-    ipcMain.removeHandler('tray:getData');
-    if (this.popover && !this.popover.isDestroyed()) this.popover.destroy();
-    this.popover = null;
-    this.popoverTheme = null;
     this.tray?.destroy();
     this.tray = null;
   }
 
-  /** Called from `index.ts` whenever the effective theme might have changed
-   *  while the popover is already open — an explicit theme-setting switch,
-   *  or (in `'system'` mode) a live OS-appearance flip, mirroring the
-   *  `nativeTheme.on('updated', ...)` listener that already re-resolves
-   *  `resolveTerminalAppearance` for the terminal elsewhere in `index.ts`.
-   *  A no-op if the popover doesn't exist, isn't visible (its theme is
-   *  reconciled on the next `show()` instead — see there), or the effective
-   *  theme didn't actually change. */
-  syncTheme(): void {
-    if (!this.popover || this.popover.isDestroyed() || !this.popover.isVisible()) return;
-    const theme = this.deps.getEffectiveTheme();
-    if (theme === this.popoverTheme) return;
-    this.loadPopoverTheme(this.popover, theme);
-  }
-
-  /** Clicking the tray icon to CLOSE an open popover steals its focus first,
-   *  which fires the `blur` listener's `hide()` before this click's own
-   *  `toggle()` handler runs — without the `REOPEN_GUARD_MS` check below,
-   *  `toggle()` would then see an already-hidden window and reopen it, so
-   *  the click that was meant to close the popover instead does nothing (or
-   *  flickers). Any click within that window of a blur-triggered hide is
-   *  treated as "that hide already satisfied this click's intent" and
-   *  skipped. */
-  private toggle(): void {
-    if (this.popover && this.popover.isVisible()) {
-      this.hide();
+  /** Pops the menu up IMMEDIATELY from whatever's already cached, then kicks
+   *  off a real refresh in the background for the next open — see this
+   *  file's own header ("Latency") for why an await before showing was a
+   *  regression. Fully synchronous up to `popUpContextMenu` (no `await`
+   *  anywhere before it), which is deliberate, not just an optimization: it
+   *  means there's no window in which `destroy()` could null out `this.tray`
+   *  out from under this call, and no window in which a second rapid click
+   *  could race this one — both would need an `await` to land in between to
+   *  happen at all. */
+  private openMenu(): void {
+    if (!this.tray) return;
+    const palette = nativeTheme.shouldUseDarkColors ? DARK_PALETTE : LIGHT_PALETTE;
+    let template: MenuItemConstructorOptions[];
+    try {
+      template = this.buildTemplate(palette);
+    } catch (e) {
+      // Every read this pulls from is documented not to throw (see each
+      // call site below), so this is belt-and-suspenders — but a menu build
+      // that threw here would otherwise surface as an uncaught exception
+      // inside Electron's 'click' emitter, for a click that should have
+      // just silently done nothing.
+      log('tray', 'warn', 'failed to build tray menu', { message: e instanceof Error ? e.message : String(e) });
       return;
     }
-    if (Date.now() - this.lastHideAt < TrayController.REOPEN_GUARD_MS) return;
-    this.show();
+    this.tray.popUpContextMenu(Menu.buildFromTemplate(template));
+    void this.refreshCaches();
   }
 
-  private hide(): void {
-    this.lastHideAt = Date.now();
-    if (this.popover && !this.popover.isDestroyed()) this.popover.hide();
+  /** Every row's data, read synchronously and fresh (no network/scan
+   *  waiting): `UsageService.getSnapshot()` and `CostHistoryService.peek()`
+   *  both just return their current in-memory cache, never triggering a
+   *  poll/scan themselves — that's `refreshCaches()`'s job, run AFTER this
+   *  menu is already on screen. */
+  private buildTemplate(palette: TrayPalette): MenuItemConstructorOptions[] {
+    const usage = this.deps.usageService.getSnapshot();
+    const costHistory = this.deps.costHistory.peek();
+    const costHistoryAttempted = this.deps.costHistory.hasAttempted();
+    const sessions = countSessions(this.deps.getSessionRegistry());
+    return [
+      { label: `${sessions.working} working · ${sessions.idle} idle · ${sessions.needsYou} needs you`, enabled: false },
+      { type: 'separator' },
+      { label: 'Limits', enabled: false },
+      ...buildUsageItems(usage, palette),
+      { type: 'separator' },
+      { label: 'Cost', enabled: false },
+      ...buildCostItems(costHistory, costHistoryAttempted, palette),
+      { type: 'separator' },
+      { label: 'Open Pokéharness', click: () => this.deps.onOpenWindow() },
+      // `role: 'quit'` calls `app.quit()` under the hood — the SAME entry
+      // point Cmd+Q / Dock quit / the app-menu Quit item already use, so
+      // this goes through the existing `before-quit` live-session
+      // confirmation gate for free rather than needing its own quit path.
+      { label: 'Quit', role: 'quit' }
+    ];
   }
 
-  private show(): void {
-    if (!this.tray) return;
-    const theme = this.deps.getEffectiveTheme();
-    const win = this.popover ?? this.createPopover(theme);
-    // The popover `BrowserWindow` is cached and reused across opens (see
-    // `createPopover()`'s own comment), so a theme switch made while it was
-    // hidden wouldn't otherwise show up until `syncTheme()` next runs — this
-    // catches that stale case on every reopen too, not just a live change
-    // while already visible.
-    if (this.popover && theme !== this.popoverTheme) this.loadPopoverTheme(win, theme);
-    this.popover = win;
-    this.positionUnderTray(win);
-    // showInactive(), not show()+focus(): the latter activates the whole app
-    // on macOS, and activating any window of an app that has another window
-    // in native fullscreen forces that window out of its fullscreen Space.
-    // showInactive() shows the popover without activating the app, so the
-    // main garden window's fullscreen state is left alone. `acceptFirstMouse`
-    // on the popover's BrowserWindow (see `createPopover()`) keeps its
-    // buttons clickable on the very first click despite not being key/focused
-    // on open.
-    win.showInactive();
-    //
-    // No data push here — see `init()`'s `tray:getData` handler comment. The
-    // page's own `visibilitychange` listener does the pulling once `show()`
-    // actually makes it visible.
-  }
-
-  private createPopover(theme: 'light' | 'dark'): BrowserWindow {
-    const win = new BrowserWindow({
-      width: WINDOW_WIDTH,
-      height: POPOVER_HEIGHT,
-      show: false,
-      frame: false,
-      transparent: true,
-      hasShadow: false, // the panel draws its own hard-offset shadow (CSS) — see trayPopoverHtml.ts
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      // Since the popover opens via showInactive() (not key/focused), a
-      // click on it would otherwise just activate the window without
-      // reaching its contents — acceptFirstMouse (macOS-only) makes that
-      // first click also click through to the web contents.
-      acceptFirstMouse: true,
-      webPreferences: {
-        preload: join(__dirname, '../preload/trayPopoverPreload.js'),
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false
-      }
-    });
-    // Electron's own typings for `VisibleOnAllWorkspacesOptions` warn that
-    // calling `setVisibleOnAllWorkspaces` transforms the process type between
-    // UIElementApplication and ForegroundApplication by default "to ensure
-    // the correct behavior", but doing so "will hide the window and dock for
-    // a short time every time it is called" — that's what was making the
-    // Dock's "app is running" indicator dot disappear on a tray click.
-    // `skipTransformProcessType: true` is the documented escape hatch, but
-    // the doc frames it for apps already of type UIElementApplication; this
-    // app has no `LSUIElement` in its electron-builder config and never
-    // calls `app.dock.*`/`setActivationPolicy` (verified: neither appears
-    // anywhere in the codebase), so it runs as a plain ForegroundApplication
-    // and was never relying on that transform for its process type. Skipping
-    // it removes the Dock flicker, but it's not proven risk-free: the
-    // transform exists specifically "to ensure the correct behavior" of
-    // all-workspaces/over-fullscreen visibility, which is the exact
-    // capability `visibleOnFullScreen` below and `showInactive()` in show()
-    // (see that method's comment) exist to give this popover — floating over
-    // a natively-fullscreened main window. Needs a packaged-build check with
-    // the main window in native fullscreen to confirm the popover still
-    // floats above it with this flag set.
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
-    // 'pop-up-menu' is the conventional always-on-top level for exactly this
-    // shape of window (a tray's own popup panel) — the constructor's plain
-    // `alwaysOnTop: true` above only gets the default 'floating' level.
-    win.setAlwaysOnTop(true, 'pop-up-menu');
-    win.on('blur', () => this.hide());
-    win.on('closed', () => {
-      if (this.popover === win) this.popover = null;
-    });
-    // This window only ever shows its own fixed, self-authored data: URL
-    // (never remote/user content), but it's cheap defense-in-depth to
-    // foreclose it from ever opening a new window (same guard createWindow()
-    // already applies to the main window in index.ts) or navigating anywhere
-    // else — `will-navigate` doesn't fire for the `loadURL` call below (that
-    // API only covers navigations a PAGE initiates afterward, e.g. a script
-    // reassigning `window.location`), so this doesn't block the popover's
-    // own initial load.
-    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    win.webContents.on('will-navigate', (e) => e.preventDefault());
-    this.loadPopoverTheme(win, theme);
-    return win;
-  }
-
-  /** Loads (or reloads) `win` with `buildTrayPopoverHtml(theme)` and records
-   *  `theme` as `popoverTheme` — the one place that builds the popover's
-   *  document, shared by both initial creation and a later theme-driven
-   *  reload (`show()`, `syncTheme()`). A full `loadURL()` re-run rather than
-   *  a live DOM patch — see trayPopoverHtml.ts's own comment on
-   *  `buildTrayPopoverHtml` for why that's cheap enough here. */
-  private loadPopoverTheme(win: BrowserWindow, theme: 'light' | 'dark'): void {
-    this.popoverTheme = theme;
-    void win.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(buildTrayPopoverHtml(theme))}`);
-  }
-
-  /** Anchors the popover under the tray icon — `tray.getBounds()` for the
-   *  icon's own screen position, clamped so the panel never renders
-   *  partially off the display it's on (an icon near the right edge of a
-   *  wide/multi-monitor menu bar would otherwise push the window's right
-   *  edge past the screen). */
-  private positionUnderTray(win: BrowserWindow): void {
-    if (!this.tray) return;
-    const trayBounds = this.tray.getBounds();
-    const display = screen.getDisplayMatching(trayBounds);
-    let x = Math.round(trayBounds.x + trayBounds.width / 2 - WINDOW_WIDTH / 2);
-    x = Math.min(Math.max(x, display.workArea.x), display.workArea.x + display.workArea.width - WINDOW_WIDTH);
-    const y = Math.round(trayBounds.y + trayBounds.height);
-    win.setBounds({ x, y, width: WINDOW_WIDTH, height: POPOVER_HEIGHT });
-  }
-
-  private async collectData(): Promise<TrayPopoverData> {
-    const [usage, costHistory] = await Promise.all([
-      this.deps.usageService.refreshNow(),
-      this.deps.costHistory.getSnapshot()
-    ]);
-    return { usage, costHistory, sessions: countSessions(this.deps.getSessionRegistry()) };
+  /** The real (possibly network-bound / child-process-spawning) refresh —
+   *  `UsageService.refreshNow()` and `CostHistoryService.getSnapshot()`,
+   *  the same two calls `openMenu()` used to await before showing anything.
+   *  Fire-and-forget from `openMenu()`: this updates each service's own
+   *  cache for whenever the menu is next opened, and is never on the
+   *  critical path for THIS open. Both calls already swallow their own
+   *  errors into a fallback snapshot (see each service's own header), so
+   *  this try/catch is belt-and-suspenders against an unexpected rejection
+   *  turning into an unhandled one from a `void`-called async method. */
+  private async refreshCaches(): Promise<void> {
+    try {
+      await Promise.all([this.deps.usageService.refreshNow(), this.deps.costHistory.getSnapshot()]);
+    } catch (e) {
+      log('tray', 'warn', 'failed to refresh tray menu data', { message: e instanceof Error ? e.message : String(e) });
+    }
   }
 }
 

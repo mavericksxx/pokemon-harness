@@ -748,9 +748,9 @@ export class UsageService {
       // (`enabled: false`), which renders as "usage limits are off" for up
       // to 60s after the user just turned them on. `providers`/`updatedAt`
       // are left as whatever they already are (empty/stale on a fresh
-      // enable) — trayPopoverHtml.ts's renderUsage and UsageChip both treat
-      // `enabled: true` + no provider data as a legitimate loading state,
-      // not off.
+      // enable) — the tray menu's usage rows (tray.ts's buildUsageItems)
+      // and UsageChip both treat `enabled: true` + no provider data as a
+      // legitimate loading state, not off.
       this.snapshot = { ...this.snapshot, enabled: true };
       this.pollAllGuarded();
       this.timer = setInterval(() => this.pollAllGuarded(), POLL_MS_BACKGROUND);

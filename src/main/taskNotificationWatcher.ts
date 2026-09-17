@@ -130,10 +130,34 @@
  * (e.g. a subagent that itself dispatches a nested
  * agent); this app spawns no battler for a grandchild, so a notification
  * living only on a sidechain must never surface here.
+ *
+ * 2026-09-17 diagnostics + one-writer-per-file fix: real forensics on a
+ * user's machine found TWO real `<task-notification>` completions written to
+ * disk (18:36:42, 18:36:59) that were never acted on — both companions rode
+ * out their full 15-minute roaming timeout instead. Root cause: both landed
+ * in ONE transcript file that this watcher had tracked under TWO DIFFERENT
+ * agentIds, because `restoreFromDisk` (main/index.ts) had respawned two
+ * persisted `SessionRecord`s sharing one `claudeSessionId` — two live
+ * processes both appending to the same file, whose interleaved writes
+ * produced spliced half-records that failed to `JSON.parse` and were
+ * silently discarded forever by `applyLine`'s then-bare `catch { return; }`.
+ * This file had ZERO logging anywhere before this fix, which is why it took
+ * manual byte-level transcript reconstruction to prove rather than a
+ * diagnostics-log read. Three things changed here to make the next one of
+ * these visible in minutes instead of hours: `applyLine`'s catch now logs a
+ * capped prefix of the line it's permanently dropping; `registerSession`
+ * logs whenever a tracked agentId's path actually changes; and a new
+ * `pathOwners` reverse index logs LOUDLY (error) the instant a transcript
+ * path is registered under a second, different agentId — see that field's
+ * own comment. The actual upstream fix — de-duplicating persisted sessions
+ * by `claudeSessionId` before they ever respawn — lives in
+ * `restoreFromDisk`, not here; this file's job was always to read the
+ * transcript correctly, not to prevent two processes from writing one.
  */
 import { closeSync, openSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
 import type { WebContents } from 'electron';
 import type { SessionRecord } from '../shared/types';
+import { log } from './diagnostics';
 
 /** Safety-net poll cadence — `fs.watch` (set up per tracked transcript in
  *  `registerSession`) is the primary trigger; this interval only exists to
@@ -258,6 +282,28 @@ export class TaskNotificationWatcher {
   /** Agent ids the latest `onSessionsChecked` reported as `'working'` — see
    *  this file's header. */
   private workingIds = new Set<string>();
+  /** Reverse index of `tracked`: transcript path -> every agentId currently
+   *  registered against it (2026-09-17 diagnostics fix). `tracked` itself is
+   *  keyed the other way (agentId -> path) and nothing ever checked whether a
+   *  path was ALREADY owned by a different agentId before this — the actual
+   *  mechanism behind the 2026-09-17T18:36 incident this fix was written to
+   *  catch: two persisted `SessionRecord`s sharing one `claudeSessionId` (see
+   *  main/index.ts's `restoreFromDisk`, which now de-dupes that case at the
+   *  source) both respawned a live `claude --resume` process against the SAME
+   *  on-disk transcript file, and this watcher — like costWatcher.ts and
+   *  sessionTitleWatcher.ts, which share the same one-writer assumption —
+   *  ended up with TWO independent byte-offset tailers reading one file each
+   *  process appends to. Their writes interleave; each tailer's `pollOne`
+   *  splits the file at whatever size it observed, so a line spanning a
+   *  torn/interleaved boundary lands in one tailer's non-trailing input and
+   *  fails to parse (see `applyLine`'s catch) — silently and permanently,
+   *  since byte-offset tailing never replays. This index doesn't prevent
+   *  that (the actual fix is upstream, in `restoreFromDisk`); it only makes
+   *  the moment it starts happening impossible to miss in the log. Kept in
+   *  lockstep with `tracked`: written in `registerSession` (only when a
+   *  path is newly gained), cleaned up in `registerSession` (on a reset,
+   *  for the OLD path) and `unregisterSession`. */
+  private pathOwners = new Map<string, Set<string>>();
 
   constructor(private getWebContents: () => WebContents | null) {}
 
@@ -359,9 +405,49 @@ export class TaskNotificationWatcher {
     const existing = this.tracked.get(agentId);
     if (existing) {
       if (existing.path === transcriptPath) return; // harmless no-op — path unchanged
-      if (subagentAgentId || hookEventName !== 'SessionStart') return;
+      // 2026-09-17 diagnostics fix: this branch is exactly "an agentId we
+      // already track just showed up with a DIFFERENT transcript path" —
+      // either about to reset (below) or about to skip the reset (the guard
+      // immediately after this log). Both outcomes matter for forensics (a
+      // skip means this watcher is knowingly still tailing a stale/wrong
+      // path for a live hook stream), so this logs before deciding which one
+      // happens — unlike the harmless same-path no-op just above, which is
+      // the overwhelming majority of calls and carries no new information.
+      //
+      // 2026-09-18 hedge (advisor review): gated to `!subagentAgentId` — a
+      // subagent-scoped payload legitimately carries ITS OWN transcript path
+      // (a `subagents/*.jsonl` file, not the parent's — see costWatcher.ts's
+      // own identical hedge), which almost always differs from whatever's
+      // tracked for the PARENT `agentId` this call is keyed under. Every one
+      // of that subagent's own tool calls would re-hit this branch — a fan-
+      // out of a few active subagents doing hundreds of tool calls each
+      // would flood harness.log fast enough to rotate the incident this
+      // diagnostic exists to capture right out of the retained 20MB×3. A
+      // subagent-scoped payload here ALWAYS has `willReset === false`
+      // anyway (see the guard below) — it can only ever hit the "skip"
+      // branch, never the "reset" one — so gating the log to top-level
+      // payloads loses no reset-relevant signal, only the noisy half.
+      const willReset = !subagentAgentId && hookEventName === 'SessionStart';
+      if (!subagentAgentId) {
+        log('taskNotification', 'info', 'registerSession: transcript path changed for an already-tracked agentId', {
+          agentId,
+          oldPath: existing.path,
+          newPath: transcriptPath,
+          hookEventName,
+          subagentAgentId,
+          reset: willReset
+        });
+      }
+      if (!willReset) return;
+      this.untrackPathOwner(agentId, existing.path);
       this.tracked.delete(agentId);
+    } else {
+      log('taskNotification', 'info', 'registerSession: new tracked transcript', {
+        agentId,
+        newPath: transcriptPath
+      });
     }
+    this.trackPathOwner(agentId, transcriptPath);
     let size = 0;
     try {
       size = statSync(transcriptPath).size;
@@ -380,9 +466,43 @@ export class TaskNotificationWatcher {
   }
 
   unregisterSession(agentId: string): void {
+    const existing = this.tracked.get(agentId);
+    if (existing) this.untrackPathOwner(agentId, existing.path);
     this.tracked.delete(agentId);
     this.unwatchPath(agentId);
     this.reconcileTimer(); // may have been the last session with outstanding work
+  }
+
+  /** Records that `agentId` now owns `path` in the reverse index, and — the
+   *  entire point of this index (see its own field comment) — logs LOUDLY
+   *  the moment that makes a SECOND, different agentId an owner of the same
+   *  path. There is no "correct" resolution to pick here (this watcher has
+   *  no way to know which of the two owning processes is the real one, or
+   *  whether either is), so this deliberately does not try to reconcile
+   *  anything — it only makes the collision impossible to miss. */
+  private trackPathOwner(agentId: string, path: string): void {
+    let owners = this.pathOwners.get(path);
+    if (!owners) {
+      owners = new Set();
+      this.pathOwners.set(path, owners);
+    }
+    const others = [...owners].filter((id) => id !== agentId);
+    if (others.length > 0) {
+      log(
+        'taskNotification',
+        'error',
+        'transcript path registered under a SECOND, different agentId — two processes are likely tailing/writing the same transcript, task-notification completions WILL race and can be silently dropped',
+        { path, agentId, alreadyOwnedBy: others }
+      );
+    }
+    owners.add(agentId);
+  }
+
+  private untrackPathOwner(agentId: string, path: string): void {
+    const owners = this.pathOwners.get(path);
+    if (!owners) return;
+    owners.delete(agentId);
+    if (owners.size === 0) this.pathOwners.delete(path);
   }
 
   /** Sets up (or replaces) the `fs.watch` for a tracked transcript path.
@@ -507,8 +627,31 @@ export class TaskNotificationWatcher {
     let entry: TranscriptEntry;
     try {
       entry = JSON.parse(line);
-    } catch {
-      return; // a torn line read mid-write — will re-parse cleanly once complete
+    } catch (e) {
+      // 2026-09-17 diagnostics fix: this used to be a bare, unlogged
+      // `catch { return; }` — a genuinely torn TRAILING line (mid-write) is
+      // expected and harmless, since `pollOne` never hands this function the
+      // trailing partial (it's held in `t.carry` for the next read instead).
+      // A line THIS function sees failing to parse is a non-trailing line —
+      // `pollOne` already advanced `t.offset` past it — and this codebase's
+      // byte-offset tailing never replays, so that line's data is gone
+      // FOREVER the moment this catch is hit. That silent, permanent loss is
+      // exactly what let two real `<task-notification>` completions vanish
+      // in the 2026-09-17T18:36 incident (two independent processes writing
+      // the same transcript — see `pathOwners`' own comment above — spliced
+      // their interleaved writes into half-records) without a single line of
+      // diagnostics to show it; this log exists so that never happens dark
+      // again. Capped prefix, same reasoning as hookBridge.ts's malformed-
+      // hook-payload log: a transcript line can carry arbitrary user/agent
+      // content, so only a short breadcrumb goes to disk, never the raw line.
+      log('taskNotification', 'warn', 'transcript line failed to parse — dropped permanently, will never be re-read', {
+        agentId,
+        path: t.path,
+        error: e instanceof Error ? e.message : String(e),
+        length: line.length,
+        prefix: line.slice(0, 120)
+      });
+      return;
     }
     // Same exclusion costWatcher.ts applies: a sidechain entry belongs to a
     // SUBAGENT's own nested interleaving, not this parent.

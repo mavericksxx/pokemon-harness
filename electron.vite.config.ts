@@ -26,12 +26,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        // `trayPopoverPreload` — the tray popover's own (much narrower)
-        // preload, a second BrowserWindow that isn't the main renderer (see
-        // src/main/tray.ts's header).
         input: {
-          index: resolve(__dirname, 'src/preload/index.ts'),
-          trayPopoverPreload: resolve(__dirname, 'src/preload/trayPopoverPreload.ts')
+          index: resolve(__dirname, 'src/preload/index.ts')
         }
       }
     }

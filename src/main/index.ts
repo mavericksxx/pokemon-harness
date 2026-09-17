@@ -30,7 +30,7 @@ import { TaskNotificationWatcher } from './taskNotificationWatcher';
 import { loadAudioSettings } from './audioSettings';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
-import { respawnSession } from './sessionRespawn';
+import { respawnSession, type RespawnOutcome } from './sessionRespawn';
 import { ensureClaudeTheme } from './claudeTheme';
 import { defaultHarnessHomeDir, ensureHarnessHome, resolveHarnessHomeDir } from './harnessHome';
 import { ensureHarnessInstructions, harnessInstructionsPath } from './harnessInstructions';
@@ -172,21 +172,6 @@ let mainWindow: BrowserWindow | null = null;
 // racing it blind — see both call sites for why.
 let cancelPendingFullscreenHide: (() => void) | null = null;
 
-// Timestamp (ms since epoch) until which a `leave-full-screen` should be
-// treated as tray-click-induced rather than a legitimate user toggle — see
-// `markTrayActivationLikely` and the `leave-full-screen` listener below.
-let trayActivationLikelyUntil = 0;
-
-// Called as early as possible on any tray interaction (see tray.ts's
-// `onLikelyActivate`), since a tray click activates the app at the
-// OS/AppKit level before any of our JS runs, which can force the main
-// window out of fullscreen outside our control. Recorded as a short-lived
-// window rather than a one-shot flag so it can't race ahead of the
-// `leave-full-screen` event it's meant to catch.
-function markTrayActivationLikely(): void {
-  trayActivationLikelyUntil = Date.now() + 1200;
-}
-
 // Shared by `second-instance` and `activate`, both registered together after
 // boot's own `createWindow(...)` call (~line 1162) — see that registration
 // for why. A user-initiated close now only ever hides the window (see the
@@ -292,16 +277,15 @@ const costHistoryService = new CostHistoryService();
 // after it was closed, darwin's "all windows closed" doesn't quit) must not
 // spawn a second ~4.5s scan of the whole ~/.claude/projects tree.
 let costHistoryWarmed = false;
-// macOS menu-bar item (issue #17) — custom popover panel, not a native
-// `Menu`; see tray.ts's own header for the presentation decision and each
+// macOS menu-bar item (issue #17) — a native `Menu`, built fresh on every
+// open; see tray.ts's own header for the presentation decision and each
 // section's data source. `() => sessionRegistry` is the same forward-
 // reference trick `pokeRelay` below uses.
 const trayController = new TrayController({
   usageService,
   costHistory: costHistoryService,
   getSessionRegistry: () => sessionRegistry,
-  getEffectiveTheme: () => resolveTerminalAppearance(activeTheme),
-  onLikelyActivate: markTrayActivationLikely
+  onOpenWindow: ensureWindowOpen
 });
 // Arceus v2 (docs/arceus-v2-plan.md §3.2/§7) — `poke-relay`'s delivery half
 // (target resolution + the idle-safety InjectionQueue), replacing
@@ -553,7 +537,9 @@ let arceusSpawnAutoMode = false;
 nativeTheme.on('updated', () => {
   if (activeTheme === 'system') {
     ptyManager.setTerminalAppearance(resolveTerminalAppearance(activeTheme));
-    trayController.syncTheme();
+    // No trayController call needed here anymore: the tray menu is built
+    // fresh (theme included) on every open — see tray.ts's own header —
+    // rather than a persisted popover window that needed telling.
   }
 });
 const sessionPersistence = new SessionPersistence(app.getPath('userData'));
@@ -931,6 +917,64 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
 
   if (persisted.sessions.length === 0) return { count: 0, notes: [] };
 
+  // 2026-09-17 fix (hardened 2026-09-18 per advisor review — see this
+  // block's second half below): two persisted records sharing one
+  // `claudeSessionId` must never BOTH respawn. Real forensics (see
+  // taskNotificationWatcher.ts's header) found exactly this: two
+  // `SessionRecord`s on disk resuming the SAME claude conversation, both
+  // respawned here, both live processes appending to the one on-disk
+  // transcript file that id names. This app's per-agentId transcript
+  // readers (costWatcher.ts, sessionTitleWatcher.ts,
+  // taskNotificationWatcher.ts) all assume exactly one writer per file —
+  // two writers interleave their appends, and a line spanning that
+  // interleaving boundary fails to parse and is silently, permanently lost
+  // (byte-offset tailing never replays). That's what stranded two advisor
+  // companions for their full 15-minute roaming timeout: their real
+  // completion notifications WERE written, and were unrecoverably dropped.
+  // Deduping here — before either record ever reaches `respawnSession` — is
+  // the actual fix; taskNotificationWatcher.ts's new `pathOwners` index only
+  // makes the NEXT occurrence loud instead of silent, it doesn't prevent one.
+  //
+  // Checked for an intentional "two panes/sessions on one conversation"
+  // feature before writing this dedup, since that's exactly the shape this
+  // would break if it existed: found none. `claudeSessionId` is captured
+  // exactly once per live process, straight off ITS OWN `SessionStart` hook
+  // payload (hookBridge.ts: `claudeSessionId: p.session_id`) — nothing in
+  // this codebase ever reads one record's `claudeSessionId` and writes it
+  // onto another (no duplicate/clone/split-pane session action exists; the
+  // only two places that construct a respawn arg list from it,
+  // `sessionRespawn.ts`'s `shouldResume`/`respawnArgs`, both treat it as this
+  // record's own 1:1 resume target). Two records sharing one is therefore
+  // always the accidental case this fix targets — most likely two
+  // `SessionRecord`s independently checkpointed against the same live
+  // process at different moments — never a deliberate multi-pane feature.
+  //
+  // 2026-09-18 hardening: the first version of this fix picked a winner by
+  // timestamp ALONE and just dropped the loser from the respawn list — wrong
+  // on the "leave them running" quit path (QuitDialog.tsx), where a
+  // persisted record can correspond to a still-alive DETACHED keeper process
+  // (see pty.ts's `detachToKeeper`/`tryReattach`), independent of and
+  // unreachable through `respawnSession`'s normal spawn/resume path. Dropping
+  // that record before it ever reached `respawnSession`'s own
+  // `tryReattach(record.id)` call meant its keeper — a live `claude` process
+  // STILL appending to the very transcript this fix exists to protect — was
+  // never reattached, never killed, and never shown anywhere in the UI: a
+  // silent leaked orphan, strictly worse than the original bug on the exact
+  // axis this fix exists to address (see `dedupeAndReapClaudeSessionDuplicates`
+  // below for the fix). Winner selection also changed: a record with a live
+  // keeper right now always wins over one that's merely more recently
+  // timestamped on disk — the live one is DEMONSTRABLY the real, current
+  // process; a timestamp is only ever a proxy for that when no live signal
+  // exists at all. Timestamp (`statusChangedAt ?? createdAt`) is still the
+  // tiebreak when nobody in the group has a live keeper, and the tiebreak
+  // used if more than one duplicate somehow has a simultaneously-live keeper
+  // (two real live processes on one transcript, caught in the act — both are
+  // "live", so recency is the best remaining signal to prefer one).
+  const { sessions: dedupedSessions, alreadyReattached } = await dedupeAndReapClaudeSessionDuplicates(
+    persisted.sessions,
+    ptyManager
+  );
+
   const notes: string[] = [];
   const restored: SessionRecord[] = [];
 
@@ -945,20 +989,36 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
   // by the record's own id, so concurrent respawns can't collide; no pool
   // cap is needed. `Promise.allSettled` (not `Promise.all`) so one record's
   // unexpected rejection can't abort the rest. Results are zipped back
-  // against `persisted.sessions` in ORIGINAL order below so the per-record
+  // against `dedupedSessions` in ORIGINAL order below so the per-record
   // bookkeeping (restored-list order, notes) is unaffected by which respawn
-  // actually finished first.
+  // actually finished first. `dedupedSessions`, not `persisted.sessions` —
+  // see the claudeSessionId dedup above: a loser record must never reach
+  // `respawnSession` at all.
+  //
+  // A record in `alreadyReattached` skips `respawnSession` entirely rather
+  // than getting a synthesized-success shortcut bolted on top of it: its
+  // keeper was ALREADY reattached inside `dedupeAndReapClaudeSessionDuplicates`
+  // above (that's how its liveness was even known, to pick it as the
+  // winner) — `PtySession` is now live in `ptyManager.sessions` under this
+  // id. Calling `respawnSession` again would run its own
+  // `ptyManager.tryReattach(record.id)` a SECOND time for the same id, which
+  // `tryReattach` isn't built to expect (it unconditionally
+  // `this.sessions.set(id, ...)`s a brand-new session/socket wrapper without
+  // tearing down whatever's already registered there — see pty.ts) and
+  // would at best throw away the first connection, at worst leak it.
   const outcomes = await Promise.allSettled(
-    persisted.sessions.map((record) =>
-      respawnSession(ptyManager, record, {
-        harnessHomeDir,
-        defaultAgentProvider: appSettings.defaultAgentProvider
-      })
+    dedupedSessions.map((record) =>
+      alreadyReattached.has(record.id)
+        ? Promise.resolve<RespawnOutcome>({ ok: true })
+        : respawnSession(ptyManager, record, {
+            harnessHomeDir,
+            defaultAgentProvider: appSettings.defaultAgentProvider
+          })
     )
   );
 
-  for (let i = 0; i < persisted.sessions.length; i += 1) {
-    const record = persisted.sessions[i];
+  for (let i = 0; i < dedupedSessions.length; i += 1) {
+    const record = dedupedSessions[i];
     const settled = outcomes[i];
     if (settled.status === 'rejected') {
       log('main', 'error', 'session respawn threw', {
@@ -1010,6 +1070,125 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
       : null;
 
   return { count: restored.length, notes };
+}
+
+/** De-dupes `records` by `claudeSessionId` (2026-09-17 fix, hardened
+ *  2026-09-18 per advisor review — see `restoreFromDisk`'s own comment above
+ *  this function's one call site for the full incident/reasoning). Records
+ *  with no `claudeSessionId` (every non-claude session, and any claude
+ *  session whose hooks never fired) pass through untouched — there's nothing
+ *  to collide on and nothing to probe for a live keeper.
+ *
+ *  For every group of 2+ records that DO share a `claudeSessionId`, this
+ *  probes EVERY member for a still-alive "leave them running" keeper
+ *  (`ptyManager.tryReattach(record.id)`) BEFORE picking a winner — a keeper
+ *  socket is scoped to one record's own id (`keeperSockPath`, pty.ts), never
+ *  shared across records that merely happen to share a `claudeSessionId`, so
+ *  probing every member is safe and independent. Winner selection:
+ *    - exactly one member has a live keeper -> it wins, unconditionally —
+ *      it's DEMONSTRABLY the real, current process, not just a timestamp
+ *      proxy for one;
+ *    - more than one member has a live keeper (two live processes on one
+ *      transcript, caught in the act) -> most recently active among the
+ *      live ones wins — recency is the best signal left when both are
+ *      equally "live";
+ *    - nobody has a live keeper (the ordinary "two stale disk records"
+ *      case) -> most recently active of the whole group wins, same rule the
+ *      2026-09-17 version used throughout.
+ *  `statusChangedAt` (stamped on every status transition the session lived
+ *  through; see shared/types.ts) is "activity", falling back to `createdAt`
+ *  for a legacy record with none.
+ *
+ *  Every loser is dropped from the returned list — but if `tryReattach`
+ *  already reattached it above (this is how its liveness was even known),
+ *  its now-live entry in `ptyManager.sessions` is explicitly reaped via
+ *  `ptyManager.kill(record.id)` before it's dropped. Skipping that reap is
+ *  the exact regression the 2026-09-17 version shipped with: a loser with a
+ *  live keeper, dropped from the respawn list without ever being killed,
+ *  becomes an invisible orphan process that keeps appending to the SAME
+ *  transcript this whole fix exists to protect — strictly worse than the
+ *  original bug (two VISIBLE writers) it was meant to fix. Every drop is
+ *  logged, noting whether a live keeper had to be reaped.
+ *
+ *  Returns the deduped record list (order preserved from `records`, same
+ *  contract the 2026-09-17 version had — `restoreFromDisk`'s notes/roster
+ *  bookkeeping zips this 1:1 against respawn outcomes) plus `alreadyReattached`:
+ *  the set of surviving record ids whose keeper is ALREADY live in
+ *  `ptyManager.sessions` by the time this returns. `restoreFromDisk` must
+ *  treat those as an already-successful respawn and skip calling
+ *  `respawnSession` for them — see its own call site comment for why a
+ *  second `tryReattach` against the same id is unsafe. */
+async function dedupeAndReapClaudeSessionDuplicates(
+  records: SessionRecord[],
+  ptyManager: PtyManager
+): Promise<{ sessions: SessionRecord[]; alreadyReattached: Set<string> }> {
+  const activityOf = (r: SessionRecord): number => r.statusChangedAt ?? r.createdAt;
+  const mostRecentlyActive = (group: SessionRecord[]): SessionRecord =>
+    group.reduce((a, b) => (activityOf(b) > activityOf(a) ? b : a));
+
+  const groups = new Map<string, SessionRecord[]>();
+  for (const record of records) {
+    if (!record.claudeSessionId) continue;
+    const group = groups.get(record.claudeSessionId);
+    if (group) group.push(record);
+    else groups.set(record.claudeSessionId, [record]);
+  }
+
+  const losers = new Set<string>();
+  const alreadyReattached = new Set<string>();
+
+  for (const [claudeSessionId, group] of groups) {
+    if (group.length < 2) continue; // ordinary case — nothing to resolve
+
+    const liveIds = new Set<string>();
+    for (const record of group) {
+      // Deliberately sequential, not `Promise.all`: each probe's result
+      // (does `ptyManager.sessions` now have a live entry for this id)
+      // feeds the loop's own `liveIds`/`alreadyReattached` bookkeeping, and
+      // group sizes here are a handful of duplicate records at most — never
+      // a hot loop worth parallelizing.
+      if (await ptyManager.tryReattach(record.id)) {
+        liveIds.add(record.id);
+        alreadyReattached.add(record.id);
+      }
+    }
+
+    const liveRecords = group.filter((r) => liveIds.has(r.id));
+    const winner = liveRecords.length > 0 ? mostRecentlyActive(liveRecords) : mostRecentlyActive(group);
+
+    for (const record of group) {
+      if (record.id === winner.id) continue;
+      losers.add(record.id);
+      const hadLiveKeeper = alreadyReattached.has(record.id);
+      if (hadLiveKeeper) {
+        // Reap it — see this function's own header. Same call a user's own
+        // "stop session" action makes: signals the real process over the
+        // keeper socket (KeeperClient.kill's FRAME_KILL) and removes the
+        // live entry `tryReattach` just added to `ptyManager.sessions`.
+        ptyManager.kill(record.id);
+        alreadyReattached.delete(record.id);
+      }
+      log(
+        'main',
+        'warn',
+        'restoreFromDisk: two persisted sessions shared a claudeSessionId — dropped the loser' +
+          (hadLiveKeeper ? ' and reaped its still-running keeper' : ''),
+        {
+          claudeSessionId,
+          skippedId: record.id,
+          skippedTitle: record.title,
+          skippedHadLiveKeeper: hadLiveKeeper,
+          skippedActivity: activityOf(record),
+          keptId: winner.id,
+          keptTitle: winner.title,
+          keptHadLiveKeeper: liveIds.has(winner.id),
+          keptActivity: activityOf(winner)
+        }
+      );
+    }
+  }
+
+  return { sessions: records.filter((r) => !losers.has(r.id)), alreadyReattached };
 }
 
 /** A concrete workspace id for a possibly-missing/stale one — see
@@ -1226,23 +1405,16 @@ function createWindow(backgroundColor: string): void {
     if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', true);
   });
   win.on('leave-full-screen', () => {
-    // A tray-icon click activates the app at the OS/AppKit level before any
-    // JS runs, which can force the main window out of fullscreen outside any
-    // of our own control — that leaves AppKit's bookkeeping confused (stuck
-    // fullscreen button, wrong Dock indicator). We can't tell "our own call"
-    // apart from "everything else" here, because a legitimate manual
-    // fullscreen exit (green-button click, Cmd+Ctrl+F) also isn't our own
-    // call and must NOT be undone — so instead we specifically watch for a
-    // recent tray interaction (see `markTrayActivationLikely`/
-    // `trayActivationLikelyUntil`) and only auto-restore in that case. Snap
-    // straight back into fullscreen and skip the IPC message — the window
-    // never really left from the user's perspective, and `enter-full-screen`
-    // will send `true` once the re-entry completes.
-    if (Date.now() < trayActivationLikelyUntil) {
-      trayActivationLikelyUntil = 0;
-      if (!win.isDestroyed()) win.setFullScreen(true);
-      return;
-    }
+    // Used to special-case a tray-click-induced exit here (the old popover
+    // BrowserWindow's show()/focus() activated the app at the OS/AppKit
+    // level, which could force the main window out of fullscreen outside
+    // our control) and snap straight back in — see git history
+    // (markTrayActivationLikely/trayActivationLikelyUntil) for that
+    // mechanism. Gone now that the tray is a native NSMenu: a status-item
+    // menu opens WITHOUT activating the app, so there's no tray-induced
+    // case left to distinguish from a legitimate manual fullscreen exit
+    // (green-button click, Cmd+Ctrl+F) — every `leave-full-screen` here is
+    // real.
     if (!win.webContents.isDestroyed()) win.webContents.send('window:fullscreenChanged', false);
   });
 
@@ -1617,7 +1789,8 @@ registerSettingsIpc({
   syncKeepAwake,
   setActiveTheme: (theme) => {
     activeTheme = theme;
-    trayController.syncTheme();
+    // No trayController call needed here anymore — see the nativeTheme
+    // 'updated' listener's comment above for why.
   },
   setKeepAwakeEnabled: (enabled) => {
     keepAwakeEnabled = enabled;
