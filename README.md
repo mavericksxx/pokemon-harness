@@ -51,8 +51,8 @@ on your `PATH`; there's no separate account or login inside the app.
 - Walkers driven by scraping the agent's terminal output: `working` walks to a
   station and shows the tool in a bubble, `blocked` walks to the signpost with a
   pulsing `!`, `idle` wanders
-- Walkers face the way they're walking: predominantly-upward movement swaps to
-  the species' back sheet (bundled or lazily fetched), front otherwise
+- Walkers face the way they're walking, mirroring their front sheet
+  horizontally; Pokemon only ever show their front, never a back view
 - Sessions evolve as their agent works: accumulated `working` time crosses
   thresholds and the walker plays a flash/pulse/sparkle animation into its
   line's next stage, gaining whatever locomotion that stage has (e.g.
@@ -118,10 +118,10 @@ POKE_SHINY_ODDS=1 npm run dev
 ```
 
 A shiny walker's first garden spawn plays a sparkle burst (a ring of 4-6
-twinkling white/gold stars) and a floating "✨ Shiny!"; a small ★ badge marks
+twinkling white/gold stars) and a floating "Shiny!"; a small ★ badge marks
 it on its session tab and, if that line is already taken, in the picker.
 Showdown/Smogon ship no shiny sheets for the 42 bundled species, so a shiny
-pick always fetches its sprite lazily — front and back, animated or static —
+pick always fetches its sprite lazily — the front sheet, animated or static —
 even for an otherwise-bundled species; a 404'd shiny front sheet falls back
 to the normal sprite (logged), keeping the shiny flag and badge either way.
 Wild subagent-battle challengers (below) roll shiny with the same odds and
@@ -174,9 +174,9 @@ When a `claude` session's hooks (or, as a fallback, its terminal output —
 subagent spawn: a random ANIMATED Pokemon (excluding lines already in use by
 a session or another battler, preferring bundled base-stage species) poofs
 in far from the parent, a "!" pops over both its head and the parent's, and
-then both walk toward each other and square off — the parent bottom-left on
-its back sheet, the challenger top-right on its front sheet, gen5ani's own
-native draw angles aiming them at each other with no mirroring needed. While
+then both walk toward each other and square off — the parent bottom-left,
+the challenger top-right on a mirrored front sheet so the two face each
+other. Pokemon only ever show their front; back sheets are never used. While
 the subagent is active, the parent's own tool calls become alternating
 attacks (lunge, hit-flash, floating "«Species» used «Tool»!" text); rapid
 tool events coalesce into the current attack's combo counter instead of
@@ -278,9 +278,9 @@ Both art seams are pure data changes:
   an import line.
 - **Pokemon** — `scene/garden/showdownArt.ts` reads
   `assets/showdown/manifest.json` for frame geometry, per-frame durations,
-  locomotion and evolution data (line/stage/evolvesTo), and finds the front and
-  back sheets by glob. Adding a Pokemon is a PNG plus a manifest entry; no code
-  change.
+  locomotion and evolution data (line/stage/evolvesTo), and finds each
+  species' front sheet by glob. Adding a Pokemon is a PNG plus a manifest
+  entry; no code change.
 - **Sprite size** — `scene/garden/spriteScale.ts` normalises each species'
   native sheet height to a target height in tiles (`TILE_HEIGHT_OVERRIDES` for
   a species that lands wrong).

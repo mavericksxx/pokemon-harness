@@ -8,9 +8,9 @@ When a `claude` session's hooks (or, as a fallback, its terminal output —
 subagent spawn: a random ANIMATED Pokemon (excluding lines already in use by
 a session or another battler, preferring bundled base-stage species) poofs
 in far from the parent, a "!" pops over both its head and the parent's, and
-then both walk toward each other and square off — the parent bottom-left on
-its back sheet, the challenger top-right on its front sheet, gen5ani's own
-native draw angles aiming them at each other with no mirroring needed. While
+then both walk toward each other and square off — the parent bottom-left,
+the challenger top-right on a mirrored front sheet so the two face each
+other. Pokemon only ever show their front; back sheets are never used. While
 the subagent is active, the parent's own tool calls become alternating
 attacks (lunge, hit-flash, floating "«Species» used «Tool»!" text); rapid
 tool events coalesce into the current attack's combo counter instead of
