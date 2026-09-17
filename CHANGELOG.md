@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## Unreleased
+
+- Fixed the Dock's "app is running" indicator dot disappearing when clicking the menu-bar tray icon.
+
 ## v1.20.5 — 2026-09-17
 
 - Garden day/night toggle (top-right) is now three discrete buttons — Auto / Day / Night — instead of one button that cycled through them; each sets its mode directly, and the active one is shown pressed.

@@ -261,7 +261,27 @@ export class TrayController {
         nodeIntegration: false
       }
     });
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // Electron's own typings for `VisibleOnAllWorkspacesOptions` warn that
+    // calling `setVisibleOnAllWorkspaces` transforms the process type between
+    // UIElementApplication and ForegroundApplication by default "to ensure
+    // the correct behavior", but doing so "will hide the window and dock for
+    // a short time every time it is called" — that's what was making the
+    // Dock's "app is running" indicator dot disappear on a tray click.
+    // `skipTransformProcessType: true` is the documented escape hatch, but
+    // the doc frames it for apps already of type UIElementApplication; this
+    // app has no `LSUIElement` in its electron-builder config and never
+    // calls `app.dock.*`/`setActivationPolicy` (verified: neither appears
+    // anywhere in the codebase), so it runs as a plain ForegroundApplication
+    // and was never relying on that transform for its process type. Skipping
+    // it removes the Dock flicker, but it's not proven risk-free: the
+    // transform exists specifically "to ensure the correct behavior" of
+    // all-workspaces/over-fullscreen visibility, which is the exact
+    // capability `visibleOnFullScreen` below and `showInactive()` in show()
+    // (see that method's comment) exist to give this popover — floating over
+    // a natively-fullscreened main window. Needs a packaged-build check with
+    // the main window in native fullscreen to confirm the popover still
+    // floats above it with this flag set.
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     // 'pop-up-menu' is the conventional always-on-top level for exactly this
     // shape of window (a tray's own popup panel) — the constructor's plain
     // `alwaysOnTop: true` above only gets the default 'floating' level.
