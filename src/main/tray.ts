@@ -176,7 +176,7 @@ function gaugeTone(percent: number): 'normal' | 'warn' | 'danger' {
   return 'normal';
 }
 
-// 10, not 14 — at the narrower 72pt image width (see METER_WIDTH_PT), 14
+// 10, not 14 — at the meter's 72pt image width (see METER_WIDTH_PT), 14
 // segments leaves each fill only 2pt wide after its 1pt border, too thin to
 // read; 10 segments gives each one a comfortable 4pt fill.
 const METER_SEGMENTS = 10;
@@ -210,7 +210,12 @@ function buildMeterImage(percent: number, palette: TrayPalette): NativeImage {
   return nativeImage.createFromBuffer(buf, { width: w, height: h, scaleFactor: IMAGE_SCALE });
 }
 
-const SPARK_WIDTH_PT = 72;
+// 90, not 72 (unlike METER_WIDTH_PT) — at 72pt and 30 zero-filled days
+// (`CostHistoryService`'s LOOKBACK_DAYS), bars floor to 1pt, too thin to
+// read as a trend; 90pt gives 2pt bars with 1pt gaps, a near-exact fit.
+// The two widths don't need to match: NSMenu sizes the shared image gutter
+// to the widest image among the menu's rows, so this is the wider one.
+const SPARK_WIDTH_PT = 90;
 const SPARK_HEIGHT_PT = 24;
 
 /** 30-day cost sparkline — one hard-edged bar per `days[]` entry, height
@@ -282,21 +287,32 @@ function fmtTokens(n: number | null): string {
 
 const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex CLI' };
 
-/** One `UsageWindow` → one disabled, icon-carrying menu row. `balanceOnly`
- *  rows (Codex's credit balance — no known max) skip the meter entirely,
- *  same as the deleted popover: there's no percentage to draw a gauge
- *  against. */
+/** A non-interactive, data-carrying menu row (every row below except the
+ *  three section headers). These must stay `enabled` even though a click
+ *  does nothing: AppKit dims BOTH a disabled `NSMenuItem`'s title text and
+ *  its attached image, and Electron's `Menu`/`MenuItem` API exposes no way
+ *  to get non-dimmed, genuinely inert menu text — that would need a custom
+ *  `NSMenuItem.view`, which Electron doesn't surface. "Enabled with a no-op
+ *  click handler" is the closest approximation available. */
+function infoRow(label: string, icon?: NativeImage): MenuItemConstructorOptions {
+  return icon ? { label, icon, click: () => {} } : { label, click: () => {} };
+}
+
+/** One `UsageWindow` → one enabled, icon-carrying menu row (see `infoRow`
+ *  for why "enabled" despite being read-only). `balanceOnly` rows (Codex's
+ *  credit balance — no known max) skip the meter entirely, same as the
+ *  deleted popover: there's no percentage to draw a gauge against. */
 function buildWindowItem(w: UsageWindow, now: number, palette: TrayPalette): MenuItemConstructorOptions {
   const label = friendlyWindowLabel(w.label);
   if (w.balanceOnly) {
-    return { label: w.balanceText ? `${label} — ${w.balanceText}` : label, click: () => {} };
+    return infoRow(w.balanceText ? `${label} — ${w.balanceText}` : label);
   }
   const bits: string[] = [];
   const percent = w.spend ? (w.spend.limitCents > 0 ? (w.spend.usedCents / w.spend.limitCents) * 100 : 0) : w.usedPercent;
   bits.push(w.spend ? `${fmtUsd(w.spend.usedCents / 100)} / ${fmtUsd(w.spend.limitCents / 100)} ${w.spend.currency}` : `${Math.round(w.usedPercent)}%`);
   const resetText = fmtResetIn(w.resetsAt, now);
   if (resetText) bits.push(resetText);
-  return { label: `${label} — ${bits.join(' · ')}`, click: () => {}, icon: buildMeterImage(percent, palette) };
+  return infoRow(`${label} — ${bits.join(' · ')}`, buildMeterImage(percent, palette));
 }
 
 /** The "Limits" section's rows — one block per provider that has anything to
@@ -304,8 +320,8 @@ function buildWindowItem(w: UsageWindow, now: number, palette: TrayPalette): Men
  *  present, so the common single-provider case stays as flat as the spec's
  *  three bullet rows). */
 function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemConstructorOptions[] {
-  if (!usage.enabled) return [{ label: 'usage limits are off — enable them in settings', click: () => {} }];
-  if (usage.providers.length === 0) return [{ label: 'no usage data yet', click: () => {} }];
+  if (!usage.enabled) return [infoRow('usage limits are off — enable them in settings')];
+  if (usage.providers.length === 0) return [infoRow('no usage data yet')];
   const now = Date.now();
   const multiProvider = usage.providers.length > 1;
   const items: MenuItemConstructorOptions[] = [];
@@ -317,12 +333,12 @@ function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemCo
         // non-empty ones so a missing one never leaves a dangling leading or
         // trailing " · ".
         const bits = [p.message, fmtAgo(p.updatedAt, now)].filter((bit): bit is string => Boolean(bit));
-        if (bits.length > 0) items.push({ label: bits.join(' · '), click: () => {} });
+        if (bits.length > 0) items.push(infoRow(bits.join(' · ')));
       }
-      if (p.windows.length === 0) items.push({ label: 'no usage windows reported', click: () => {} });
+      if (p.windows.length === 0) items.push(infoRow('no usage windows reported'));
       for (const w of p.windows) items.push(buildWindowItem(w, now, palette));
     } else {
-      items.push({ label: p.message ?? 'usage unavailable', click: () => {} });
+      items.push(infoRow(p.message ?? 'usage unavailable'));
     }
   }
   return items;
@@ -339,15 +355,15 @@ function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemCo
  *  resolve on its own, which isn't true for the second case. */
 function buildCostItems(cost: CostHistorySnapshot, hasAttempted: boolean, palette: TrayPalette): MenuItemConstructorOptions[] {
   if (cost.days.length === 0) {
-    return [{ label: hasAttempted ? 'cost history unavailable' : 'computing…', click: () => {} }];
+    return [infoRow(hasAttempted ? 'cost history unavailable' : 'computing…')];
   }
   const items: MenuItemConstructorOptions[] = [
-    { label: '30-day trend', click: () => {}, icon: buildSparklineImage(cost.days, palette) },
-    { label: `today — ${fmtUsd(cost.todayCostUsd)}`, click: () => {} },
-    { label: `last 30 days — ${fmtUsd(cost.last30dCostUsd)}`, click: () => {} },
-    { label: `last turn — ${fmtTokens(cost.latestTurnTokens)} tok`, click: () => {} }
+    infoRow('30-day trend', buildSparklineImage(cost.days, palette)),
+    infoRow(`today — ${fmtUsd(cost.todayCostUsd)}`),
+    infoRow(`last 30 days — ${fmtUsd(cost.last30dCostUsd)}`),
+    infoRow(`last turn — ${fmtTokens(cost.latestTurnTokens)} tok`)
   ];
-  if (cost.topModel) items.push({ label: `top model — ${cost.topModel.model} (${fmtTokens(cost.topModel.tokens)})`, click: () => {} });
+  if (cost.topModel) items.push(infoRow(`top model — ${cost.topModel.model} (${fmtTokens(cost.topModel.tokens)})`));
   return items;
 }
 
@@ -448,7 +464,7 @@ export class TrayController {
     const costHistoryAttempted = this.deps.costHistory.hasAttempted();
     const sessions = countSessions(this.deps.getSessionRegistry());
     return [
-      { label: `${sessions.working} working · ${sessions.idle} idle · ${sessions.needsYou} needs you`, click: () => {} },
+      infoRow(`${sessions.working} working · ${sessions.idle} idle · ${sessions.needsYou} needs you`),
       { type: 'separator' },
       { label: 'Limits', enabled: false },
       ...buildUsageItems(usage, palette),
