@@ -449,30 +449,66 @@ session currently flagged `isLead`". That is a real change to the trust boundary
 `shared/pokeTools.ts` is already honest about what this guard is: "a discoverability boundary
 against an ordinary session accidentally reaching a tool meant only for Arceus, not real
 sandboxing against a hostile one." Widening it grows the set of sessions that can spawn other
-sessions and type into their terminals. The check must read the **live** session record, so
-demoting a lead revokes its access immediately, and it must not be satisfiable by an env var a
-child happens to have inherited — the existing comment already flags that exact hazard for
-poke-spawned workers.
+sessions and type into their terminals.
+
+**Corrections from advisor review:**
+
+- The check must read the **live** session record, which in main means `sessionRegistry`
+  (`index.ts:792`) — a renderer-pushed mirror refreshed per checkpoint. `HookBridge`'s existing
+  `isKnownSession` is pty-level (`ptyManager.hasSession`), so this is a **new callback**, not a
+  widening of that one.
+- The inherited-env hazard is **already true for Arceus**: a lead's own Agent-tool subagents run
+  inside the lead's process and share its `POKEHARNESS_AGENT_ID`, so a subagent's Bash call passes
+  as the lead. App-spawned children get their own id (`pty.ts:337`, `index.ts:408`) and are fine.
+  This is a pre-existing property of the trust model, worth stating rather than discovering.
+- **`PokeAskNotice` carries no requester id** (`shared/pokeTools.ts:73`), and `PokeAskModal.tsx:102`
+  writes the answer to `ARCEUS_SESSION_ID` **hardcoded**; `armInitialTaskDelivery`'s give-up path
+  does the same (`sessions.ts:311-318`). Widening the guard without threading `parentAgentId`
+  through those notices would route a lead's questions and outcomes into Arceus's terminal. This
+  is a required part of the work, not a detail.
+- **The permission rule is still unverified.** `hookBridge.ts:113-123` explicitly flags
+  `Bash(poke-ask:*)` prefix-matching a bare PATH-resolved command name as UNVERIFIED. If it is
+  false, `poke-plan` in a lead with auto-mode off stalls on a permission prompt in a terminal
+  nobody is watching. Verify empirically once, before building on it.
 
 ---
 
-## 5. Open implementation questions
+## 5. Lifecycle and concurrency — known hazards
 
-Not design gaps; things to settle with review rather than guess:
+Raised by advisor review against the real code. These are not open questions; they are things that
+will break unless designed for.
 
-- Does a lead survive app restart? (Presumably yes, via the normal respawn path — but `isLead`
-  must be persisted and re-read, which is precisely the class of bug the Arceus provider/model
-  relaunch fix already had to fix once.)
-- What happens to in-flight children if the lead dies or is demoted? Orphan them as ordinary
-  sessions, or stop them?
-- Worktree lifecycle: when is a merged child's worktree removed, and who removes it? (The repo
-  currently has stale agent worktrees under `.claude/worktrees/`, which is evidence this needs an
-  owner.)
-- Does a child inherit the workspace `MEMORY.md` read-only by convention, or is it actually
-  enforced?
-- Lane-modal shape at N>1 (§3.4) — confirm one modal vs sequential.
-- Whether `HARNESS.md`'s orchestrator section should be suppressed for a lead (it would be
-  redundant with the lead's own prompt) and for children (it already is, for delegates).
+**Lifecycle**
+
+- **Lead pty dies** → a fallback shell takes over the same id, status goes `done`, `isLead` stays
+  set, and every fan-in injection is then dropped silently (`injectionQueue.ts:78`). Needs a
+  "lead gone, N children still running" surface.
+- **App relaunch** → a claude child resumes via `--resume` into `record.cwd`, which is its
+  *worktree* path. If that worktree was removed, `spawn` fails (`pty.ts:280`), the shell fallback
+  fails too, and the session vanishes. Luna children are never persisted and are killed at quit.
+  A mixed-lane fan-out therefore comes back **partial, with no explanation**.
+- **Lead relaunch** must re-apply the role — the fix is `SpawnPtyOptions` carrying it on every
+  spawn path (§3.1), not merely persisting `isLead`.
+- **Demotion with children in flight** — guard revocation means an in-flight `poke-plan`
+  confirmation can land after the lead lost its rights, with the spawn already underway. Define
+  the outcome.
+
+**Renderer/main round trip — `poke-plan` is a worse version of a problem `poke-spawn` already
+solved.** `poke-spawn` is main-spawn → `poke:spawned` → renderer adopt → wait for `SessionStart` →
+inject → write outcome (`sessions.ts:254-375`, `index.ts:455-494`). `poke-plan` is main → renderer
+modal → user → renderer → main ×N (worktree create + spawn each) → renderer adopt ×N → N
+`SessionStart` waits → outcomes. Concrete hazards at N≥2:
+
+- **Species collision.** `pickFreeLine(takenLines())` is called *before* `await initShinyConfig()`
+  and before `addSession` (`sessions.ts:330-338`), so two concurrent adoptions can pick the same
+  line. Fix by picking all N synchronously at confirm time, or by moving the pick after the await.
+- **The trust-this-folder prompt becomes the normal case.** Every new worktree is a directory
+  Claude Code has never seen. The `SessionStart` gate exists precisely to dodge that
+  (`sessions.ts:271-278`). Confirm empirically that `SessionStart` still fires once trust is
+  granted — otherwise the task never lands and N give-up toasts fire at once.
+- **Batch outcomes into one injection** into the lead, not N.
+- **Partial spawn failure** mid-batch (`MAX_CONCURRENT_SESSIONS = 64`, `pty.ts:93`; a missing cwd)
+  needs a defined outcome: roll back the batch, or report partial.
 
 ## 6. Deliberately deferred
 
@@ -486,21 +522,46 @@ Not design gaps; things to settle with review rather than guess:
 - **Cloud execution** — not needed; local is the differentiator, not the compromise.
 - **A reviewer child before merge** — the named fallback if §3.6's merge policy proves too loose.
 
-## 7. Recommended v1 scope
+## 7. Recommended v1 scope, in build order
 
-1. `isLead` + promotion UI + one-per-workspace enforcement + persistence across relaunch.
-2. The lead's composed system prompt at the `PtyManager.spawn` choke point.
-3. Widened `isFromArceus` → lead-aware guard (§4.1), reading live session state.
-4. `poke-plan` + the N-row lane modal + worktree-per-child spawning.
-5. `leadParentId` / `taskId` / `taskTitle` + garden/party-rail task grouping.
-6. The report-file fan-in path, including the no-report-written failure case.
-7. Per-workspace `MEMORY.md`, lead-written on child completion, child-read on start.
-8. Merge-clean / escalate-conflict in the lead's prompt.
+Advisor review found the original ordering wrong: task-grouping fields are a prerequisite of the
+dispatch tool (adoption must stamp them) and of fan-in (which needs to know *which* lead to inject
+into), and the lead prompt depends on the role plumbing. Corrected order:
+
+1. **Role on `SpawnPtyOptions` + `SessionRecord.isLead`** — every spawn path carries it, including
+   `sessionRespawn`. Promotion = respawn with `--resume`. Project-root resolution and the
+   one-lead-per-root rule (§3.1).
+2. **Lead prompt composed at the `PtyManager.spawn` choke point**, `HARNESS.md` excluded, via a
+   general "one composed file per role" step rather than another `if` branch.
+3. **Trust guard widened** (§4.1) + `parentAgentId` threaded through `PokeAskNotice` and the
+   outcome/give-up paths, so a lead's asks don't land in Arceus's terminal. Verify the
+   `Bash(poke-plan:*)` permission rule empirically here.
+4. **Task-grouping fields** — `leadParentId` / `taskId` on children, `leadPlans` on the lead.
+5. **`poke-plan`** — the N-row lane modal, app-owned worktree creation, the non-repo fallback, the
+   synchronous species pick, batched outcomes.
+6. **Report-file-watched fan-in** via `PokeRelay`, including the no-report and lead-died cases.
+7. **Merge policy** in the lead's prompt text, plus worktree teardown on successful merge.
+8. **Lead visual treatment** (§3.9).
+
+**`MEMORY.md` (§3.7) moves to a follow-up.** Advisor's call, and it is right: it has no tested
+mechanism, it needs the role-aware composed-file change for *children* (which item 2 only does for
+leads), Luna children can't receive it the same way at all, and nothing else in v1 depends on it.
+It is a clean second increment rather than a v1 risk. This does not reverse the user's decision to
+have it — only its position in the queue.
 
 Not in scope: everything in §6, and any change to Arceus.
 
-## 8. Items needing the user's confirmation before build
+## 8. Items still needing the user's confirmation
 
-- §3.4 lane-modal shape at N>1 (one modal, N rows — interpreted, not stated).
-- §3.3 task grouping via session pointers rather than a `TaskRecord` registry.
-- §3.5 report-file fan-in as the mechanism (vs any alternative the user prefers).
+- **Lane-modal shape at N>1** (§3.4) — one modal with N rows, or N sequential modals. Interpreted,
+  not stated.
+- **Mixed-lane fan-out in v1, or claude-only children first.** A mixed fan-out has two completion
+  channels and two relaunch behaviors, and is most of §5's lifecycle complexity.
+- **Worktree teardown timing** (§3.6) — on merge, on child close, or never-automatic.
+- **Lead visual treatment** (§3.9) — the hairline-gold-edge proposal, or something else.
+
+Already decided and recorded above: lead is not Arceus (§3.1); lead never writes code (§3.1);
+children are real sessions (§3.2); one lead per project root, not per workspace (§3.1); both
+spawn-time and promote-later (§3.1); summary-only review (§3.6); lead merges clean, escalates
+conflicts (§3.6); memory is lead-written on completion (§3.7); blocked children surface without
+over-building (§3.8).
