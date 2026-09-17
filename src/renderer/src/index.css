@@ -5053,6 +5053,29 @@ body.garden-lowres .garden canvas {
   display: none;
 }
 
+/* Dictation / IME overlay (macOS Dictation, and any IME composition). xterm
+ * renders text that is still BEING composed — not yet committed to the pty —
+ * in its own absolutely-positioned `.composition-view` overlay rather than in
+ * the terminal grid, so the CLI's own wrapping never applies to it. xterm's
+ * stock CSS sets `white-space: nowrap` on that overlay (with a "TODO:
+ * Composition position got messed up somewhere" of its own), which means a
+ * dictated sentence runs off the right edge of the pane in a single line
+ * until it's committed, instead of wrapping inside the box. Allow it to wrap
+ * and bound it to the mount's width. Its stock colors are hardcoded
+ * #000-on-#FFF, which ignores this app's theme entirely — the tokens below
+ * are the same pairing every other floating surface here uses. */
+.terminal-mount .xterm .composition-view {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
 /* Custom I-beam text cursor on inputs — a light outline + dark core reads on
  * this app's dark surfaces everywhere the OS's own text cursor (which can
  * render near-invisible on some platform/scheme combinations) would not.
