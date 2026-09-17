@@ -523,6 +523,9 @@
   .band-features {
     background: radial-gradient(ellipse 1000px 400px at 70% 0%, rgba(111, 179, 196, 0.09), transparent 70%);
   }
+  .band-harness {
+    background: radial-gradient(ellipse 1000px 400px at 30% 0%, rgba(168, 150, 227, 0.09), transparent 70%);
+  }
   .section h2 {
     font-family: var(--font-display);
     font-weight: 400;
@@ -601,6 +604,27 @@
     border-left-width: 3px;
     border-left-style: solid;
     overflow: hidden;
+  }
+  /* A card with a docs page wraps its .feature-card in one of these instead
+     of a plain div — display:block since an <a> is inline by default, and
+     color/text-decoration reset so the card's own children keep reading as
+     plain body copy, not link-blue underlined text. Hover/focus brightens
+     the card's inset border to gold, the same affordance .btn-secondary and
+     .tour-chip already use elsewhere on this page for an interactive
+     surface. A card with no docs page (day and night) stays a plain div and
+     isn't wrapped. */
+  .feature-card-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+  }
+  .feature-card-link:hover .feature-card,
+  .feature-card-link:focus-visible .feature-card {
+    box-shadow: inset 0 0 0 1px var(--gold);
+  }
+  .feature-card-link:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
   }
   .feature-media {
     aspect-ratio: 16 / 10;
@@ -1080,6 +1104,7 @@
   <p class="eyebrow">features</p>
   <h2>what's in the garden</h2>
   <div class="features">
+    <a class="feature-card-link" href="/docs/shiny-pokemon/">
     <div class="feature-card" style="border-left-color: var(--coral)">
       <div class="feature-media solid" style="background: rgba(224, 140, 130, 0.14); color: var(--coral)">★︎</div>
       <div class="feature-body">
@@ -1087,6 +1112,8 @@
         <p>every session rolls for shiny once, at 1-in-64 odds, and keeps it for life. a shiny session gets a sparkle burst and a star badge.</p>
       </div>
     </div>
+    </a>
+    <a class="feature-card-link" href="/docs/evolution/">
     <div class="feature-card" style="border-left-color: var(--mint)">
       <div class="feature-media">
         <img src="/screenshots/evolution.png" alt="an evolution ceremony mid-flash, the walker's old form as a white silhouette">
@@ -1096,6 +1123,8 @@
         <p>working time adds up. cross a threshold and the walker plays an evolution ceremony: a flash, a silhouette, then the new form. some evolved forms fly instead of walk.</p>
       </div>
     </div>
+    </a>
+    <a class="feature-card-link" href="/docs/subagent-battles/">
     <div class="feature-card" style="border-left-color: var(--sky)">
       <div class="feature-media solid" style="background: rgba(111, 179, 196, 0.14); color: var(--sky)">⚔︎</div>
       <div class="feature-body">
@@ -1103,6 +1132,8 @@
         <p>a task tool call spawns a wild pokémon. when it's done, it walks up and fights the parent: lunges, hit flashes, move text overhead. battles play out one at a time, so finishes queue up if a few land close together.</p>
       </div>
     </div>
+    </a>
+    <a class="feature-card-link" href="/docs/mega-evolution/">
     <div class="feature-card" style="border-left-color: var(--lemon)">
       <div class="feature-media">
         <img src="/screenshots/mega.png" alt="a mega-evolved charizard mid-battle, gold ring and sparkle burst around it, a floating 'mega evolved!' text overhead">
@@ -1112,6 +1143,8 @@
         <p>dozens of species mega-evolve for the length of a battle, with a full ring, vortex, and plume ceremony. they revert once the fight ends.</p>
       </div>
     </div>
+    </a>
+    <a class="feature-card-link" href="/docs/arceus/">
     <div class="feature-card" style="border-left-color: var(--lilac)">
       <div class="feature-media">
         <img src="/screenshots/arceus.png" alt="the garden replaced by a starfield cosmos, arceus floating and cycling through its type-plate formes">
@@ -1121,6 +1154,7 @@
         <p>summon a real claude session as arceus. it's a permanent, gold-framed orchestrator that can hand work to any other session in the garden.</p>
       </div>
     </div>
+    </a>
     <div class="feature-card" style="border-left-color: var(--peach)">
       <div class="feature-media solid" style="background: linear-gradient(135deg, rgba(111, 179, 196, 0.2), rgba(26, 19, 32, 0.5)); color: var(--peach)">☀︎ ☾︎</div>
       <div class="feature-body">
@@ -1128,6 +1162,79 @@
         <p>the garden tracks your local clock. lamps come on at dusk, and the pond catches moonlight overnight. it fades back to day at sunrise.</p>
       </div>
     </div>
+  </div>
+</section>
+</div>
+
+<div class="band-harness">
+<section class="section wrap">
+  <p class="eyebrow">under the hood</p>
+  <h2>the harness itself</h2>
+  <div class="features">
+    <a class="feature-card-link" href="/docs/advisor/">
+    <div class="feature-card" style="border-left-color: var(--coral)">
+      <div class="feature-body">
+        <h3>advisor</h3>
+        <p>before a big call — or before anything gets marked done — the harness can consult a second ai session as a review gate. in the garden it shows up as a lake guardian hovering beside the session it's advising, gone the moment the consult ends.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/usage-tracking/">
+    <div class="feature-card" style="border-left-color: var(--mint)">
+      <div class="feature-body">
+        <h3>usage tracking</h3>
+        <p>opt-in, off by default, and read-only: turn it on and the topbar shows your 5-hour and 7-day rate-limit windows straight from the provider, read off the same credential your cli already has stored.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/cost-tracking/">
+    <div class="feature-card" style="border-left-color: var(--sky)">
+      <div class="feature-body">
+        <h3>cost tracking</h3>
+        <p>every session's running dollar cost and token count is computed locally from the cli's own transcripts — no network calls. a 30-day history with a sparkline lives in the menu-bar popover.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/menu-bar/">
+    <div class="feature-card" style="border-left-color: var(--lemon)">
+      <div class="feature-body">
+        <h3>menu bar</h3>
+        <p>a pokéball glyph sits in the macos menu bar for as long as the app is running, independent of the main window. click it for usage, cost history, and live session counts.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/session-persistence/">
+    <div class="feature-card" style="border-left-color: var(--lilac)">
+      <div class="feature-body">
+        <h3>sessions survive quit</h3>
+        <p>quitting doesn't kill your agents. a detached process keeps their terminals alive in the background, and the app reattaches to every one of them on next launch.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/multi-workspace/">
+    <div class="feature-card" style="border-left-color: var(--peach)">
+      <div class="feature-body">
+        <h3>multiple gardens</h3>
+        <p>run more than one project's garden at once, each with its own folder and sessions. cmd/ctrl+shift+1 through 9 jumps straight to any of them.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/poke-delegate/">
+    <div class="feature-card" style="border-left-color: var(--coral)">
+      <div class="feature-body">
+        <h3>poke-delegate</h3>
+        <p>dispatch a real, independently-tracked codex session — with its own walker in the garden — from inside another agent's own workflow, not just from a fresh session.</p>
+      </div>
+    </div>
+    </a>
+    <a class="feature-card-link" href="/docs/harness-instructions/">
+    <div class="feature-card" style="border-left-color: var(--mint)">
+      <div class="feature-body">
+        <h3>harness.md</h3>
+        <p>an editable instructions file the harness injects into every session it launches. edit it directly to change how every future session behaves; a topbar chip opens it in one click.</p>
+      </div>
+    </div>
+    </a>
   </div>
 </section>
 </div>
