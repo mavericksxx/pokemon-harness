@@ -159,7 +159,24 @@ system prompt (`pty.ts:393`). `SpawnPtyOptions` (`shared/types.ts:5`) has no rol
   (`sessionRespawn.ts:62-70`) and would otherwise drop it on relaunch. Same class of bug as the
   Arceus provider/model relaunch bug already fixed once.
 - Promotion of a live session = respawn with `--resume <claudeSessionId>`, preserving the
-  conversation (`recreateTerminal` / `tryResumeArceus` already do this).
+  conversation (`recreateTerminal` / `tryResumeArceus` already do this). **Demotion is the same in
+  reverse**, and for the same reason — dropping the lead prompt and tool access means respawning
+  without them.
+
+**Projects mode is never compulsory, and has no setting of its own.** The presence of a lead *is*
+the toggle: promote a Pokémon and the project's ideas start being tracked; demote it and
+everything reverts to ordinary sessions. A workspace with no lead behaves exactly as the app does
+today. This is deliberate — the user does not want projects mode on all the time, and a separate
+global setting on top of the lead flag would be a second source of truth for the same fact.
+
+Two consequences:
+
+- **Idea files survive demotion untouched.** They live on disk, not in the session, so
+  demote-then-re-promote (weeks later, or onto a different Pokémon entirely) resumes exactly where
+  it left off. This falls out of §5.2 for free and should be preserved rather than "cleaned up".
+- **Demotion stops new dispatch; it does not kill running work.** A fan-out already in flight
+  belongs to the session's own process and keeps going. The demoted session should still report
+  those results normally rather than dropping them on the floor.
 
 **`HARNESS.md` must be excluded for a lead.** Forced, not optional: `pty.ts:354` appends
 `--append-system-prompt-file <HARNESS.md>` to every non-Arceus, non-delegate claude session, and a
