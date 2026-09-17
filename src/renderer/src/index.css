@@ -5063,9 +5063,22 @@ body.garden-lowres .garden canvas {
  * until it's committed, instead of wrapping inside the box. Allow it to wrap
  * and bound it to the mount's width. Its stock colors are hardcoded
  * #000-on-#FFF, which ignores this app's theme entirely — the tokens below
- * are the same pairing every other floating surface here uses. */
+ * are the same pairing every other floating surface here uses.
+ *
+ * That wrap fix traded one overflow for another: xterm always positions this
+ * element by its TOP, at the cursor's row, so a wrapped composition tall
+ * enough to need several lines grows straight down past the pane's bottom
+ * edge instead. `max-height`/`overflow-y` here are a static best-effort
+ * backstop only (xterm's inline `height: <1 cell>` can leave the used
+ * `max-height` unresolved percentage-wise depending on the ancestor chain);
+ * the real fix — measuring the pane and either clamping-with-scroll or
+ * flipping the box to grow upward from the cursor row — needs actual layout
+ * measurement and lives in terminalRegistry.ts's `wireDictationOverlay`,
+ * which sets both inline, in px, every time the composition changes. */
 .terminal-mount .xterm .composition-view {
   max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   box-sizing: border-box;

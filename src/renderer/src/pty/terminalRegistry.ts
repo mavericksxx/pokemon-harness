@@ -178,6 +178,13 @@ interface Entry {
   /** Same lifecycle as `offDragEnd` above, for the `GARDEN_FULLSCREEN_CHANGE_EVENT`
    *  listener in attachTerminal. */
   offFullscreenChange: (() => void) | null;
+  /** Set once, the first time `term.open()` runs (see attachTerminal) —
+   *  `host` (and the `.composition-view` element inside it) outlives
+   *  individual attach/detach cycles, so unlike `resizeObserver`/
+   *  `offDragEnd`/`offFullscreenChange` this is wired exactly once per
+   *  entry rather than on every attach. Torn down in disposeTerminal. See
+   *  wireDictationOverlay's own comment. */
+  compositionCleanup: (() => void) | null;
 }
 
 const entries = new Map<string, Entry>();
@@ -425,10 +432,107 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     offTitle,
     resizeObserver: null,
     offDragEnd: null,
-    offFullscreenChange: null
+    offFullscreenChange: null,
+    compositionCleanup: null
   });
 
   if (replay) term.write(replay);
+}
+
+/** v1.20.6 fixed macOS Dictation's in-progress text (rendered by xterm in its
+ *  own absolutely-positioned `.composition-view` overlay — see the CSS rule
+ *  in index.css, `.terminal-mount .xterm .composition-view`) running off the
+ *  RIGHT edge of the pane by letting it wrap instead of forcing one nowrap
+ *  line. That traded one overflow for another: xterm's own
+ *  CompositionHelper.updateCompositionElements() (see
+ *  @xterm/xterm's browser/input/CompositionHelper.ts — the source of that
+ *  file's own "TODO: Composition position got messed up somewhere") always
+ *  positions the element by its TOP, at the cursor's row, sized to exactly
+ *  one cell — it has no notion of the box now being allowed to wrap across
+ *  several lines, so a long dictation grows straight down past the bottom
+ *  of the terminal pane instead.
+ *
+ *  CompositionHelper re-asserts `top`/`height`/`lineHeight` on the element
+ *  on every `compositionupdate` AND on its own internal ~0ms poll loop for
+ *  as long as composing (to paper over inconsistent IME event firing across
+ *  browsers). Writing `top` ourselves to flip the box upward would fight
+ *  that loop and flicker between the two placements. `transform` is a
+ *  property CompositionHelper never touches, so shifting the box with
+ *  `translateY` survives every one of its resets without a race —
+ *  likewise `max-height`/`overflow-y` for height containment, since
+ *  CompositionHelper always resets `.style.height` back to a single cell,
+ *  which doesn't itself clip the wrapped content under default
+ *  `overflow: visible`.
+ *
+ *  Wired once per terminal entry, right after `term.open()` first creates
+ *  the element (below) — `host` (and this element inside it) outlives
+ *  individual attach/detach cycles, so this never needs rewiring; see
+ *  Entry.compositionCleanup. Driven off the native `compositionstart`/
+ *  `compositionupdate` events (which bubble up through `host` from xterm's
+ *  hidden textarea) plus a `requestAnimationFrame` loop for as long as the
+ *  element stays `.active`, so it keeps re-correcting for the whole
+ *  dictation, not just its first character. */
+function wireDictationOverlay(host: HTMLDivElement): () => void {
+  const view = host.querySelector<HTMLElement>('.composition-view');
+  if (!view) return () => {};
+
+  // Breathing room so a flipped/clamped box never sits flush against the
+  // pane's own edge pixel-for-pixel.
+  const EDGE_MARGIN_PX = 4;
+
+  const reposition = (): void => {
+    // Clear any earlier correction before measuring — otherwise a shift
+    // applied on a previous pass would make this pass believe the box is
+    // already back inside the pane and never re-shrink as the composition
+    // (and therefore its natural size) keeps changing.
+    view.style.transform = '';
+    view.style.maxHeight = '';
+    view.style.overflowY = '';
+
+    const hostRect = host.getBoundingClientRect();
+    const viewRect = view.getBoundingClientRect();
+    const naturalHeight = view.scrollHeight; // full wrapped-content height, ignoring any clip
+    const cellHeight = viewRect.height; // xterm's own single-row height — untouched by us
+
+    const available = Math.max(cellHeight, hostRect.height - EDGE_MARGIN_PX * 2);
+    if (naturalHeight > available) {
+      view.style.maxHeight = `${available}px`;
+      view.style.overflowY = 'auto';
+    }
+    const clampedHeight = Math.min(naturalHeight, available);
+
+    const overflowBelow = viewRect.top + clampedHeight - (hostRect.bottom - EDGE_MARGIN_PX);
+    if (overflowBelow > 0 && clampedHeight > cellHeight) {
+      // Only a genuinely multi-line composition is worth flipping — one
+      // that merely ran past the pane's RIGHT edge is already handled by
+      // the wrap fix above and was never this (vertical) bug.
+      const maxUpShift = Math.max(0, viewRect.top - (hostRect.top + EDGE_MARGIN_PX));
+      const shift = Math.min(overflowBelow, maxUpShift);
+      if (shift > 0) view.style.transform = `translateY(-${shift}px)`;
+    }
+  };
+
+  let rafId: number | null = null;
+  const loop = (): void => {
+    if (!view.classList.contains('active')) {
+      rafId = null;
+      return;
+    }
+    reposition();
+    rafId = requestAnimationFrame(loop);
+  };
+  const ensureLoop = (): void => {
+    if (rafId == null) rafId = requestAnimationFrame(loop);
+  };
+
+  host.addEventListener('compositionstart', ensureLoop);
+  host.addEventListener('compositionupdate', ensureLoop);
+
+  return () => {
+    host.removeEventListener('compositionstart', ensureLoop);
+    host.removeEventListener('compositionupdate', ensureLoop);
+    if (rafId != null) cancelAnimationFrame(rafId);
+  };
 }
 
 /** Mount the session's terminal into `parent` and start tracking its size. */
@@ -442,6 +546,7 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
   releaseInactiveWebgl(sessionId);
   parent.appendChild(e.host);
   if (!e.host.querySelector('.xterm')) e.term.open(e.host);
+  if (!e.compositionCleanup) e.compositionCleanup = wireDictationOverlay(e.host);
 
   if (!e.webgl) {
     try {
@@ -548,6 +653,8 @@ export function disposeTerminal(sessionId: string): void {
   if (!e) return;
   detachTerminal(sessionId);
   disposeWebgl(e);
+  e.compositionCleanup?.();
+  e.compositionCleanup = null;
   e.offData();
   e.offExit();
   e.offHook();
