@@ -12,6 +12,7 @@ import type { Walker } from './Walker';
 import { loadGardenTilesets } from './gardenArt';
 import { loadPokemonAnimations, type PokemonAnimation } from './showdownArt';
 import { AIR_ONLY_SPAWNS, ENTRANCE_SPAWN, STATION_SPAWNS } from './stations';
+import { IdleTileReservations } from './idleTiles';
 import { loadLazyAnimation, placeholderAnimation } from './lazySprites';
 import { evolutionConfig, initEvolutionConfig } from './evolution';
 import { initShinyConfig } from './shiny';
@@ -479,6 +480,11 @@ export function GardenScene(): JSX.Element {
       });
 
       const runtimes = new Map<string, Runtime>();
+      // Idle-tile reservations (see idleTiles.ts) — this generation's own,
+      // matching `runtimes`' own per-generation lifetime; claimed/released
+      // in the reconcile loop below and on despawn (walkerLifecycle's
+      // removeWalker).
+      const idleTiles = new IdleTileReservations();
 
       // Select-cry (Phase 8 §4): seeded from the CURRENT selection, not null,
       // so a restore-on-boot (or the initial `applyState()` call right after
@@ -541,6 +547,7 @@ export function GardenScene(): JSX.Element {
         evolutionFlashLayer,
         evolutionCeremonyLayer,
         runtimes,
+        idleTiles,
         pokemonAnimations,
         resolveAnimation,
         sessionsAtMount,
@@ -889,12 +896,34 @@ export function GardenScene(): JSX.Element {
             !gardenCharm.isBusy(session.id)
           ) {
             if (session.status !== 'working') {
-              // Idle/starting/blocked/done walkers own their current
-              // position. Reset the station marker so becoming working
-              // starts the existing working-state pathing again.
-              walker.stayPut();
+              // Idle/starting/blocked/done walkers settle on a reserved
+              // tile (idleTiles.ts) so two Pokemon going idle around the
+              // same time don't land on the same spot and visually stack.
+              // Claimed once per idle stretch: this whole reconcile re-runs
+              // on every store change, but once a reservation is already
+              // held (whether the walker has arrived yet or is still
+              // walking there) this is a no-op, same as the old
+              // unconditional stayPut() it replaces was for an
+              // already-stopped walker.
+              if (!idleTiles.currentTile(session.id)) {
+                const canEnterIdleTile = (x: number, y: number): boolean =>
+                  map.isWalkable(x, y) || (walker.canFly && map.isWater(x, y));
+                const idleTile = idleTiles.claimNear(walker.tile, session.id, canEnterIdleTile);
+                if (idleTile.x === walker.tile.x && idleTile.y === walker.tile.y) {
+                  walker.stayPut();
+                } else {
+                  walker.goTo(idleTile);
+                }
+              }
+              // Reset the station marker so becoming working starts the
+              // existing working-state pathing again.
               rt.lastStation = null;
             } else {
+              // Leaving idle placement — free the tile immediately rather
+              // than waiting for despawn, so it's available to the next
+              // walker that goes idle instead of sitting reserved-but-empty
+              // for the rest of this session's life.
+              idleTiles.release(session.id);
               // Free-roam (Phase 8.9): working sessions wander the whole map,
               // so `session.station` (still populated by hookRouter/ptyParser
               // for a possible future per-tool toggle) goes unread here.
@@ -916,6 +945,18 @@ export function GardenScene(): JSX.Element {
                 // retries rather than assuming the walker is en route.
               }
             }
+          } else if (!walker.isNapping) {
+            // Battling, a delegate challenger, or off on a berry errand:
+            // something else owns this walker's position right now and may
+            // walk it far from wherever its idle-tile reservation was — free
+            // the reservation so it isn't held hostage, unused, in the
+            // meantime. Napping is excluded on purpose: Walker.setNapping
+            // parks the walker in place (its own stayPut()) rather than
+            // moving it, so the reservation still matches exactly where the
+            // walker visibly is and releasing it here would let another
+            // walker be routed onto the same tile — the very overlap this
+            // is meant to prevent.
+            idleTiles.release(session.id);
           }
 
           if (battleManager.isBattling(session.id)) {

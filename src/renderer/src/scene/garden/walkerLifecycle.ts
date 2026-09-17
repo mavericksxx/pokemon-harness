@@ -12,6 +12,7 @@ import { playSpawnCry } from '@/audio/audioEngine';
 import type { Session } from '@/store/store';
 import type { StationKind } from '@shared/types';
 import { markDirty } from './renderDirty';
+import type { IdleTileReservations } from './idleTiles';
 
 /** Per-session bookkeeping the scene keeps outside the store. */
 export interface Runtime {
@@ -81,6 +82,9 @@ export interface WalkerLifecycleCtx {
   evolutionFlashLayer: Container;
   evolutionCeremonyLayer: Container;
   runtimes: Map<string, Runtime>;
+  /** This generation's idle-tile claims (see idleTiles.ts) — released here
+   *  on despawn so a destroyed walker's reservation doesn't leak. */
+  idleTiles: IdleTileReservations;
   /** Snapshot of bundled animations taken at this generation's mount —
    *  mirrors GardenScene's own `pokemonAnimations` local. */
   pokemonAnimations: Map<string, PokemonAnimation>;
@@ -286,6 +290,11 @@ export function createWalkerLifecycle(ctx: WalkerLifecycleCtx): WalkerLifecycle 
     // releasing patch[0] on its behalf would free a seat a different,
     // still-live session legitimately owns.
     if (rt.homePatch) patchPool.release(rt.homePatch);
+    // Same reasoning as homePatch above, but unconditional: every walker
+    // may hold an idle-tile reservation regardless of station, and leaving
+    // it claimed after the walker itself is gone would slowly starve the
+    // garden of idle spots (see idleTiles.ts's own release() comment).
+    ctx.idleTiles.release(id);
     rt.walker.destroy();
     runtimes.delete(id);
     markDirty(); // a walker disappearing is a visible change with no other hook covering it
