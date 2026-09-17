@@ -176,8 +176,11 @@ function gaugeTone(percent: number): 'normal' | 'warn' | 'danger' {
   return 'normal';
 }
 
-const METER_SEGMENTS = 14;
-const METER_WIDTH_PT = 120;
+// 10, not 14 — at the narrower 72pt image width (see METER_WIDTH_PT), 14
+// segments leaves each fill only 2pt wide after its 1pt border, too thin to
+// read; 10 segments gives each one a comfortable 4pt fill.
+const METER_SEGMENTS = 10;
+const METER_WIDTH_PT = 72;
 const METER_HEIGHT_PT = 9;
 
 /** One HP-style gauge — the app's Game Boy visual identity applied to a
@@ -207,7 +210,7 @@ function buildMeterImage(percent: number, palette: TrayPalette): NativeImage {
   return nativeImage.createFromBuffer(buf, { width: w, height: h, scaleFactor: IMAGE_SCALE });
 }
 
-const SPARK_WIDTH_PT = 120;
+const SPARK_WIDTH_PT = 72;
 const SPARK_HEIGHT_PT = 24;
 
 /** 30-day cost sparkline — one hard-edged bar per `days[]` entry, height
@@ -286,14 +289,14 @@ const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude Code', codex: '
 function buildWindowItem(w: UsageWindow, now: number, palette: TrayPalette): MenuItemConstructorOptions {
   const label = friendlyWindowLabel(w.label);
   if (w.balanceOnly) {
-    return { label: w.balanceText ? `${label} — ${w.balanceText}` : label, enabled: false };
+    return { label: w.balanceText ? `${label} — ${w.balanceText}` : label, click: () => {} };
   }
   const bits: string[] = [];
   const percent = w.spend ? (w.spend.limitCents > 0 ? (w.spend.usedCents / w.spend.limitCents) * 100 : 0) : w.usedPercent;
   bits.push(w.spend ? `${fmtUsd(w.spend.usedCents / 100)} / ${fmtUsd(w.spend.limitCents / 100)} ${w.spend.currency}` : `${Math.round(w.usedPercent)}%`);
   const resetText = fmtResetIn(w.resetsAt, now);
   if (resetText) bits.push(resetText);
-  return { label: `${label} — ${bits.join(' · ')}`, enabled: false, icon: buildMeterImage(percent, palette) };
+  return { label: `${label} — ${bits.join(' · ')}`, click: () => {}, icon: buildMeterImage(percent, palette) };
 }
 
 /** The "Limits" section's rows — one block per provider that has anything to
@@ -301,8 +304,8 @@ function buildWindowItem(w: UsageWindow, now: number, palette: TrayPalette): Men
  *  present, so the common single-provider case stays as flat as the spec's
  *  three bullet rows). */
 function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemConstructorOptions[] {
-  if (!usage.enabled) return [{ label: 'usage limits are off — enable them in settings', enabled: false }];
-  if (usage.providers.length === 0) return [{ label: 'no usage data yet', enabled: false }];
+  if (!usage.enabled) return [{ label: 'usage limits are off — enable them in settings', click: () => {} }];
+  if (usage.providers.length === 0) return [{ label: 'no usage data yet', click: () => {} }];
   const now = Date.now();
   const multiProvider = usage.providers.length > 1;
   const items: MenuItemConstructorOptions[] = [];
@@ -314,12 +317,12 @@ function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemCo
         // non-empty ones so a missing one never leaves a dangling leading or
         // trailing " · ".
         const bits = [p.message, fmtAgo(p.updatedAt, now)].filter((bit): bit is string => Boolean(bit));
-        if (bits.length > 0) items.push({ label: bits.join(' · '), enabled: false });
+        if (bits.length > 0) items.push({ label: bits.join(' · '), click: () => {} });
       }
-      if (p.windows.length === 0) items.push({ label: 'no usage windows reported', enabled: false });
+      if (p.windows.length === 0) items.push({ label: 'no usage windows reported', click: () => {} });
       for (const w of p.windows) items.push(buildWindowItem(w, now, palette));
     } else {
-      items.push({ label: p.message ?? 'usage unavailable', enabled: false });
+      items.push({ label: p.message ?? 'usage unavailable', click: () => {} });
     }
   }
   return items;
@@ -336,15 +339,15 @@ function buildUsageItems(usage: UsageSnapshot, palette: TrayPalette): MenuItemCo
  *  resolve on its own, which isn't true for the second case. */
 function buildCostItems(cost: CostHistorySnapshot, hasAttempted: boolean, palette: TrayPalette): MenuItemConstructorOptions[] {
   if (cost.days.length === 0) {
-    return [{ label: hasAttempted ? 'cost history unavailable' : 'computing…', enabled: false }];
+    return [{ label: hasAttempted ? 'cost history unavailable' : 'computing…', click: () => {} }];
   }
   const items: MenuItemConstructorOptions[] = [
-    { label: '30-day trend', enabled: false, icon: buildSparklineImage(cost.days, palette) },
-    { label: `today — ${fmtUsd(cost.todayCostUsd)}`, enabled: false },
-    { label: `last 30 days — ${fmtUsd(cost.last30dCostUsd)}`, enabled: false },
-    { label: `last turn — ${fmtTokens(cost.latestTurnTokens)} tok`, enabled: false }
+    { label: '30-day trend', click: () => {}, icon: buildSparklineImage(cost.days, palette) },
+    { label: `today — ${fmtUsd(cost.todayCostUsd)}`, click: () => {} },
+    { label: `last 30 days — ${fmtUsd(cost.last30dCostUsd)}`, click: () => {} },
+    { label: `last turn — ${fmtTokens(cost.latestTurnTokens)} tok`, click: () => {} }
   ];
-  if (cost.topModel) items.push({ label: `top model — ${cost.topModel.model} (${fmtTokens(cost.topModel.tokens)})`, enabled: false });
+  if (cost.topModel) items.push({ label: `top model — ${cost.topModel.model} (${fmtTokens(cost.topModel.tokens)})`, click: () => {} });
   return items;
 }
 
@@ -445,7 +448,7 @@ export class TrayController {
     const costHistoryAttempted = this.deps.costHistory.hasAttempted();
     const sessions = countSessions(this.deps.getSessionRegistry());
     return [
-      { label: `${sessions.working} working · ${sessions.idle} idle · ${sessions.needsYou} needs you`, enabled: false },
+      { label: `${sessions.working} working · ${sessions.idle} idle · ${sessions.needsYou} needs you`, click: () => {} },
       { type: 'separator' },
       { label: 'Limits', enabled: false },
       ...buildUsageItems(usage, palette),
