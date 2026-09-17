@@ -3,12 +3,24 @@
 // A monochrome TEMPLATE image (macOS handles dark/light menu-bar adaptation
 // itself once `nativeImage.setTemplateImage(true)` is set in tray.ts — this
 // script only needs to produce a black-on-transparent alpha shape, never a
-// colored one). An OUTLINED pokéball glyph ("Hollow Ball"): a ring (stroke,
-// not a filled disc), a horizontal band across the ring at the same stroke
-// weight, and a center button with its own small hole. Outlined rather than
-// solid because a filled disc this size is much denser than the hairline
-// stroke-weight glyphs macOS puts beside it in the menu bar (Wi-Fi, battery,
-// Control Center) — it read as a dark smudge, not a pokéball.
+// colored one). A HALF-FILLED pokéball glyph: the top half of the outer
+// disc is filled solid, the bottom half is an outlined ring (stroke, not a
+// filled disc), plus a horizontal band across the middle at the same
+// stroke weight and a center button with its own small hole.
+//
+// History: commit 869679f deliberately changed this glyph FROM a solid
+// disc TO a fully hollow outline, because a filled disc this size reads
+// far denser than the hairline stroke-weight glyphs macOS puts beside it
+// in the menu bar (Wi-Fi, battery, Control Center) — it read as a dark
+// smudge, not a pokéball. This half-fill is a deliberate partial move back
+// toward the solid look, at roughly half the density: the bottom half
+// stays a hairline ring so the shape doesn't tip back into smudge
+// territory, while the solid top half + band read as a clearly
+// recognizable pokéball silhouette. The interior punch that hollows out
+// the bottom half starts exactly at the band's bottom edge, so the solid
+// fill stops cleanly at the band instead of bleeding into or thickening
+// it, and the center button's hole is drawn last so it stays a legible
+// knockout against the solid top rather than disappearing into it.
 //
 // Craft note (see the project's own "icon mockup craft" lesson from issue
 // #18's six-round exploration): flat, bold, high-contrast shapes are the
@@ -17,8 +29,7 @@
 // sizes where that lesson was learned. So this is deliberately a flat 1-bit
 // shape with only edge anti-aliasing (via supersample + box-downscale, same
 // primitive gen-icon.mjs already uses for the app icon), not textured
-// shading — the outline just replaces "flat filled disc" with "flat filled
-// ring" as the flat shape being rendered.
+// shading.
 //
 // Same pure-JS PNG encoder (Float64Array pixel grid, hand-rolled zlib PNG
 // chunks) as gen-icon.mjs — no image-processing dependency needed for a
@@ -55,9 +66,13 @@ function setOpaque(grid, x, y, alpha) {
   grid.data[i + 3] = alpha;
 }
 
-function fillCircle(grid, cx, cy, r, alpha) {
+// yMin/yMax optionally clip the fill to a horizontal band (in pixel-center
+// coordinates) — used to punch the inner circle hollow for only part of
+// the disc (see the top-half-filled pokéball glyph below).
+function fillCircle(grid, cx, cy, r, alpha, yMin = -Infinity, yMax = Infinity) {
   const r2 = r * r;
   for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+    if (y + 0.5 < yMin || y + 0.5 >= yMax) continue;
     for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
       const dx = x + 0.5 - cx;
       const dy = y + 0.5 - cy;
@@ -166,23 +181,30 @@ function drawPokeball() {
   const cx = MASTER / 2;
   const cy = MASTER / 2;
 
-  // Outer ring — a filled disc with a smaller disc punched out of its
-  // middle, leaving a ~1.9-unit stroke. This is the "outlined, not solid"
-  // move: a filled disc this size reads far denser than the hairline
-  // glyphs beside it in the menu bar, so the ring is drawn as a stroke.
   const outerR = 9 * SUPER; // diameter 18/22 units — leaves a couple px of breathing room, per the 18-22pt spec
-  const innerR = 7.1 * SUPER; // punch-out radius — leaves a ~1.9-unit ring stroke
-  fillCircle(g, cx, cy, outerR, 255);
-  fillCircle(g, cx, cy, innerR, 0);
-
-  // Horizontal dividing band — filled (not punched, unlike the old solid
-  // silhouette) at the same ~1.9-unit stroke weight as the ring, spanning
-  // the ring's full width so it reads as a bar across it.
+  const innerR = 7.1 * SUPER; // punch-out radius — leaves a ~1.9-unit ring stroke where hollow
   const bandHalf = 0.95 * SUPER; // 1.9-unit-tall band, matching the ring stroke
+
+  // Outer disc — filled solid everywhere first (the top-half-filled move).
+  fillCircle(g, cx, cy, outerR, 255);
+  // Then punched hollow, but ONLY below the band, turning the bottom half
+  // into a ~1.9-unit ring stroke while leaving the top half + band solid.
+  // The punch starts exactly at the band's bottom edge so the solid fill
+  // stops cleanly there instead of bleeding into or thickening the band.
+  fillCircle(g, cx, cy, innerR, 0, cy + bandHalf, Infinity);
+
+  // Horizontal dividing band — filled at the same ~1.9-unit stroke weight
+  // as the ring, spanning the ring's full width so it reads as a bar
+  // across it. Drawn explicitly (rather than relying on the top-half fill
+  // already covering this row range) so its flat-edged rectangular shape
+  // — not the circle's slightly narrower curve at this y — is preserved
+  // exactly as before.
   rect(g, cx - outerR, cy - bandHalf, cx + outerR, cy + bandHalf, 255);
 
   // Center button sits on the band (solid), with a small hole punched
-  // through its middle — the standard pokéball reduction.
+  // through its middle — the standard pokéball reduction. Drawn last so
+  // its hole punches cleanly through the solid top-half fill instead of
+  // disappearing into it.
   fillCircle(g, cx, cy, 2.7 * SUPER, 255);
   fillCircle(g, cx, cy, 1.15 * SUPER, 0);
 
