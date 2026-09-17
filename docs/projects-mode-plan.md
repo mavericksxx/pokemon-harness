@@ -211,8 +211,29 @@ low effort, and do not "optimize" it to a small model.
 
 **This is the feature.** Everything else is support.
 
-Each live thread of intent gets a file: `<project state dir>/ideas/<slug>.md`, holding what the
-idea is, everything the user has said about it, decisions made, open questions, and current state.
+Each live thread of intent gets a Markdown file holding what the idea is, everything the user has
+said about it, decisions made, open questions, and current state.
+
+**Decided: the files live in the harness home, keyed by project root, with a gitignored symlink in
+the repo.**
+
+- Real location: `<harness home>/projects/<slug>/ideas/<idea>.md`, where `<slug>` derives from the
+  project root path (basename plus a short hash of the full path, so two repos sharing a basename
+  don't collide). Same user-visible-on-disk principle as `workspaces.json`.
+- Convenience: `.pokeharness/` in the project root, a **symlink** to that directory, added to
+  `.gitignore`.
+
+Why not simply put them in the repo, which was the first instinct: **this repo is public.** Idea
+files hold half-formed thinking, contradictions and abandoned directions; committing them
+publishes them, and that is a one-way door. And why not put them in the repo gitignored:
+`git clean -xdf` deletes ignored files, which would destroy weeks of accumulated context in a
+routine cleanup. That hazard is not theoretical here — during this plan's own drafting, a
+concurrent session committed an untracked doc specifically to stop a stray `git clean` losing it.
+
+The symlink gets the discoverability of a repo-local path with none of the exposure: it is
+gitignored so it is never committed, deleting it loses nothing, and the app can recreate it. The
+app should also offer an "open ideas folder" action, the way Settings already does for harness
+home.
 
 When the user says something, the lead **appends to the relevant idea file before responding**. The
 file, not the transcript, is the durable record.
@@ -240,8 +261,8 @@ Consequences that fall out of this, all of them desirable:
   task — which is most of what makes a fan-out produce useful work.
 - **Per-project memory is no longer a separate feature.** The idea files _are_ it.
 
-Open sub-questions in §9: exact location, whether resolved ideas are archived or deleted, whether
-the user edits these files directly.
+Remaining sub-question in §9: whether the user editing these files directly is an advertised
+affordance the lead must expect, or merely incidental.
 
 ### 5.3 Routing
 
@@ -320,8 +341,8 @@ separate brand-gold token. A second accent colour would undo a deliberate design
 lead treatment is built from the existing gold grammar at lower intensity. Arceus keeps the top of
 that grammar (full bezel, crest, ceremonial variant).
 
-A mockup of three candidates against real token values is at `docs/mockups/lead-card.html`
-(light/dark toggle). It surfaced a real conflict: **ordinary cards already paint a 3px left border
+A mockup of three candidates against real token values is at `docs/mockups/lead-card.html`, also
+published at <https://claude.ai/artifact/YTLMf38k8e54JfKbxGGrux> (light/dark toggle). It surfaced a real conflict: **ordinary cards already paint a 3px left border
 from `session.accent`** — six hues, one of them a few degrees from gold — so a gold left edge is
 not a free slot. Corner accents are Arceus's own device and read as diminished-Arceus. The third
 candidate uses a 2px gold rule under the kicker row, an axis nothing currently occupies, at the
@@ -381,9 +402,6 @@ Items 1–4 are the feature. 5–8 make it good.
 
 ## 9. Open items
 
-- **Idea-file location** — under the harness home (user-visible, survives a repo wipe) or in the
-  repo (versioned, shareable, but pollutes the project). Leaning harness home, keyed on project
-  root.
 - ~~**Idea lifecycle**~~ — **resolved by §2.1.** An idea is *resolved*, reversibly, not deleted;
   Anthropic also auto-resolves after a week idle. Adopt the same: a resolved idea's file stays on
   disk, stops being offered for routing, and can be reopened.
