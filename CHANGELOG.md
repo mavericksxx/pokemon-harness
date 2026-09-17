@@ -4,6 +4,8 @@ Completed work, grouped by release. Open work lives in [GitHub Issues](https://g
 
 ## Unreleased
 
+- Garden day/night toggle (top-right) is now three discrete buttons — Auto / Day / Night — instead of one button that cycled through them; each sets its mode directly, and the active one is shown pressed.
+
 ## v1.20.4 — 2026-09-15
 
 - Hidden garden elements (idle tool bubbles, walkers in other workspaces) no longer fade structure roofs; sprite cache rejects non-front views; unused back-sprite assets removed.

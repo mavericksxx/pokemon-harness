@@ -5228,40 +5228,59 @@ body.is-splitting .garden-split-line {
 /* Day/night manual override (DayNightToggle.tsx) — docked to the garden
  * pane's own top-right corner, inside `.garden-warp-frame` (positioning
  * context: that element's `position: relative`, same as `.garden-mat`'s row
- * gives `.garden-drawer-edge-tab` above). Same always-visible floating-chrome
- * treatment as `.garden-drawer-edge-tab` (panel-2 background, hairline
- * border, muted->gold on hover) rather than `.topbar-icon-btn`'s
- * transparent-at-rest GHOST weight: this button floats directly over varied
- * map art with no toolbar panel underneath it, so it needs its own resting
- * box to stay legible. `min-width`, not `width` — the 'auto' state renders a
- * short text label instead of a square icon, and forcing that into a fixed
- * square would either clip it or leave the icon states looking oversized. */
+ * gives `.garden-drawer-edge-tab` above). Discrete auto/day/night buttons
+ * rather than one cycling button, so no tooltip is needed — a tooltip at
+ * this corner clips against the pane edge. Same `.view-switcher`/
+ * `.view-switcher-btn` segmented-group recipe (icon-bearing group at
+ * `--topbar-icon-size`, 2px padding+gap, transparent-bordered buttons,
+ * `--bg`/`--line`/`--text` active fill) as the topbar's own view-mode
+ * switcher, just its own class names below since this group also needs
+ * `position: absolute` placement that `.view-switcher` (an inline topbar
+ * child) doesn't. The 2px padding+gap (not a flush `overflow: hidden`
+ * group) is load-bearing, not cosmetic — it's what gives the app-wide
+ * `:focus-visible` ring (further down this file) room to paint outside
+ * each button's own box instead of landing in clipped overflow. */
 .garden-daynight-toggle {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 2;
+  display: flex;
+  gap: 2px;
+  height: var(--topbar-icon-size);
+  padding: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.garden-daynight-toggle-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: var(--topbar-icon-size);
-  height: var(--topbar-icon-size);
   padding: 0 6px;
   font-size: 15px;
   line-height: 1;
   color: var(--muted);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  background: none;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 
-.garden-daynight-toggle:hover {
-  color: var(--gold);
-  border-color: var(--gold);
+.garden-daynight-toggle-btn:hover {
+  color: var(--text);
 }
 
-/* The 'auto' state's text label — small uppercase mono, same recipe
+/* Ties with `:hover` on specificity (0,2,0) — ordered after it so the
+ * pressed state wins deliberately on a hovered-and-active segment. */
+.garden-daynight-toggle-btn[aria-pressed='true'] {
+  background: var(--bg);
+  border-color: var(--line);
+  color: var(--text);
+}
+
+/* The 'auto' segment's text label — small uppercase mono, same recipe
  * `.party-rail-heading` uses for its own small section labels. */
 .garden-daynight-toggle-label {
   font-family: var(--font-mono);
