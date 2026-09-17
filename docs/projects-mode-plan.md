@@ -343,12 +343,18 @@ that grammar (full bezel, crest, ceremonial variant).
 
 A mockup of three candidates against real token values is at `docs/mockups/lead-card.html`, also
 published at <https://claude.ai/artifact/YTLMf38k8e54JfKbxGGrux> (light/dark toggle). It surfaced a real conflict: **ordinary cards already paint a 3px left border
-from `session.accent`** — six hues, one of them a few degrees from gold — so a gold left edge is
-not a free slot. Corner accents are Arceus's own device and read as diminished-Arceus. The third
-candidate uses a 2px gold rule under the kicker row, an axis nothing currently occupies, at the
-cost of being subtle enough to lean on the "lead" pill.
+from `session.accent`** — six hues, one of them a few degrees from gold — so a gold left edge
+(candidate A) is not a free slot.
 
-Pending the user's pick (§9).
+**Decided: candidate B** — two hard-edged gold corner accents (top-left and top-right), no left
+bar, plus the mono `lead` pill. The left edge stays free for its existing per-session accent job.
+
+The known tension, recorded so it is watched during implementation rather than rediscovered:
+corner marks are Arceus's own signature device (`.roster-card-arceus-corner`). The separation is
+already built into the mockup and must be preserved — **two** corners rather than four, **6px**
+rather than 10px, **2px** borders rather than 3px, and **no stepped shadow**, on the plain
+`.roster-card-medium` shell rather than Arceus's ceremonial one. If in the real rail a lead still
+reads as a diminished Arceus, thin it further before reaching for a different device.
 
 ## 6. Security: widening the tool guard
 
@@ -407,4 +413,3 @@ Items 1–4 are the feature. 5–8 make it good.
   disk, stops being offered for routing, and can be reopened.
 - **Does the user edit idea files directly?** They are plain Markdown on disk, so effectively yes —
   the question is whether that is an advertised affordance the lead must expect, or incidental.
-- **Lead visual treatment** (§5.8) — pick from the mockup.
