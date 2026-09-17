@@ -74,10 +74,9 @@ copying:
 - **The coordinator is terse.** Its visible replies are "On it, tracking that down." and "Will do,
   starting on it." — it acknowledges and gets out of the way rather than restating the plan back.
   A deliberate persona choice to copy (§5.3, §5.4).
-- **The coordinator runs at LOW effort** (the composer showed Fable 5.1 / Low) while threads run
-  high. Confirms the cheap-coordinator / expensive-worker split, and matches the docs' stated
-  defaults. Relevant to us: a lead that only routes and appends to files does not need a large
-  model, and making it one would be a real ongoing cost for no benefit.
+- **The coordinator runs at LOW effort** while threads run high — the composer showed Fable 5.1 /
+  Low. This is an *effort* split, not a model split: the written docs say the default is Opus for
+  both, with effort differing. See §5.1 for why that distinction matters and should be preserved.
 - **One input box for both**: "Ask Claude a question or start a task…" — no mode switch between
   asking and dispatching.
 
@@ -169,10 +168,27 @@ second such flag is last-wins (`shared/arceus.ts:181`). The choke point needs a 
 
 **The lead never writes code.** It holds context, routes, proposes, dispatches, and reads results.
 
-**The lead should be terse, and should be a cheap model.** Both observed from real usage (§2.1):
-the shipped coordinator replies in one line ("On it, tracking that down.") and runs at low effort
-while its threads run high. A lead that routes and appends to files does not need a large model,
-and defaulting it to one would be a real recurring cost for no gain.
+**The lead should be terse, and should run at LOW EFFORT on a strong model — not on a weak one.**
+
+The terseness is observed (§2.1): the shipped coordinator replies in one line, "On it, tracking
+that down."
+
+On the model, note the distinction carefully, because it is easy to get backwards. Anthropic's
+documented default is **Opus for both** coordinator and threads, with *effort* as the lever — low
+for the coordinator, high for threads. They did not downgrade the model; they downgraded the
+effort. (A screenshot showing Fable 5.1 reflects what that user happened to be running, not a
+recommendation.)
+
+That is the right split here too, for a specific reason: almost everything a lead does is cheap —
+route a message to an idea, append to a file, acknowledge in one line — but one thing it does is
+genuinely hard: **decompose an idea into child tasks that neither overlap nor leave gaps, and
+notice when two of the user's ideas contradict each other.** Decomposition quality is what decides
+whether a fan-out produces useful work or four agents doing overlapping halves of the job, and it
+is exactly the judgment a weaker model loses.
+
+Low effort is the correct economy because the lead is invoked *often* and is *rarely* hard. High
+effort on every "filing this under B" would be waste. So: default a lead to the strong model at
+low effort, and do not "optimize" it to a small model.
 
 ### 5.2 Idea files — the core mechanism
 
