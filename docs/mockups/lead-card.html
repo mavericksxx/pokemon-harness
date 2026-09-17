@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>lead card mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+  rel="stylesheet"
+/>
+<style>
+  /* ────────────────────────────────────────────────────────────────────────
+   * Design tokens — dark defaults, mirroring src/renderer/src/design/tokens.ts
+   * (dark theme exports) and the fallback :root block in index.css. Every
+   * value below is copied verbatim from tokens.ts / index.css, not
+   * approximated. See the mockup's own footer for a full trace list.
+   * ──────────────────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #17171b;
+    --panel: #1d1d22;
+    --panel-2: #26262c;
+    --bg-terminal: #1a1a1f;
+    --disabled: #313139;
+    --line: #787684;
+    --text: #dedbd6;
+    --text-secondary: #b3b0ac;
+    --muted: #96919f;
+    --muted-dim: #3e3d46;
+    --gold: #e8b740;
+    --accent: #e8b740;
+    --accent-text: #e8b740;
+    --on-accent: #1a1320;
+    --danger: #e08c82;
+    --danger-border: #3b2724;
+    --accent-mint: #74c096;
+
+    --status-working: #d8b052;
+    --status-idle: #64acbb;
+    --status-blocked: #df8078;
+    --status-done: #6fb88b;
+    --status-starting: #8c8c97;
+
+    /* Arceus's fixed legendary-encounter skin — same values in both themes
+       (tokens.ts/index.css never override these for light; see report). */
+    --arceus-ground: #11152f;
+    --arceus-ground-raised: #1b1d43;
+    --arceus-ink: #ded7c2;
+    --arceus-muted: #aaa7c5;
+    --arceus-gold-deep: #76501c;
+    --arceus-gold: #d7a63b;
+    --arceus-gold-bright: #f5d778;
+    --arceus-green: #72c58b;
+    --arceus-violet: #514678;
+
+    --shadow-hard: 4px 4px 0 rgba(0, 0, 0, 0.45);
+
+    --font-display: 'Press Start 2P', ui-monospace, monospace;
+    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --font-display-sm-size: 8px;
+    --font-display-md-size: 12px;
+    --font-display-lg-size: 16px;
+    --font-body-sm-size: 12px;
+    --font-body-sm-line: 16px;
+    --font-body-md-size: 13px;
+    --font-body-md-line: 18px;
+
+    /* radius: 0 everywhere (tokens.ts `radius.sm`/`radius.md`) */
+    --radius: 0px;
+  }
+
+  /* Light theme — src/renderer/src/design/tokens.ts groundLight/inkLight/
+     accentLight/goldLight/accentTextLight/statusLight/shadowHardLight, and
+     shared/terminalColors.ts's `light` pair for --text/--bg-terminal. Applied
+     via a data-attribute toggle here in place of the app's applyTheme() JS
+     (which stamps the same values onto :root at runtime). */
+  :root[data-theme='light'] {
+    --bg: #fffdf5;
+    --panel: #fff8e7;
+    --panel-2: #f4e9c7;
+    --bg-terminal: #fcfaf0;
+    --disabled: #e8d9a0;
+    --line: #a899b5;
+    --text: #1a1320;
+    --text-secondary: #3d2e4a;
+    --muted: #6b5878;
+    --muted-dim: #d9cfe0;
+    /* goldLight = accentLight.lemon — used for FILLS only (button/badge
+       backgrounds); accentTextLight is the WCAG-safe darkened value used for
+       TEXT and thin strokes/borders — same split tokens.ts documents. This
+       mockup's lead treatments are borders/text, so they read --gold as the
+       accent-text value, matching how index.css's `.model-badge`/
+       `.roster-card.selected` etc. actually resolve `--accent-text` in light
+       mode. */
+    --gold: #7d5312;
+    --accent: #dcab3c;
+    --accent-text: #7d5312;
+    --on-accent: #1a1320;
+    --danger: #d96a62;
+    --danger-border: #f3d3cd;
+    --accent-mint: #5ca97a;
+
+    --status-working: #dcab3c;
+    --status-idle: #4f9faf;
+    --status-blocked: #d96a62;
+    --status-done: #5ca97a;
+    --status-starting: #a199ab;
+
+    --shadow-hard: 3px 3px 0 rgba(26, 19, 32, 0.14);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--font-body-md-size);
+    line-height: var(--font-body-md-line);
+  }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 24px 24px 64px;
+  }
+
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .page-title {
+    font-family: var(--font-display);
+    font-size: var(--font-display-md-size);
+    line-height: 20px;
+    margin: 0 0 10px;
+  }
+
+  .page-sub {
+    max-width: 62ch;
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm-size);
+    line-height: var(--font-body-sm-line);
+  }
+
+  .theme-toggle {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--font-body-sm-size);
+    cursor: pointer;
+  }
+
+  .theme-toggle:hover {
+    border-color: var(--accent-text);
+    color: var(--accent-text);
+  }
+
+  .layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  /* ── The rail — faithful reproduction of .party-rail ─────────────────── */
+  .rail {
+    flex: none;
+    width: 240px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+
+  .rail-header {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text);
+    font-size: var(--font-body-sm-size);
+  }
+
+  .rail-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .rail-heading {
+    padding: 6px 2px 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: var(--font-display-sm-size);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .rail-note {
+    margin: 0 2px 2px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 15px;
+  }
+
+  /* ── Shared roster-card shell (index.css .roster-card) ───────────────── */
+  .roster-card-wrap {
+    position: relative;
+  }
+
+  .roster-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: 8px;
+    text-align: left;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line);
+    border-radius: var(--radius);
+    font-family: inherit;
+    color: var(--text);
+  }
+
+  .roster-card-medium {
+    padding: 6px;
+    gap: 3px;
+  }
+
+  .roster-card-top-compact {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .roster-card-title-compact {
+    font-size: var(--font-body-sm-size);
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .roster-card-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--muted);
+  }
+  .roster-card-dot.working { background: var(--status-working); }
+  .roster-card-dot.idle { background: var(--status-idle); }
+  .roster-card-dot.blocked { background: var(--status-blocked); }
+  .roster-card-dot.done { background: var(--status-done); }
+  .roster-card-dot.starting { background: var(--status-starting); }
+
+  .roster-card-meta-line {
+    font-size: var(--font-body-sm-size);
+    line-height: var(--font-body-sm-line);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .roster-card-parent-compact {
+    font-size: var(--font-body-sm-size);
+    line-height: var(--font-body-sm-line);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .roster-card-row3-medium {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .model-badge {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-display);
+    font-size: var(--font-display-sm-size);
+    line-height: 1;
+    padding: 4px 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--gold);
+    text-transform: lowercase;
+    white-space: nowrap;
+    flex: none;
+  }
+
+  .hp-bar {
+    display: inline-block;
+    height: 5px;
+    padding: 1px;
+    background: var(--bg-terminal);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    flex: 1;
+    min-width: 0;
+  }
+
+  .hp-bar-fill {
+    display: block;
+    height: 100%;
+    background-color: var(--status-done);
+  }
+
+  .roster-card-ctx-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    flex: none;
+  }
+
+  .face-swatch {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-terminal);
+    border: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Lead pill — spec-requested JetBrains Mono treatment (the app's own
+       model-badge actually renders in Press Start 2P via --font-display; the
+       spec explicitly asks for the Mono "technical string" idiom instead —
+       see index.css's .roster-card-arceus-provider / .party-rail-counts /
+       .status-strip, all font-family: var(--font-mono) at small sizes — so
+       this pill follows that family of elements, not .model-badge's font).
+       Border-gold-on-panel-2 reuses the exact "gold border = special" idiom
+       .model-badge-fable already uses. ─────────────────────────────────── */
+  .lead-pill {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1;
+    padding: 3px 5px;
+    background: var(--panel-2);
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    text-transform: lowercase;
+  }
+
+  /* ── Candidate A — hairline gold left edge ───────────────────────────── */
+  .lead-a {
+    border-left-color: var(--gold);
+  }
+
+  /* ── Candidate B — corner accents, no left bar ───────────────────────── */
+  .lead-b {
+    border-left-color: var(--line);
+  }
+  .corner-accent {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-style: solid;
+    border-color: var(--gold);
+    z-index: 2;
+  }
+  .corner-tl { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+  .corner-tr { top: -1px; right: -1px; border-width: 2px 2px 0 0; }
+
+  /* ── Candidate C — gold kicker underline (this mockup's own proposal) ── */
+  .lead-c {
+    border-left-color: var(--line);
+  }
+  .lead-kicker-rule {
+    height: 2px;
+    width: 100%;
+    background: var(--gold);
+  }
+
+  /* ── Baseline ordinary card — real session accent left border, unrelated
+       to any lead treatment (AgentRosterCard.tsx sets this inline per
+       session.accent; sky shown here as a stand-in accent value). ───────── */
+  .baseline {
+    border-left-color: var(--dark-demo-sky, #6fb3c4);
+  }
+  :root[data-theme='light'] .baseline {
+    border-left-color: #4f9faf;
+  }
+
+  /* ── Subagent child cards — .roster-card-subagent (dashed) inside
+       .party-rail-child (mint rail), both existing, unrelated-to-lead
+       idioms reused verbatim. ────────────────────────────────────────────── */
+  .party-rail-child {
+    margin-left: 13px;
+    padding-left: 8px;
+    border-left: 2px solid var(--accent-mint);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .roster-card-subagent {
+    border-style: dashed;
+  }
+  .roster-card-compact {
+    padding: 6px;
+    gap: 4px;
+  }
+
+  /* ── Arceus's ceremonial card — .roster-card-arceus, faithfully
+       reproduced (gold bezel, inset step, crest bar, four gilt corners,
+       top/bottom rails, star). ───────────────────────────────────────────── */
+  .roster-card-arceus {
+    position: relative;
+    border: 2px solid var(--arceus-gold);
+    border-left-width: 3px;
+    border-left-color: var(--arceus-gold-bright);
+    border-radius: 0;
+    color: var(--arceus-ink);
+    background-color: var(--arceus-ground);
+    padding: 10px 8px;
+    box-shadow:
+      inset 0 0 0 1px var(--arceus-gold-bright),
+      inset 0 0 0 4px var(--arceus-gold-deep),
+      4px 4px 0 var(--arceus-violet);
+  }
+  .roster-card-arceus::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border: 1px solid var(--arceus-gold);
+    box-shadow: inset 0 0 0 1px var(--arceus-violet);
+    pointer-events: none;
+  }
+  .roster-card-arceus::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 28px;
+    height: 2px;
+    transform: translateX(-50%);
+    background: var(--arceus-gold-bright);
+    box-shadow: 0 1px 0 var(--arceus-green);
+    pointer-events: none;
+  }
+  .roster-card-arceus-corner {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-style: solid;
+    border-color: var(--arceus-gold-bright);
+    z-index: 3;
+  }
+  .roster-card-arceus-corner-tl { top: -2px; left: -2px; border-width: 3px 0 0 3px; box-shadow: 2px 2px 0 var(--arceus-gold-deep); }
+  .roster-card-arceus-corner-tr { top: -2px; right: -2px; border-width: 3px 3px 0 0; box-shadow: -2px 2px 0 var(--arceus-gold-deep); }
+  .roster-card-arceus-corner-bl { bottom: -2px; left: -2px; border-width: 0 0 3px 3px; box-shadow: 2px -2px 0 var(--arceus-gold-deep); }
+  .roster-card-arceus-corner-br { right: -2px; bottom: -2px; border-width: 0 3px 3px 0; box-shadow: -2px -2px 0 var(--arceus-gold-deep); }
+  .roster-card-arceus-rail {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    height: 1px;
+    background: var(--arceus-gold);
+    box-shadow: 0 1px 0 var(--arceus-green);
+    z-index: 3;
+  }
+  .roster-card-arceus-rail-top { top: 4px; }
+  .roster-card-arceus-rail-bottom { bottom: 4px; }
+  .roster-card-arceus-star {
+    color: var(--arceus-gold-bright);
+    margin-right: 3px;
+  }
+  .roster-card-arceus-provider {
+    color: var(--arceus-muted);
+    font-family: var(--font-mono);
+    font-size: var(--font-display-sm-size);
+    text-transform: uppercase;
+  }
+  .roster-card-arceus-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+  .roster-card-arceus .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 5px;
+    color: var(--arceus-ink);
+    background: var(--arceus-ground-raised);
+    border: 1px solid var(--arceus-violet);
+    font-size: var(--font-body-sm-size);
+    line-height: 1;
+  }
+  .roster-card-arceus .status::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--status-working);
+  }
+  .roster-card-arceus-model-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+  .roster-card-arceus-cost {
+    margin-left: auto;
+    padding: 4px 5px;
+    color: var(--arceus-gold-bright);
+    background: var(--arceus-ground-raised);
+    border: 1px solid var(--arceus-gold-deep);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+  .roster-card-arceus-context-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+  .roster-card-arceus-context-row .roster-card-ctx-label {
+    color: var(--arceus-muted);
+  }
+  .roster-card-arceus-top {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── Right column: candidate notes ───────────────────────────────────── */
+  .notes {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .note-card {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+
+  .note-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: var(--font-body-md-size);
+    color: var(--text);
+  }
+
+  .note-letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--gold);
+    background: var(--panel-2);
+    border: 1px solid var(--gold);
+  }
+
+  .note-row {
+    margin: 6px 0 0;
+    font-size: var(--font-body-sm-size);
+    line-height: var(--font-body-sm-line);
+    color: var(--text-secondary);
+  }
+
+  .note-row b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .constraints {
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    font-size: var(--font-body-sm-size);
+    line-height: var(--font-body-sm-line);
+    color: var(--text-secondary);
+  }
+  .constraints h2 {
+    margin: 0 0 8px;
+    font-size: var(--font-body-md-size);
+    color: var(--text);
+  }
+  .constraints ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  footer.tokens {
+    margin-top: 32px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 17px;
+    color: var(--muted);
+  }
+  footer.tokens h2 {
+    margin: 0 0 8px;
+    font-family: var(--font-ui);
+    font-size: var(--font-body-md-size);
+    color: var(--text);
+  }
+  footer.tokens code {
+    color: var(--text-secondary);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">lead card mockup</h1>
+      <p class="page-sub">
+        Three candidate visual treatments for a "lead" roster card (Projects mode §3.9), against the
+        real design tokens and the real <code>.roster-card</code> grammar. A lead must read as clearly
+        below Arceus, and no treatment may introduce a second accent colour — everything below is
+        built from gold, the existing grounds, and the existing text tokens only.
+      </p>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" type="button">theme: dark</button>
+  </div>
+
+  <div class="layout">
+    <!-- ── The vertical party rail ─────────────────────────────────────── -->
+    <div class="rail">
+      <div class="rail-header">garden — party rail</div>
+      <div class="rail-list">
+        <!-- 1. Arceus — ceremonial, top of the hierarchy, for reference -->
+        <div class="roster-card-wrap">
+          <div class="roster-card roster-card-arceus roster-card-medium">
+            <span class="roster-card-arceus-corner roster-card-arceus-corner-tl"></span>
+            <span class="roster-card-arceus-corner roster-card-arceus-corner-tr"></span>
+            <span class="roster-card-arceus-corner roster-card-arceus-corner-bl"></span>
+            <span class="roster-card-arceus-corner roster-card-arceus-corner-br"></span>
+            <span class="roster-card-arceus-rail roster-card-arceus-rail-top"></span>
+            <span class="roster-card-arceus-rail roster-card-arceus-rail-bottom"></span>
+            <div class="roster-card-arceus-top">
+              <span class="face-swatch" style="border-color: var(--arceus-gold-bright)">◆</span>
+              <span class="roster-card-title-compact">
+                <span class="roster-card-arceus-star">★</span>arceus
+              </span>
+            </div>
+            <div class="roster-card-arceus-status-row">
+              <em class="status">working…</em>
+              <span class="roster-card-arceus-provider">claude</span>
+            </div>
+            <div class="roster-card-arceus-model-row">
+              <span class="model-badge">opus 5</span>
+              <span class="roster-card-arceus-cost">$1.84</span>
+            </div>
+            <div class="roster-card-arceus-context-row">
+              <span class="roster-card-ctx-label">context</span>
+              <div class="hp-bar"><div class="hp-bar-fill" style="width: 61%"></div></div>
+              <span class="roster-card-ctx-label">61%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail-heading">candidate a</div>
+        <!-- 2. Candidate A — hairline gold left edge + pill -->
+        <div class="roster-card-wrap">
+          <div class="roster-card roster-card-medium lead-a">
+            <div class="roster-card-top-compact">
+              <span class="face-swatch">n</span>
+              <span class="roster-card-title-compact">docs pass</span>
+              <span class="lead-pill">lead</span>
+              <span class="roster-card-dot working"></span>
+            </div>
+            <div class="roster-card-meta-line">claude &middot; noctowl</div>
+            <div class="roster-card-row3-medium">
+              <span class="model-badge">sonnet 5</span>
+              <div class="hp-bar"><div class="hp-bar-fill" style="width: 34%"></div></div>
+              <span class="roster-card-ctx-label">34%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Two children of candidate A — existing "↳ <parent>" treatment -->
+        <div class="party-rail-child">
+          <div class="roster-card-wrap">
+            <div class="roster-card roster-card-compact roster-card-subagent">
+              <div class="roster-card-top-compact">
+                <span class="face-swatch">r</span>
+                <span class="roster-card-title-compact">update readme</span>
+                <span class="roster-card-dot done"></span>
+              </div>
+              <div class="roster-card-parent-compact">↳ docs pass</div>
+            </div>
+          </div>
+          <div class="roster-card-wrap">
+            <div class="roster-card roster-card-compact roster-card-subagent">
+              <div class="roster-card-top-compact">
+                <span class="face-swatch">l</span>
+                <span class="roster-card-title-compact">fix broken links</span>
+                <span class="roster-card-dot working"></span>
+              </div>
+              <div class="roster-card-parent-compact">↳ docs pass</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail-heading">candidate b</div>
+        <!-- 4. Candidate B — corner accents, no left bar -->
+        <div class="roster-card-wrap">
+          <div class="roster-card roster-card-medium lead-b">
+            <span class="corner-accent corner-tl"></span>
+            <span class="corner-accent corner-tr"></span>
+            <div class="roster-card-top-compact">
+              <span class="face-swatch">s</span>
+              <span class="roster-card-title-compact">refactor sweep</span>
+              <span class="lead-pill">lead</span>
+              <span class="roster-card-dot idle"></span>
+            </div>
+            <div class="roster-card-meta-line">claude &middot; staraptor</div>
+            <div class="roster-card-row3-medium">
+              <span class="model-badge">sonnet 5</span>
+              <div class="hp-bar"><div class="hp-bar-fill" style="width: 18%"></div></div>
+              <span class="roster-card-ctx-label">18%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail-heading">candidate c (proposed)</div>
+        <!-- 5. Candidate C — gold kicker underline, this mockup's own proposal -->
+        <div class="roster-card-wrap">
+          <div class="roster-card roster-card-medium lead-c">
+            <div class="roster-card-top-compact">
+              <span class="face-swatch">r</span>
+              <span class="roster-card-title-compact">release prep</span>
+              <span class="lead-pill">lead</span>
+              <span class="roster-card-dot working"></span>
+            </div>
+            <div class="lead-kicker-rule"></div>
+            <div class="roster-card-meta-line">claude &middot; rapidash</div>
+            <div class="roster-card-row3-medium">
+              <span class="model-badge">opus 5</span>
+              <div class="hp-bar"><div class="hp-bar-fill" style="width: 47%"></div></div>
+              <span class="roster-card-ctx-label">47%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rail-heading">agents</div>
+        <!-- 6. Ordinary card — no lead treatment, the baseline -->
+        <div class="roster-card-wrap">
+          <div class="roster-card roster-card-medium baseline">
+            <div class="roster-card-top-compact">
+              <span class="face-swatch">d</span>
+              <span class="roster-card-title-compact">dev server</span>
+              <span class="roster-card-dot idle"></span>
+            </div>
+            <div class="roster-card-meta-line">claude &middot; dragonite</div>
+            <div class="roster-card-row3-medium">
+              <span class="model-badge">sonnet 5</span>
+              <div class="hp-bar"><div class="hp-bar-fill" style="width: 9%"></div></div>
+              <span class="roster-card-ctx-label">9%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Notes on each candidate ──────────────────────────────────────── -->
+    <div class="notes">
+      <div class="note-card">
+        <h2 class="note-title"><span class="note-letter">A</span> hairline gold left edge + pill</h2>
+        <p class="note-row"><b>Signals:</b> "elevated" without the full Arceus frame — a rank bar is a
+          familiar low-intensity emphasis idiom, and it costs almost no space in the rail.</p>
+        <p class="note-row"><b>Weakness:</b> this is the wrong slot. <code>AgentRosterCard.tsx</code>
+          already colors every ordinary card's own 3px left border from <code>session.accent</code> —
+          one of six existing hues, one of which (<code>lemon</code>) sits a few degrees from gold
+          itself. A gold left edge occupies the exact same visual position every other card already
+          uses for an unrelated per-session color, so at a glance a lead risks reading as "a session
+          with an odd accent" rather than "elevated," especially next to a lemon-accented ordinary card.</p>
+      </div>
+
+      <div class="note-card">
+        <h2 class="note-title"><span class="note-letter">B</span> corner accents, no left bar</h2>
+        <p class="note-row"><b>Signals:</b> frees the left edge for its existing job (session accent),
+          and corner marks read as "framed" without claiming the whole card border.</p>
+        <p class="note-row"><b>Weakness:</b> corner accents are Arceus's own signature idiom
+          (<code>.roster-card-arceus-corner</code>, four of them, with a stepped shadow). Two lighter,
+          shadow-less corners on a lead card still visually quotes that exact device — the one thing
+          §3.9 explicitly asks this treatment NOT to do is echo Arceus's frame. Even at reduced
+          intensity, a user who has learned "corners = Arceus" may misread this as a diminished Arceus
+          moment rather than a distinct rank.</p>
+      </div>
+
+      <div class="note-card">
+        <h2 class="note-title"><span class="note-letter">C</span> gold kicker underline (proposed)</h2>
+        <p class="note-row"><b>Signals:</b> a 2px gold rule under the kicker row is a new axis nothing
+          else in the card grammar currently uses — not the left-border slot (session accent), not the
+          corner slot (Arceus). It reads as "this row is capped/ranked" without competing with either
+          existing signal, and like A/B it pairs with the mono <code>lead</code> pill so the badge, not
+          just a stray line, carries the actual word.</p>
+        <p class="note-row"><b>Weakness:</b> it is the subtlest of the three. A 2px horizontal rule
+          sits close in weight to the card's own 1px <code>--line</code> border and to dividers
+          elsewhere in the rail; at the rail's default width, a user skimming quickly may register the
+          pill but miss the rule entirely, which means this treatment leans on the pill more than A or
+          B do rather than truly having two independent signals.</p>
+      </div>
+
+      <div class="constraints">
+        <h2>what stayed constant across all three</h2>
+        <ul>
+          <li>Every gold used is one of the app's two real gold values (<code>--gold</code> /
+            <code>--accent-text</code>) — no new hue anywhere, dark or light.</li>
+          <li><code>radius: 0</code> on every rect; the only two shadows in the whole page are Arceus's
+            own pre-existing hard offsets (no blur), reused unchanged.</li>
+          <li>Press Start 2P appears only at 12px (page title) — never inside a card, matching
+            <code>tokens.ts</code>'s note that Press Start 2P is chrome-only and breaks below/between
+            its three fixed sizes.</li>
+          <li>None of A/B/C touch Arceus's bezel, crest, corners-with-shadow, or ceremonial padding —
+            each sits on the plain <code>.roster-card-medium</code> shell every ordinary session card
+            already uses.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <footer class="tokens">
+    <h2>token values used on this page</h2>
+    <div>
+      dark: <code>--bg #17171B</code> &middot; <code>--panel #1D1D22</code> &middot;
+      <code>--panel-2 #26262C</code> &middot; <code>--bg-terminal #1A1A1F</code> &middot;
+      <code>--line #787684</code> &middot; <code>--text #DEDBD6</code> &middot;
+      <code>--text-secondary #B3B0AC</code> &middot; <code>--muted #96919F</code> &middot;
+      <code>--gold / --accent / --accent-text #E8B740</code> &middot;
+      <code>--on-accent #1A1320</code> &middot; <code>--accent-mint #74C096</code> &middot;
+      <code>--status-working #D8B052</code> &middot; <code>--status-idle #64ACBB</code> &middot;
+      <code>--status-done #6FB88B</code>
+    </div>
+    <div style="margin-top: 6px">
+      light: <code>--bg #FFFDF5</code> &middot; <code>--panel #FFF8E7</code> &middot;
+      <code>--panel-2 #F4E9C7</code> &middot; <code>--bg-terminal #FCFAF0</code> &middot;
+      <code>--line #A899B5</code> &middot; <code>--text #1A1320</code> &middot;
+      <code>--text-secondary #3D2E4A</code> &middot; <code>--muted #6B5878</code> &middot;
+      <code>--gold / --accent-text #7D5312</code> (text/stroke) &middot;
+      <code>--accent (fill only) #DCAB3C</code> &middot; <code>--accent-mint #5CA97A</code> &middot;
+      <code>--status-working #DCAB3C</code> &middot; <code>--status-idle #4F9FAF</code> &middot;
+      <code>--status-done #5CA97A</code>
+    </div>
+    <div style="margin-top: 6px">
+      arceus (both themes, unchanged): <code>--arceus-ground #11152F</code> &middot;
+      <code>--arceus-ground-raised #1B1D43</code> &middot; <code>--arceus-ink #DED7C2</code> &middot;
+      <code>--arceus-muted #AAA7C5</code> &middot; <code>--arceus-gold-deep #76501C</code> &middot;
+      <code>--arceus-gold #D7A63B</code> &middot; <code>--arceus-gold-bright #F5D778</code> &middot;
+      <code>--arceus-green #72C58B</code> &middot; <code>--arceus-violet #514678</code>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('theme-toggle');
+    function apply(theme) {
+      root.setAttribute('data-theme', theme);
+      btn.textContent = 'theme: ' + theme;
+    }
+    apply('dark');
+    btn.addEventListener('click', function () {
+      apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  })();
+</script>
+</body>
+</html>
