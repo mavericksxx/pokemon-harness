@@ -2,9 +2,13 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
-## Unreleased
+## v1.20.6 — 2026-09-17
 
-- Fixed the Dock's "app is running" indicator dot disappearing when clicking the menu-bar tray icon.
+- The macOS menu-bar item is now a native menu instead of a popover window, so it opens over fullscreen apps. Usage limits keep their HP-bar meters and the 30-day cost sparkline, and limit reset times are shown for the first time.
+- Dictated text (macOS Dictation, and any IME) now wraps inside the terminal pane instead of running off the right edge in a single line, and follows the app theme instead of hardcoded black-on-white.
+- The menu-bar pokeball glyph's top half is filled.
+- Advisor companions no longer linger beside their session: two sessions could end up writing one transcript, and interleaved writes destroyed the completion signal that retires them. Duplicate sessions are now de-duplicated before respawn, and a dropped transcript line is logged instead of silently discarded.
+- Fixed the Dock's "app is running" indicator disappearing when clicking the menu-bar icon.
 
 ## v1.20.5 — 2026-09-17
 
