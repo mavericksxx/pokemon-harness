@@ -240,11 +240,8 @@ Flow:
 6. The app injects a confirmation back into the lead's own pty naming the spawned children — same
    async-answer mechanism `poke-ask`/`poke-spawn` already use.
 
-**Open detail, flagged not assumed:** the user asked for "how it's working now", which today is
-one question per dispatch. At N=4 that is either one modal with four rows or four sequential
-modals. This document specifies **one modal with N rows** — a single interruption for a single
-request — but that is an interpretation of the answer given, not a verbatim decision, and should
-be confirmed before implementation.
+**Decided: one modal, one row per child.** A single interruption per request, and the whole shape
+of the fan-out is visible before it is committed to. Not N sequential modals.
 
 N=1 is not a special case; it is a fan-out of one, and the same modal shows a single row.
 
@@ -326,8 +323,8 @@ reports which files conflicted.
   their WIP. Merge in a dedicated worktree, or refuse and escalate when the tree is dirty.
 - **Worktree teardown needs an owner.** §5 admitted this was unassigned; the stale
   `.claude/worktrees/` entries in this repo are what unowned looks like. Assign it: the lead runs
-  `git worktree remove` as the final step of a successful merge, and the app prunes on user close
-  of a merged child.
+  `git worktree remove` as the final step of a merge it completed. **Decided.** A conflicted or
+  unmerged branch keeps its worktree, so it stays available to inspect.
 
 ### 3.7 Per-workspace memory
 
@@ -373,7 +370,8 @@ Arceus already occupies the top of that grammar: his own `ArceusRosterCard` with
 and a crest `::after`, plus the ceremonial `medium` variant in terminal mode. A lead must sit
 visibly below that.
 
-Proposed treatment (confirm before building — §8):
+**Decided: mock it up first**, against the real design tokens, the same way the Hall of Origin
+redesign was settled — then pick. The starting proposal below is the one to beat, not the answer:
 
 - A **hairline gold left edge** on the roster card — a 2–3px vertical rank bar, using the same
   hard-edged, zero-radius, no-blur grammar as the garden bezel. Reads as "elevated" without the
@@ -543,6 +541,24 @@ into), and the lead prompt depends on the role plumbing. Corrected order:
 7. **Merge policy** in the lead's prompt text, plus worktree teardown on successful merge.
 8. **Lead visual treatment** (§3.9).
 
+**Decided: mixed-lane fan-outs are in from day one.** A single batch may contain both claude and
+Luna children. This is the cross-vendor capability no competitor has, and the user wants it at
+launch rather than in v2.
+
+It is also a deliberate scope increase, and the cost must be carried in v1 rather than discovered:
+
+- **Two completion channels.** A Luna child exits and goes `done`; a claude child never does.
+  §3.5's report-file trigger is what makes this tractable — it is the same for both — but the
+  *no-report* fallback differs per lane (`done` with no report vs. `idle` for N minutes with no
+  report) and both paths must be built.
+- **Asymmetric relaunch.** Luna children are not persisted and are killed at quit (`pty.ts:1131`),
+  while claude children resume. A mixed batch therefore comes back partial after an app restart.
+  v1 must define and surface this — at minimum, the lead is told which children did not survive,
+  rather than silently seeing a plan of 4 with 2 sessions.
+- **Double parentage.** A Luna child carries both `delegateParentId` and `leadParentId` (§3.3);
+  every consumer of `delegateParentId` (`RosterStrip.tsx:117`, `TerminalDrawer.tsx:44`,
+  `GardenScene.tsx:693`, `ipc/sessions.ts:70`) must be checked against that combination.
+
 **`MEMORY.md` (§3.7) moves to a follow-up.** Advisor's call, and it is right: it has no tested
 mechanism, it needs the role-aware composed-file change for *children* (which item 2 only does for
 leads), Luna children can't receive it the same way at all, and nothing else in v1 depends on it.
@@ -551,17 +567,13 @@ have it — only its position in the queue.
 
 Not in scope: everything in §6, and any change to Arceus.
 
-## 8. Items still needing the user's confirmation
+## 8. Remaining open items
 
-- **Lane-modal shape at N>1** (§3.4) — one modal with N rows, or N sequential modals. Interpreted,
-  not stated.
-- **Mixed-lane fan-out in v1, or claude-only children first.** A mixed fan-out has two completion
-  channels and two relaunch behaviors, and is most of §5's lifecycle complexity.
-- **Worktree teardown timing** (§3.6) — on merge, on child close, or never-automatic.
-- **Lead visual treatment** (§3.9) — the hairline-gold-edge proposal, or something else.
+- **Lead visual treatment** (§3.9) — mock up two or three options against the real tokens, then
+  pick. Everything else is decided.
 
-Already decided and recorded above: lead is not Arceus (§3.1); lead never writes code (§3.1);
-children are real sessions (§3.2); one lead per project root, not per workspace (§3.1); both
-spawn-time and promote-later (§3.1); summary-only review (§3.6); lead merges clean, escalates
-conflicts (§3.6); memory is lead-written on completion (§3.7); blocked children surface without
-over-building (§3.8).
+All other decisions are recorded in §3 and §7: lead is not Arceus; lead never writes code;
+children are real sessions; one lead per project root, not per workspace; both spawn-time and
+promote-later; one modal with N rows; mixed-lane fan-outs from day one; summary-only review; lead
+merges clean and escalates conflicts, removing the worktree on success; memory is lead-written on
+completion (follow-up increment); blocked children surface without over-building.
