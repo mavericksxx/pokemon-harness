@@ -59,6 +59,33 @@ structural analogue is Cognition's "Managed Devins", and that reads task-bounded
 Sourcing caveat: the announcement tweet was unfetchable (402 direct, 403 via mirror); the docs and
 blog are matched to it by exact date and topic. Codex and Devin claims are secondary-sourced.
 
+### 2.1 Observed from a real screenshot (2026-09-18)
+
+A screenshot of Boris Cherny's actual Claude Code CLI projects usage showed mechanics the written
+docs do not spell out. These are primary evidence of the shipped UI, and several are worth
+copying:
+
+- **Threads resolve, and resolution is reversible.** A resolved thread shows "This thread is
+  resolved. Reopen it to send more messages." alongside a Reopen action. Answers what had been an
+  open lifecycle question here: resolved is a **state**, not a delete.
+- **Thread cards appear inline beneath the message that triggered them**, collapsed, with a reply
+  count ("11 replies", "4 replies"). The conversation stays readable as a conversation; threads do
+  not push it aside.
+- **The coordinator is terse.** Its visible replies are "On it, tracking that down." and "Will do,
+  starting on it." — it acknowledges and gets out of the way rather than restating the plan back.
+  A deliberate persona choice to copy (§5.3, §5.4).
+- **The coordinator runs at LOW effort** (the composer showed Fable 5.1 / Low) while threads run
+  high. Confirms the cheap-coordinator / expensive-worker split, and matches the docs' stated
+  defaults. Relevant to us: a lead that only routes and appends to files does not need a large
+  model, and making it one would be a real ongoing cost for no benefit.
+- **One input box for both**: "Ask Claude a question or start a task…" — no mode switch between
+  asking and dispatching.
+
+Cherny's own framing of the value is the same as the user's (§1), independently arrived at:
+
+> "I stopped managing sessions. I just send thoughts as they come, Claude splits them into
+> threads, and the project remembers how I work."
+
 ## 3. What already works today — verified, not assumed
 
 **Agent-tool subagents are already visible Pokémon.** `hookRouter.ts` emits `spawn` / `correlate` /
@@ -141,6 +168,11 @@ second such flag is last-wins (`shared/arceus.ts:181`). The choke point needs a 
 **"compose one file per role"** step, not another `if` branch.
 
 **The lead never writes code.** It holds context, routes, proposes, dispatches, and reads results.
+
+**The lead should be terse, and should be a cheap model.** Both observed from real usage (§2.1):
+the shipped coordinator replies in one line ("On it, tracking that down.") and runs at low effort
+while its threads run high. A lead that routes and appends to files does not need a large model,
+and defaulting it to one would be a real recurring cost for no gain.
 
 ### 5.2 Idea files — the core mechanism
 
@@ -319,8 +351,9 @@ Items 1–4 are the feature. 5–8 make it good.
 - **Idea-file location** — under the harness home (user-visible, survives a repo wipe) or in the
   repo (versioned, shareable, but pollutes the project). Leaning harness home, keyed on project
   root.
-- **Idea lifecycle** — how an idea gets closed, and whether closed ideas are archived or deleted.
-  Anthropic auto-resolves a thread after a week idle.
+- ~~**Idea lifecycle**~~ — **resolved by §2.1.** An idea is *resolved*, reversibly, not deleted;
+  Anthropic also auto-resolves after a week idle. Adopt the same: a resolved idea's file stays on
+  disk, stops being offered for routing, and can be reopened.
 - **Does the user edit idea files directly?** They are plain Markdown on disk, so effectively yes —
   the question is whether that is an advertised affordance the lead must expect, or incidental.
 - **Lead visual treatment** (§5.8) — pick from the mockup.
