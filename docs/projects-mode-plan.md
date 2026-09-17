@@ -1,579 +1,326 @@
 # Projects mode — design plan
 
-Status: **design exploration, decisions locked where marked. Not yet implemented.**
-Written: 2026-09-17.
+Status: **design exploration. Core shape decided 2026-09-17; not implemented.**
 
-**This file is a temporary planning artifact, not permanent project documentation.** Delete it
-once §7 has been built, reviewed and merged — its content should live on as code, git history,
-`CHANGELOG.md` and `BACKLOG.md`.
+**This file is a temporary planning artifact.** Delete it once §8 has been built and merged — the
+content should live on as code, git history, `CHANGELOG.md` and `BACKLOG.md`.
 
-Companion note: `docs/arceus-v2-plan.md` is **built** — `CHANGELOG.md` v1.19.0 confirms both its
-backend (`poke-ask`/`poke-spawn`/`poke-relay`, roster workspaces block, `lastDispatch`, persona at
-the spawn choke point) and its frontend (Hall of Origin, `ArceusHud.tsx`, `PokeAskModal.tsx`)
-shipped, including the inline provider/model switch. Its own header says to delete it once built,
-but **do not delete it yet**: 47 code comments across 22 source files cite it by path
-(`hookBridge.ts:87`, `pty.ts:312`, `arceus.ts:67`, …), and deleting it strands every one of them.
-Either keep it as a design record or sweep the citations in the same change. Its outstanding
-deferrals are **task fan-out** (this document), **proactive behavior**, and the **`/clear`
-context-reset lifecycle** (that plan's §6).
+> **Rewritten 2026-09-17.** The first draft of this document was built on two false premises and
+> is preserved only in git history. It assumed (a) that an Agent-tool subagent is invisible to the
+> garden, and (b) that the feature is fundamentally about parallel execution. Both were wrong —
+> see §3 and §4. The rewrite is substantially smaller than what it replaces.
 
 ---
 
-## 1. What prompted this
+## 1. What this actually is
 
-Anthropic announced a redesigned **Projects** for Claude Code / Claude Desktop on 2026-09-17
-(`claude.com/blog/projects-redesigned`, `code.claude.com/docs/en/claude-projects`). The user wants
-the same core idea in Pokéharness: talk to one agent, have it split work across many agents
-working in parallel, each visible as its own Pokémon.
+Not an orchestration feature. A **context** feature.
 
-### 1.1 What Projects actually is (confirmed from Anthropic's own docs)
+The user's own description of the problem:
+
+> "Sometimes when I'm working on something, I have a bunch of ideas that clash with each other.
+> Instead of sending different ideas to different sessions, I want to talk to just one agent. I
+> tell it about idea A, and while I'm working through idea A I give it some context of idea B,
+> then I go to idea C, then I come back to idea A and give it more context of B, then I go to idea
+> D — and it basically knows everything about A, B, C and D."
+
+So: **one long-lived conversation holding several live threads of intent at once**, fed
+fragmentary, out-of-order input. Work happening in parallel is a downstream consequence, not the
+goal — and the parallel-execution machinery already exists (§3).
+
+This matches Anthropic's own framing of Projects more closely than the first draft did:
 
 > "A project is one ongoing conversation where Claude coordinates a stream of related work for
-> you. You tell it what needs doing and it starts a thread for each task."
+> you."
 
-- **Coordinator** — the persistent project conversation. "Takes what you send, decides what
-  becomes a thread, and keeps track of every thread it started. It sees what threads report back,
-  **not every step they take**."
-- **Thread** — "a separate cloud session with its own context window that does one piece of work
-  on its own branch, opens a pull request when the work calls for one, and reports back to the
-  conversation when it finishes." Threads may spawn their own subagents.
-- **Shared state** — project instructions (author-written, ≤16,000 chars), project memory
-  (Claude-written `MEMORY.md` + supporting files, read by every new thread on start), a Library of
-  artifacts, repos, a cloud environment.
-- **Cloud only today.** Local execution is "coming very soon", undated. "A local session can't be
-  part of a project."
-- Separate model + effort settings for coordinator vs threads (default: coordinator low effort,
-  threads high).
+and, on input:
 
-Anthropic explicitly contrasts Projects with two adjacent features of their own, and both
-contrasts matter to us:
+> you paste bug reports, stack traces, or task lists "as they arrive, in any order."
 
-- **agent teams** — one session spawning teammates for *a single task*; ends when that task ends.
-- **agent view** — a dashboard of local sessions; "it has no coordinator."
+## 2. Prior art
 
-Projects is the long-running, open-ended one. In that taxonomy, **Arceus is agent view** (global
-status + routing, no per-project coordinator) and what we are building here is the coordinator.
-They are different objects and should stay separate.
+Anthropic's redesigned Projects (announced 2026-09-17; `claude.com/blog/projects-redesigned`,
+`code.claude.com/docs/en/claude-projects`): a persistent **coordinator** conversation that starts
+a **thread** per task, each "a separate cloud session with its own context window ... on its own
+branch", reporting back a summary. The coordinator "sees what threads report back, not every step
+they take." Shared state: project instructions (≤16,000 chars), project memory (a Claude-written
+`MEMORY.md` every new thread reads on start), a Library, repos, a cloud environment. **Cloud only**
+today; local execution "coming very soon", undated.
 
-### 1.2 What competitors have
+Their contrast table is useful to us: **agent teams** = one session spawning teammates for a
+single task, ending when it ends; **agent view** = a dashboard of local sessions, "it has no
+coordinator". Projects is the long-running one. In that taxonomy Arceus is agent view; what this
+document describes is the coordinator.
 
-Cursor (Cloud Agents + Agents Window + Plan Mode), OpenAI Codex (cloud tasks + `AGENTS.md`), and
-GitHub Copilot (parallel agent sessions, worktree-isolated, "fleet mode") all do *"the user
-manually launches N parallel agents."* **None of them has a persistent coordinator conversation
-that decides when to fan out.** The only close structural analogue found is Cognition's "Managed
-Devins", where a main Devin "scopes the work, assigns each piece to a managed Devin, monitors
-progress, resolves any conflicts, and compiles the results" — and that reads task-bounded rather
-than open-ended.
+Nobody else has the coordinator object. Cursor (Cloud Agents, Agents Window, Plan Mode), OpenAI
+Codex, and GitHub Copilot all do "the user manually launches N parallel agents." The closest
+structural analogue is Cognition's "Managed Devins", and that reads task-bounded.
 
-Caveat on sourcing: the announcement tweet itself was unfetchable (X returned 402 direct, 403 via
-mirror). The docs and blog post above are matched to it by exact date and topic — near-certain but
-inferred. Competitor claims for Codex and Devin are secondary-sourced and flagged as such.
+Sourcing caveat: the announcement tweet was unfetchable (402 direct, 403 via mirror); the docs and
+blog are matched to it by exact date and topic. Codex and Devin claims are secondary-sourced.
 
----
+## 3. What already works today — verified, not assumed
 
-## 2. Why we are well positioned
+**Agent-tool subagents are already visible Pokémon.** `hookRouter.ts` emits `spawn` / `correlate` /
+`end` battle signals off the hook stream; `AgentRosterCard.tsx:309` renders per-parent subagent
+card disclosure; battlers carry `parentId` (`store.ts:50`). A fan-out today produces walkers,
+battles, and roster cards without any new plumbing.
 
-The pieces Anthropic had to build in the cloud, we mostly already have locally and shipped:
+**The completion signal for those children already exists.** `TaskNotificationWatcher` tails a
+session's transcript for its **own** Agent-tool subagents' `<task-notification>` lines — captured
+empirically against the real CLI, documented at length in that file's header. It fails only for
+_sibling sessions_, which is what the first draft wrongly proposed to build.
 
-| Projects concept | Pokéharness equivalent | State |
-| --- | --- | --- |
-| Project | `WorkspaceRecord` (`shared/workspaceTypes.ts`) | shipped |
-| Coordinator | the lead Pokémon (§3.1) | **new** |
-| Thread | a spawned session with its own walker | shipped (`poke-spawn`) |
-| Thread on its own branch | git worktree per child | **new** |
-| Thread → PR | branch + summary; no PR | **new** (§3.6) |
-| "Reports back when it finishes" | — no usable signal exists (§3.5) | **new** |
-| Project memory | `MEMORY.md` per workspace | **new** (§3.7) |
-| Project instructions | `HARNESS.md` (global today) | shipped, needs per-workspace scope |
-| Library | — | deferred (§8) |
-| Routines | — | deferred (§8) |
-| Cloud sandbox | the user's own laptop | not needed |
+**Lane selection partly exists.** The Agent tool takes a per-dispatch model, so haiku/sonnet/opus
+are already selectable. **Luna cannot be a subagent** — GPT-5.6 via Codex needs a real session,
+which `poke-delegate` already spawns as a tracked walker with its own battler.
 
-Three things Anthropic's design confirms about our own instincts, worth stating because each one
-*reduces* what we have to build:
+**Arceus v2 shipped** (`CHANGELOG.md` v1.19.0): `poke-ask` / `poke-spawn` / `poke-relay` over the
+`poke-delegate` UDS pattern, fire-and-return-immediately with the answer injected back as a fresh
+pty message; `roster.json` with a workspaces registry and `lastDispatch`; persona composed at the
+`PtyManager.spawn` choke point; the Hall of Origin UI.
 
-1. **Fan-out is the headline behavior**, not a nicety. `arceus-v2-plan.md` §6 deferred it; that
-   was an under-scope. One request → several agents is the point.
-2. **Summary-only fan-in is correct.** "It sees what threads report back, not every step they
-   take." We do not need to stream child output into the lead's context — only a completion event
-   carrying a summary. This is the single biggest simplification available. **The completion
-   signal itself does not exist yet and must be built** — see §3.5, which is the single largest
-   correction advisor review made to this plan.
-3. **Worktrees are the local answer to sandboxed clones.** Anthropic's own docs list worktrees as
-   the local-session equivalent of what each cloud thread gets for free.
+Note on `docs/arceus-v2-plan.md`: it is built, but **do not delete it yet** — 47 comments across 22
+source files cite it by path (`hookBridge.ts:87`, `pty.ts:312`, `arceus.ts:67`, …). Keep it as a
+design record, or sweep the citations in the same change. Its outstanding deferrals are proactive
+behavior and the `/clear` context-reset lifecycle.
 
-Where we differ, we differ favorably: no cloud (their #1 announced gap), no 200-threads/day cap,
-no "sandbox pauses between turns and can lose uncommitted changes" failure mode, and a lane picker
-spanning vendors — Luna-via-Codex is something Anthropic structurally cannot offer.
+## 4. What the first draft got wrong
 
----
+Recorded so the same ground isn't re-covered:
 
-## 3. Decided design
+- **"Children must be real sessions or they're invisible."** False (§3). This premise drove
+  worktree-per-child spawning, `leadParentId`/`taskId` pointer fields, the N-concurrent-adoption
+  species-collision fix, and most of the lifecycle hazards. All unnecessary for the default case.
+- **"The completion signal is shipped, needs wiring."** Backwards. It is shipped _for own
+  subagents_ (the case we actually want) and absent _for siblings_ (the case the draft invented).
+  The whole `REPORT.md`-file-watching mechanism is unnecessary.
+- **The trust-dialog spike.** Only arose because children were to be fresh CLI processes in
+  never-seen directories. Subagents run in-process; there is nothing to verify. (Still true and
+  worth remembering _if_ real-session children are ever added: trust is per-directory in
+  `~/.claude.json` under `projects["<path>"].hasTrustDialogAccepted`, and there are zero worktree
+  entries today despite agents having worked in worktrees.)
+- **Parallel execution as the point.** §1.
 
-Every decision in this section was made explicitly by the user. Where a decision loosens an
-existing rule or leaves a detail open, that is called out inline rather than smoothed over.
+Still correct and carried forward: the lead is not Arceus (§5.1), the lead never writes code, the
+`isArceus`-keyed spawn gates make promotion a respawn (§5.1), and the widened trust guard needs
+`parentAgentId` threaded through `PokeAskNotice` (§7).
 
-### 3.1 The lead is an ordinary session, not Arceus
+## 5. The design
 
-**Decision: a designated Pokémon session becomes the lead for a workspace. Arceus is untouched.**
+### 5.1 The lead
 
-Rationale: Arceus is a singleton, workspace-agnostic, deliberately stateless (persona in argv,
-nothing durable in the transcript), and Codex-Arceus cannot reach the `poke-*` tools at all (spike
-2b: `EPERM` under `-s workspace-write`). Every projects-mode requirement — a durable per-project
-memory, N in-flight children, worktrees — fights those constraints.
+**Decided: a designated Pokémon session, not Arceus.** Arceus is a workspace-agnostic singleton
+whose Codex form cannot reach the `poke-*` tools at all (spike 2b: `EPERM` under
+`-s workspace-write`). A lead is an ordinary `claude` pty in a real cwd with the full tool surface.
+Arceus stays the cross-project router; a lead owns one project's ideas. Both can exist at once.
 
-An ordinary session has none of them. It is a real `claude` pty in a real cwd with the full tool
-surface: the Agent tool, `poke-delegate` for Luna, and its own Read tool for reports. Its
-*behavior* is close to what a top-level orchestrator session already does under `HARNESS.md`.
+**Decided: scoped to project root, not workspace.** `workspaceTypes.ts:19` already says a
+workspace "isn't strictly one repo (any session's cwd can differ)", and the user routinely spawns
+agents into different folders from one open garden. Project root = `git rev-parse --show-toplevel`
+of the session's cwd, resolved at spawn, falling back to the literal cwd for a non-repo. One lead
+per project root; two leads in one garden on different folders is explicitly allowed.
 
-It is also per-workspace rather than global, which is what "project mode" actually means. Arceus
-stays the cross-project router; a lead owns one project's work. Those compose. Arceus plus a lead
-is always fine — different levels.
+**Decided: settable at spawn time (dialog checkbox) and by promoting an existing session.**
 
-**Shape:** add `isLead?: boolean` to `SessionRecord`, alongside the existing `isArceus` /
-`isPlainTerminal` / `delegateParentId` flags. The session keeps its normal `workspaceId`.
+**Promotion is a respawn, not a flag flip.** Three gates key on `opts.id === ARCEUS_SESSION_ID`
+_inside_ `PtyManager.spawn` and run exactly once: the poke-tools PATH prepend (`pty.ts:483`),
+`POKE_TOOL_PERMISSION_RULES` in the per-session settings file (`pty.ts:333`), and the composed
+system prompt (`pty.ts:393`). `SpawnPtyOptions` (`shared/types.ts:5`) has no role field. So:
 
-**Decided: at most one lead per PROJECT ROOT, not per workspace.**
-
-The scoping unit is the repo, not the garden. `workspaceTypes.ts:19` already says so outright — "a
-workspace isn't strictly one repo (any session's cwd can differ)" — and the user routinely spawns
-agents into different folders from within one open garden. The three things that actually conflict
-between two leads are all properties of a repo, not a workspace: serialized merges into one
-primary branch, single-writer `MEMORY.md`, and children dispatched onto the same files. Two leads
-in the same garden working *different* folders share none of those.
-
-So: **"project root" = the git toplevel of a session's `cwd`** (`git rev-parse --show-toplevel`,
-resolved once at spawn; falls back to the literal cwd when it is not a repo). At most one lead per
-project root, enforced at promotion/spawn time — promoting a second lead for the *same* root
-offers to demote the first; a lead for a different root is simply allowed, silently, even in the
-same garden. Everything else in this document that says "workspace" as a scoping unit means
-project root: `MEMORY.md` (§3.7), worktree parentage, and merge serialization.
-
-Workspaces remain what they are — the garden/visual grouping and the unit Arceus routes across.
-They are just not the unit a lead owns.
-
-**Decided: both a spawn-time checkbox and later promotion.** The New Session dialog gets a "lead"
-option, and a roster-card action can promote an existing session.
-
-**Correction from advisor review — promotion is a respawn, not a flag flip.** Three gates key on
-`opts.id === ARCEUS_SESSION_ID` *inside* `PtyManager.spawn` and run exactly once: the poke-tools
-PATH prepend (`pty.ts:483`), `POKE_TOOL_PERMISSION_RULES` in the per-session settings file
-(`pty.ts:333`), and the composed system prompt (`pty.ts:393`). `SpawnPtyOptions`
-(`shared/types.ts:5`) has no role field at all. A live session flipped to `isLead` gets none of
-these. So:
-
-- `SpawnPtyOptions` must carry a **role**, and every spawn path must pass it — including
+- `SpawnPtyOptions` must carry a **role**, passed on every spawn path — including
   `sessionRespawn.respawnSession`, which rebuilds options from the record
-  (`sessionRespawn.ts:62-70`) and would otherwise silently drop the role on relaunch. This is the
-  same class of bug as the Arceus provider/model relaunch bug already fixed once.
+  (`sessionRespawn.ts:62-70`) and would otherwise drop it on relaunch. Same class of bug as the
+  Arceus provider/model relaunch bug already fixed once.
 - Promotion of a live session = respawn with `--resume <claudeSessionId>`, preserving the
-  conversation. The mechanism exists (`recreateTerminal` / `tryResumeArceus`). Demotion is the
-  same in reverse.
+  conversation (`recreateTerminal` / `tryResumeArceus` already do this).
 
-**The lead never writes code.** Decided. Its prompt is composed at the same `PtyManager.spawn`
-choke point Arceus's persona uses. **`HARNESS.md` must be excluded for a lead** — this is forced,
-not optional: `pty.ts:354` appends `--append-system-prompt-file <HARNESS.md>` to every
-non-Arceus, non-delegate claude session, and a second such flag is last-wins
-(`shared/arceus.ts:181`). The choke point needs a general **"compose one file per role"** step
-rather than a third `if` branch, because children need a composed file too (§3.7).
+**`HARNESS.md` must be excluded for a lead.** Forced, not optional: `pty.ts:354` appends
+`--append-system-prompt-file <HARNESS.md>` to every non-Arceus, non-delegate claude session, and a
+second such flag is last-wins (`shared/arceus.ts:181`). The choke point needs a general
+**"compose one file per role"** step, not another `if` branch.
 
-**The lead never writes code.** Decided. It routes, dispatches, reads reports, merges, and writes
-memory. Its system prompt is essentially today's `HARNESS.md` orchestrator section, composed into
-the same single `--append-system-prompt-file` built at the `PtyManager.spawn` choke point that
-Arceus's persona already uses (`pty.ts`). Note the documented last-value-wins collision: there
-must be **one** composed file, never two `--append-system-prompt-file` flags.
+**The lead never writes code.** It holds context, routes, proposes, dispatches, and reads results.
 
-### 3.2 Children are real sessions, never Agent-tool subagents
+### 5.2 Idea files — the core mechanism
 
-**Decision: every child is a real spawned session with its own walker and its own Pokémon.**
+**This is the feature.** Everything else is support.
 
-This was the crux question and it is settled. Invisible Agent-tool subagents would be cheaper and
-would make fan-in trivial (the result returns into the lead's context directly), but they defeat
-the premise of the app: the garden is the point. A child must be a visible, independently tracked
-battler that can evolve, fight completion battles, and appear in the party rail.
+Each live thread of intent gets a file: `<project state dir>/ideas/<slug>.md`, holding what the
+idea is, everything the user has said about it, decisions made, open questions, and current state.
 
-Consequence: fan-in needs a real mechanism, because the lead cannot see a separate session's
-output. See §3.5.
+When the user says something, the lead **appends to the relevant idea file before responding**. The
+file, not the transcript, is the durable record.
 
-### 3.3 Task grouping
+**Why this and not just a long conversation — the problem that decides the feature.** A lead is
+one `claude` session with a finite context window. Four ideas accumulating over days means
+auto-compact eventually fires, and compaction is lossy in precisely the wrong way: the user would
+be deep in idea D when the details of idea B quietly stop being real. It fails _invisibly_ — the
+lead keeps answering confidently about B. A feature whose whole promise is "it knows everything
+about A, B, C and D" cannot rest on the context window holding out.
 
-A fan-out needs an identity so the garden can show "these four walkers belong to one task."
+Anthropic's design says the same thing by implication:
 
-**Proposed: pointer fields on children, plus the plan itself stored on the lead's own record.**
+> "Threads compact automatically, and the conversation works from recent messages, recent threads,
+> and project memory rather than its full history."
 
-On each child:
+The transcript is deliberately not the source of truth there either.
 
-- `leadParentId?: string` — the lead that spawned it.
-- `taskId?: string` — the fan-out batch.
+Consequences that fall out of this, all of them desirable:
 
-On the lead: `leadPlans?: Array<{ taskId, title, children: Array<{ id, lane }> }>`, stamped when
-the user confirms the plan.
+- **Compaction becomes survivable.** After a compact, the lead re-reads the idea files.
+- **The lead becomes replaceable.** If its pty dies or the app restarts, a fresh lead reads the
+  same files and is equally informed. State lives on disk, not in a process.
+- **Children get real briefs.** A dispatched subagent is handed the idea's file, not a one-line
+  task — which is most of what makes a fan-out produce useful work.
+- **Per-project memory is no longer a separate feature.** The idea files _are_ it.
 
-**Correction from advisor review — pointers alone are not enough, and `delegateParentId` is not a
-clean template.** "3 of 4 done" needs to know N, and with pointers only, a child the user closes
-(`stopSession` drops it from the array) silently turns that into "3 of 3". Storing the plan on the
-lead gives N durably, persists through the existing checkpoint, and needs no new file.
+Open sub-questions in §9: exact location, whether resolved ideas are archived or deleted, whether
+the user edits these files directly.
 
-`delegateParentId` also carries far more semantics than the card link this draft wanted to
-"mirror": non-persistence (`ipc/sessions.ts:70`), kill-on-quit (`pty.ts:1131`), hidden-when-done
-tabs (`TerminalDrawer.tsx:44`), the "done" roster section (`RosterStrip.tsx:117`), and the delegate
-challenge battle (`GardenScene.tsx:693`). A Luna child will carry **both** `delegateParentId` and
-`leadParentId`, and will not survive relaunch, while a claude child will. That asymmetry is real
-and must be designed around, not inherited by accident.
+### 5.3 Routing
 
-### 3.4 Dispatch and the lane picker
+**Decided: the lead states its inferred idea and proceeds.** "Filing this under idea B." It calls
+`poke-ask` only when genuinely torn between two live ideas.
 
-**Decision: a single option-card modal, same feel as the picker in use today.**
+This mirrors the workspace-routing behavior Arceus already ships, and it is the right default here
+for a specific reason: the input this feature exists to support is fast and fragmentary, delivered
+mid-thought. A picker on every message would tax exactly the thing being enabled.
 
-Flow:
+A misfile must be cheap to correct — at minimum by saying so ("no, that was about C"), and ideally
+by the UI showing which idea each message landed in.
 
-1. User briefs the lead in plain language.
-2. The lead decomposes the request into N child tasks and proposes a plan, each child carrying a
-   suggested lane (haiku / sonnet / luna / opus) and a one-line rationale.
-3. It calls a new `poke-plan` tool, which fires and returns immediately — same constraint as every
-   other `poke-*` tool, for the same reason (spike 1: Claude Code's Bash tool hard-refuses a long
-   blocking wait; this is a product guardrail, not a timeout).
-4. The app shows **one modal, one row per child task, each row a lane selector pre-filled with the
-   lead's suggestion.** User adjusts and confirms, or cancels the whole plan.
-5. The app creates a worktree per child, spawns each child session into it, and injects its task
-   as the child's first message.
-6. The app injects a confirmation back into the lead's own pty naming the spawned children — same
-   async-answer mechanism `poke-ask`/`poke-spawn` already use.
+### 5.4 When an idea becomes work
 
-**Decided: one modal, one row per child.** A single interruption per request, and the whole shape
-of the fan-out is visible before it is committed to. Not N sequential modals.
+**Decided: the lead proposes when an idea looks ready; the user accepts or declines.** Ideas
+accumulate as pure context until then.
 
-N=1 is not a special case; it is a fan-out of one, and the same modal shows a single row.
+This is Anthropic's "Suggested threads" pattern. Two things to get right:
 
-`poke-spawn` (single, no worktree, no lane choice) stays as-is for Arceus. `poke-plan` is
-additive.
+- **Proposing is not dispatching.** The Arceus cycle's "no proactive behavior" rule stands — the
+  lead never starts work unasked. A proposal is a question, and it costs nothing.
+- **It must not nag.** "Looks ready" is a judgment the model will sometimes get wrong. It should
+  propose once per idea per meaningful change, not on every turn, and a declined proposal should
+  stay declined until the idea materially moves.
 
-### 3.5 Fan-in: how a child reports back
+On acceptance, the lane picker (§5.5) opens.
 
-**Decided: the child writes a report file; the app watches for that file and tells the lead.**
+### 5.5 Dispatch and lanes
 
-**This is the largest correction advisor review made.** The original draft claimed the completion
-signal was "shipped, needs wiring." It is not — there is no usable one:
+**Decided: one modal, one row per child task**, each row a lane selector pre-filled with the lead's
+suggestion. One interruption per request, and the shape of the fan-out is visible before it is
+committed to.
 
-- An interactive `claude` child **never goes `done`**. `hookRouter.ts:540` sets `idle` at the end
-  of *every* turn; `done` (`terminalRegistry.ts:331`) means the pty exited. A child that asks a
-  clarifying question on turn 1 emits the identical signal to one that finished its task.
-- `TaskNotificationWatcher` tails a session's own transcript for **its own Agent-tool subagents**
-  (`taskNotificationWatcher.ts:1-156`). It has no concept of a sibling session.
-- Completion battles (`BattleManager.handleParentDone`, `queueDelegateChallenge`) fire for
-  subagent battlers and for a *delegate* pty exiting. Neither is task completion.
-- A Luna child does exit, so it *does* go `done` — a second, different channel from the claude
-  case.
+This is the single biggest upgrade over today, where "always offer Haiku / Sonnet / Luna" is a rule
+in `CLAUDE.md` that the orchestrator follows on the honor system with nothing enforcing it.
 
-**Therefore: completion is defined as the report file appearing, not as a session status.** This
-is lane-agnostic, which is the whole point — it works identically for a claude child and a Luna
-child.
+Execution itself is mostly already built (§3):
 
-Mechanics:
+- **Claude lanes → Agent-tool subagents.** Visible walkers, working completion signal, per-dispatch
+  model. Nothing new.
+- **Luna lane → `poke-delegate`.** A real tracked session with its own walker. Already shipped.
 
-- Each child is spawned with an instruction to write `REPORT.md` in its worktree when done: what
-  it changed, what it did not do, anything the lead must decide.
-- Main watches each live worktree for that file with `fs.watch` plus a slow poll as a safety net —
-  the exact pattern `taskNotificationWatcher.ts:497-509` already uses for transcripts.
-- On appearance, main tells the lead which child, which task, which branch, and the report path.
-  The lead reads it with its own Read tool. No transport, no parsing, no context streaming.
+A mixed-lane fan-out is therefore the default, not a scope increase — it is what happens today.
 
-**Transport into the lead: reuse `PokeRelay.submit`** (`main/pokeTools.ts:101-113`) — main-side,
-idle-safe, already shipped, with whitespace collapse and a 4000-char cap that are both fine for a
-pointer message. Do **not** copy `adoptPokeSpawn`'s direct `writePty` (`sessions.ts:369-374`),
-which can type into a pty mid-turn.
+**Worktrees are not part of the default path.** A subagent shares the lead's cwd. If two children
+would genuinely collide on the same files, that is the lead's problem to avoid when decomposing —
+or a reason to use worktrees for that specific fan-out, decided per case rather than built into
+the mechanism. Deferred (§7) rather than designed now.
 
-Failure cases that must be handled explicitly, not discovered later:
+### 5.6 Review
 
-- **Exited without a report.** Now cleanly detectable as the complement of the above: a Luna child
-  that goes `done` with no report, or a claude child `idle` for N minutes with no report. The
-  message to the lead must say so plainly rather than pointing at a file that isn't there.
-- **Report arrives after the lead's pty died.** `InjectionQueue.flush` drops a queue outright once
-  its target is `done` (`injectionQueue.ts:78`), so the report is silently lost. This path must
-  surface to the user as a notification instead of vanishing.
-- **N reports landing at once.** Batch into one injection rather than N.
+**Decided: the lead presents a summary. No in-app diff pane.**
 
-### 3.6 Review and merge
+Merging is out of scope for the default path, since subagents work in the lead's own tree — there
+are no branches to merge. (The earlier decision "lead merges clean branches, escalates conflicts"
+applied to the worktree design and lapses with it. If worktrees return, it returns with them.)
 
-**Decision: the lead presents a summary; there is no in-app diff pane.**
+### 5.7 Blocked children
 
-**Decision: the lead merges conflict-free branches itself and escalates conflicts to the user.**
+A subagent that needs a permission decision surfaces it through the parent, which is already how it
+works today — no new mechanism.
 
-Note explicitly: this loosens an existing rule. `HARNESS.md`'s orchestrator section and the
-project's own `CLAUDE.md` both treat merging as the human's step. The user moved that to the
-in-app lead knowingly. The residual risk is real and should be stated in the lead's own prompt: a
-conflict-free merge is not a correct merge. If this proves uncomfortable in practice, the natural
-add-on is a dedicated reviewer child that reads the combined diff before anything lands — noted
-here so it is not re-derived later.
-
-Mechanics: each child works on `worktree-lead-<taskId>-<n>`; the lead merges each into the project
-root's primary branch in completion order. On conflict it stops, leaves the branch unmerged, and
-reports which files conflicted.
-
-**Corrections from advisor review:**
-
-- **The app creates worktrees, not the lead.** §3.4 step 5 and the original §3.1 contradicted each
-  other. It has to be the app: main needs the worktree path *before* it can spawn the child's pty.
-  So main-side `git` via `child_process`, using the user's resolved shell PATH.
-- **Non-repo project roots must be handled.** `WorkspaceRecord.primaryFolder` is explicitly not
-  guaranteed to be a repo (`workspaceTypes.ts:19`), and a session's cwd may not be one either.
-  Fallback: spawn in place with no isolation, and say so plainly rather than failing obscurely.
-- **Do not merge in the user's own working tree.** The project root is where the user's own
-  session and uncommitted work live; `git merge` there against a dirty tree fails or entangles
-  their WIP. Merge in a dedicated worktree, or refuse and escalate when the tree is dirty.
-- **Worktree teardown needs an owner.** §5 admitted this was unassigned; the stale
-  `.claude/worktrees/` entries in this repo are what unowned looks like. Assign it: the lead runs
-  `git worktree remove` as the final step of a merge it completed. **Decided.** A conflicted or
-  unmerged branch keeps its worktree, so it stays available to inspect.
-
-### 3.7 Per-workspace memory
-
-**Decision: the lead is the only writer, and it writes on child completion.**
-
-Verified: **nothing like this exists today.** The date-partitioned folders the user remembered are
-cost history (`costHistoryScan.ts` keys days as `YYYY-MM-DD`) — spend tracking, not agent memory.
-No branch, no commit, nothing on disk. The *intent* is there though: `harnessHome.ts` already
-creates an empty `agents/` directory documented as "reserved for a future phase (per-agent memory
-and inboxes)", and `~/PokemonHarness/agents/arceus/` currently holds only `roster.json`,
-`summon.json`, `SYSTEM.md`.
-
-**Shape:** keyed on **project root, not workspace** (§3.1) — two leads in one garden on different
-folders must not share a memory file. `<harness home>/projects/<slug>/MEMORY.md`, where `<slug>`
-is derived from the project root path (basename plus a short hash of the full path, so two repos
-with the same basename don't collide). Follows the same user-visible-on-disk principle
-`workspaces.json` already does.
-
-The lead appends to it after reading a child's report. Every child spawned against that root gets
-a pointer to it on start.
-
-**Correction from advisor review — the delivery mechanism differs by lane.** For a claude child
-the pointer goes in the composed system-prompt file, which means children need role-aware
-composition too (§3.1's "one composed file per role"). For a **Luna child it cannot**: `isDelegate`
-spawns are excluded from instruction files entirely (`pty.ts:354`, `:438`, `:472`), so the pointer
-has to be inlined into the prompt text itself.
-
-Single-writer is deliberate: it avoids concurrent-write races with no locking, and it avoids the
-bloat that comes from four agents each journalling their view of the same task. It matches
-Anthropic's model, where memory is coordinator-authored and thread-read.
-
-### 3.9 Making a lead visually evident
-
-**Decided: a lead's card must read as distinct at a glance — clearly elevated, clearly not Arceus.**
-
-Constraint that shapes this: the app was deliberately pared back to **one accent**. `tokens.ts:84`
-calls gold "The app's ONE primary accent", and `tokens.ts:138` notes there is no separate brand
-gold token because gold *is* it. Introducing a second accent colour for leads would undo that on
-purpose, so the lead treatment should be built from the **existing gold grammar at lower
-intensity**, not a new hue.
-
-Arceus already occupies the top of that grammar: his own `ArceusRosterCard` with a full gold bezel
-and a crest `::after`, plus the ceremonial `medium` variant in terminal mode. A lead must sit
-visibly below that.
-
-**Decided: mock it up first**, against the real design tokens, the same way the Hall of Origin
-redesign was settled — then pick. The starting proposal below is the one to beat, not the answer:
-
-- A **hairline gold left edge** on the roster card — a 2–3px vertical rank bar, using the same
-  hard-edged, zero-radius, no-blur grammar as the garden bezel. Reads as "elevated" without the
-  full frame Arceus gets.
-- A small **"lead" pill** in the card's kicker row, in the same `JetBrains Mono` treatment the
-  app already uses for status/technical strings.
-- Its children rendered beneath it with the existing **"↳ <parent title>"** parent-link treatment
-  `delegateParentId` already drives in `AgentRosterCard.tsx`, so a fan-out reads as one visual
-  group in the rail for free.
-- Optionally a subtle garden marker on the walker itself. Lower priority than the card, and it
-  should be genuinely subtle — the garden already carries battles, evolutions and bubbles.
-
-Explicitly **not**: a gold bezel, a crest, a ceremonial card variant, a warp view, or any second
-accent colour. Those are Arceus's, and the distinction between "the god Pokémon" and "a lead"
-should stay obvious.
-
-### 3.8 Blocked children
-
-A child can stall on something only the user can resolve — a permission prompt with auto-mode off,
-or a genuine clarifying question. Its walker flips to `blocked` and it sits there.
-
-**Decision: surface it to the lead and let the user answer there — but keep today's behavior as
-the baseline and do not over-build.** The user notes this rarely fires in practice.
-
-Anthropic draws the opposite line (telling the coordinator "go ahead" explicitly does *not*
-unblock a thread; you must answer inside it). We can do better because `InjectionQueue` can
-already write into any session's pty, so the answer can route back down. But that makes the lead a
-middleman, which introduces a real failure mode: a relayed answer can be wrong, and a relayed
-permission prompt can be rubber-stamped.
-
-**Correction from advisor review — the obvious MVP is a no-op.** `InjectionQueue.submit` injects
-only when the target is `idle` (`injectionQueue.ts:56`), and `flush` requires the same
-(`injectionQueue.ts:83`). A `blocked` child is not idle, so a relayed answer queues until the block
-clears by other means — i.e. never, for a permission prompt. The class header says this is
+Worth recording why the obvious cross-session version does not work, so it isn't re-proposed:
+`InjectionQueue.submit` injects only into an `idle` target (`injectionQueue.ts:56`), and `flush`
+requires the same (`:83`). A `blocked` session is not idle, so a relayed answer queues until the
+block clears by other means — never, for a permission prompt. The class header says this is
 deliberate: a permission prompt must never be auto-answered.
 
-So relay-the-answer-down does not work without changing that guarantee, which should not be
-changed casually.
+### 5.8 Making a lead visually evident
 
-Minimum viable version, consistent with "don't over-build": the lead is *told* a child is blocked
-and on what, and the app surfaces it — the user answers in that child's own terminal. This is
-Anthropic's line too, and it costs nothing. Routing answers back down is a genuine follow-up
-requiring a deliberate `InjectionQueue` change, not a v1 freebie. Revisit only if it fires often
-in practice.
+**Decided: a lead's card reads as elevated, clearly below Arceus.**
 
----
+Constraint: `tokens.ts:84` calls gold "The app's ONE primary accent" and `:138` notes there is no
+separate brand-gold token. A second accent colour would undo a deliberate design decision, so the
+lead treatment is built from the existing gold grammar at lower intensity. Arceus keeps the top of
+that grammar (full bezel, crest, ceremonial variant).
 
-## 4. What is genuinely new vs reused
+A mockup of three candidates against real token values is at `docs/mockups/lead-card.html`
+(light/dark toggle). It surfaced a real conflict: **ordinary cards already paint a 3px left border
+from `session.accent`** — six hues, one of them a few degrees from gold — so a gold left edge is
+not a free slot. Corner accents are Arceus's own device and read as diminished-Arceus. The third
+candidate uses a 2px gold rule under the kicker row, an axis nothing currently occupies, at the
+cost of being subtle enough to lean on the "lead" pill.
 
-Reused as-is: the UDS socket transport and its env-var auth model (`hookBridge.ts`), the
-fire-and-return-immediately tool convention (`shared/pokeTools.ts`), `poke-relay`, the
-`PokeAskModal` visual grammar, `InjectionQueue`, `TaskNotificationWatcher`, completion battles,
-the persona composition choke point in `pty.ts`, `WorkspaceRecord`, and the `delegateParentId`
-roster-card parent-link treatment.
+Pending the user's pick (§9).
 
-New:
+## 6. Security: widening the tool guard
 
-1. `isLead` on `SessionRecord` + promotion UI + one-per-workspace enforcement.
-2. The lead's composed system prompt (orchestrator rules, never writes code).
-3. `poke-plan` — the fan-out tool and its N-row lane modal.
-4. Worktree creation/teardown per child.
-5. `leadParentId` / `taskId` / `taskTitle` and the garden's task grouping.
-6. The completion → report → inject-into-lead fan-in path.
-7. `<harness home>/workspaces/<id>/MEMORY.md` and its read/write wiring.
-8. Merge-clean / escalate-conflict behavior in the lead's prompt.
-
-### 4.1 Security note that must not be glossed
-
-The shipped guard is `isFromArceus(parentAgentId)` — literally `parentAgentId ===
-ARCEUS_SESSION_ID` (`hookBridge.ts`). Projects mode requires widening it to "Arceus **or** a
-session currently flagged `isLead`". That is a real change to the trust boundary, not a rename.
-
-`shared/pokeTools.ts` is already honest about what this guard is: "a discoverability boundary
-against an ordinary session accidentally reaching a tool meant only for Arceus, not real
-sandboxing against a hostile one." Widening it grows the set of sessions that can spawn other
-sessions and type into their terminals.
-
-**Corrections from advisor review:**
+The shipped guard is literally `parentAgentId === ARCEUS_SESSION_ID` (`hookBridge.ts:1183`).
+Letting a lead call `poke-*` means widening it to "Arceus **or** a session currently flagged
+lead" — a change to the trust boundary, not a rename. `shared/pokeTools.ts` is already honest that
+this guard is "a discoverability boundary ... not real sandboxing against a hostile one."
 
 - The check must read the **live** session record, which in main means `sessionRegistry`
-  (`index.ts:792`) — a renderer-pushed mirror refreshed per checkpoint. `HookBridge`'s existing
-  `isKnownSession` is pty-level (`ptyManager.hasSession`), so this is a **new callback**, not a
-  widening of that one.
-- The inherited-env hazard is **already true for Arceus**: a lead's own Agent-tool subagents run
-  inside the lead's process and share its `POKEHARNESS_AGENT_ID`, so a subagent's Bash call passes
-  as the lead. App-spawned children get their own id (`pty.ts:337`, `index.ts:408`) and are fine.
-  This is a pre-existing property of the trust model, worth stating rather than discovering.
-- **`PokeAskNotice` carries no requester id** (`shared/pokeTools.ts:73`), and `PokeAskModal.tsx:102`
+  (`index.ts:792`), a renderer-pushed mirror refreshed per checkpoint. `HookBridge`'s existing
+  `isKnownSession` is pty-level (`ptyManager.hasSession`), so this is a **new callback**.
+- **A lead's own Agent-tool subagents share its `POKEHARNESS_AGENT_ID`** and therefore pass the
+  guard. This is pre-existing (equally true of Arceus today), but it is now load-bearing, since
+  children are subagents by default.
+- **`PokeAskNotice` carries no requester id** (`shared/pokeTools.ts:73`) and `PokeAskModal.tsx:102`
   writes the answer to `ARCEUS_SESSION_ID` **hardcoded**; `armInitialTaskDelivery`'s give-up path
-  does the same (`sessions.ts:311-318`). Widening the guard without threading `parentAgentId`
-  through those notices would route a lead's questions and outcomes into Arceus's terminal. This
-  is a required part of the work, not a detail.
-- **The permission rule is still unverified.** `hookBridge.ts:113-123` explicitly flags
-  `Bash(poke-ask:*)` prefix-matching a bare PATH-resolved command name as UNVERIFIED. If it is
-  false, `poke-plan` in a lead with auto-mode off stalls on a permission prompt in a terminal
-  nobody is watching. Verify empirically once, before building on it.
+  likewise (`sessions.ts:311-318`). Without threading `parentAgentId` through, a lead's questions
+  land in Arceus's terminal. Required work, not a detail.
+- **The permission rule is unverified.** `hookBridge.ts:113-123` explicitly flags
+  `Bash(poke-ask:*)` prefix-matching a bare PATH-resolved name as UNVERIFIED. If false, a lead
+  with auto-mode off stalls on a permission prompt in a terminal nobody is watching. Verify once,
+  empirically, before building on it.
 
----
+## 7. Deliberately deferred
 
-## 5. Lifecycle and concurrency — known hazards
+- **Worktree isolation per child** (§5.5) — only if collisions prove real in practice.
+- **Real-session children** instead of subagents — the trade is steerability and restart-survival
+  against significant plumbing. Revisit only on evidence.
+- **Cross-session answer relay for blocked children** (§5.7) — needs a deliberate `InjectionQueue`
+  change.
+- **Proactive dispatch** — the lead proposes, never starts unasked.
+- **Library / Routines** — the filesystem and `/loop` already cover these.
+- **Cloud execution** — local is the differentiator.
 
-Raised by advisor review against the real code. These are not open questions; they are things that
-will break unless designed for.
+## 8. v1 scope, in build order
 
-**Lifecycle**
-
-- **Lead pty dies** → a fallback shell takes over the same id, status goes `done`, `isLead` stays
-  set, and every fan-in injection is then dropped silently (`injectionQueue.ts:78`). Needs a
-  "lead gone, N children still running" surface.
-- **App relaunch** → a claude child resumes via `--resume` into `record.cwd`, which is its
-  *worktree* path. If that worktree was removed, `spawn` fails (`pty.ts:280`), the shell fallback
-  fails too, and the session vanishes. Luna children are never persisted and are killed at quit.
-  A mixed-lane fan-out therefore comes back **partial, with no explanation**.
-- **Lead relaunch** must re-apply the role — the fix is `SpawnPtyOptions` carrying it on every
-  spawn path (§3.1), not merely persisting `isLead`.
-- **Demotion with children in flight** — guard revocation means an in-flight `poke-plan`
-  confirmation can land after the lead lost its rights, with the spawn already underway. Define
-  the outcome.
-
-**Renderer/main round trip — `poke-plan` is a worse version of a problem `poke-spawn` already
-solved.** `poke-spawn` is main-spawn → `poke:spawned` → renderer adopt → wait for `SessionStart` →
-inject → write outcome (`sessions.ts:254-375`, `index.ts:455-494`). `poke-plan` is main → renderer
-modal → user → renderer → main ×N (worktree create + spawn each) → renderer adopt ×N → N
-`SessionStart` waits → outcomes. Concrete hazards at N≥2:
-
-- **Species collision.** `pickFreeLine(takenLines())` is called *before* `await initShinyConfig()`
-  and before `addSession` (`sessions.ts:330-338`), so two concurrent adoptions can pick the same
-  line. Fix by picking all N synchronously at confirm time, or by moving the pick after the await.
-- **The trust-this-folder prompt becomes the normal case.** Every new worktree is a directory
-  Claude Code has never seen. The `SessionStart` gate exists precisely to dodge that
-  (`sessions.ts:271-278`). Confirm empirically that `SessionStart` still fires once trust is
-  granted — otherwise the task never lands and N give-up toasts fire at once.
-- **Batch outcomes into one injection** into the lead, not N.
-- **Partial spawn failure** mid-batch (`MAX_CONCURRENT_SESSIONS = 64`, `pty.ts:93`; a missing cwd)
-  needs a defined outcome: roll back the batch, or report partial.
-
-## 6. Deliberately deferred
-
-- **Library / artifact store** — Projects has one; we have the filesystem. Revisit only if
-  non-code output becomes common.
-- **Routines / scheduled work** — `/loop` and cron already exist outside the app.
-- **Proactive behavior** — still deferred, as in Arceus v2 §6. The lead acts because the user
-  asked, never unprompted.
-- **In-app diff review pane** — explicitly decided against for v1 (§3.6).
-- **A durable `TaskRecord` registry** — §3.3's cheap pointer approach first.
-- **Cloud execution** — not needed; local is the differentiator, not the compromise.
-- **A reviewer child before merge** — the named fallback if §3.6's merge policy proves too loose.
-
-## 7. Recommended v1 scope, in build order
-
-Advisor review found the original ordering wrong: task-grouping fields are a prerequisite of the
-dispatch tool (adoption must stamp them) and of fan-in (which needs to know *which* lead to inject
-into), and the lead prompt depends on the role plumbing. Corrected order:
-
-1. **Role on `SpawnPtyOptions` + `SessionRecord.isLead`** — every spawn path carries it, including
-   `sessionRespawn`. Promotion = respawn with `--resume`. Project-root resolution and the
-   one-lead-per-root rule (§3.1).
+1. **Role on `SpawnPtyOptions` + `SessionRecord.isLead`**, carried on every spawn path including
+   respawn; project-root resolution; one-lead-per-root; promotion as respawn-with-`--resume`.
 2. **Lead prompt composed at the `PtyManager.spawn` choke point**, `HARNESS.md` excluded, via a
-   general "one composed file per role" step rather than another `if` branch.
-3. **Trust guard widened** (§4.1) + `parentAgentId` threaded through `PokeAskNotice` and the
-   outcome/give-up paths, so a lead's asks don't land in Arceus's terminal. Verify the
-   `Bash(poke-plan:*)` permission rule empirically here.
-4. **Task-grouping fields** — `leadParentId` / `taskId` on children, `leadPlans` on the lead.
-5. **`poke-plan`** — the N-row lane modal, app-owned worktree creation, the non-repo fallback, the
-   synchronous species pick, batched outcomes.
-6. **Report-file-watched fan-in** via `PokeRelay`, including the no-report and lead-died cases.
-7. **Merge policy** in the lead's prompt text, plus worktree teardown on successful merge.
-8. **Lead visual treatment** (§3.9).
+   general one-file-per-role step.
+3. **Idea files** (§5.2) — location, read-on-start, append-on-input, re-read-after-compact. The
+   core of the feature; everything before it is scaffolding.
+4. **Routing behavior** (§5.3) — prompt-driven, plus surfacing which idea a message landed in.
+5. **Trust guard widened** (§6) + `parentAgentId` threaded through `PokeAskNotice` and the outcome
+   paths. Verify the permission rule here.
+6. **`poke-plan`** — the N-row lane modal, dispatching to Agent-tool subagents and `poke-delegate`.
+7. **Readiness proposals** (§5.4), with the anti-nag rule.
+8. **Lead visual treatment** (§5.8).
 
-**Decided: mixed-lane fan-outs are in from day one.** A single batch may contain both claude and
-Luna children. This is the cross-vendor capability no competitor has, and the user wants it at
-launch rather than in v2.
+Items 1–4 are the feature. 5–8 make it good.
 
-It is also a deliberate scope increase, and the cost must be carried in v1 rather than discovered:
+## 9. Open items
 
-- **Two completion channels.** A Luna child exits and goes `done`; a claude child never does.
-  §3.5's report-file trigger is what makes this tractable — it is the same for both — but the
-  *no-report* fallback differs per lane (`done` with no report vs. `idle` for N minutes with no
-  report) and both paths must be built.
-- **Asymmetric relaunch.** Luna children are not persisted and are killed at quit (`pty.ts:1131`),
-  while claude children resume. A mixed batch therefore comes back partial after an app restart.
-  v1 must define and surface this — at minimum, the lead is told which children did not survive,
-  rather than silently seeing a plan of 4 with 2 sessions.
-- **Double parentage.** A Luna child carries both `delegateParentId` and `leadParentId` (§3.3);
-  every consumer of `delegateParentId` (`RosterStrip.tsx:117`, `TerminalDrawer.tsx:44`,
-  `GardenScene.tsx:693`, `ipc/sessions.ts:70`) must be checked against that combination.
-
-**`MEMORY.md` (§3.7) moves to a follow-up.** Advisor's call, and it is right: it has no tested
-mechanism, it needs the role-aware composed-file change for *children* (which item 2 only does for
-leads), Luna children can't receive it the same way at all, and nothing else in v1 depends on it.
-It is a clean second increment rather than a v1 risk. This does not reverse the user's decision to
-have it — only its position in the queue.
-
-Not in scope: everything in §6, and any change to Arceus.
-
-## 8. Remaining open items
-
-- **Lead visual treatment** (§3.9) — mock up two or three options against the real tokens, then
-  pick. Everything else is decided.
-
-All other decisions are recorded in §3 and §7: lead is not Arceus; lead never writes code;
-children are real sessions; one lead per project root, not per workspace; both spawn-time and
-promote-later; one modal with N rows; mixed-lane fan-outs from day one; summary-only review; lead
-merges clean and escalates conflicts, removing the worktree on success; memory is lead-written on
-completion (follow-up increment); blocked children surface without over-building.
+- **Idea-file location** — under the harness home (user-visible, survives a repo wipe) or in the
+  repo (versioned, shareable, but pollutes the project). Leaning harness home, keyed on project
+  root.
+- **Idea lifecycle** — how an idea gets closed, and whether closed ideas are archived or deleted.
+  Anthropic auto-resolves a thread after a week idle.
+- **Does the user edit idea files directly?** They are plain Markdown on disk, so effectively yes —
+  the question is whether that is an advertised affordance the lead must expect, or incidental.
+- **Lead visual treatment** (§5.8) — pick from the mockup.
