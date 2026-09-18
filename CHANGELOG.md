@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## v1.20.10 — 2026-09-19
+
+- Dictation no longer shows vertical, one-letter-per-line text. The preview was capped at the width of a 0px-wide wrapper, so it broke after every character, and the hidden input macOS dictates into was shrunk to match. The wrapper now spans the terminal, so the preview runs horizontally and the input is sized normally again. This should also let dictated text reach the CLI; macOS still only commits it when you stop dictating.
+
 ## v1.20.9 — 2026-09-18
 
 - Terminals no longer come back garbled after quitting with "leave them running" and relaunching. Resizes never reached sessions held by a keeper, so the CLI kept drawing at the old width; they now do, and each reattached terminal is nudged once so the CLI redraws its whole screen. Sessions left running by an older build stay garbled on their first relaunch after updating. A keeper that dies at startup is now logged.
