@@ -212,7 +212,7 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
             ))}
             {sessionDelegates.map((d) => (
               <div key={d.id} className="party-rail-child">
-                <SubagentRosterCard delegate={d} parent={s} variant="compact" />
+                <SubagentRosterCard delegate={d} parent={s} selected={d.id === selectedId} variant="compact" />
               </div>
             ))}
           </>
