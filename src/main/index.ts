@@ -1808,34 +1808,6 @@ app.on('before-quit', (e) => {
   log('main', 'info', 'before-quit: taskNotificationWatcher.stop() done');
   sessionTitleWatcher.stop();
   log('main', 'info', 'before-quit: sessionTitleWatcher.stop() done — teardown complete');
-  // Quit-hang root cause (2026-09-18, confirmed from two macOS hang reports —
-  // see ptyManager.countByKind()'s own comment for the mechanism): a
-  // natively-spawned pty session (a real `pty.spawn()` result, as opposed to
-  // a `KeeperClient` reattached to an already-detached keeper) has a
-  // node-pty waiter thread in THIS process that only returns once its child
-  // exits. `detachAllToKeepers()` above, by design, hands such a session's
-  // child off to a keeper and leaves it running — so that thread never
-  // returns. Electron's graceful quit path (this handler returning ->
-  // window close -> `window-all-closed` -> Node's own environment teardown)
-  // unconditionally `join()`s every such thread, so ANY "leave running" quit
-  // with at least one still-native session hangs the whole app forever —
-  // both hang reports show the main thread stuck in exactly that join,
-  // waiting on threads parked since launch. This is not fixable from JS
-  // after the fact (a watchdog timer can't run either — the main thread is
-  // blocked in a synchronous native call, not merely slow), so the fix is to
-  // never let the graceful path reach that join in the first place:
-  // `app.exit()` terminates immediately without running `before-quit`/
-  // `will-quit` again or Node's environment cleanup, which is exactly what a
-  // quit that's deliberately leaving native children alive needs. Scoped to
-  // `leaveSessionsRunning` only — the plain kill path's children are
-  // supposed to be dead by now, so it can keep using the ordinary graceful
-  // path (and Electron's own shutdown logging/cleanup with it).
-  if (leaveSessionsRunning) {
-    log('main', 'info', 'before-quit: leave-running quit — forcing immediate exit to skip node-pty thread join', {
-      sessionKinds
-    });
-    app.exit(0);
-  }
 });
 
 registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher, sessionTitleWatcher });
