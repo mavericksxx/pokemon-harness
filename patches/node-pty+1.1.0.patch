@@ -1,0 +1,13 @@
+diff --git a/node_modules/node-pty/src/unix/pty.cc b/node_modules/node-pty/src/unix/pty.cc
+index 7b4b9e1..5f2b910 100644
+--- a/node_modules/node-pty/src/unix/pty.cc
++++ b/node_modules/node-pty/src/unix/pty.cc
+@@ -120,7 +120,7 @@ void SetupExitCallback(Napi::Env env, Napi::Function cb, pid_t pid) {
+       0,                            // Unlimited queue
+       1,                            // Only one thread will use this initially
+       [th](Napi::Env) {   // Finalizer used to clean threads up
+-        th->join();
++        if (th->joinable()) th->detach();
+         delete th;
+       });
+   *th = std::thread([tsfn = std::move(tsfn), pid] {

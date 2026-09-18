@@ -11,7 +11,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "postinstall": "electron-builder install-app-deps && node tools/ensure-pty-perms.cjs",
+    "postinstall": "patch-package && node tools/force-node-pty-rebuild.cjs && electron-builder install-app-deps && node tools/ensure-pty-perms.cjs",
     "gen:map": "node tools/gen-garden-map.cjs",
     "gen:dex": "node tools/build-dex.cjs",
     "gen:music-catalog": "node tools/build-music-catalog.cjs",
@@ -104,6 +104,7 @@
     "electron": "^44.2.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
+    "patch-package": "^8.0.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.8"
   }

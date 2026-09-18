@@ -188,6 +188,23 @@ let cancelPendingFullscreenHide: (() => void) | null = null;
 // here without this function needing a closure over `app.whenReady()`'s
 // local `appSettings`.
 function ensureWindowOpen(): void {
+  // Quit-hang investigation (2026-09-18): a confirmed quit already in
+  // progress must never recreate the window. `activate`/`second-instance`/
+  // the tray's "Open Pokéharness" all
+  // call this, and `activate` in particular is not guaranteed to stay quiet
+  // once the window has actually been destroyed mid-teardown (`mainWindow`
+  // going null here doesn't mean boot hasn't happened yet — see this
+  // function's own callers) — constructing a brand-new `BrowserWindow`
+  // against dependencies `before-quit` already tore down (tray/hookBridge/
+  // watchers all stopped) is exactly the kind of state a native quit
+  // sequence can wedge on. Not confirmed as THE root cause of the quit hang
+  // (no static proof `activate` actually fires mid-teardown), but recreating
+  // a window after quit was confirmed is never correct regardless, so this
+  // guard stays even if the real cause turns out to be elsewhere.
+  if (quitConfirmed) {
+    log('main', 'warn', 'ensureWindowOpen: suppressed — quit already confirmed', { hasMainWindow: !!mainWindow });
+    return;
+  }
   if (!mainWindow) {
     createWindow(resolveWindowBg(activeTheme));
     return;
@@ -1291,6 +1308,12 @@ function createWindow(backgroundColor: string): void {
     }
   });
   win.on('closed', () => {
+    // Quit-hang investigation (2026-09-18) — see `before-quit`'s own
+    // instrumentation comment: this fires between the renderer's quit-flush
+    // (diagnosticsCounters.ts's `beforeunload` log) and `window-all-closed`,
+    // a gap the harness.log evidence for the original hang had zero
+    // visibility into.
+    if (quitConfirmed) log('main', 'info', 'main window closed', { duringQuit: true });
     if (mainWindow === win) mainWindow = null;
   });
 
@@ -1707,9 +1730,26 @@ app.on('window-all-closed', () => {
   //
   // Flush BEFORE killing — see sessionPersistence.ts's SessionPersistence.flush()
   // doc comment for why the order matters.
+  log('main', 'info', 'window-all-closed fired', { quitConfirmed });
   sessionPersistence.flush();
   ptyManager.killAll();
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Quit-hang investigation (2026-09-18): harness.log evidence from a real
+// hang showed the renderer's own quit-time counters flush (beforeunload,
+// see diagnosticsCounters.ts) as the LAST line ever written — nothing from
+// main after it, meaning whatever hangs happens after `before-quit`'s own
+// synchronous body already ran to completion (it must have, for the window
+// to have started closing at all) but before the process actually exits.
+// `will-quit`/`quit` had no listeners at all before this pass, so there was
+// no log line anywhere between "window closing" and "process gone" to even
+// narrow down which stage hangs. Both added purely for that visibility.
+app.on('will-quit', () => {
+  log('main', 'info', 'will-quit fired');
+});
+app.on('quit', (_e, exitCode) => {
+  log('main', 'info', 'quit fired — process is about to exit normally', { exitCode });
 });
 
 app.on('before-quit', (e) => {
@@ -1738,19 +1778,36 @@ app.on('before-quit', (e) => {
   // `app.quit()` — the specific bug that motivated this flag being read
   // there in the first place.
   quitConfirmed = true;
+  // Quit-hang investigation (2026-09-18) — one log line per teardown step
+  // below, in call order, so a future hang's harness.log shows exactly which
+  // one was last to complete. `countByKind()` is read HERE, before
+  // `detachAllToKeepers()`/`killAll()` below mutate `ptyManager`'s session
+  // map, so the counts reflect what's actually about to be torn down.
+  const sessionKinds = ptyManager.countByKind();
+  log('main', 'info', 'before-quit: teardown starting', { leaveSessionsRunning, sessionKinds });
   sessionPersistence.flush();
+  log('main', 'info', 'before-quit: sessionPersistence.flush() done');
   if (leaveSessionsRunning) {
     ptyManager.detachAllToKeepers();
+    log('main', 'info', 'before-quit: ptyManager.detachAllToKeepers() done');
   } else {
     ptyManager.killAll();
+    log('main', 'info', 'before-quit: ptyManager.killAll() done');
   }
   hookBridge.stop();
+  log('main', 'info', 'before-quit: hookBridge.stop() done');
   costWatcher.stop();
+  log('main', 'info', 'before-quit: costWatcher.stop() done');
   costHistoryService.stop();
+  log('main', 'info', 'before-quit: costHistoryService.stop() done');
   trayController.destroy();
+  log('main', 'info', 'before-quit: trayController.destroy() done');
   usageService.shutdown();
+  log('main', 'info', 'before-quit: usageService.shutdown() done');
   taskNotificationWatcher.stop();
+  log('main', 'info', 'before-quit: taskNotificationWatcher.stop() done');
   sessionTitleWatcher.stop();
+  log('main', 'info', 'before-quit: sessionTitleWatcher.stop() done — teardown complete');
 });
 
 registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher, sessionTitleWatcher });
