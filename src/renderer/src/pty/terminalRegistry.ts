@@ -453,16 +453,22 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
  *  of the terminal pane instead.
  *
  *  CompositionHelper re-asserts `top`/`height`/`lineHeight` on the element
- *  on every `compositionupdate` AND on its own internal ~0ms poll loop for
- *  as long as composing (to paper over inconsistent IME event firing across
- *  browsers). Writing `top` ourselves to flip the box upward would fight
- *  that loop and flicker between the two placements. `transform` is a
- *  property CompositionHelper never touches, so shifting the box with
- *  `translateY` survives every one of its resets without a race —
- *  likewise `max-height`/`overflow-y` for height containment, since
- *  CompositionHelper always resets `.style.height` back to a single cell,
- *  which doesn't itself clip the wrapped content under default
- *  `overflow: visible`.
+ *  on every `compositionupdate`, AND schedules a single follow-up
+ *  `setTimeout(0)` call to itself after each of those (not a poll loop —
+ *  one chained timer, re-armed every time it fires, for as long as
+ *  composing) to paper over inconsistent IME event firing across browsers.
+ *  Writing `top` ourselves to flip the box upward would fight that and
+ *  flicker between the two placements. `transform` is a property
+ *  CompositionHelper never touches, so shifting the box with `translateY`
+ *  survives every one of its resets without a race. Height containment
+ *  needs a different property for the same reason, but a STRONGER one:
+ *  CompositionHelper hardcodes `.style.height` to exactly one cell on every
+ *  one of those resets, and since a plain CSS `max-height`/`overflow-y`
+ *  can't win against a same-specificity-or-higher inline style, index.css
+ *  overrides that specific property with `height: auto !important` — the
+ *  one declaration strong enough to survive it — and `max-height`/
+ *  `overflow-y` here do the actual clamping against the now-real (grown)
+ *  box.
  *
  *  Wired once per terminal entry, right after `term.open()` first creates
  *  the element (below) — `host` (and this element inside it) outlives
@@ -492,7 +498,13 @@ function wireDictationOverlay(host: HTMLDivElement): () => void {
     const hostRect = host.getBoundingClientRect();
     const viewRect = view.getBoundingClientRect();
     const naturalHeight = view.scrollHeight; // full wrapped-content height, ignoring any clip
-    const cellHeight = viewRect.height; // xterm's own single-row height — untouched by us
+    // xterm's own single-row height. NOT `viewRect.height`: index.css's
+    // `height: auto !important` (see this function's own header) means the
+    // rendered box now genuinely grows to fit wrapped content, so
+    // `viewRect.height` is the multi-line box's real height, not one cell —
+    // reading the inline style xterm itself set is the only way to still
+    // get the single-cell figure this function needs below.
+    const cellHeight = parseFloat(view.style.height || '0') || viewRect.height;
 
     const available = Math.max(cellHeight, hostRect.height - EDGE_MARGIN_PX * 2);
     if (naturalHeight > available) {
@@ -514,7 +526,12 @@ function wireDictationOverlay(host: HTMLDivElement): () => void {
 
   let rafId: number | null = null;
   const loop = (): void => {
-    if (!view.classList.contains('active')) {
+    // `compositionend` isn't guaranteed to fire for an element that's been
+    // removed from the DOM mid-composition (TerminalDrawer detach ->
+    // detachTerminal's `host.remove()`), so `.active` could otherwise stay
+    // set and this would spin at display rate doing style writes and
+    // getBoundingClientRect reads against a disconnected subtree forever.
+    if (!host.isConnected || !view.classList.contains('active')) {
       rafId = null;
       return;
     }
