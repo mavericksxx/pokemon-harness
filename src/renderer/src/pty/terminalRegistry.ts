@@ -514,10 +514,18 @@ function wireDictationOverlay(host: HTMLDivElement): () => void {
     const clampedHeight = Math.min(naturalHeight, available);
 
     const overflowBelow = viewRect.top + clampedHeight - (hostRect.bottom - EDGE_MARGIN_PX);
-    if (overflowBelow > 0 && clampedHeight > cellHeight) {
-      // Only a genuinely multi-line composition is worth flipping — one
-      // that merely ran past the pane's RIGHT edge is already handled by
-      // the wrap fix above and was never this (vertical) bug.
+    // Only a genuinely multi-line composition is worth flipping — one that
+    // merely ran past the pane's RIGHT edge is already handled by the wrap
+    // fix above and was never this (vertical) bug. A bare `naturalHeight >
+    // cellHeight` isn't enough to tell the two apart: this rule's own
+    // `padding`/`border` (a couple of px) already push even a genuinely
+    // single, un-wrapped line's natural height a little past xterm's raw
+    // one-cell figure, which nudged every single-line dictation near the
+    // bottom row too. `* 1.5` gives enough headroom to absorb that fixed
+    // few-px overhead at any reasonable cell size while still comfortably
+    // registering a real second wrapped line (roughly another full
+    // `cellHeight`) as multi-line.
+    if (overflowBelow > 0 && naturalHeight > cellHeight * 1.5) {
       const maxUpShift = Math.max(0, viewRect.top - (hostRect.top + EDGE_MARGIN_PX));
       const shift = Math.min(overflowBelow, maxUpShift);
       if (shift > 0) view.style.transform = `translateY(-${shift}px)`;

@@ -363,8 +363,22 @@ export class Walker {
     const path = findPath(this.map, this.tile, tile, this.canEnter);
     if (!path) return false; // unreachable — stay put rather than teleport
     this.wandering = false;
-    this.path = path;
-    this.walking = path.length > 0;
+    // `findPath` returns `[]` whenever start === goal — including when
+    // `tile` is the tile under our feet RIGHT NOW while mid-segment (still
+    // possible to walk, just not yet arrived at its own centre/feet anchor;
+    // see `tile`'s own comment). An empty path with nothing already queued
+    // (`this.path` was already `[]`) is a genuine "already there, stay
+    // frozen exactly here" — BattleManager's alert beat relies on that
+    // (`goTo(walker.tile)` to freeze an in-flight wander without moving it,
+    // see admitBattle's own comment). But an empty path that's REPLACING an
+    // in-flight segment (`this.path.length > 0`, e.g. GardenScene's
+    // idle-tile reservation routing a walker back onto the tile it's
+    // mid-stride out of) would otherwise leave it parked off-grid — up to
+    // half a tile short of `tile`'s actual anchor point — for as long as
+    // nothing else moves it. Walk the short remaining distance onto the
+    // tile's centre instead.
+    this.path = path.length === 0 && this.path.length > 0 ? [tile] : path;
+    this.walking = this.path.length > 0;
     this.sprite.setMoving(this.walking);
     return true;
   }
