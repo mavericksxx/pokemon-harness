@@ -2,6 +2,13 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## v1.20.11 — 2026-09-19
+
+- Codex delegates now sit under the agent that started them, like Claude subagents, the whole time, instead of showing up as a separate agent and later a dimmed "done" section. When one finishes, its Poké ball despawns it whenever you like; until then its Pokémon keeps wandering the garden.
+- Quick settings slimmed down: the HARNESS.md toggle lives only in Settings, mute and music volume live only under the music icon, "check for updates" shows the current version, and the theme toggle is centered.
+- Settings consolidated from ten sections to six: Agents (now first and the default), Appearance (theme plus low-res garden), Usage, Sound, Terminal, and Advanced (config, version and update check, diagnostics).
+- The Arceus card no longer shows a cost badge.
+
 ## v1.20.10 — 2026-09-19
 
 - Dictation no longer shows vertical, one-letter-per-line text. The preview was capped at the width of a 0px-wide wrapper, so it broke after every character, and the hidden input macOS dictates into was shrunk to match. The wrapper now spans the terminal, so the preview runs horizontally and the input is sized normally again. This should also let dictated text reach the CLI; macOS still only commits it when you stop dictating.
