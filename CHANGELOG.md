@@ -2,6 +2,10 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## Unreleased
+
+- Codex delegate cards under a parent now look exactly like Claude subagent cards: small and compact instead of a full-size agent card. They still open their own session, light up when selected, and show their real status, so a delegate stuck on a prompt shows as blocked.
+
 ## v1.20.11 — 2026-09-19
 
 - Codex delegates now sit under the agent that started them, like Claude subagents, the whole time, instead of showing up as a separate agent and later a dimmed "done" section. When one finishes, its Poké ball despawns it whenever you like; until then its Pokémon keeps wandering the garden.
