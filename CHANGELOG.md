@@ -2,6 +2,14 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## Unreleased
+
+- Menu-bar text is legible again: the informational rows were built as disabled menu items, which AppKit dims — including their meter and sparkline images. The HP meters and cost sparkline now sit in a much narrower column, so menu titles are no longer pushed into a wide left gutter.
+- Idle Pokemon no longer stand on top of each other. Idle walkers now reserve the tile they settle on, so a second walker picks a free one nearby; the reservation is re-checked every update rather than taken once, and is released on despawn, on going back to work, and while a battle or errand owns the walker's position. This was most visible after a relaunch, where restored sessions could be assigned the same spawn tile.
+- Dictated text stays inside the terminal pane. The v1.20.6 wrapping fix let a long dictation grow downward past the bottom edge; the preview now grows upward from the cursor line when it would otherwise spill, and is bounded to the pane.
+- A walker told to stop on the tile it is already crossing now finishes its step onto that tile instead of freezing between two tiles.
+- A session that stops working during an evolution ceremony no longer keeps wandering afterward, and a delegate being recalled is no longer walked away mid-pokeball.
+
 ## v1.20.6 — 2026-09-17
 
 - The macOS menu-bar item is now a native menu instead of a popover window, so it opens over fullscreen apps. Usage limits keep their HP-bar meters and the 30-day cost sparkline, and limit reset times are shown for the first time.
