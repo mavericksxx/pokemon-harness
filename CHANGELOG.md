@@ -2,6 +2,11 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## Unreleased
+
+- Terminals no longer come back garbled after quitting with "leave them running" and relaunching. Resizes never reached sessions held by a keeper, so the CLI kept drawing at the old width; they now do, and each reattached terminal is nudged once so the CLI redraws its whole screen. Sessions left running by an older build stay garbled on their first relaunch after updating. A keeper that dies at startup is now logged.
+- Menu-bar menu: no empty column on the right (Quit no longer reserves a Cmd+Q shortcut column), limit bars have 20 segments (5% steps), "Last turn" is replaced by 30-day tokens, token counts reach billions ("1.2b"), and provider names sit on the left under "Limits".
+
 ## v1.20.8 — 2026-09-18
 
 - Fixed the app beachballing after Cmd+Q. With "leave them running", terminals started during the current session are handed to keepers and stay alive on purpose, but node-pty's shutdown cleanup waited for them to exit, forever. node-pty is now patched to let go of that wait instead. Quit steps are now logged, so any future hang names the exact step it stopped at.
