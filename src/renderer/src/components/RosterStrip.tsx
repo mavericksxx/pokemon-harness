@@ -80,9 +80,12 @@ function applyPartyRailOrder(sessions: Session[], order: string[]): Session[] {
  * poke-delegate) nest under their parent through this exact same path,
  * counted alongside battlers in the disclosure's `n` and hidden/shown by the
  * same collapse toggle — never a top-level card of their own, live or done.
- * A done one keeps sitting there (its walker keeps wandering the garden too,
- * see GardenScene.tsx) until the user hits its own despawn control, same as
- * a done subagent battler.
+ * They render through `SubagentRosterCard` too (its `delegate` prop, an
+ * alternative to `battler`) rather than `AgentRosterCard`, so a delegate's
+ * card looks and behaves exactly like a Claude subagent's, not like a
+ * second, bigger kind of child card. A done one keeps sitting there (its
+ * walker keeps wandering the garden too, see GardenScene.tsx) until the user
+ * hits its own despawn control, same as a done subagent battler.
  *
  * Below ~1100px viewport (index.css) the rail collapses to a 56px column of
  * face tiles — titles move into each card's own `title` tooltip, the
@@ -209,7 +212,7 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
             ))}
             {sessionDelegates.map((d) => (
               <div key={d.id} className="party-rail-child">
-                <AgentRosterCard session={d} selected={d.id === selectedId} onSelect={select} variant="medium" />
+                <SubagentRosterCard delegate={d} parent={s} variant="compact" />
               </div>
             ))}
           </>

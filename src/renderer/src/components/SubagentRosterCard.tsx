@@ -12,7 +12,14 @@ import { speciesEntry } from '@/scene/garden/dexData';
 const ELAPSED_TICK_MS = 30_000;
 
 interface Props {
-  battler: LiveBattler;
+  /** Exactly one of `battler`/`delegate` is set by the caller — a live
+   *  subagent battler (RosterStrip/SessionsOverview) or a nested first-class
+   *  delegate session (RosterStrip only, `delegateParentId`). Both render
+   *  through this one component so a delegate's card is visually and
+   *  behaviorally identical to a battler's — the roster shouldn't tell them
+   *  apart just because one has its own live pty and the other doesn't. */
+  battler?: LiveBattler;
+  delegate?: Session;
   parent: Session;
   /** Fired unconditionally after the navigation calls in `onClick` below —
    *  lets a caller with its own state to unwind on navigation
@@ -52,6 +59,16 @@ function formatElapsed(ms: number): string {
  *  been running, and a "↳ parent" line so it reads as belonging to that
  *  session rather than as a session of its own.
  *
+ *  Also backs a first-class delegate session's nested card (RosterStrip.tsx
+ *  only, `delegateParentId`) — a delegate used to render as a full-size
+ *  `AgentRosterCard` there, which looked and behaved nothing like a Claude
+ *  subagent's card despite being the same kind of thing ("this parent's
+ *  child agent"). Passing `delegate` instead of `battler` gets the identical
+ *  markup below with the delegate session's own species/title/status fed in
+ *  (see the shared-fields block early in the function body); the one real
+ *  behavioral difference is `onClick`, since a delegate — unlike a battler —
+ *  has its own live pty and is selected directly rather than via its parent.
+ *
  *  Elapsed time, not context/tokens: per-subagent context telemetry doesn't
  *  exist (costWatcher.ts's cost:update is per harness session/pty — a
  *  subagent's own completion never reaches it), and showing the PARENT's
@@ -82,12 +99,13 @@ function formatElapsed(ms: number): string {
  *  same treatment AgentRosterCard's compact swap button already uses)
  *  that plays a pokéball-recall animation in the garden, then removes it
  *  for good. */
-export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'full' }: Props): JSX.Element {
+export function SubagentRosterCard({ battler, delegate, parent, onNavigate, variant = 'full' }: Props): JSX.Element {
   const select = useStore((s) => s.select);
   const setViewMode = useStore((s) => s.setViewMode);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
   const setFocusBattlerKey = useStore((s) => s.setFocusBattlerKey);
   const requestDespawnBattler = useStore((s) => s.requestDespawnBattler);
+  const requestRecallDelegate = useStore((s) => s.requestRecallDelegate);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -95,35 +113,55 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
     return () => clearInterval(id);
   }, []);
 
+  // Shared fields resolved off whichever of `battler`/`delegate` the caller
+  // passed — everything below this point (and all the markup further down)
+  // reads only these, never `battler`/`delegate` directly, so a delegate's
+  // card renders through the exact same code path as a battler's.
+  const species = battler ? battler.species : (delegate as Session).pokemon;
+  const label = battler ? battler.label : (delegate as Session).title;
+  const done = battler ? battler.done : (delegate as Session).status === 'done';
+  const spawnedAt = battler ? battler.spawnedAt : (delegate as Session).createdAt;
+  // A delegate session has no `doneAt` of its own — `statusChangedAt` (the
+  // epoch ms it last entered its current `status`) is the same "when did
+  // this go done" moment for a session as `doneAt` is for a battler.
+  const doneAt = battler ? battler.doneAt : (delegate as Session).statusChangedAt;
+  const relation = battler ? 'subagent' : 'delegate';
+
   const onClick = (): void => {
-    select(parent.id);
-    // 'garden' is the split layout (garden pane + terminal drawer side by
-    // side, see gardenSplit.ts) — force the drawer open too, since 'garden'
-    // mode alone leaves the terminal collapsed if the user last closed it.
-    setViewMode('garden');
-    setDrawerOpen(true);
-    // Set AFTER select() — select() clears focusBattlerKey as a general
-    // "new selection" safety net, so this has to land last to stick.
-    setFocusBattlerKey(battler.key);
+    if (battler) {
+      select(parent.id);
+      // 'garden' is the split layout (garden pane + terminal drawer side by
+      // side, see gardenSplit.ts) — force the drawer open too, since 'garden'
+      // mode alone leaves the terminal collapsed if the user last closed it.
+      setViewMode('garden');
+      setDrawerOpen(true);
+      // Set AFTER select() — select() clears focusBattlerKey as a general
+      // "new selection" safety net, so this has to land last to stick.
+      setFocusBattlerKey(battler.key);
+    } else {
+      // Unlike a battler, a delegate has its own live pty/terminal — clicking
+      // its card just selects IT, same as an ordinary top-level card, rather
+      // than panning to a parent's garden view.
+      select((delegate as Session).id);
+    }
     onNavigate?.();
   };
 
-  const speciesName = (speciesEntry(battler.species)?.name ?? battler.species).toLowerCase();
-  const label = battler.label;
-  const done = battler.done;
+  const speciesName = (speciesEntry(species)?.name ?? species).toLowerCase();
 
   // Frozen at `doneAt` once done (falls back to `now` for the brief window
   // before `doneAt` lands, same tick `done` itself does) — a done battler's
   // elapsed readout must stop climbing once the subagent has actually
   // finished, not keep counting the off-duty wandering time on top of it.
   const elapsedText = done
-    ? `done — ran ${formatElapsed((battler.doneAt ?? now) - battler.spawnedAt)}`
-    : `alive — running ${formatElapsed(now - battler.spawnedAt)}`;
+    ? `done — ran ${formatElapsed((doneAt ?? now) - spawnedAt)}`
+    : `alive — running ${formatElapsed(now - spawnedAt)}`;
   const baseTitle = label
-    ? `${label} — ${speciesName}, subagent of ${parent.title}`
-    : `${speciesName} — subagent of ${parent.title}`;
+    ? `${label} — ${speciesName}, ${relation} of ${parent.title}`
+    : `${speciesName} — ${relation} of ${parent.title}`;
 
-  const onDespawn = (): void => requestDespawnBattler(battler.key);
+  const onDespawn = (): void =>
+    battler ? requestDespawnBattler(battler.key) : requestRecallDelegate((delegate as Session).id);
 
   return (
     <div className="roster-card-wrap">
@@ -142,7 +180,7 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
           <>
             <div className="roster-card-top-compact">
               <span className="roster-card-face">
-                <PokemonFace name={battler.species} box={18} />
+                <PokemonFace name={species} box={18} />
               </span>
               <span className="roster-card-title-compact">{label || speciesName}</span>
               {/* Was omitted entirely pre-done-follow-up ("a battler has
@@ -165,7 +203,7 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
           <>
             <div className="roster-card-top">
               <span className="roster-card-face">
-                <PokemonFace name={battler.species} box={32} />
+                <PokemonFace name={species} box={32} />
               </span>
               <span className="roster-card-id">
                 {/* Session-card parity (item 7) — title line is the real name
@@ -174,7 +212,7 @@ export function SubagentRosterCard({ battler, parent, onNavigate, variant = 'ful
                     to the original species-as-title layout when it doesn't. */}
                 <span className="roster-card-name">{label || speciesName}</span>
                 <span className="roster-card-species">
-                  {label ? `${speciesName} · ↳ ${parent.title}` : `↳ ${parent.title} · subagent`}
+                  {label ? `${speciesName} · ↳ ${parent.title}` : `↳ ${parent.title} · ${relation}`}
                 </span>
               </span>
               {/* Reusing `.summon-arceus-dot` — a standalone status-color dot,

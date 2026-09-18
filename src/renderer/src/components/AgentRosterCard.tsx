@@ -186,7 +186,6 @@ export const AgentRosterCard = memo(function AgentRosterCard({
             <div className="roster-card-meta-line">
               {providerLabel} · {(speciesEntry(session.pokemon)?.name ?? session.pokemon).toLowerCase()}
             </div>
-            {delegateParentTitle && <div className="roster-card-parent-compact">↳ {delegateParentTitle}</div>}
             {/* Same height-jitter discipline as the full card below — this
                 row is always mounted, badge/bar/label individually masked
                 via `roster-card-row-hidden` (visibility, not display) until
