@@ -103,7 +103,16 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     const liveIds = new Set(ptyManager.list().map((p) => p.id));
     const sessions = getSessionRegistry()
       .filter((s) => liveIds.has(s.id))
-      .map((session) => ({ session, replay: ptyManager.getReplay(session.id) }));
+      .map((session) => ({
+        session,
+        replay: ptyManager.getReplay(session.id),
+        // Read AFTER getReplay (harmless either order — reattach status
+        // doesn't change from reading replay) so `reattached` reflects the
+        // session that's actually live right now, same source `replay`
+        // itself came from. See RestoredSession's own comment for why the
+        // renderer needs this.
+        reattached: ptyManager.isReattachedSession(session.id)
+      }));
     const lastSelectedId = getLastSelectedId();
     const selectedId = lastSelectedId && liveIds.has(lastSelectedId) ? lastSelectedId : null;
     return { sessions, selectedId };

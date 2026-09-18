@@ -178,6 +178,16 @@ interface Entry {
   /** Same lifecycle as `offDragEnd` above, for the `GARDEN_FULLSCREEN_CHANGE_EVENT`
    *  listener in attachTerminal. */
   offFullscreenChange: (() => void) | null;
+  /** Reattach-garbling fix — true from `createTerminal` only when this entry
+   *  was created from a keeper-reattached boot restore
+   *  (`RestoredSession.reattached`, main/index.ts's `sessions:restore`).
+   *  Consumed (set false) the first time `attachTerminal`'s `doFit` runs
+   *  with a real, laid-out size — that's the one point this file can be
+   *  sure the terminal both replayed AND knows its actual cols/rows, which
+   *  is exactly when the forced full-repaint kick belongs. Stays false
+   *  forever after, so a later garden-view detach/reattach of the same
+   *  entry (which calls `doFit` again) never refires it. */
+  pendingReattachRepaint: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -267,8 +277,18 @@ function ensureShellNapWatch(): void {
  *  `provider` (item 3 §3) picks the parser: every provider except `'shell'`
  *  gets the usual status regex parser; its battle heuristics are Claude-only
  *  because non-Claude output has no hook-backed subagent signal. A plain shell
- *  gets no parser — see the `Entry.parser` field comment. */
-export function createTerminal(sessionId: string, provider: AgentProviderId, replay?: string): void {
+ *  gets no parser — see the `Entry.parser` field comment.
+ *
+ *  `reattached` (main/index.ts's `sessions:restore` — `RestoredSession
+ *  .reattached`) marks a session whose PTY survived via a "leave them
+ *  running" keeper rather than staying live in this process the whole time
+ *  — see `Entry.pendingReattachRepaint`'s own comment for what it triggers. */
+export function createTerminal(
+  sessionId: string,
+  provider: AgentProviderId,
+  replay?: string,
+  reattached?: boolean
+): void {
   if (entries.has(sessionId)) return;
 
   const term = new Terminal({
@@ -425,7 +445,8 @@ export function createTerminal(sessionId: string, provider: AgentProviderId, rep
     offTitle,
     resizeObserver: null,
     offDragEnd: null,
-    offFullscreenChange: null
+    offFullscreenChange: null,
+    pendingReattachRepaint: !!reattached
   });
 
   if (replay) term.write(replay);
@@ -495,7 +516,50 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
     if (document.body.classList.contains('is-splitting')) return;
     try {
       e.fit.fit();
-      void window.api.resizePty(sessionId, e.term.cols, e.term.rows);
+      const { cols, rows } = e.term;
+      void window.api.resizePty(sessionId, cols, rows);
+      if (e.pendingReattachRepaint) {
+        // Reattach-garbling fix, the essential part — this terminal has now
+        // replayed (createTerminal's `term.write(replay)`) AND just learned
+        // its real size (the resizePty call right above), so this is the
+        // one moment to force Claude Code's CLI to redraw fully instead of
+        // leaving whatever the mid-stream, possibly-differently-sized replay
+        // backlog left on screen. Consumed immediately (before either resize
+        // below even resolves) so a rapid double-fire of `doFit` — the
+        // ResizeObserver below can coalesce several ResizeObserver callbacks
+        // into back-to-back calls — can never fire this twice.
+        e.pendingReattachRepaint = false;
+        // A same-size resize never reaches the kernel's `ioctl(TIOCSWINSZ)`
+        // (node-pty's UnixTerminal.resize is a direct passthrough, and the
+        // kernel itself only raises SIGWINCH on an ACTUAL winsize change) —
+        // the resizePty call just above, if this reattached pty already
+        // happened to be sitting at (cols, rows) from before the app quit,
+        // would be exactly that no-op. Stepping to cols-1 first guarantees
+        // two genuinely different sizes in a row (cols-1 can never equal
+        // cols), so the kernel is guaranteed to mark SIGWINCH pending
+        // regardless of what the keeper-held pty's actual prior size was.
+        //
+        // The 50ms gap between the two calls is not load-bearing for
+        // correctness — POSIX never drops a raised signal outright, and by
+        // the time the CLI's handler finally runs (whether it's invoked once
+        // for the coalesced pair or twice), a TIOCGWINSZ query always
+        // returns whatever the CURRENT kernel-side size is, which by then is
+        // already the correct final (cols, rows) either way. It's cheap
+        // insurance against real-world scheduling: if both ioctls land
+        // before the CLI's event loop gets a turn, some runtimes coalesce
+        // the pending signal into a single delivery, and a redraw that's
+        // fired but still mid-flight when the "back" resize lands can end up
+        // measuring a briefly-stale size. 50ms is comfortably more than one
+        // scheduler tick on any desktop OS and well under the ~100ms a user
+        // would perceive as a delay, so it buys a clean two-step redraw at
+        // effectively zero cost. See KeeperClient.resize/FRAME_RESIZE
+        // (pty.ts/ptyKeeperProtocol.ts/ptyKeeper.ts) for the real ioctl this
+        // now reaches on a reattached session, which used to be a no-op.
+        void window.api.resizePty(sessionId, Math.max(cols - 1, 1), rows);
+        setTimeout(() => {
+          void window.api.resizePty(sessionId, cols, rows);
+        }, 50);
+      }
     } catch {
       /* element not laid out yet */
     }

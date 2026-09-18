@@ -32,15 +32,77 @@
  */
 import { createServer, type Socket } from 'node:net';
 import { createReadStream, existsSync, unlinkSync, writeSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import {
   FRAME_DATA,
   FRAME_EXIT,
   FRAME_KILL,
+  FRAME_RESIZE,
   FRAME_WRITE,
   FrameDecoder,
   KEEPER_REPLAY_MAX_CHARS,
+  decodeResizePayload,
   encodeFrame
 } from './ptyKeeperProtocol';
+
+/** `node-pty`'s typings deliberately don't declare `.native` ("not public
+ *  API and could be removed at any time" — node_modules/node-pty/lib/index.js)
+ *  because it's the raw addon, not the `IPty` wrapper — but it's exactly
+ *  what this process needs: `resize(fd, cols, rows)` does the real
+ *  `ioctl(TIOCSWINSZ)` on an arbitrary fd, the same call `UnixTerminal
+ *  .prototype.resize` makes internally on `this._fd` (node_modules/node-pty
+ *  /lib/unixTerminal.js), just usable here without a full `IPty` wrapping
+ *  the fd this process only inherited (see `PTY_FD` below).
+ *
+ *  Packaging risk here is NOT the same as `index.js`'s own `pty.spawn`
+ *  calls, despite both resolving the same `node_modules/node-pty` package
+ *  under the same `asarUnpack` glob (package.json's `build.asarUnpack`):
+ *  `index.js` runs as a normal Electron main-process module, using
+ *  Electron's own module loader, which is already proven to reach
+ *  `app.asar.unpacked` for this exact package on every launch. THIS file
+ *  runs as a detached, standalone process under `ELECTRON_RUN_AS_NODE` (see
+ *  pty.ts's `detachToKeeper`) — plain Node's `require`, not Electron's
+ *  loader, resolving through Electron's run-as-node asar-unpack shim
+ *  instead. That path has never actually been exercised for a native addon
+ *  require from this codebase before now, so it's untested, not merely
+ *  "the same as index.js". Loaded lazily and guarded below — see
+ *  `loadPtyNative` — precisely because a failure here must never be fatal
+ *  to this process: a process crash at module-load time, before fd 3 is
+ *  even being drained or the socket is listening, HUPs the real CLI this
+ *  file exists to keep alive — "leave them running" would silently become
+ *  "kill", with nothing surfaced anywhere (this process has no piped
+ *  stderr — `detachToKeeper`'s `stdio` array is `['ignore','ignore',
+ *  'ignore', fd]` — and no window to show an error in). */
+interface UnixPtyNative {
+  resize(fd: number, cols: number, rows: number): void;
+}
+
+/** `undefined` = not attempted yet, `null` = attempted and failed (node-pty
+ *  didn't load, or had no `.native.resize`) — memoized so a failure is only
+ *  ever logged/swallowed once, not on every `FRAME_RESIZE`. A failure here
+ *  degrades to exactly `KeeperClient.resize`'s own pre-existing V1 fallback
+ *  (resize is a no-op, everything else about the keeper — backlog, write,
+ *  kill — is completely unaffected), never a process-ending throw. */
+let ptyNative: UnixPtyNative | null | undefined;
+
+function loadPtyNative(): UnixPtyNative | null {
+  if (ptyNative !== undefined) return ptyNative;
+  try {
+    // `createRequire` (not a bare top-level `import`/`require`) so the
+    // native addon load happens lazily, inside this try/catch, the first
+    // time a reattached client actually asks for a resize — never as a
+    // side effect of this module simply being loaded. `import.meta.url` is
+    // valid here regardless of whether electron-vite's rollup build emits
+    // this file as ESM or CJS (rollup rewrites `import.meta.url` for a CJS
+    // target automatically).
+    const nodeRequire = createRequire(import.meta.url);
+    const native = (nodeRequire('node-pty') as unknown as { native?: UnixPtyNative }).native;
+    ptyNative = native ?? null;
+  } catch {
+    ptyNative = null;
+  }
+  return ptyNative;
+}
 
 // argv: [execPath, thisScript, sockPath, childPid] — see pty.ts's
 // `detachToKeeper` for how these are chosen/passed. Kept minimal on
@@ -125,6 +187,26 @@ const server = createServer((socket) => {
           process.kill(childPid, 'SIGTERM');
         } catch {
           /* already gone */
+        }
+      } else if (frame.type === FRAME_RESIZE) {
+        // Reattach-garbling fix — a genuine `ioctl(TIOCSWINSZ)` on the
+        // inherited master fd, so the kernel actually notifies the real
+        // child's foreground process group with SIGWINCH (see this file's
+        // top-of-file `loadPtyNative` comment for why this fd-level call,
+        // not a full `IPty`, is what's available here, and why loading it
+        // is guarded/lazy rather than a top-level import). Best-effort like
+        // every other write against `PTY_FD` in this file: if the child
+        // already exited, or the native binding failed to load at all,
+        // this just silently does nothing rather than taking the keeper
+        // down.
+        const resize = decodeResizePayload(frame.payload);
+        const native = resize ? loadPtyNative() : null;
+        if (resize && native) {
+          try {
+            native.resize(PTY_FD, resize.cols, resize.rows);
+          } catch {
+            /* pty gone, or native call itself threw — best-effort */
+          }
         }
       }
     }
