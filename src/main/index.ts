@@ -1752,32 +1752,6 @@ app.on('quit', (_e, exitCode) => {
   log('main', 'info', 'quit fired — process is about to exit normally', { exitCode });
 });
 
-/** Hard ceiling so a quit can never hang the app indefinitely, regardless of
- *  root cause — see this file's `before-quit` handler, which starts this the
- *  moment a quit is genuinely confirmed (not on every `before-quit` firing;
- *  the live-session confirmation dialog path never reaches this). Fires only
- *  if the graceful sequence (this handler's own teardown, the window
- *  actually closing, `window-all-closed`, Electron's native shutdown) hasn't
- *  gotten the process to actually exit within `QUIT_WATCHDOG_MS` — a normal
- *  quit is done in well under a second, so this is generous, not tight.
- *  `app.exit(0)` skips `before-quit`/`will-quit` entirely and terminates
- *  immediately; logged as an error first since this firing at all means the
- *  graceful path is broken and worth investigating from the log alone.
- *  `.unref()`d: irrelevant to whether it fires (a genuinely wedged main
- *  thread blocks this timer too, same as everything else — this is a safety
- *  net for a hung-but-still-scheduling event loop, not a deadlocked one),
- *  just avoids this timer being the one thing keeping the process alive in
- *  any edge case where the rest of quit is otherwise already done. */
-const QUIT_WATCHDOG_MS = 5000;
-function armQuitWatchdog(): void {
-  setTimeout(() => {
-    log('main', 'error', 'quit watchdog fired — graceful shutdown did not finish in time, forcing exit', {
-      afterMs: QUIT_WATCHDOG_MS
-    });
-    app.exit(0);
-  }, QUIT_WATCHDOG_MS).unref();
-}
-
 app.on('before-quit', (e) => {
   // Cmd+Q / Dock quit / app-menu Quit — the ONLY entry point that can
   // actually quit the app. The window's own `close` handler in
@@ -1804,17 +1778,13 @@ app.on('before-quit', (e) => {
   // `app.quit()` — the specific bug that motivated this flag being read
   // there in the first place.
   quitConfirmed = true;
-  // Quit-hang investigation (2026-09-18) — see `armQuitWatchdog`'s own
-  // comment for why this is armed here specifically: the moment a quit is
-  // genuinely proceeding, not on every `before-quit` firing (the dialog path
-  // above returns before this line). One log line per teardown step below,
-  // in call order, so a future hang's harness.log shows exactly which one
-  // was last to complete — the step right after it is the one that hung (or,
-  // if "teardown complete" itself is the last line, the hang is somewhere in
-  // the window-close/window-all-closed/native-shutdown sequence that runs
-  // after this handler returns, not in this handler's own body at all).
-  armQuitWatchdog();
-  log('main', 'info', 'before-quit: teardown starting', { leaveSessionsRunning });
+  // Quit-hang investigation (2026-09-18) — one log line per teardown step
+  // below, in call order, so a future hang's harness.log shows exactly which
+  // one was last to complete. `countByKind()` is read HERE, before
+  // `detachAllToKeepers()`/`killAll()` below mutate `ptyManager`'s session
+  // map, so the counts reflect what's actually about to be torn down.
+  const sessionKinds = ptyManager.countByKind();
+  log('main', 'info', 'before-quit: teardown starting', { leaveSessionsRunning, sessionKinds });
   sessionPersistence.flush();
   log('main', 'info', 'before-quit: sessionPersistence.flush() done');
   if (leaveSessionsRunning) {
@@ -1838,6 +1808,34 @@ app.on('before-quit', (e) => {
   log('main', 'info', 'before-quit: taskNotificationWatcher.stop() done');
   sessionTitleWatcher.stop();
   log('main', 'info', 'before-quit: sessionTitleWatcher.stop() done — teardown complete');
+  // Quit-hang root cause (2026-09-18, confirmed from two macOS hang reports —
+  // see ptyManager.countByKind()'s own comment for the mechanism): a
+  // natively-spawned pty session (a real `pty.spawn()` result, as opposed to
+  // a `KeeperClient` reattached to an already-detached keeper) has a
+  // node-pty waiter thread in THIS process that only returns once its child
+  // exits. `detachAllToKeepers()` above, by design, hands such a session's
+  // child off to a keeper and leaves it running — so that thread never
+  // returns. Electron's graceful quit path (this handler returning ->
+  // window close -> `window-all-closed` -> Node's own environment teardown)
+  // unconditionally `join()`s every such thread, so ANY "leave running" quit
+  // with at least one still-native session hangs the whole app forever —
+  // both hang reports show the main thread stuck in exactly that join,
+  // waiting on threads parked since launch. This is not fixable from JS
+  // after the fact (a watchdog timer can't run either — the main thread is
+  // blocked in a synchronous native call, not merely slow), so the fix is to
+  // never let the graceful path reach that join in the first place:
+  // `app.exit()` terminates immediately without running `before-quit`/
+  // `will-quit` again or Node's environment cleanup, which is exactly what a
+  // quit that's deliberately leaving native children alive needs. Scoped to
+  // `leaveSessionsRunning` only — the plain kill path's children are
+  // supposed to be dead by now, so it can keep using the ordinary graceful
+  // path (and Electron's own shutdown logging/cleanup with it).
+  if (leaveSessionsRunning) {
+    log('main', 'info', 'before-quit: leave-running quit — forcing immediate exit to skip node-pty thread join', {
+      sessionKinds
+    });
+    app.exit(0);
+  }
 });
 
 registerPtyIpc({ ptyManager, costWatcher, taskNotificationWatcher, sessionTitleWatcher });

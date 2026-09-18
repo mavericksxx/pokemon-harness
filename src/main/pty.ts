@@ -960,6 +960,32 @@ export class PtyManager {
     }));
   }
 
+  /** Quit-hang investigation (2026-09-18 hang reports — both macOS stack
+   *  traces show the main thread stuck in `node::FreeEnvironment` ->
+   *  `RunCleanup` -> `CleanupHandles`, joining a `pty.node`-spawned thread
+   *  that's parked in `kevent(EVFILT_PROC)` waiting for a child that's
+   *  deliberately still alive). A `native` session here is a real
+   *  `pty.spawn()` result — node-pty's `SetupExitCallback` (pty.cc) starts a
+   *  waiter thread for it at spawn time, in THIS process, that only returns
+   *  once the child exits; Node's own environment teardown `join()`s that
+   *  thread unconditionally. A `keeperClient` session (already reattached to
+   *  a detached keeper, see `tryReattach`) has no such thread — the real
+   *  child and its waiter both live in the keeper process, not this one.
+   *  Read by `before-quit` (main/index.ts) purely for diagnostics, BEFORE
+   *  `detachAllToKeepers()`/`killAll()` mutate `this.sessions` — see that
+   *  call site for the actual fix (forcing `app.exit()` rather than letting
+   *  the graceful quit path reach the join() above, which a native session
+   *  handed to a keeper makes unconditional). */
+  countByKind(): { native: number; keeperClient: number } {
+    let native = 0;
+    let keeperClient = 0;
+    for (const s of this.sessions.values()) {
+      if (s.proc instanceof KeeperClient) keeperClient += 1;
+      else native += 1;
+    }
+    return { native, keeperClient };
+  }
+
   /** Resolves `true` if session `id` is still alive after `graceMs`, `false`
    *  if it exits before then (or doesn't exist at all). Used only by
    *  app-launch session restore (main/index.ts) to detect a `claude --resume`
