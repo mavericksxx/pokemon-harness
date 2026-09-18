@@ -11,6 +11,7 @@ import { markDirty } from './renderDirty';
 import type { TiledMapRenderer } from './TiledMapRenderer';
 import type { SessionStatus } from '@shared/types';
 import { pinAnimation, unpinAnimation } from './lazySprites';
+import { MIN_SEPARATION_TILES, type WanderReservations } from './wanderReservations';
 
 /**
  * One session's avatar in the garden.
@@ -26,12 +27,35 @@ const SPEED = 44; // px/sec at tileSize 16
 const WANDER_MIN_DELAY = 1.5;
 const WANDER_MAX_DELAY = 4.5;
 
+/** Idle-class roam (non-working: idle/starting/blocked/done) reads calmer
+ *  than a working walker's brisk free-roam — a fraction of the same SPEED
+ *  rather than a second hardcoded speed, so a future SPEED retune doesn't
+ *  need a second edit. */
+const IDLE_SPEED_FACTOR = 0.6;
+/** Idle-class walkers linger longer between legs than a working walker's
+ *  WANDER_MIN/MAX_DELAY — "pausing now and then", not a business errand. */
+const IDLE_WANDER_MIN_DELAY = 3;
+const IDLE_WANDER_MAX_DELAY = 7;
+/** Bounded attempts per idle wander-leg decision to find a destination that
+ *  clears MIN_SEPARATION_TILES from every other walker's anchor. Small on
+ *  purpose: only the FIRST attempt that clears the separation bar costs a
+ *  real pathfind (see updateWander below), so this bounds worst case (every
+ *  candidate rejected on separation, or reachable-but-nothing-clears-the-
+ *  bar) rather than the common case. */
+const IDLE_WANDER_ATTEMPTS = 24;
+
 interface WalkerOptions {
   sessionId: string;
   map: TiledMapRenderer;
   animation: PokemonAnimation;
   /** Where the walker first appears (the garden entrance). */
   startTile: { x: number; y: number };
+  /** This generation's shared wander-anchor tracker (see
+   *  wanderReservations.ts) — every walker registers/updates its own anchor
+   *  here as it moves, and an idle-class walker consults it when picking a
+   *  new destination so idle walkers spread out across the garden instead
+   *  of converging. */
+  reservations: WanderReservations;
   accentColor: number;
   label: string;
   /** Shared scene layers the evolution ceremony renders into — see
@@ -51,6 +75,7 @@ export class Walker {
   readonly container: Container;
 
   private map: TiledMapRenderer;
+  private reservations: WanderReservations;
   private sprite: WalkerSprite;
   private bubble: ToolBubble;
   private badge: Graphics;
@@ -71,9 +96,35 @@ export class Walker {
    *  Gengar). */
   private locomotion: Locomotion;
 
+  /** Whether `update()` should be running `updateWander()` right now, for
+   *  EITHER a working walker's brisk free-roam or a non-working walker's
+   *  relaxed amble (see `updateWander`'s own branch on `status`) — both are
+   *  driven by this one flag/timer pair now, not gated by `status` itself.
+   *  Defaults true so a freshly-constructed walker starts ambling on its
+   *  very first frame rather than needing an explicit kickoff call. Cleared
+   *  by `goTo()`/`stayPut()` (something else has claimed this walker's
+   *  path) and set by `beginWander()`. */
   private wandering = true;
   private wanderTimer = 0;
   private wanderDelay = WANDER_MIN_DELAY;
+
+  /** True while something OTHER than this walker's own wander loop owns its
+   *  position — a battle, a delegate challenge, a berry errand, or the
+   *  pokéball recall (GardenScene.tsx's `positionOwnedElsewhere`). Sets via
+   *  `setBusy()`, which halts any in-flight wander leg the moment it goes
+   *  true and simply stops `beginWander()` from resuming until it's cleared
+   *  again — the owning system (BattleManager/WalkerChallenger/GardenCharm)
+   *  calls `goTo()`/`beginWander()` directly at its own pace either way, so
+   *  this only needs to keep this walker's OWN autonomous loop out of its
+   *  way, not choreograph anything itself. */
+  private busy = false;
+  /** True while this walker's session is in the active workspace — set via
+   *  `setTracked()`. While false, this walker still updates every frame
+   *  (Phase 8.7: work/wander continues off-stage) but stops
+   *  reading/writing `reservations`, so an invisible walker in another
+   *  workspace can't make an on-stage idle walker avoid a spot nobody can
+   *  actually see it standing on, or vice versa. */
+  private tracked = true;
 
   private status: SessionStatus = 'starting';
   private badgePulse = 0;
@@ -177,6 +228,7 @@ export class Walker {
   constructor(opts: WalkerOptions) {
     this.sessionId = opts.sessionId;
     this.map = opts.map;
+    this.reservations = opts.reservations;
     this.locomotion = opts.animation.info.locomotion;
     this.pinnedLive = opts.animation;
     pinAnimation(this.pinnedLive);
@@ -187,6 +239,24 @@ export class Walker {
     const ts = this.map.tileSize;
     this.px = opts.startTile.x * ts + ts / 2;
     this.py = opts.startTile.y * ts + ts;
+    // Claim this walker's own starting anchor immediately — every OTHER
+    // walker's separation check (updateWander's idle branch, below) reads
+    // `reservations` from frame one, so a walker that hasn't registered yet
+    // would look like free space to them.
+    this.reservations.setAnchor(this.sessionId, opts.startTile);
+    // Roll a fresh delay instead of leaving the class-field default
+    // (WANDER_MIN_DELAY, 1.5s) — otherwise every walker constructed this
+    // generation (in particular a whole batch of restored idle sessions,
+    // added back-to-back in the same synchronous pass) starts its very
+    // first wander timer at 0 with the SAME 1.5s delay, so they'd all take
+    // their first step on the same frame instead of staggering. Uses
+    // `status`'s field-initializer value ('starting', set above the
+    // constructor — see that field's own comment), which reads as
+    // non-working here regardless of what the session's real status turns
+    // out to be moments later, so this always rolls the wider IDLE range;
+    // harmless either way, since this only affects how soon the FIRST leg
+    // fires.
+    this.wanderDelay = this.rollWanderDelay();
 
     this.container = new Container();
     this.container.sortableChildren = true;
@@ -285,21 +355,6 @@ export class Walker {
     return this.map.pixelToTile(this.px, this.py - 1);
   }
 
-  /** The tile this walker will actually be standing on once its current
-   *  path (if any) finishes — the last queued path tile, or `tile` itself
-   *  when nothing is queued. `stayPut()` truncates `path` to at most one
-   *  entry (see its own comment) rather than clearing it outright, so right
-   *  after a working->idle (or ->napping) transition this is the tile the
-   *  walker is still finishing its current in-flight segment toward, NOT
-   *  `tile` — which mid-segment still reports the tile being LEFT.
-   *  GardenScene.tsx's idle-tile reservation reads this, not `tile`, for
-   *  exactly that reason (see its own comment — a v1 of that fix claimed
-   *  from `tile` and reserved a tile the walker wasn't actually headed
-   *  for). */
-  get settleTile(): { x: number; y: number } {
-    return this.path.length > 0 ? this.path[this.path.length - 1] : this.tile;
-  }
-
   /** Drawn sprite height, for placing battle UI (the "+N" overflow badge)
    *  above the head without hardcoding a per-species offset. */
   get spriteHeight(): number {
@@ -356,13 +411,17 @@ export class Walker {
    *  next status change rather than believing the walker is on its way.
    *  Also returns false — same "retry later" contract — while an evolution
    *  ceremony is running: the walker is exclusive/uninterruptible for its
-   *  duration, and GardenScene's reconcile already retries a failed goTo on
-   *  the next status change. */
+   *  duration. Claims `tile` as this walker's anchor the moment the path is
+   *  accepted (wanderReservations.ts) — ahead of actually arriving, same as
+   *  `tryStartWander`'s own idle-wander pick — so a battle stand tile or a
+   *  berry bush is reserved for the whole approach walk, not just once the
+   *  walker gets there. */
   goTo(tile: { x: number; y: number }): boolean {
     if (this.ceremony || this.napping) return false;
     const path = findPath(this.map, this.tile, tile, this.canEnter);
     if (!path) return false; // unreachable — stay put rather than teleport
     this.wandering = false;
+    if (this.tracked) this.reservations.setAnchor(this.sessionId, tile);
     // `findPath` returns `[]` whenever start === goal — including when
     // `tile` is the tile under our feet RIGHT NOW while mid-segment (still
     // possible to walk, just not yet arrived at its own centre/feet anchor;
@@ -371,12 +430,11 @@ export class Walker {
     // frozen exactly here" — BattleManager's alert beat relies on that
     // (`goTo(walker.tile)` to freeze an in-flight wander without moving it,
     // see admitBattle's own comment). But an empty path that's REPLACING an
-    // in-flight segment (`this.path.length > 0`, e.g. GardenScene's
-    // idle-tile reservation routing a walker back onto the tile it's
-    // mid-stride out of) would otherwise leave it parked off-grid — up to
-    // half a tile short of `tile`'s actual anchor point — for as long as
-    // nothing else moves it. Walk the short remaining distance onto the
-    // tile's centre instead.
+    // in-flight segment (`this.path.length > 0`, e.g. a battle/errand
+    // routing a walker back onto the tile it's mid-stride out of) would
+    // otherwise leave it parked off-grid — up to half a tile short of
+    // `tile`'s actual anchor point — for as long as nothing else moves it.
+    // Walk the short remaining distance onto the tile's centre instead.
     this.path = path.length === 0 && this.path.length > 0 ? [tile] : path;
     this.walking = this.path.length > 0;
     this.sprite.setMoving(this.walking);
@@ -385,22 +443,91 @@ export class Walker {
 
   /** Where this Pokemon may go. Fliers add the pond to the walkable grid; they
    *  do not get a grid of their own, so the map stays the one source of truth.
-   *  Public so GardenScene.tsx's idle-tile reservation can search candidate
-   *  tiles with the SAME walkability rule `goTo`/`findPath` actually use,
-   *  rather than keeping a second, easily-drifting copy of this rule. */
+   *  Public so wanderReservations.ts's spawn-spread search and battle/errand
+   *  code can search candidate tiles with the SAME walkability rule
+   *  `goTo`/`findPath` actually use, rather than keeping a second,
+   *  easily-drifting copy of this rule. */
   canEnter = (x: number, y: number): boolean =>
     this.map.isWalkable(x, y) || (this.canFly && this.map.isWater(x, y));
 
-  /** Resume aimless strolling, free-roaming anywhere on the map. Any errand in
-   *  flight is truncated to its current step: dropping the path outright would
-   *  strand the sprite between tiles, and running it to completion would make an
-   *  idle session visibly finish work it is no longer doing. */
+  /** The wait, in seconds, before the NEXT wander leg fires once the current
+   *  one ends — brisk for a working walker's free-roam, more relaxed for a
+   *  non-working one's amble (see the constants' own comments). Read at the
+   *  moment a new delay is rolled, both here and in `updateWander`, so it
+   *  always reflects `status` as of THAT roll rather than whatever it was
+   *  the last time `beginWander` ran. */
+  private rollWanderDelay(): number {
+    const [min, max] =
+      this.status === 'working' ? [WANDER_MIN_DELAY, WANDER_MAX_DELAY] : [IDLE_WANDER_MIN_DELAY, IDLE_WANDER_MAX_DELAY];
+    return min + Math.random() * (max - min);
+  }
+
+  /** Resume aimless strolling, free-roaming anywhere on the map — a working
+   *  walker's brisk free-roam or a non-working walker's relaxed amble alike
+   *  (see `updateWander`'s own branch on `status`). Any errand in flight is
+   *  truncated to its current step: dropping the path outright would strand
+   *  the sprite between tiles, and running it to completion would make a
+   *  walker visibly finish an errand it is no longer on. A no-op while
+   *  something else owns this walker's position (`busy` — a battle,
+   *  challenger, berry errand, or recall) or it's napping/mid-ceremony; the
+   *  owning system (or `setNapping`/the ceremony's own completion) calls
+   *  this again once it lets go. */
   beginWander(): void {
-    if (this.ceremony || this.napping || this.status !== 'working') return;
+    if (this.ceremony || this.napping || this.busy) return;
     this.path = this.path.slice(0, 1);
     this.wandering = true;
     this.wanderTimer = 0;
-    this.wanderDelay = WANDER_MIN_DELAY;
+    this.wanderDelay = this.rollWanderDelay();
+  }
+
+  /** Something other than this walker's own wander loop now owns (or has
+   *  released) its position — a battle, a delegate challenge, a berry
+   *  errand, or the pokéball recall. Setting it true stops `update()` from
+   *  starting any NEW autonomous wander leg (see its own `!this.busy`
+   *  check) and keeps `beginWander()` from resuming; it deliberately does
+   *  NOT truncate an in-flight `path` the way `stayPut()` does — the owning
+   *  system asserts control with its own `goTo()` call(s) at its own
+   *  timing (immediately, in the same tick this goes true, or a little
+   *  later), and `goTo()` always cleanly replaces whatever path was already
+   *  there. Calling `stayPut()` here too would risk truncating an
+   *  errand/approach path THAT SAME goTo() just set up, if this fires after
+   *  it — see GardenCharm's berry errand and WalkerChallenger's approach.
+   *
+   *  Setting it false on the true -> false EDGE also resumes wandering
+   *  itself (`beginWander()`, itself a no-op if napping/mid-ceremony) —
+   *  `beginWander()` alone can NEVER do this on its own behalf, since its
+   *  own guard returns immediately while `busy` is still true, which is
+   *  exactly when a hand-back needs it to fire. So the two sites that KNOW
+   *  the instant ownership ends (BattleManager's onBattleEnd, GardenCharm's
+   *  errand completion) call `setBusy(false)` themselves for a same-tick
+   *  resume, rather than waiting on GardenScene's reconcile to eventually
+   *  notice; this edge-trigger is what makes that call actually work. The
+   *  edge-trigger is ALSO GardenScene's own fallback, for the one release
+   *  path that hands a walker back WITHOUT any explicit resume call —
+   *  BattleManager's `releaseDelegate` (a delegate's own walker coming off
+   *  a completion battle) — via the reconcile's own `setBusy(positionOwnedElsewhere)`
+   *  call, every pass, once `isChallenger` finally reads false for it.
+   *  Edge-triggered ON PURPOSE, not "false -> resume every time": that
+   *  reconcile call happens every pass regardless, and re-firing
+   *  `beginWander()` (which resets the wander timer) on every one of those
+   *  while already free would be exactly the per-reconcile churn this whole
+   *  rework set out to remove. */
+  setBusy(busy: boolean): void {
+    const wasBusy = this.busy;
+    this.busy = busy;
+    if (wasBusy && !busy) this.beginWander();
+  }
+
+  /** Whether this walker's session is in the ACTIVE workspace right now —
+   *  see `tracked`'s own comment. Guarded the same way `setBusy` is: a no-op
+   *  on repeat calls with the same value, so GardenScene's reconcile can
+   *  call this unconditionally every pass without spamming
+   *  `reservations` writes. */
+  setTracked(tracked: boolean): void {
+    if (tracked === this.tracked) return;
+    this.tracked = tracked;
+    if (tracked) this.reservations.setAnchor(this.sessionId, this.tile);
+    else this.reservations.release(this.sessionId);
   }
 
   /** Stop ordinary garden movement after the current in-flight segment.
@@ -417,10 +544,38 @@ export class Walker {
     }
   }
 
+  /** Working <-> idle/starting/done no longer interrupts movement — all
+   *  three keep wandering (see `updateWander`'s branch on `status`), just at
+   *  a different pace, which `updateWalk`/`updateWander` read live off
+   *  `status` every frame.
+   *
+   *  `'blocked'` is the one exception (user decision, 2026-09-18): it means
+   *  this session needs YOU — waiting on input, a permission prompt, etc. —
+   *  and a Pokemon that keeps ambling across the map while it waits is
+   *  exactly what makes it hard to spot and click. Entering `'blocked'`
+   *  stands it still in place (`stayPut()`, which also clears `wandering` so
+   *  `update()`'s dispatch won't start a new leg — see its own `!this.busy`
+   *  check, same mechanism); leaving it resumes wandering (`beginWander()`)
+   *  — this is NOT a one-liner for exactly that reason: `stayPut()` clears
+   *  `wandering`, and nothing else would ever set it back to true again once
+   *  the session stops being blocked, so the resume call is load-bearing,
+   *  not optional. Both are no-ops while something else owns the walker
+   *  (`busy`) or mid-ceremony — same guards `beginWander()`/`stayPut()`
+   *  always had; if a blocked session somehow also started a battle, the
+   *  battle still wins and this resolves itself the moment `busy` clears.
+   *  `'starting'` and `'done'` are deliberately NOT stand-still: `'starting'`
+   *  is a transient pre-work state, not something needing attention; `'done'`
+   *  is treated exactly like `'idle'` and keeps roaming until the player
+   *  recalls it or it starts a fresh delegate/completion battle. */
   setStatus(status: SessionStatus): void {
     if (status === this.status) return;
+    const wasBlocked = this.status === 'blocked';
     this.status = status;
-    if (status !== 'working') this.stayPut();
+    if (status === 'blocked') {
+      this.stayPut();
+    } else if (wasBlocked) {
+      this.beginWander();
+    }
     this.redrawBadge();
   }
 
@@ -526,28 +681,29 @@ export class Walker {
 
   /** Named `isRecalling`, not `recalling`, to match the `isEvolving`/
    *  `isNapping` getters above — a getter can't share its private
-   *  backing field's own name. GardenScene.tsx's idle-tile reservation
-   *  needs this alongside `isBattling`/`isChallenger`/`isBusy`: `startRecall`
-   *  clears `path`/`wandering` itself, so a done delegate's ~1s pokéball
-   *  recall usually looks "already correct" to that reconcile and is left
-   *  alone — but if this walker's reservation was released earlier (e.g. by
-   *  a battle it was just dropped from — see `positionOwnedElsewhere`'s own
-   *  release branch) and hasn't been reclaimed yet, that same reconcile
-   *  would otherwise call `goTo` on it mid-recall, moving/animating the
-   *  walker while the pokéball shrink is playing over it. */
+   *  backing field's own name. GardenScene.tsx's `positionOwnedElsewhere`
+   *  needs this alongside `isBattling`/`isChallenger`/`isBusy`, feeding
+   *  `walker.setBusy(...)`: `startRecall` already clears `path`/`wandering`
+   *  itself and the shrink animation doesn't move the walker again, so this
+   *  is mostly redundant with that — but it's what keeps this walker's OWN
+   *  wander loop (`update()`'s `!this.busy` dispatch check) from starting a
+   *  fresh leg out from under the ~1s pokéball shrink for the brief window
+   *  after `startRecall()` runs and before the session is actually torn down
+   *  (`removeWalker`). */
   get isRecalling(): boolean {
     return this.recalling;
   }
 
   /** Enter/leave the nap pose (Phase 8.5 Wave B items 3/4). Waking plays the
    *  existing select-hop (`bounce()`) as the "stretch" beat the spec asks
-   *  for, then resumes ordinary wandering when the session is working —
-   *  reusing beginWander/bounce rather than adding new animation machinery. A
-   *  no-op mid-ceremony: the ceremony
-   *  already owns the walker exclusively for its duration (see goTo/
-   *  beginWander's own ceremony guards), and this napping/waking mustn't
-   *  fight it — GardenScene's reconcile calls setNapping again on the next
-   *  tick once the ceremony ends. */
+   *  for, then always resumes wandering — working's brisk free-roam or a
+   *  non-working walker's relaxed amble alike (see `beginWander`'s own
+   *  comment) — reusing beginWander/bounce rather than adding new animation
+   *  machinery. A no-op mid-ceremony: the ceremony already owns the walker
+   *  exclusively for its duration (see goTo/beginWander's own ceremony
+   *  guards), and this napping/waking mustn't fight it — GardenScene's
+   *  reconcile calls setNapping again on the next tick once the ceremony
+   *  ends. */
   setNapping(napping: boolean): void {
     if (napping === this.napping || this.ceremony) return;
     this.napping = napping;
@@ -558,8 +714,7 @@ export class Walker {
     } else {
       this.zzz.visible = false;
       this.bounce();
-      if (this.status === 'working') this.beginWander();
-      else this.stayPut();
+      this.beginWander();
     }
     // The visible toggle above isn't guaranteed to land alongside a position/
     // texture change this same frame (a walker that was already stationary
@@ -827,25 +982,23 @@ export class Walker {
       markDirty();
       if (this.ceremony.done) {
         this.ceremony = null;
-        // A working->non-working `setStatus` mid-ceremony calls `stayPut()`
-        // (see setStatus), but that call hits stayPut's own `if
-        // (this.ceremony) return` and silently no-ops — so `wandering` (and
-        // whatever `path` was queued) survives the ceremony completely
-        // untouched. Nothing else re-issues stayPut once the session's
-        // status stops changing, so an idle/blocked/done walker whose
-        // evolution just finished would otherwise keep wandering the whole
-        // map forever, with no further status transition ever coming along
-        // to stop it. `this.ceremony` was just cleared above, so stayPut's
-        // own guard no longer blocks it — apply it now, the first frame
-        // it's actually safe to. Skipped for a working walker: it's
-        // SUPPOSED to keep wandering once its ceremony ends (same as
-        // setNapping's own wake-vs-status branch does for a nap ending
-        // mid-working).
-        if (this.status !== 'working') this.stayPut();
+        // `wandering`/`path` survived the ceremony completely untouched (the
+        // walk/wander branch below is skipped outright while `ceremony` is
+        // set) — every walker is SUPPOSED to keep wandering once its
+        // ceremony ends, working or not (see `updateWander`'s branch on
+        // `status`), so there is nothing to reset here now: it just resumes
+        // on the very next frame via the normal `walking`/`wandering` check
+        // below.
       }
     } else {
       if (this.walking) this.updateWalk(dt);
-      else if (this.wandering) this.updateWander(dt);
+      // `!this.busy`: while something else owns this walker's position (a
+      // battle, a delegate challenge, a berry errand, or a recall), don't
+      // start a NEW autonomous wander leg — but don't touch `path`/`walking`
+      // here either (see `setBusy`'s own comment for why not): whatever leg
+      // is already in flight, self-initiated or set by an external `goTo()`,
+      // keeps running via the branch above until it completes on its own.
+      else if (this.wandering && !this.busy) this.updateWander(dt);
       this.sprite.update(dt); // marks dirty itself on frame-step/bob — see WalkerSprite.ts
     }
     // Runs regardless of ceremony state — cancelMegaFlash() at evolve()'s
@@ -927,10 +1080,26 @@ export class Walker {
       this.py = targetPy;
       this.path.shift();
       this.syncPosition();
+      // Re-anchor ONLY on the FINAL arrival (`this.path` is now empty —
+      // checked AFTER the shift above), not on every intermediate node a
+      // multi-tile path passes through. `goTo`/`tryStartWander` already
+      // anchor at the true destination the moment a leg is accepted; if
+      // this ran on every node too, it would overwrite that destination
+      // anchor with whatever tile is merely being passed through roughly
+      // once a second (a tile at idle speed), freeing the REAL destination
+      // for a DIFFERENT idle walker to also pick for the rest of this leg
+      // — the walker only reclaims it once it actually gets there. Every
+      // walker still ends up with an accurate resting-spot anchor once it
+      // stops, working or not, so an idle walker's separation search
+      // (below) can see where a working one currently is too. Skipped
+      // while untracked (an inactive workspace's walker keeps moving
+      // off-stage, but stops counting toward on-stage spacing — see
+      // `setTracked`).
+      if (this.tracked && this.path.length === 0) this.reservations.setAnchor(this.sessionId, target);
       return;
     }
 
-    const step = Math.min(SPEED * dt, dist);
+    const step = Math.min(this.currentSpeed() * dt, dist);
     this.px += (dx / dist) * step;
     this.py += (dy / dist) * step;
     // Only horizontal travel changes left/right facing: there is no side view
@@ -944,12 +1113,40 @@ export class Walker {
     this.syncPosition();
   }
 
+  /** Walk speed, px/sec — full pace for a working walker's free-roam OR
+   *  whenever something else is choreographing this walker (`busy`: a
+   *  battle approach, a berry errand, ...) — those already have their own
+   *  timing (BattleManager's stuck-watchdog thresholds, GardenCharm's
+   *  ERRAND_TIMEOUT_S) tuned to the ordinary pace, and slowing them down
+   *  would be a real behavior change, not a cosmetic one. Only a genuinely
+   *  unsupervised idle amble gets the relaxed IDLE_SPEED_FACTOR. Read live
+   *  every step, so a status/busy change mid-leg changes pace immediately
+   *  rather than only on the walker's NEXT leg. */
+  private currentSpeed(): number {
+    return this.status === 'working' || this.busy ? SPEED : SPEED * IDLE_SPEED_FACTOR;
+  }
+
+  /** Picks the walker's next wander leg once `wanderDelay` elapses — a
+   *  working walker's brisk, uncoordinated free-roam anywhere on the map
+   *  (unchanged from before this file's wander/idle-placement rework), or a
+   *  non-working walker's relaxed amble, which ALSO goes anywhere on the
+   *  map but keeps its destination spaced out from every other walker's own
+   *  anchor via `reservations` (see wanderReservations.ts) so idle walkers
+   *  spread across the garden instead of converging on the same spot. */
   private updateWander(dt: number): void {
     this.wanderTimer += dt;
     if (this.wanderTimer < this.wanderDelay) return;
     this.wanderTimer = 0;
-    this.wanderDelay = WANDER_MIN_DELAY + Math.random() * (WANDER_MAX_DELAY - WANDER_MIN_DELAY);
+    this.wanderDelay = this.rollWanderDelay();
 
+    if (this.status === 'working') {
+      this.updateWorkingWander();
+    } else {
+      this.updateIdleWander();
+    }
+  }
+
+  private updateWorkingWander(): void {
     const cur = this.tile;
     for (let attempt = 0; attempt < 16; attempt++) {
       const tx = Math.floor(Math.random() * this.map.width);
@@ -962,6 +1159,53 @@ export class Walker {
       this.sprite.setMoving(true);
       return;
     }
+  }
+
+  /** Non-working wander leg: try up to IDLE_WANDER_ATTEMPTS random
+   *  reachable tiles anywhere on the map, taking the FIRST one that clears
+   *  MIN_SEPARATION_TILES from every other walker's anchor (one pathfind —
+   *  the common case). If nothing clears the bar within budget (a small or
+   *  heavily-populated map), falls back to whichever candidate had the most
+   *  clearance instead of leaving this walker frozen. Claims the chosen
+   *  destination as this walker's own anchor immediately (ahead of actually
+   *  arriving), so a DIFFERENT idle walker deciding in the same frame won't
+   *  also target it. */
+  private updateIdleWander(): void {
+    const from = this.tile;
+    let fallback: { x: number; y: number } | null = null;
+    let fallbackDist = -Infinity;
+
+    for (let attempt = 0; attempt < IDLE_WANDER_ATTEMPTS; attempt++) {
+      const tx = Math.floor(Math.random() * this.map.width);
+      const ty = Math.floor(Math.random() * this.map.height);
+      if ((tx === from.x && ty === from.y) || !this.canEnter(tx, ty)) continue;
+      const candidate = { x: tx, y: ty };
+      const dist = this.reservations.distanceToNearest(candidate, this.sessionId);
+      if (dist >= MIN_SEPARATION_TILES) {
+        if (this.tryStartWander(from, candidate)) return;
+        continue; // separated but unreachable (fence/pond) — try another
+      }
+      if (dist > fallbackDist) {
+        fallbackDist = dist;
+        fallback = candidate;
+      }
+    }
+    if (fallback) this.tryStartWander(from, fallback);
+    // Nothing panned out this tick (heavily crowded or blocked map) — stay
+    // put; the next `wanderDelay` retries with a fresh random draw.
+  }
+
+  /** Shared by `updateIdleWander`'s primary and fallback picks: pathfind to
+   *  `dest`, and if reachable, claim it as this walker's anchor and start
+   *  walking. Returns whether it actually started. */
+  private tryStartWander(from: { x: number; y: number }, dest: { x: number; y: number }): boolean {
+    const path = findPath(this.map, from, dest, this.canEnter);
+    if (!path || path.length === 0) return false;
+    if (this.tracked) this.reservations.setAnchor(this.sessionId, dest);
+    this.path = path;
+    this.walking = true;
+    this.sprite.setMoving(true);
+    return true;
   }
 
   /** Hide/restore the name tag, status badge and selection ring — the
@@ -1060,6 +1304,11 @@ export class Walker {
   }
 
   destroy(): void {
+    // Release this walker's wander anchor — same reasoning as every other
+    // release below: without this, a destroyed walker's last spot would
+    // stay "occupied" forever, slowly starving idle walkers' separation
+    // search of legal destinations.
+    this.reservations.release(this.sessionId);
     // A ceremony in flight owns overlay graphics living in the SHARED
     // overlayLayer, outside this walker's own container — dispose it first so
     // that overlay doesn't outlive the walker it was dimming the garden for.

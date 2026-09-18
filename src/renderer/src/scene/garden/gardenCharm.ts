@@ -299,9 +299,11 @@ export class GardenCharm {
   }
 
   /** True while `sessionId`'s walker is mid-errand (walking to/from a bush).
-   *  GardenScene's own station reconcile checks this alongside its
-   *  isBattling/isNapping-style guards so it doesn't stayPut() a walker out
-   *  from under an errand this class already sent it on. */
+   *  GardenScene's own reconcile checks this alongside its
+   *  isBattling/isChallenger/isRecalling clauses and feeds the result into
+   *  `walker.setBusy(...)`, which stops that walker's OWN autonomous wander
+   *  loop from starting a new leg out from under an errand this class
+   *  already sent it on (see Walker.ts's `update()` dispatch). */
   isBusy(sessionId: string): boolean {
     return this.charmStates.get(sessionId)?.busy ?? false;
   }
@@ -319,6 +321,17 @@ export class GardenCharm {
 
     cs.busy = false;
     cs.bushIndex = null;
+    // `setBusy(false)` before `beginWander()`: GardenScene.tsx's reconcile is
+    // what normally keeps `walker.busy` (Walker.ts) in sync with THIS class's
+    // own `isBusy()`, but only on a store change — this 1Hz tick doesn't
+    // write to the store, so nothing guarantees that reconcile has run since
+    // this errand started (or ever will, for an otherwise-quiet session).
+    // `beginWander()` alone would then be a no-op against its own `busy`
+    // guard, freezing the walker at the bush indefinitely. `setBusy` covers
+    // both cases regardless of whether `walker.busy` was ever set true for
+    // this errand in the first place: it unconditionally clears the flag,
+    // so the explicit `beginWander()` right after always succeeds.
+    walker.setBusy(false);
     walker.beginWander();
     if (arrived && bush.berries > 0) {
       bush.berries -= 1;

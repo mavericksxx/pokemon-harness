@@ -12,7 +12,7 @@ import { playSpawnCry } from '@/audio/audioEngine';
 import type { Session } from '@/store/store';
 import type { StationKind } from '@shared/types';
 import { markDirty } from './renderDirty';
-import type { IdleTileReservations } from './idleTiles';
+import type { WanderReservations } from './wanderReservations';
 
 /** Per-session bookkeeping the scene keeps outside the store. */
 export interface Runtime {
@@ -82,9 +82,11 @@ export interface WalkerLifecycleCtx {
   evolutionFlashLayer: Container;
   evolutionCeremonyLayer: Container;
   runtimes: Map<string, Runtime>;
-  /** This generation's idle-tile claims (see idleTiles.ts) — released here
-   *  on despawn so a destroyed walker's reservation doesn't leak. */
-  idleTiles: IdleTileReservations;
+  /** This generation's shared wander-anchor tracker (see
+   *  wanderReservations.ts) — passed into every Walker at construction; a
+   *  walker releases its own anchor on destroy(), so nothing here needs to
+   *  do it separately. */
+  reservations: WanderReservations;
   /** Snapshot of bundled animations taken at this generation's mount —
    *  mirrors GardenScene's own `pokemonAnimations` local. */
   pokemonAnimations: Map<string, PokemonAnimation>;
@@ -166,6 +168,8 @@ export function createWalkerLifecycle(ctx: WalkerLifecycleCtx): WalkerLifecycle 
     const homePatch = reservedHomePatch;
     const slot = reservedHomePatch ? STATION_SPAWNS.patch.indexOf(reservedHomePatch) : overflowSlot++;
     const animation = ctx.resolveAnimation(session.pokemon, session.shiny);
+    const canFly = animation.info.locomotion !== 'walk';
+    const canEnter = (x: number, y: number): boolean => map.isWalkable(x, y) || (canFly && map.isWater(x, y));
     const restored = ctx.sessionsAtMount.has(session.id);
     const restoredTile = ctx.getPendingWalkerTile(session.id);
     // Restored idle walkers are already home; live sessions still walk in from the entrance.
@@ -173,12 +177,20 @@ export function createWalkerLifecycle(ctx: WalkerLifecycleCtx): WalkerLifecycle 
       restoredTile ??
       (restored && session.status !== 'working'
         ? reservedHomePatch
-          ? ctx.spawnTileFor('patch', slot, animation.info.locomotion !== 'walk')
-          : ctx.spawnTileFor('wander', slot, animation.info.locomotion !== 'walk')
+          ? ctx.spawnTileFor('patch', slot, canFly)
+          : // Overflow sessions cycle through only 4 named `wander-N` points
+            // (STATION_SPAWNS.wander, slot % 4) — with more than a handful of
+            // restored idle sessions, several land on the EXACT same
+            // coordinate. `spreadSpawnTile` nudges this one off any walker
+            // already anchored there/nearby so it doesn't render stacked
+            // exactly on top of an earlier arrival for the several seconds
+            // before its first idle wander leg fires.
+            ctx.reservations.spreadSpawnTile(ctx.spawnTileFor('wander', slot, canFly), session.id, canEnter)
         : ctx.entrance);
     const walker = new Walker({
       sessionId: session.id,
       map,
+      reservations: ctx.reservations,
       animation,
       startTile,
       accentColor: session.accent,
@@ -290,11 +302,8 @@ export function createWalkerLifecycle(ctx: WalkerLifecycleCtx): WalkerLifecycle 
     // releasing patch[0] on its behalf would free a seat a different,
     // still-live session legitimately owns.
     if (rt.homePatch) patchPool.release(rt.homePatch);
-    // Same reasoning as homePatch above, but unconditional: every walker
-    // may hold an idle-tile reservation regardless of station, and leaving
-    // it claimed after the walker itself is gone would slowly starve the
-    // garden of idle spots (see idleTiles.ts's own release() comment).
-    ctx.idleTiles.release(id);
+    // `rt.walker.destroy()` releases its own wander-reservation anchor
+    // (wanderReservations.ts) — nothing to do for that here.
     rt.walker.destroy();
     runtimes.delete(id);
     markDirty(); // a walker disappearing is a visible change with no other hook covering it
