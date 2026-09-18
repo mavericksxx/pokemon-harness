@@ -3432,9 +3432,8 @@ body.garden-lowres .garden canvas {
   display: none;
 }
 
-/* Small uppercase mono section labels ("agents"/"done") — Arceus, pinned
- * first, gets no heading of his own (he's global, not a member of either
- * section). */
+/* Small uppercase mono section label ("agents") — Arceus, pinned first,
+ * gets no heading of his own (he's global, not a member of the section). */
 .party-rail-heading {
   flex: none;
   padding: 2px 2px 0;
@@ -3445,18 +3444,8 @@ body.garden-lowres .garden canvas {
   text-transform: uppercase;
 }
 
-/* Finished first-class delegates stay visible, just dimmed — "done, not
- * hidden" (RosterStrip.tsx's own comment on why they get their own
- * section instead of sitting in the ordinary list unmarked). */
-.party-rail-done {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  opacity: 0.55;
-}
-
-/* Subagent nesting (per-parent disclosure rework) — indented under its
- * parent with a mint left border, replacing the old flat list a global
+/* Subagent/delegate nesting (per-parent disclosure rework) — indented under
+ * its parent with a mint left border, replacing the old flat list a global
  * show/hide toggle used to gate. */
 .party-rail-child {
   margin-left: 13px;
@@ -3476,9 +3465,9 @@ body.garden-lowres .garden canvas {
 /* Top-level card drag-to-reorder (party-rail rework) — native HTML5 DnD,
  * wired on the plain wrapping `<div>` RosterStrip.tsx puts around each
  * draggable `AgentRosterCard` (only "agents" section cards get these
- * classes; Arceus, subagent cards, and "done" cards never do). `.dragging`
- * marks the card actually being picked up; `.drag-over` marks whichever
- * other card the pointer is currently over, as an insertion cue — same
+ * classes; Arceus, subagent cards, and nested delegate cards never do).
+ * `.dragging` marks the card actually being picked up; `.drag-over` marks
+ * whichever other card the pointer is currently over, as an insertion cue — same
  * accent used by `.roster-card.selected`'s own ring above. */
 .party-rail .dragging {
   opacity: 0.5;

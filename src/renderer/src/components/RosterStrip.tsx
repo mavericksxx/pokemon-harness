@@ -44,8 +44,7 @@ function applyPartyRailOrder(sessions: Session[], order: string[]): Session[] {
  *
  * Structure, top to bottom: a header (active garden's name + live/total
  * counts), a scrolling list (Arceus pinned first with no heading, then an
- * "agents" section, then a "done" section for finished delegates — dimmed,
- * not hidden), and a footer holding "+ new agent".
+ * "agents" section), and a footer holding "+ new agent".
  *
  * Scoped to the ACTIVE workspace's sessions (Phase 8.7) — a session in
  * another workspace has no card here until you switch to it. Arceus is
@@ -77,6 +76,14 @@ function applyPartyRailOrder(sessions: Session[], order: string[]): Session[] {
  * preserving the old global behavior as a modifier instead of a permanent
  * separate control.
  *
+ * First-class delegate sessions (`delegateParentId`, spawned via
+ * poke-delegate) nest under their parent through this exact same path,
+ * counted alongside battlers in the disclosure's `n` and hidden/shown by the
+ * same collapse toggle — never a top-level card of their own, live or done.
+ * A done one keeps sitting there (its walker keeps wandering the garden too,
+ * see GardenScene.tsx) until the user hits its own despawn control, same as
+ * a done subagent battler.
+ *
  * Below ~1100px viewport (index.css) the rail collapses to a 56px column of
  * face tiles — titles move into each card's own `title` tooltip, the
  * header's text hides, and the footer becomes a bare "+" tile. Pure CSS
@@ -103,47 +110,42 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
 
   // Top-level card drag-to-reorder (party-rail rework) — only the "agents"
-  // section's cards are draggable (see `renderSession`'s `draggable` param),
-  // never Arceus, a subagent card, or a "done" card.
+  // section's cards are draggable (see `renderSession`), never Arceus, a
+  // subagent card, or a delegate card (the latter two only ever render
+  // nested under their parent, below).
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const activeWorkspaceName = workspaces.find((w) => w.id === activeWorkspaceId)?.name ?? workspaces[0]?.name ?? '';
 
-  // Finished first-class delegates get their own dimmed "done" section
-  // instead of sitting in the ordinary list looking indistinguishable from a
-  // live agent — same "done delegate" predicate TerminalDrawer.tsx's own
-  // tab strip already excludes.
-  const liveSessions = sessions.filter((s) => !(s.delegateParentId && s.status === 'done'));
-  const doneSessions = sessions.filter((s) => s.delegateParentId && s.status === 'done');
+  // First-class delegate sessions never get a top-level card of their own —
+  // like a subagent battler, a delegate's card only ever renders nested
+  // under its parent (`renderSession`'s own `sessionDelegates` below), live
+  // or done alike.
+  const topLevelSessions = sessions.filter((s) => !s.delegateParentId);
 
   // Display order only — never the underlying `sessions` array itself (that
   // stays in ordinary session-creation order for every other consumer, e.g.
-  // SessionsOverview's grid). Recomputed whenever `liveSessions` or the
+  // SessionsOverview's grid). Recomputed whenever `topLevelSessions` or the
   // persisted order changes.
-  const orderedLiveSessions = useMemo(
-    () => applyPartyRailOrder(liveSessions, partyRailOrder),
-    [liveSessions, partyRailOrder]
+  const orderedTopLevelSessions = useMemo(
+    () => applyPartyRailOrder(topLevelSessions, partyRailOrder),
+    [topLevelSessions, partyRailOrder]
   );
 
   const workingCount = sessions.filter((s) => s.status === 'working').length;
 
-  // All parent ids with at least one live battler right now — the scope
-  // ⌥-click's "collapse/expand everything" applies to.
+  // All parent ids with at least one live battler or delegate right now —
+  // the scope ⌥-click's "collapse/expand everything" applies to.
   const parentIdsWithChildren = sessions
-    .filter((s) => battlers.some((b) => b.parentId === s.id))
+    .filter((s) => battlers.some((b) => b.parentId === s.id) || sessions.some((d) => d.delegateParentId === s.id))
     .map((s) => s.id);
 
-  // `draggable` gates ALL drag wiring below — only the "agents" section's
-  // top-level cards pass true (see call sites below); "done" cards render
-  // through this same function but with dragging fully inert.
-  const renderSession = (s: Session, draggable: boolean): JSX.Element => {
+  const renderSession = (s: Session): JSX.Element => {
     const sessionBattlers = battlers.filter((b) => b.parentId === s.id);
+    const sessionDelegates = sessions.filter((d) => d.delegateParentId === s.id);
     const collapsed = collapsedParentIds.includes(s.id);
-    const dragClasses = [
-      draggable && s.id === draggedId ? 'dragging' : '',
-      draggable && s.id === dragOverId ? 'drag-over' : ''
-    ]
+    const dragClasses = [s.id === draggedId ? 'dragging' : '', s.id === dragOverId ? 'drag-over' : '']
       .filter(Boolean)
       .join(' ');
     return (
@@ -154,68 +156,64 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
             at all. */}
         <div
           className={dragClasses || undefined}
-          draggable={draggable}
-          onDragStart={draggable ? () => setDraggedId(s.id) : undefined}
-          onDragOver={
-            draggable
-              ? (e) => {
-                  if (!draggedId || draggedId === s.id) return;
-                  e.preventDefault();
-                  setDragOverId(s.id);
-                }
-              : undefined
-          }
-          onDragLeave={draggable ? () => setDragOverId((cur) => (cur === s.id ? null : cur)) : undefined}
-          onDrop={
-            draggable
-              ? (e) => {
-                  e.preventDefault();
-                  if (!draggedId || draggedId === s.id) {
-                    setDraggedId(null);
-                    setDragOverId(null);
-                    return;
-                  }
-                  const ids = orderedLiveSessions.map((sess) => sess.id);
-                  const fromIdx = ids.indexOf(draggedId);
-                  const toIdx = ids.indexOf(s.id);
-                  if (fromIdx !== -1 && toIdx !== -1) {
-                    const next = [...ids];
-                    next.splice(fromIdx, 1);
-                    next.splice(toIdx, 0, draggedId);
-                    setPartyRailOrder(next);
-                  }
-                  setDraggedId(null);
-                  setDragOverId(null);
-                }
-              : undefined
-          }
-          onDragEnd={
-            draggable
-              ? () => {
-                  setDraggedId(null);
-                  setDragOverId(null);
-                }
-              : undefined
-          }
+          draggable
+          onDragStart={() => setDraggedId(s.id)}
+          onDragOver={(e) => {
+            if (!draggedId || draggedId === s.id) return;
+            e.preventDefault();
+            setDragOverId(s.id);
+          }}
+          onDragLeave={() => setDragOverId((cur) => (cur === s.id ? null : cur))}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (!draggedId || draggedId === s.id) {
+              setDraggedId(null);
+              setDragOverId(null);
+              return;
+            }
+            const ids = orderedTopLevelSessions.map((sess) => sess.id);
+            const fromIdx = ids.indexOf(draggedId);
+            const toIdx = ids.indexOf(s.id);
+            if (fromIdx !== -1 && toIdx !== -1) {
+              const next = [...ids];
+              next.splice(fromIdx, 1);
+              next.splice(toIdx, 0, draggedId);
+              setPartyRailOrder(next);
+            }
+            setDraggedId(null);
+            setDragOverId(null);
+          }}
+          onDragEnd={() => {
+            setDraggedId(null);
+            setDragOverId(null);
+          }}
         >
           <AgentRosterCard
             session={s}
             selected={s.id === selectedId}
             onSelect={select}
             variant="medium"
-            childCount={sessionBattlers.length}
+            childCount={sessionBattlers.length + sessionDelegates.length}
             collapsed={collapsed}
             onToggleCollapse={(altKey) =>
               altKey ? toggleAllParentsCollapsed(parentIdsWithChildren) : toggleParentCollapsed(s.id)
             }
           />
         </div>
-        {!collapsed &&
-          sessionBattlers.map((b) => (
-            <div key={b.key} className="party-rail-child">
-              <SubagentRosterCard battler={b} parent={s} variant="compact" />
-            </div>
-          ))}
+        {!collapsed && (
+          <>
+            {sessionBattlers.map((b) => (
+              <div key={b.key} className="party-rail-child">
+                <SubagentRosterCard battler={b} parent={s} variant="compact" />
+              </div>
+            ))}
+            {sessionDelegates.map((d) => (
+              <div key={d.id} className="party-rail-child">
+                <AgentRosterCard session={d} selected={d.id === selectedId} onSelect={select} variant="medium" />
+              </div>
+            ))}
+          </>
+        )}
       </Fragment>
     );
   };
@@ -254,14 +252,8 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
             terminal view; the rail is the one place he reads as the
             garden's god rather than an ordinary agent. */}
         <ArceusRosterCard variant="medium" ceremonial />
-        {liveSessions.length > 0 && <div className="party-rail-heading">agents</div>}
-        {orderedLiveSessions.map((s) => renderSession(s, true))}
-        {doneSessions.length > 0 && (
-          <div className="party-rail-done">
-            <div className="party-rail-heading">done</div>
-            {doneSessions.map((s) => renderSession(s, false))}
-          </div>
-        )}
+        {topLevelSessions.length > 0 && <div className="party-rail-heading">agents</div>}
+        {orderedTopLevelSessions.map((s) => renderSession(s))}
       </div>
       <button type="button" className="party-rail-new" onClick={onNewSession}>
         <span className="party-rail-new-label">+ new agent</span>
