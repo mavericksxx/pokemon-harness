@@ -5102,6 +5102,20 @@ body.garden-lowres .garden canvas {
  * (default `overflow: visible`, restored) — the original v1.20.6-era bug.
  * Deliberate: prompt, correct, ungarbled text while actively dictating
  * outranks where the tail end of a long dictation happens to render. */
+/* The vertical, one-char-per-line dictation preview came from `max-width:
+ * 100%` below resolving against `.xterm-helpers`, not the pane: xterm's stock
+ * CSS makes that wrapper `position: absolute` with no width, and its only
+ * children (textarea, composition view) are absolute too, so it shrinks to
+ * 0px wide. 100% of 0 plus pre-wrap/overflow-wrap:anywhere wrapped every
+ * character, and CompositionHelper then synced the OS-facing helper textarea
+ * to that ~10px-wide, many-lines-tall box. Stretching the wrapper across the
+ * terminal gives the percentage a real width. It stays 0px tall (all its
+ * children are absolute), so it never intercepts clicks on the grid. */
+.terminal-mount .xterm .xterm-helpers {
+  left: 0;
+  right: 0;
+}
+
 .terminal-mount .xterm .composition-view {
   max-width: 100%;
   white-space: pre-wrap;
