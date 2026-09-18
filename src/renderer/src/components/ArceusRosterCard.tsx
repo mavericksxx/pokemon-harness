@@ -15,7 +15,7 @@ import { SummonArceusDialog } from '@/components/SummonArceusDialog';
 interface Props {
   /** The rail expands the selected card in place. Arceus uses the same
    *  compact/medium states as an ordinary session, with his medium state
-   *  carrying the live status/model/context/cost HUD; RosterStrip.tsx always
+   *  carrying the live status/model/context HUD; RosterStrip.tsx always
    *  passes 'medium' so his card looks the same in every view mode. */
   variant?: 'compact' | 'medium';
   /** RosterStrip.tsx always sets this — his card has no garden pane of its
@@ -183,9 +183,6 @@ export function ArceusRosterCard({ variant = 'compact', ceremonial = false }: Pr
               ) : (
                 <span className="model-badge roster-card-row-hidden">&nbsp;</span>
               )}
-              <span className={cost ? 'roster-card-arceus-cost' : 'roster-card-arceus-cost roster-card-row-hidden'}>
-                {cost ? `$${cost.costUsd.toFixed(2)}` : ' '}
-              </span>
             </div>
 
             <div

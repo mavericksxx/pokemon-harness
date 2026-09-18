@@ -4199,7 +4199,7 @@ body.garden-lowres .garden canvas {
 }
 
 /* Expanded Arceus HUD — status remains a real status badge, while the
- * provider, model, cumulative cost, and context gauge stay in compact rows
+ * provider, model, and context gauge stay in compact rows
  * that fit the rail's own width. */
 .roster-card-arceus-status-row,
 .roster-card-arceus-model-row,
@@ -4247,19 +4247,6 @@ body.garden-lowres .garden canvas {
   overflow: hidden;
   flex: 0 1 auto;
   text-overflow: ellipsis;
-}
-
-.roster-card-arceus-cost {
-  flex: none;
-  margin-left: auto;
-  padding: 4px 5px;
-  color: var(--arceus-gold-bright);
-  background: var(--arceus-ground-raised);
-  border: 1px solid var(--arceus-gold-deep);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1;
-  white-space: nowrap;
 }
 
 .roster-card-arceus-context-row {
