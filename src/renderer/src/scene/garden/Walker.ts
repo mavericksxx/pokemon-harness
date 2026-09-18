@@ -524,6 +524,21 @@ export class Walker {
     return this.napping;
   }
 
+  /** Named `isRecalling`, not `recalling`, to match the `isEvolving`/
+   *  `isNapping` getters above — a getter can't share its private
+   *  backing field's own name. GardenScene.tsx's idle-tile reservation
+   *  needs this alongside `isBattling`/`isChallenger`/`isBusy`: `startRecall`
+   *  clears `path`/`wandering` itself, so a done delegate's ~1s pokéball
+   *  recall usually looks "already correct" to that reconcile and is left
+   *  alone — but if this walker's reservation was released earlier (e.g. by
+   *  a battle it was just dropped from — see `positionOwnedElsewhere`'s own
+   *  release branch) and hasn't been reclaimed yet, that same reconcile
+   *  would otherwise call `goTo` on it mid-recall, moving/animating the
+   *  walker while the pokéball shrink is playing over it. */
+  get isRecalling(): boolean {
+    return this.recalling;
+  }
+
   /** Enter/leave the nap pose (Phase 8.5 Wave B items 3/4). Waking plays the
    *  existing select-hop (`bounce()`) as the "stretch" beat the spec asks
    *  for, then resumes ordinary wandering when the session is working —
@@ -810,7 +825,24 @@ export class Walker {
       // enough active flag to mark dirty every frame it's true, same
       // shortcut BattleManager takes below in GardenScene.tsx.
       markDirty();
-      if (this.ceremony.done) this.ceremony = null;
+      if (this.ceremony.done) {
+        this.ceremony = null;
+        // A working->non-working `setStatus` mid-ceremony calls `stayPut()`
+        // (see setStatus), but that call hits stayPut's own `if
+        // (this.ceremony) return` and silently no-ops — so `wandering` (and
+        // whatever `path` was queued) survives the ceremony completely
+        // untouched. Nothing else re-issues stayPut once the session's
+        // status stops changing, so an idle/blocked/done walker whose
+        // evolution just finished would otherwise keep wandering the whole
+        // map forever, with no further status transition ever coming along
+        // to stop it. `this.ceremony` was just cleared above, so stayPut's
+        // own guard no longer blocks it — apply it now, the first frame
+        // it's actually safe to. Skipped for a working walker: it's
+        // SUPPOSED to keep wandering once its ceremony ends (same as
+        // setNapping's own wake-vs-status branch does for a nap ending
+        // mid-working).
+        if (this.status !== 'working') this.stayPut();
+      }
     } else {
       if (this.walking) this.updateWalk(dt);
       else if (this.wandering) this.updateWander(dt);

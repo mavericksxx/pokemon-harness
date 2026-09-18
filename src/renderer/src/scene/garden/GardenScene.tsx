@@ -904,16 +904,20 @@ export function GardenScene(): JSX.Element {
           // bush after a single tile, stranding it until GardenCharm's own
           // ERRAND_TIMEOUT_S gave up.
           //
-          // Battling, a delegate challenger, or off on a berry errand:
-          // something else owns this walker's position right now (may walk
-          // it far from wherever its idle-tile reservation was) — checked
-          // up front, once, since both branches below need it. Napping is
-          // deliberately NOT part of this: Walker.setNapping parks the
-          // walker in place (its own stayPut()) rather than moving it, so a
-          // napping walker still needs its idle-tile claim reconciled below,
-          // just via a different path than a walker that's free to walk.
+          // Battling, a delegate challenger, off on a berry errand, or
+          // mid-recall: something else owns this walker's position (or its
+          // sprite is mid-animation and must not also be walked) right now
+          // — checked up front, once, since both branches below need it.
+          // Napping is deliberately NOT part of this: Walker.setNapping
+          // parks the walker in place (its own stayPut()) rather than
+          // moving it, so a napping walker still needs its idle-tile claim
+          // reconciled below, just via a different path than a walker
+          // that's free to walk.
           const positionOwnedElsewhere =
-            battleManager.isBattling(session.id) || battleManager.isChallenger(session.id) || gardenCharm.isBusy(session.id);
+            battleManager.isBattling(session.id) ||
+            battleManager.isChallenger(session.id) ||
+            gardenCharm.isBusy(session.id) ||
+            walker.isRecalling;
 
           if (positionOwnedElsewhere) {
             // Free the reservation so it isn't held hostage, unused, while
