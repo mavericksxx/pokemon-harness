@@ -19,17 +19,19 @@
  * row as a small icon (an HP-bar or sparkline image) NEXT TO a plain native
  * title string, because that was the only way to get any graphics into an
  * `NSMenuItem` at all. The approved mockup needs tighter control than that
- * split allows — a caption/value pair stacked over a full-width bar, a
- * right-aligned dim-ink value next to a semibold caption, a status dot
- * inline with text — none of which an `NSMenuItem`'s own icon+title layout
- * can produce. "Option A" (the locked-in design decision) draws each ENTIRE
- * row, text included, as one image set as the item's `icon`, with an empty
+ * split allows for most rows — a caption/value pair stacked over a
+ * full-width bar, a right-aligned dim-ink value next to a semibold
+ * caption — neither of which an `NSMenuItem`'s own icon+title layout can
+ * produce. "Option A" (the locked-in design decision) draws each such row,
+ * text included, as one image set as the item's `icon`, with an empty
  * label. `trayRowImages.ts` owns the actual rasterization (a hidden,
  * never-shown `BrowserWindow` running a `<canvas>` 2D context — see that
  * file's own header for why a window is required at all); this file owns
  * the data → `TrayRowSpec` decisions (what each row says, which colors/tones
  * apply) and the scheduling/caching around when to (re-)render and what to
- * show before the first render has ever completed.
+ * show before the first render has ever completed. The session-status row
+ * is the one row this pass deliberately keeps OUT of that system — see
+ * `buildStatusMenuItem` below and "Render scheduling" further down for why.
  *
  * SYNCHRONOUS OPEN, ASYNCHRONOUS RENDER: `openMenu()` must stay exactly as
  * synchronous as it always was (see "Latency" below) — an `NSMenuItem`
@@ -50,22 +52,20 @@
  * (`renderedSpecsJson`), and only trusts the image when they still match.
  *
  * Render scheduling: `scheduleRender()` (debounced `RENDER_DEBOUNCE_MS`,
- * coalescing bursts into one actual render) fires from three places —
- * `init()` (once, at startup), `refreshCaches()` (after the real
- * usage/cost refresh `openMenu()` already kicks off post-popup finishes —
- * see `UsageService`/`CostHistoryService`'s own headers for why THAT is
- * already the right place to catch usage/cost changes), and
- * `nativeTheme`'s `'updated'` event (light/dark switch). Session status
- * counts are a fourth data source this menu draws but that has no
- * "refreshed" signal of its own to hook (`getSessionRegistry` is a plain
- * getter over `main/index.ts`'s own mutable state, not a service with a
- * change event) — wiring one up would mean reaching into index.ts's session
- * bookkeeping, out of this pass's scope ("confined to the tray"). Instead
- * `checkFreshness()`, polled every `FRESHNESS_POLL_MS`, cheaply compares a
- * fingerprint of (session bucket counts, usage/cost cache timestamps, dark
- * mode) against the last one it saw and only calls `scheduleRender()` when
- * something actually changed — the poll itself never rasterizes anything,
- * it just decides whether a render is owed.
+ * coalescing bursts into one actual render) fires from exactly three
+ * push-based places, no poll — `init()` (once, at startup),
+ * `refreshCaches()` (after the real usage/cost refresh `openMenu()` already
+ * kicks off post-popup finishes — see `UsageService`/`CostHistoryService`'s
+ * own headers for why THAT is already the right place to catch usage/cost
+ * changes), and `nativeTheme`'s `'updated'` event (light/dark switch). An
+ * earlier version of this file also polled session status counts every few
+ * seconds so the drawn status row wouldn't go stale between opens — removed
+ * (battery cost with no bound on how long the app might sit idle in the
+ * background) in favor of not drawing that row as an image at all: see
+ * `buildStatusMenuItem` below, a REAL native-text `MenuItem` computed fresh
+ * inside `buildTemplate()` on every open, same as "Open Pokéharness"/"Quit".
+ * Native text has no rendering latency to hide, so it never needed the
+ * image-cache/render-scheduling machinery the rest of this file exists for.
  *
  * Data sources, same three as the old popover:
  *  - usage limits   → UsageService.getSnapshot()/refreshNow() — the refresh
@@ -278,13 +278,6 @@ function statEntry(label: string, value: string): TrayEntry {
   return rowEntry({ kind: 'stat', label, value }, `${label} — ${value}`);
 }
 
-function statusEntry(sessions: TraySessionCounts, palette: TrayPalette): TrayEntry {
-  const leftText = `${sessions.working} working · ${sessions.idle} idle`;
-  const rightText = `${sessions.needsYou} need you`;
-  const dotColor = sessions.working > 0 ? palette.done : palette.dim;
-  return rowEntry({ kind: 'status', dotColor, leftText, rightText }, `${leftText} · ${rightText}`);
-}
-
 /** One `UsageWindow` → one stacked caption/value(+bar) row, or (for
  *  `balanceOnly` rows — Codex's credit balance, no known max) a single
  *  caption/value line with no bar, same as the deleted popover's reasoning:
@@ -374,20 +367,25 @@ function buildCostEntries(cost: CostHistorySnapshot, hasAttempted: boolean, pale
   return entries;
 }
 
-function buildTrayEntries(
-  usage: UsageSnapshot,
-  cost: CostHistorySnapshot,
-  hasAttempted: boolean,
-  sessions: TraySessionCounts,
-  palette: TrayPalette
-): TrayEntry[] {
-  return [
-    statusEntry(sessions, palette),
-    { type: 'separator' },
-    ...buildLimitsEntries(usage, palette),
-    { type: 'separator' },
-    ...buildCostEntries(cost, hasAttempted, palette)
-  ];
+function buildTrayEntries(usage: UsageSnapshot, cost: CostHistorySnapshot, hasAttempted: boolean, palette: TrayPalette): TrayEntry[] {
+  return [...buildLimitsEntries(usage, palette), { type: 'separator' }, ...buildCostEntries(cost, hasAttempted, palette)];
+}
+
+/** The session-status row — kept as a REAL native-text `MenuItem`, not a
+ *  drawn image (see this file's own header, "Render scheduling"): it's the
+ *  one row whose underlying data (`sessionRegistry`, mirrored via
+ *  `getSessionRegistry`) can change on its own, with no "I just refreshed"
+ *  moment to hook a render off of, so keeping it native means it's always
+ *  exactly as fresh as this open, for free, the same way "Open
+ *  Pokéharness"/"Quit" already are. The tradeoff is layout: a plain
+ *  `NSMenuItem` title is one run of text in one color, so this can't
+ *  reproduce the mockup's colored status dot or its right-aligned "N need
+ *  you" — both of those need either an image (which is exactly the
+ *  render-latency/staleness problem being avoided here) or a rich
+ *  `NSMenuItem.view` Electron doesn't expose. Left as a single left-aligned
+ *  line instead. */
+function buildStatusMenuItem(sessions: TraySessionCounts): MenuItemConstructorOptions {
+  return infoRow(`${sessions.working} working · ${sessions.idle} idle · ${sessions.needsYou} need you`);
 }
 
 /** A non-interactive, data-carrying menu row. Must stay `enabled` even
@@ -429,15 +427,6 @@ export interface TrayControllerDeps {
  *  fires) only pays for one round trip to the hidden window. */
 const RENDER_DEBOUNCE_MS = 250;
 
-/** How often `checkFreshness()` re-checks whether anything worth
- *  re-rendering has changed since the last render — see this file's own
- *  header ("Render scheduling") for why session counts need a poll at all
- *  rather than an event. Cheap on every tick that finds nothing changed
- *  (an array scan + a handful of number/string comparisons), so a few
- *  seconds of cadence costs nothing while staying well under "the status
- *  row looks stale" territory. */
-const FRESHNESS_POLL_MS = 2000;
-
 export class TrayController {
   private tray: Tray | null = null;
   private readonly rowRenderer = new TrayRowRenderer();
@@ -448,8 +437,6 @@ export class TrayController {
   private renderedImages: NativeImage[] = [];
   private renderedSpecsJson: string[] = [];
   private pendingRenderTimer: ReturnType<typeof setTimeout> | null = null;
-  private freshnessTimer: ReturnType<typeof setInterval> | null = null;
-  private lastFingerprint = '';
   /** Guards against a slower, superseded `renderNow()` call overwriting a
    *  faster, later one's result if two ever overlap (shouldn't happen given
    *  the debounce above always clears any still-pending timer first, but
@@ -491,7 +478,6 @@ export class TrayController {
     tray.on('right-click', () => this.openMenu());
     this.tray = tray;
     nativeTheme.on('updated', this.onThemeUpdated);
-    this.freshnessTimer = setInterval(() => this.checkFreshness(), FRESHNESS_POLL_MS);
     this.scheduleRender();
   }
 
@@ -509,10 +495,6 @@ export class TrayController {
     if (this.pendingRenderTimer) {
       clearTimeout(this.pendingRenderTimer);
       this.pendingRenderTimer = null;
-    }
-    if (this.freshnessTimer) {
-      clearInterval(this.freshnessTimer);
-      this.freshnessTimer = null;
     }
     this.rowRenderer.destroy();
   }
@@ -560,8 +542,8 @@ export class TrayController {
     const cost = this.deps.costHistory.peek();
     const hasAttempted = this.deps.costHistory.hasAttempted();
     const sessions = countSessions(this.deps.getSessionRegistry());
-    const entries = buildTrayEntries(usage, cost, hasAttempted, sessions, palette);
-    const items: MenuItemConstructorOptions[] = [];
+    const entries = buildTrayEntries(usage, cost, hasAttempted, palette);
+    const items: MenuItemConstructorOptions[] = [buildStatusMenuItem(sessions), { type: 'separator' }];
     let rowIndex = 0;
     for (const entry of entries) {
       if (entry.type === 'separator') {
@@ -616,28 +598,6 @@ export class TrayController {
     }, RENDER_DEBOUNCE_MS);
   }
 
-  /** Cheap poll — see this file's own header ("Render scheduling") for why
-   *  session counts need one at all. Only ever calls `scheduleRender()`
-   *  (never renders directly), so this still goes through the same debounce
-   *  as every other trigger. */
-  private checkFreshness(): void {
-    if (!this.tray) return;
-    const usage = this.deps.usageService.getSnapshot();
-    const cost = this.deps.costHistory.peek();
-    const sessions = countSessions(this.deps.getSessionRegistry());
-    const fingerprint = JSON.stringify([
-      usage.updatedAt,
-      cost.generatedAt,
-      sessions.working,
-      sessions.idle,
-      sessions.needsYou,
-      nativeTheme.shouldUseDarkColors
-    ]);
-    if (fingerprint === this.lastFingerprint) return;
-    this.lastFingerprint = fingerprint;
-    this.scheduleRender();
-  }
-
   /** The only place that actually calls `TrayRowRenderer.render()` — always
    *  off the synchronous `openMenu()` path (see this file's own header).
    *  Recomputes the same `buildTrayEntries()` `buildTemplate()` will use at
@@ -649,8 +609,7 @@ export class TrayController {
     const usage = this.deps.usageService.getSnapshot();
     const cost = this.deps.costHistory.peek();
     const hasAttempted = this.deps.costHistory.hasAttempted();
-    const sessions = countSessions(this.deps.getSessionRegistry());
-    const entries = buildTrayEntries(usage, cost, hasAttempted, sessions, palette);
+    const entries = buildTrayEntries(usage, cost, hasAttempted, palette);
     const rowSpecs = entries.filter((e): e is Extract<TrayEntry, { type: 'row' }> => e.type === 'row').map((e) => e.spec);
     const generation = ++this.renderGeneration;
     try {

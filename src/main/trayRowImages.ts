@@ -1,10 +1,14 @@
 /**
  * Menu-bar row rasterizer — GitHub issue #17 follow-up, "option A" of the
- * approved tray redesign: every data row in the native `NSMenu` (tray.ts) is
- * ONE image containing both its text and its graphics (HP bar / sparkline),
- * set as the `MenuItem`'s `icon` with an empty label, so the row's layout
- * can match the mockup pixel-for-pixel instead of being constrained to
- * "icon + native title string" the old design used.
+ * approved tray redesign: every row that needs custom layout (a stacked
+ * caption/value + HP bar, a section header, the cost sparkline, a
+ * label/value stat) is drawn in the native `NSMenu` (tray.ts) as ONE image
+ * containing both its text and its graphics, set as the `MenuItem`'s `icon`
+ * with an empty label, so the row's layout can match the mockup
+ * pixel-for-pixel instead of being constrained to "icon + native title
+ * string" the first native-menu design used. The session-status row is the
+ * one exception — it's plain native text (see tray.ts's own header for why)
+ * and never passes through this file at all.
  *
  * WHY A HIDDEN WINDOW: the main process has no text-layout/rasterization API
  * of its own — `nativeImage` can only decode/compose pixels that already
@@ -57,7 +61,6 @@ export const TRAY_ROW_SCALE = 2;
  *  -decided colors/strings/numbers, so none of the usage/cost threshold
  *  logic is duplicated in the injected JS. */
 export type TrayRowSpec =
-  | { kind: 'status'; dotColor: string; leftText: string; rightText: string }
   | { kind: 'header'; left: string; right: string }
   | {
       kind: 'window';
@@ -75,7 +78,6 @@ export type TrayRowSpec =
 function rowHeightPt(spec: TrayRowSpec): number {
   if (spec.kind === 'window') return spec.bar ? 32 : 18;
   if (spec.kind === 'sparkline') return 26;
-  if (spec.kind === 'status') return 20;
   return 18;
 }
 
@@ -94,39 +96,56 @@ function trayFont(px, weight) {
   return weight + ' ' + px + 'px -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif';
 }
 
-function drawStatus(ctx, w, h, spec, colors, scale) {
-  var r = 3 * scale;
-  var cx = r + scale;
-  var cy = h / 2;
-  ctx.fillStyle = spec.dotColor;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fill();
+// Ellipsis truncation — every row's text goes through this rather than a
+// bare fillText call, so a long provider/model name or usage message gets
+// a trailing "..." instead of being silently clipped mid-glyph at the
+// canvas edge. ctx.font must already be set to the font the text will
+// actually draw with before calling this (it reads ctx.measureText, which
+// is font-dependent) — every call site below sets ctx.font immediately
+// before truncating for exactly that reason.
+function truncateToWidth(ctx, text, maxWidth) {
+  if (maxWidth <= 0) return '';
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  var ellipsis = '…';
+  var avail = maxWidth - ctx.measureText(ellipsis).width;
+  if (avail <= 0) return ellipsis;
+  var lo = 0;
+  var hi = text.length;
+  while (lo < hi) {
+    var mid = Math.ceil((lo + hi) / 2);
+    var w = ctx.measureText(text.slice(0, mid)).width;
+    if (w <= avail) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + ellipsis;
+}
+
+// Shared left-caption/right-value line used by header/window/stat rows —
+// the right side gets first claim on up to 45% of the row width (values are
+// usually short: a percent, a dollar figure, a provider name), truncated to
+// fit if not; the left side then gets whatever's left after that and a
+// fixed gap, truncated the same way. Either side can be '' (e.g. a
+// provider-only header row) with no special-casing needed — measuring/
+// truncating/drawing an empty string is already a no-op.
+function drawTwoSided(ctx, w, y, leftText, rightText, leftFont, leftColor, rightFont, rightColor, scale) {
+  var gap = 8 * scale;
+  ctx.font = rightFont;
+  var rightTrunc = truncateToWidth(ctx, rightText, w * 0.45);
+  var rightWidth = ctx.measureText(rightTrunc).width;
+  ctx.font = leftFont;
+  var leftTrunc = truncateToWidth(ctx, leftText, Math.max(0, w - rightWidth - gap));
   ctx.textBaseline = 'middle';
-  ctx.font = trayFont(13 * scale, '400');
-  ctx.fillStyle = colors.ink;
+  ctx.fillStyle = leftColor;
   ctx.textAlign = 'left';
-  ctx.fillText(spec.leftText, cx + r + 6 * scale, cy);
-  ctx.font = trayFont(12 * scale, '400');
-  ctx.fillStyle = colors.dim;
+  ctx.fillText(leftTrunc, 0, y);
+  ctx.font = rightFont;
+  ctx.fillStyle = rightColor;
   ctx.textAlign = 'right';
-  ctx.fillText(spec.rightText, w, cy);
+  ctx.fillText(rightTrunc, w, y);
 }
 
 function drawHeader(ctx, w, h, spec, colors, scale) {
-  ctx.textBaseline = 'middle';
-  if (spec.left) {
-    ctx.font = trayFont(12 * scale, '600');
-    ctx.fillStyle = colors.dim;
-    ctx.textAlign = 'left';
-    ctx.fillText(spec.left, 0, h / 2);
-  }
-  if (spec.right) {
-    ctx.font = trayFont(12 * scale, '400');
-    ctx.fillStyle = colors.dim;
-    ctx.textAlign = 'right';
-    ctx.fillText(spec.right, w, h / 2);
-  }
+  drawTwoSided(ctx, w, h / 2, spec.left, spec.right, trayFont(12 * scale, '600'), colors.dim, trayFont(12 * scale, '400'), colors.dim, scale);
 }
 
 function drawSegmentedBar(ctx, w, top, barH, colors, bar, scale) {
@@ -149,15 +168,7 @@ function drawSegmentedBar(ctx, w, top, barH, colors, bar, scale) {
 
 function drawWindow(ctx, w, h, spec, colors, scale) {
   var textY = spec.bar ? 8 * scale : h / 2;
-  ctx.textBaseline = 'middle';
-  ctx.font = trayFont(13 * scale, '600');
-  ctx.fillStyle = colors.ink;
-  ctx.textAlign = 'left';
-  ctx.fillText(spec.caption, 0, textY);
-  ctx.font = trayFont(12 * scale, '400');
-  ctx.fillStyle = colors.dim;
-  ctx.textAlign = 'right';
-  ctx.fillText(spec.value, w, textY);
+  drawTwoSided(ctx, w, textY, spec.caption, spec.value, trayFont(13 * scale, '600'), colors.ink, trayFont(12 * scale, '400'), colors.dim, scale);
   if (spec.bar) {
     var barH = 9 * scale;
     drawSegmentedBar(ctx, w, h - barH, barH, colors, spec.bar, scale);
@@ -179,15 +190,7 @@ function drawSparkline(ctx, w, h, spec, scale) {
 }
 
 function drawStat(ctx, w, h, spec, colors, scale) {
-  ctx.textBaseline = 'middle';
-  ctx.font = trayFont(13 * scale, '400');
-  ctx.fillStyle = colors.ink;
-  ctx.textAlign = 'left';
-  ctx.fillText(spec.label, 0, h / 2);
-  ctx.font = trayFont(12 * scale, '400');
-  ctx.fillStyle = colors.dim;
-  ctx.textAlign = 'right';
-  ctx.fillText(spec.value, w, h / 2);
+  drawTwoSided(ctx, w, h / 2, spec.label, spec.value, trayFont(13 * scale, '400'), colors.ink, trayFont(12 * scale, '400'), colors.dim, scale);
 }
 
 function drawText(ctx, w, h, spec, colors, scale) {
@@ -195,7 +198,7 @@ function drawText(ctx, w, h, spec, colors, scale) {
   ctx.font = trayFont(13 * scale, '400');
   ctx.fillStyle = colors.ink;
   ctx.textAlign = 'left';
-  ctx.fillText(spec.text, 0, h / 2);
+  ctx.fillText(truncateToWidth(ctx, spec.text, w), 0, h / 2);
 }
 
 function renderOneRow(row, widthPt, scale, colors) {
@@ -207,8 +210,7 @@ function renderOneRow(row, widthPt, scale, colors) {
   var ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
   var spec = row.spec;
-  if (spec.kind === 'status') drawStatus(ctx, w, h, spec, colors, scale);
-  else if (spec.kind === 'header') drawHeader(ctx, w, h, spec, colors, scale);
+  if (spec.kind === 'header') drawHeader(ctx, w, h, spec, colors, scale);
   else if (spec.kind === 'window') drawWindow(ctx, w, h, spec, colors, scale);
   else if (spec.kind === 'sparkline') drawSparkline(ctx, w, h, spec, scale);
   else if (spec.kind === 'stat') drawStat(ctx, w, h, spec, colors, scale);
