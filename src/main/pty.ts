@@ -940,6 +940,24 @@ export class PtyManager {
         detached: true
       });
       child.unref();
+      // Startup-crash visibility — `child` is detached/unref'd so THIS
+      // process never waits on or reaps it, but a listener bound here still
+      // fires normally for however much longer this (already-quitting)
+      // process keeps running JS. The keeper is NOT supposed to exit while
+      // we're still around: it's supposed to outlive us, possibly for days.
+      // If it dies fast (e.g. ptyKeeper.ts's own node-pty require failing
+      // in some unforeseen way despite being guarded, or any other
+      // startup-time crash), that would otherwise be a completely silent
+      // "leave them running" → actually killed regression — the real CLI
+      // loses its last open fd reference and gets HUP'd the moment this
+      // process itself quits, with nothing anywhere to explain why. Log
+      // only — the keeper's own ORDINARY exit (the real CLI finishing
+      // naturally, typically long after this process has already quit)
+      // fires only once nothing here is listening anymore, so it's never
+      // caught by this. Never throws, never blocks quit.
+      child.once('exit', (code, signal) => {
+        log('pty', 'warn', 'keeper process exited', { id, code, signal });
+      });
     } catch (e) {
       log('pty', 'warn', 'detach to keeper failed, falling back to kill', {
         id,
