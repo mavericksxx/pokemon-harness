@@ -5413,9 +5413,20 @@ body.is-splitting .garden canvas {
   box-shadow: var(--shadow-hard);
 }
 
-.quick-settings-hint {
-  margin: -4px 0 0;
-  font-size: 11px;
+/* The theme `.segmented` control here is a direct child of this column flex
+ * container, so it stretches to the panel's full width (default
+ * `align-items: stretch`) while its own buttons still only take their
+ * natural size — left-aligned by `.segmented`'s default `justify-content`,
+ * leaving empty space on the right. Split the width evenly across the three
+ * buttons instead (see `.settings-card-row`'s own comment further up this
+ * file for the row-container case, which doesn't hit this). */
+.quick-settings-panel .segmented {
+  justify-content: stretch;
+}
+
+.quick-settings-panel .segmented .segmented-btn {
+  flex: 1;
+  text-align: center;
 }
 
 .quick-settings-update {
