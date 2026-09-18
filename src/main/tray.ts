@@ -49,17 +49,38 @@
  * catches up) from ever showing a stale image glued to the wrong row's data
  * — `buildTemplate` compares each row's freshly-computed `TrayRowSpec`
  * against the spec that produced the cached image at that same index
- * (`renderedSpecsJson`), and only trusts the image when they still match.
+ * (`renderedSpecsJson`) AND requires the theme it was drawn under
+ * (`renderedDark`) to still match `nativeTheme.shouldUseDarkColors` — colors
+ * travel separately from the spec (`render()`'s own `payload.colors`), so a
+ * spec match alone can't tell a light-drawn image from a dark-drawn one —
+ * and only trusts the image when both match (and it isn't `.isEmpty()`).
+ * Every piece of TEXT that ends up inside a `TrayRowSpec` is deliberately
+ * kept STABLE across renders a few seconds/minutes apart — this used to be
+ * a real bug: `fmtResetIn` (now `fmtResetAt`) baked a relative "resets in
+ * 2h 13m" string into a `window` row's spec, which changes every real
+ * minute, so almost every open beyond about a minute after the render that
+ * produced a cached image no longer matched it and fell back to plain text
+ * — the drawn rows almost never actually showed. `fmtResetAt` now formats an
+ * ABSOLUTE clock time instead (see its own comment), which only changes
+ * when the calendar minute/day/month it names actually changes.
  *
  * Render scheduling: `scheduleRender()` (debounced `RENDER_DEBOUNCE_MS`,
  * coalescing bursts into one actual render) fires from exactly three
- * push-based places, no poll — `init()` (once, at startup),
- * `refreshCaches()` (after the real usage/cost refresh `openMenu()` already
- * kicks off post-popup finishes — see `UsageService`/`CostHistoryService`'s
- * own headers for why THAT is already the right place to catch usage/cost
- * changes), and `nativeTheme`'s `'updated'` event (light/dark switch). An
- * earlier version of this file also polled session status counts every few
- * seconds so the drawn status row wouldn't go stale between opens — removed
+ * push-based places, no poll — `init()` subscribing to
+ * `UsageService.onSnapshot` (fires once real usage data lands after boot,
+ * not on a fixed timer during window creation while everything's still
+ * placeholder — see `init()`'s own comment), `refreshCaches()` (after the
+ * real usage/cost refresh `openMenu()` already kicks off post-popup
+ * finishes — see `UsageService`/`CostHistoryService`'s own headers for why
+ * THAT is already the right place to catch usage/cost changes), and
+ * `nativeTheme`'s `'updated'` event (light/dark switch). `renderNow()`
+ * itself no-ops if the freshly-computed specs and theme are already exactly
+ * what's cached (see its own comment) — `refreshCaches()` fires after every
+ * single open, but `UsageService.refreshNow()` is throttled to once/min and
+ * returns the SAME data near-instantly otherwise, so without that check
+ * most opens would still pay for a render that changes nothing. An earlier
+ * version of this file also polled session status counts every few seconds
+ * so the drawn status row wouldn't go stale between opens — removed
  * (battery cost with no bound on how long the app might sit idle in the
  * background) in favor of not drawing that row as an image at all: see
  * `buildStatusMenuItem` below, a REAL native-text `MenuItem` computed fresh
@@ -217,18 +238,55 @@ function shortWindowCaption(label: string): string {
   return capitalizeWords(label);
 }
 
-function fmtResetIn(resetsAt: number | null, now: number): string | null {
-  if (resetsAt == null) return null;
-  const diffMs = resetsAt - now;
-  if (diffMs <= 0) return 'resets soon';
-  const totalMin = Math.round(diffMs / 60000);
-  const totalHours = Math.floor(totalMin / 60);
-  if (totalHours < 1) return `resets in ${totalMin}m`;
-  if (totalHours < 24) return `resets in ${totalHours}h ${totalMin % 60}m`;
-  const days = Math.floor(totalHours / 24);
-  return `resets in ${days}d ${totalHours % 24}h`;
+/** "3:45 PM" (or "3 PM" on the hour — minutes are dropped only when they're
+ *  exactly zero). Locale is left `undefined` throughout this file's
+ *  `Intl.DateTimeFormat` calls, which resolves to the user's own OS locale
+ *  INCLUDING its 12h/24h convention with zero extra code — a 24h locale
+ *  (no AM/PM marker) gets the same on-the-hour minute-dropping treatment. */
+function formatClockTime(d: Date): string {
+  if (d.getMinutes() === 0) return new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(d);
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(d);
 }
 
+function startOfLocalDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** `w.resetsAt` → an absolute wall-clock string, NEVER relative ("in 2h
+ *  13m") text — a relative string re-renders its own value every minute,
+ *  which used to make it part of a `TrayRowSpec` that could never stay
+ *  byte-identical between the render that produced a cached image and the
+ *  NEXT open's freshly-computed spec (`buildTemplate`'s per-row match below
+ *  is exact-string equality): in practice almost every open beyond about a
+ *  minute after the last render fell back to plain text instead of showing
+ *  the drawn row at all. An absolute time only changes when the actual
+ *  calendar minute/day/month it names changes, which happens far less often
+ *  than "the last render is a minute old". Three formats, closest granularity
+ *  first: today's clock time ("resets 3:45 PM"), a weekday + clock time
+ *  within the next week ("resets Tue 3 PM"), or a bare date further out
+ *  ("resets Sep 30"). */
+function fmtResetAt(resetsAt: number | null, now: number): string | null {
+  if (resetsAt == null) return null;
+  if (resetsAt <= now) return 'resets soon';
+  const reset = new Date(resetsAt);
+  const today = new Date(now);
+  const sameDay = reset.getFullYear() === today.getFullYear() && reset.getMonth() === today.getMonth() && reset.getDate() === today.getDate();
+  if (sameDay) return `resets ${formatClockTime(reset)}`;
+  const diffDays = Math.round((startOfLocalDay(reset) - startOfLocalDay(today)) / 86400000);
+  if (diffDays >= 1 && diffDays <= 7) {
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(reset);
+    return `resets ${weekday} ${formatClockTime(reset)}`;
+  }
+  return `resets ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(reset)}`;
+}
+
+/** Still minute-ticking text, unlike `fmtResetAt` above — left as-is because
+ *  its only call site (`buildLimitsEntries`'s 'stale'-state branch) already
+ *  puts it in its OWN separate `textEntry` row, never combined into a
+ *  `window` row's cache key. `buildTemplate`'s per-row (not per-menu) spec
+ *  match means that isolation is enough on its own: this ONE "as of Xm ago"
+ *  row may fall back to plain native text most opens, same as it always
+ *  could, but it can never drag a `window` row's percent/bar down with it. */
 function fmtAgo(updatedAt: number | undefined, now: number): string {
   if (!updatedAt) return '';
   const diffMin = Math.max(0, Math.round((now - updatedAt) / 60000));
@@ -291,7 +349,7 @@ function windowEntry(w: UsageWindow, now: number, palette: TrayPalette): TrayEnt
   const percent = w.spend ? (w.spend.limitCents > 0 ? (w.spend.usedCents / w.spend.limitCents) * 100 : 0) : w.usedPercent;
   const bits: string[] = [];
   bits.push(w.spend ? `${fmtUsd(w.spend.usedCents / 100)} / ${fmtUsd(w.spend.limitCents / 100)} ${w.spend.currency}` : `${Math.round(w.usedPercent)}%`);
-  const resetText = fmtResetIn(w.resetsAt, now);
+  const resetText = fmtResetAt(w.resetsAt, now);
   if (resetText) bits.push(resetText);
   const value = bits.join(' · ');
   const clamped = Math.max(0, Math.min(100, percent));
@@ -427,6 +485,14 @@ export interface TrayControllerDeps {
  *  fires) only pays for one round trip to the hidden window. */
 const RENDER_DEBOUNCE_MS = 250;
 
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export class TrayController {
   private tray: Tray | null = null;
   private readonly rowRenderer = new TrayRowRenderer();
@@ -436,6 +502,16 @@ export class TrayController {
    *  (see this file's own header, "SYNCHRONOUS OPEN, ASYNCHRONOUS RENDER"). */
   private renderedImages: NativeImage[] = [];
   private renderedSpecsJson: string[] = [];
+  /** The `nativeTheme.shouldUseDarkColors` value the CURRENT `renderedImages`
+   *  were drawn under — the colors live in `render()`'s `payload.colors`,
+   *  never inside a `TrayRowSpec` itself, so two specs can be byte-identical
+   *  across a light/dark switch even though they'd need to be redrawn in the
+   *  other palette's ink. `buildTemplate()` requires this to still equal
+   *  `nativeTheme.shouldUseDarkColors` (alongside the usual per-row spec
+   *  match) before trusting a cached image — `null` (nothing successfully
+   *  rendered yet) can never equal either boolean, so this also naturally
+   *  covers "no render has completed" without a separate check. */
+  private renderedDark: boolean | null = null;
   private pendingRenderTimer: ReturnType<typeof setTimeout> | null = null;
   /** Guards against a slower, superseded `renderNow()` call overwriting a
    *  faster, later one's result if two ever overlap (shouldn't happen given
@@ -444,6 +520,9 @@ export class TrayController {
    *  race). */
   private renderGeneration = 0;
   private readonly onThemeUpdated = () => this.scheduleRender();
+  /** Unsubscribes from `UsageService.onSnapshot` — set in `init()`, called
+   *  in `destroy()`, same lifecycle as the `nativeTheme` listener above. */
+  private unsubscribeUsageSnapshot: (() => void) | null = null;
 
   constructor(private deps: TrayControllerDeps) {}
 
@@ -478,7 +557,22 @@ export class TrayController {
     tray.on('right-click', () => this.openMenu());
     this.tray = tray;
     nativeTheme.on('updated', this.onThemeUpdated);
-    this.scheduleRender();
+    // No unconditional `scheduleRender()` here — right after `whenReady`,
+    // usage/cost data is still whatever placeholder each service starts
+    // with (`UsageService`'s snapshot defaults to `{ enabled: false,
+    // providers: [] }` until its own boot poll resolves), so rendering
+    // immediately would burn a render on a menu nobody's looking at yet AND
+    // leave a stale-looking cache sitting there once real data lands a
+    // moment later. `UsageService.onSnapshot` (new — see that file) fires
+    // every time its cache actually changes, including the very first real
+    // poll after boot, which is the actual "there's something worth
+    // rendering now" signal; `nativeTheme`'s listener above and
+    // `refreshCaches()` below cover the other two cases. If usage limits
+    // are off and nothing else happens to trigger a render first, the very
+    // first menu open still falls back to plain native text for every row
+    // — the same already-documented, already-accepted fallback this file's
+    // header describes for "before the first render has ever completed".
+    this.unsubscribeUsageSnapshot = this.deps.usageService.onSnapshot(() => this.scheduleRender());
   }
 
   /** App-teardown cleanup — mirrors every other main-process watcher's own
@@ -492,6 +586,8 @@ export class TrayController {
     this.tray?.destroy();
     this.tray = null;
     nativeTheme.removeListener('updated', this.onThemeUpdated);
+    this.unsubscribeUsageSnapshot?.();
+    this.unsubscribeUsageSnapshot = null;
     if (this.pendingRenderTimer) {
       clearTimeout(this.pendingRenderTimer);
       this.pendingRenderTimer = null;
@@ -535,8 +631,12 @@ export class TrayController {
    *  poll/scan themselves — that's `refreshCaches()`'s job, run AFTER this
    *  menu is already on screen. Each row uses its cached image only if that
    *  image was rendered from the EXACT same spec this fresh data just
-   *  produced (see this file's own header); otherwise it falls back to a
-   *  plain native-text row for just that one row. */
+   *  produced, UNDER THE SAME THEME (`renderedDark`, see its own comment —
+   *  the colors aren't part of the spec, so a spec match alone isn't
+   *  enough), and that image isn't empty (`NativeImage.isEmpty()` — a
+   *  defensive check against a decode that technically "succeeded" into
+   *  nothing usable); otherwise it falls back to a plain native-text row
+   *  for just that one row. */
   private buildTemplate(palette: TrayPalette): MenuItemConstructorOptions[] {
     const usage = this.deps.usageService.getSnapshot();
     const cost = this.deps.costHistory.peek();
@@ -544,6 +644,7 @@ export class TrayController {
     const sessions = countSessions(this.deps.getSessionRegistry());
     const entries = buildTrayEntries(usage, cost, hasAttempted, palette);
     const items: MenuItemConstructorOptions[] = [buildStatusMenuItem(sessions), { type: 'separator' }];
+    const themeMatches = this.renderedDark === nativeTheme.shouldUseDarkColors;
     let rowIndex = 0;
     for (const entry of entries) {
       if (entry.type === 'separator') {
@@ -552,7 +653,8 @@ export class TrayController {
       }
       const idx = rowIndex++;
       const specJson = JSON.stringify(entry.spec);
-      const image = this.renderedSpecsJson[idx] === specJson ? this.renderedImages[idx] : undefined;
+      const cached = themeMatches && this.renderedSpecsJson[idx] === specJson ? this.renderedImages[idx] : undefined;
+      const image = cached && !cached.isEmpty() ? cached : undefined;
       items.push(image ? infoRow('', image, entry.tooltip) : infoRow(entry.fallbackText, undefined, entry.tooltip));
     }
     items.push(
@@ -602,21 +704,33 @@ export class TrayController {
    *  off the synchronous `openMenu()` path (see this file's own header).
    *  Recomputes the same `buildTrayEntries()` `buildTemplate()` will use at
    *  the next open, so `renderedSpecsJson[i]` is directly comparable against
-   *  whatever spec that next open freshly computes for row `i`. */
+   *  whatever spec that next open freshly computes for row `i`. Skips the
+   *  actual render (and the round trip to the hidden window that costs) if
+   *  the freshly-computed specs AND the theme are already exactly what's
+   *  cached — `refreshCaches()` calls this after EVERY open, but
+   *  `UsageService.refreshNow()` returns near-instantly, with unchanged
+   *  data, whenever its own throttle is active (most opens within a minute
+   *  of the last one), so without this check almost every open would pay
+   *  for a full render that produces byte-identical images to what's
+   *  already cached. */
   private async renderNow(): Promise<void> {
     if (!this.tray) return;
-    const palette = nativeTheme.shouldUseDarkColors ? DARK_PALETTE : LIGHT_PALETTE;
+    const isDark = nativeTheme.shouldUseDarkColors;
+    const palette = isDark ? DARK_PALETTE : LIGHT_PALETTE;
     const usage = this.deps.usageService.getSnapshot();
     const cost = this.deps.costHistory.peek();
     const hasAttempted = this.deps.costHistory.hasAttempted();
     const entries = buildTrayEntries(usage, cost, hasAttempted, palette);
     const rowSpecs = entries.filter((e): e is Extract<TrayEntry, { type: 'row' }> => e.type === 'row').map((e) => e.spec);
+    const newSpecsJson = rowSpecs.map((s) => JSON.stringify(s));
+    if (isDark === this.renderedDark && arraysEqual(newSpecsJson, this.renderedSpecsJson)) return;
     const generation = ++this.renderGeneration;
     try {
       const images = await this.rowRenderer.render(rowSpecs, palette);
       if (generation !== this.renderGeneration || !this.tray) return; // superseded, or torn down mid-render
       this.renderedImages = images;
-      this.renderedSpecsJson = rowSpecs.map((s) => JSON.stringify(s));
+      this.renderedSpecsJson = newSpecsJson;
+      this.renderedDark = isDark;
     } catch (e) {
       // Leaves whatever was cached before (possibly nothing, at startup)
       // in place — `buildTemplate()`'s per-row spec match already handles a

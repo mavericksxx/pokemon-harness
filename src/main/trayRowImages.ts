@@ -102,39 +102,49 @@ function trayFont(px, weight) {
 // canvas edge. ctx.font must already be set to the font the text will
 // actually draw with before calling this (it reads ctx.measureText, which
 // is font-dependent) — every call site below sets ctx.font immediately
-// before truncating for exactly that reason.
+// before truncating for exactly that reason. Slices by Unicode code point
+// (Array.from), not by UTF-16 index (text.slice/text.length) — a plain
+// index-based slice can land inside a surrogate pair (an emoji, or any
+// character outside the Basic Multilingual Plane) and cut it in half.
 function truncateToWidth(ctx, text, maxWidth) {
   if (maxWidth <= 0) return '';
   if (ctx.measureText(text).width <= maxWidth) return text;
   var ellipsis = '…';
   var avail = maxWidth - ctx.measureText(ellipsis).width;
   if (avail <= 0) return ellipsis;
+  var chars = Array.from(text);
   var lo = 0;
-  var hi = text.length;
+  var hi = chars.length;
   while (lo < hi) {
     var mid = Math.ceil((lo + hi) / 2);
-    var w = ctx.measureText(text.slice(0, mid)).width;
+    var w = ctx.measureText(chars.slice(0, mid).join('')).width;
     if (w <= avail) lo = mid;
     else hi = mid - 1;
   }
-  return text.slice(0, lo) + ellipsis;
+  return chars.slice(0, lo).join('') + ellipsis;
 }
 
-// Shared left-caption/right-value line used by header/window/stat rows —
-// the right side gets first claim on up to 45% of the row width (values are
-// usually short: a percent, a dollar figure, a provider name), truncated to
-// fit if not; the left side then gets whatever's left after that and a
-// fixed gap, truncated the same way. Either side can be '' (e.g. a
-// provider-only header row) with no special-casing needed — measuring/
-// truncating/drawing an empty string is already a no-op.
+// Shared left-caption/right-value line used by header/window/stat rows. The
+// LEFT side is measured first (its natural, untruncated width) and capped at
+// 40% of the row width; the right side then gets whatever's left after that
+// and a fixed gap. This order matters: a short left caption (the common
+// case — "Today", "Session") leaves the right side almost the entire row to
+// show a long value ("$12.34 / $50.00 USD · resets Tue 3 PM") instead of
+// always being capped at a fixed fraction regardless of how short the
+// caption actually is. Either side can be '' (e.g. a provider-only header
+// row) with no special-casing needed — measuring/truncating/drawing an
+// empty string is already a no-op.
 function drawTwoSided(ctx, w, y, leftText, rightText, leftFont, leftColor, rightFont, rightColor, scale) {
   var gap = 8 * scale;
-  ctx.font = rightFont;
-  var rightTrunc = truncateToWidth(ctx, rightText, w * 0.45);
-  var rightWidth = ctx.measureText(rightTrunc).width;
+  var leftCap = w * 0.4;
   ctx.font = leftFont;
-  var leftTrunc = truncateToWidth(ctx, leftText, Math.max(0, w - rightWidth - gap));
+  var leftBudget = Math.min(ctx.measureText(leftText).width, leftCap);
+  var leftTrunc = truncateToWidth(ctx, leftText, leftBudget);
+  var rightMax = Math.max(0, w - leftBudget - gap);
+  ctx.font = rightFont;
+  var rightTrunc = truncateToWidth(ctx, rightText, rightMax);
   ctx.textBaseline = 'middle';
+  ctx.font = leftFont;
   ctx.fillStyle = leftColor;
   ctx.textAlign = 'left';
   ctx.fillText(leftTrunc, 0, y);
@@ -288,6 +298,26 @@ export class TrayRowRenderer {
         backgroundThrottling: false
       }
     });
+    // This page never has a reason to open a new window or navigate away
+    // from its own `data:` URL — deny/prevent both defensively, same
+    // belt-and-suspenders spirit as the sandboxed/contextIsolation
+    // webPreferences above, even though nothing here currently exercises
+    // either path.
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-navigate', (e) => e.preventDefault());
+    // A crashed/killed renderer process (`render-process-gone`) or one stuck
+    // on the main thread (`unresponsive`) leaves `win` non-destroyed but
+    // unable to run `executeJavaScript` ever again — without this,
+    // `ensureWindow()` would keep handing back the same dead window forever.
+    // Reset to null here (not just on a `render()` call's own catch below)
+    // so a crash that happens between renders is caught immediately rather
+    // than surfacing as an unexplained hang/rejection on the NEXT render.
+    win.webContents.on('render-process-gone', () => {
+      if (this.win === win) this.teardownWindow();
+    });
+    win.on('unresponsive', () => {
+      if (this.win === win) this.teardownWindow();
+    });
     this.win = win;
     this.loaded = win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(PAGE_HTML)}`);
     await this.loaded;
@@ -298,35 +328,55 @@ export class TrayRowRenderer {
    *  `async` throughout, never called from `openMenu()`'s synchronous path
    *  (see tray.ts). Returns `[]` (not a rejection) for an empty `specs`
    *  input, the only call shape tray.ts never actually makes but that costs
-   *  nothing to handle correctly. */
+   *  nothing to handle correctly. Any failure (a bad `loadURL`, a dead
+   *  `executeJavaScript` call) tears the hidden window down before
+   *  rethrowing, so the NEXT call's `ensureWindow()` builds a fresh one
+   *  instead of retrying against something already broken — tray.ts's own
+   *  caller (`renderNow`) already catches and logs this rejection and just
+   *  keeps whatever was cached before, so there's nothing left for this
+   *  method to swallow itself. */
   async render(specs: TrayRowSpec[], palette: TrayPalette): Promise<NativeImage[]> {
     if (specs.length === 0) return [];
-    const win = await this.ensureWindow();
-    if (win.isDestroyed()) return [];
-    const payload = {
-      scale: TRAY_ROW_SCALE,
-      widthPt: ROW_WIDTH_PT,
-      colors: { ink: palette.ink, dim: palette.dim, track: palette.track, border: palette.border },
-      rows: specs.map((spec) => ({ spec, heightPt: rowHeightPt(spec) }))
-    };
-    // Double-`JSON.stringify`d: the outer one turns the payload into a JS
-    // string LITERAL safe to splice into the injected code (handles every
-    // quote/backslash/newline inside row text without hand-rolled escaping);
-    // the page's own `JSON.parse` undoes exactly that one layer.
-    const code = `window.__trayRender(${JSON.stringify(JSON.stringify(payload))})`;
-    const resultJson = (await win.webContents.executeJavaScript(code)) as string;
-    const dataUrls: string[] = JSON.parse(resultJson);
-    return dataUrls.map((url) => dataUrlToNativeImage(url, TRAY_ROW_SCALE));
+    try {
+      const win = await this.ensureWindow();
+      if (win.isDestroyed()) return [];
+      const payload = {
+        scale: TRAY_ROW_SCALE,
+        widthPt: ROW_WIDTH_PT,
+        colors: { ink: palette.ink, dim: palette.dim, track: palette.track, border: palette.border },
+        rows: specs.map((spec) => ({ spec, heightPt: rowHeightPt(spec) }))
+      };
+      // Double-`JSON.stringify`d: the outer one turns the payload into a JS
+      // string LITERAL safe to splice into the injected code (handles every
+      // quote/backslash/newline inside row text without hand-rolled
+      // escaping); the page's own `JSON.parse` undoes exactly that one layer.
+      const code = `window.__trayRender(${JSON.stringify(JSON.stringify(payload))})`;
+      const resultJson = (await win.webContents.executeJavaScript(code)) as string;
+      const dataUrls: string[] = JSON.parse(resultJson);
+      return dataUrls.map((url) => dataUrlToNativeImage(url, TRAY_ROW_SCALE));
+    } catch (e) {
+      this.teardownWindow();
+      throw e;
+    }
   }
 
   /** Synchronous, immediate teardown — `BrowserWindow.destroy()` (unlike
    *  `.close()`) never waits on `beforeunload`/`close` handlers, so this can
-   *  never be what makes app quit hang. Called from `TrayController.destroy()`,
-   *  which main/index.ts's `before-quit` already calls before `app.quit()`
-   *  proceeds. */
-  destroy(): void {
+   *  never be what makes app quit hang. `win`/`loaded` are nulled out
+   *  alongside the destroy so the next `ensureWindow()` call (whether from
+   *  `render()` after a crash, or never again once `TrayController` itself
+   *  is torn down) always sees a clean slate rather than a dangling
+   *  reference to something already gone. */
+  private teardownWindow(): void {
     if (this.win && !this.win.isDestroyed()) this.win.destroy();
     this.win = null;
     this.loaded = null;
+  }
+
+  /** Public teardown — called from `TrayController.destroy()`, which
+   *  main/index.ts's `before-quit` already calls before `app.quit()`
+   *  proceeds. */
+  destroy(): void {
+    this.teardownWindow();
   }
 }
