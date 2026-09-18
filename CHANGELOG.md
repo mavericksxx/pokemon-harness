@@ -2,6 +2,13 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
+## v1.20.8 — 2026-09-18
+
+- Fixed the app beachballing after Cmd+Q. With "leave them running", terminals started during the current session are handed to keepers and stay alive on purpose, but node-pty's shutdown cleanup waited for them to exit, forever. node-pty is now patched to let go of that wait instead. Quit steps are now logged, so any future hang names the exact step it stopped at.
+- The menu-bar menu now matches the approved design. Each limit shows its name with the value aligned right and a full-width HP bar underneath, and cost rows are label/value pairs. It is still a native menu, so it opens over fullscreen apps. Reset times now show as clock times ("resets 3:45 PM", "resets Tue 3 PM").
+- Idle Pokemon now roam the whole garden at a relaxed pace instead of clustering in the corners, and keep enough distance that sprites no longer overlap. Pokemon that need you stand still so they are easy to spot. They also no longer freeze after a nap, an evolution, or eating a berry. The garden now redraws more often while idle, because the Pokemon keep moving.
+- Dictation is responsive again. The v1.20.7 dictation fix kept resizing the hidden input macOS types into on every word, which garbled or delayed live text. Long dictation still wraps, but can spill slightly below the preview box again.
+
 ## v1.20.7 — 2026-09-18
 
 - Menu-bar text is legible again: the informational rows were built as disabled menu items, which AppKit dims — including their meter and sparkline images. The HP meters and cost sparkline now sit in a much narrower column, so menu titles are no longer pushed into a wide left gutter.
