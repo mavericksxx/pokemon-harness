@@ -4831,9 +4831,9 @@ body.garden-lowres .garden canvas {
   color: var(--text);
 }
 
-/* Thin separator ahead of the trailing "about" / "diagnostics" pair —
- * meta/utility rows rather than app settings, same grouping idea as macOS
- * System Settings' own sidebar dividers. */
+/* Thin separator ahead of the trailing "advanced" section — meta/utility
+ * rather than app settings, same grouping idea as macOS System Settings'
+ * own sidebar dividers. */
 .settings-rail-divider {
   flex: none;
   height: 1px;
