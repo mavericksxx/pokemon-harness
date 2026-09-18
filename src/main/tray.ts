@@ -208,10 +208,10 @@ function gaugeTone(percent: number): 'normal' | 'warn' | 'danger' {
   return 'normal';
 }
 
-// 10, not 14 — at a 4pt-per-segment minimum (the original meter's own
-// reasoning, still true at the new full row width), 10 segments keeps each
-// fill comfortably readable without the bar looking mushy.
-const METER_SEGMENTS = 10;
+// 20, not 10 — each segment is a 5% step (finer than 10's 10% steps) and
+// still comes out to ~13pt/segment at the 294pt row width, well above the
+// 4pt-per-segment minimum the original meter's own reasoning called for.
+const METER_SEGMENTS = 20;
 
 // ─── Text formatting (unchanged behavior from the deleted popover's own
 // inline script, except `fmtUsd`'s thousands separator — new for this pass,
@@ -300,8 +300,17 @@ function fmtUsd(n: number): string {
 
 function fmtTokens(n: number | null): string {
   if (n == null) return '—';
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}m`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (n >= 1000000000) return `${(n / 1000000000).toFixed(1)}b`;
+  if (n >= 1000000) {
+    const v = (n / 1000000).toFixed(1);
+    // toFixed(1) can round e.g. 999.95m up to "1000.0" — bump to the next
+    // tier rather than showing "1000.0m".
+    return v === '1000.0' ? `${(n / 1000000000).toFixed(1)}b` : `${v}m`;
+  }
+  if (n >= 1000) {
+    const v = (n / 1000).toFixed(1);
+    return v === '1000.0' ? `${(n / 1000000).toFixed(1)}m` : `${v}k`;
+  }
   return String(n);
 }
 
@@ -404,7 +413,7 @@ function buildLimitsEntries(usage: UsageSnapshot, palette: TrayPalette): TrayEnt
 /** The "Cost" section's rows — an unconditional "Cost"/"30 days" header
  *  (unlike "Limits", this one never depends on whether there's data),
  *  sparkline, then the four stats the mockup keeps (today, 30-day total,
- *  latest turn, top model). `hasAttempted`
+ *  30-day tokens, top model). `hasAttempted`
  *  (`CostHistoryService.hasAttempted()`) disambiguates the empty-`days`
  *  case: `peek()` returns the same zeroed snapshot whether the first scan
  *  just hasn't finished yet OR every attempt so far has failed
@@ -420,7 +429,7 @@ function buildCostEntries(cost: CostHistorySnapshot, hasAttempted: boolean, pale
   entries.push(sparklineEntry(cost.days, palette));
   entries.push(statEntry('Today', fmtUsd(cost.todayCostUsd)));
   entries.push(statEntry('30-day total', fmtUsd(cost.last30dCostUsd)));
-  entries.push(statEntry('Last turn', cost.latestTurnTokens == null ? '—' : `${fmtTokens(cost.latestTurnTokens)} tokens`));
+  entries.push(statEntry('30-day tokens', cost.last30dTokens == null ? '—' : `${fmtTokens(cost.last30dTokens)} tokens`));
   if (cost.topModel) entries.push(statEntry('Most used', stripModelPrefix(cost.topModel.model)));
   return entries;
 }
