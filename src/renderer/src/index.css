@@ -5065,33 +5065,45 @@ body.garden-lowres .garden canvas {
  * #000-on-#FFF, which ignores this app's theme entirely — the tokens below
  * are the same pairing every other floating surface here uses.
  *
- * That wrap fix traded one overflow for another: xterm always positions this
- * element by its TOP, at the cursor's row, so a wrapped composition tall
- * enough to need several lines grows straight down past the pane's bottom
- * edge instead.
+ * v1.20.6/.7 also tried to contain a wrapped composition's height (it grows
+ * straight down past the pane otherwise, since xterm always positions this
+ * element by its TOP at the cursor row) with a `height: auto !important`
+ * override plus a JS rAF loop (terminalRegistry.ts, since removed) that
+ * clamped/flipped the box. That broke live Dictation itself — see
+ * terminalRegistry.ts's git history for the investigation: xterm's own
+ * CompositionHelper.updateCompositionElements() (@xterm/xterm's
+ * browser/input/CompositionHelper.ts) syncs the HIDDEN TEXTAREA — the actual
+ * element macOS's dictation engine is inserting recognized speech into, via
+ * the standard marked-text/composition protocol — to `.composition-view`'s
+ * OWN CURRENT bounding rect, width AND height, on every composition update
+ * and on its own internal ~4ms self-rescheduling timer for the whole
+ * dictation. Before `height: auto`, that height was always exactly one
+ * fixed cell (xterm's own inline style, untouched), so only the textarea's
+ * WIDTH ever changed — which, unbounded under stock `nowrap`, was already
+ * true before this file existed at all. `height: auto` let that HEIGHT grow
+ * and change too, every time a line wrapped, for the entire duration of the
+ * dictation, on the actual OS-facing input element — repeatedly resizing
+ * the live-focused element mid-dictation, which is what most plausibly
+ * caused the reported "doesn't reflect what I'm saying in real time" /
+ * "starts forming weird" (this mechanism is confirmed from
+ * CompositionHelper's source; that it's specifically the root cause of the
+ * user's report is inferred, not something dictating into a running app
+ * could verify here).
  *
- * `height: auto !important` here is LOAD-BEARING, not a backstop: xterm's
- * CompositionHelper hardcodes this element's inline `.style.height` to
- * exactly one cell on every composition update (see
- * terminalRegistry.ts's `wireDictationOverlay`, whose own header explains
- * that re-assertion in full) — a plain `max-height` can't override a
- * same-or-higher-specificity inline `height`, so without `!important` here
- * the box would be clipped to one line with `overflow-y: auto` scrolled to
- * its top, hiding every line but the first as a dictation grows (worse than
- * the overflow this whole rule exists to fix). `!important` is what makes
- * the box's actual rendered height track its content again, the way
- * `overflow: visible` used to before `max-height`/`overflow-y` were added.
- * `max-height`/`overflow-y` then clamp that real, now-auto height so it can
- * scroll internally rather than growing without bound; measuring the pane
- * and either clamping-with-scroll or flipping the box to grow upward from
- * the cursor row still needs actual layout measurement, which
- * `wireDictationOverlay` does, setting both `max-height` and (for the flip)
- * `transform` inline, in px, every time the composition changes. */
+ * `overflow-wrap`/`pre-wrap` (this rule's actual, load-bearing fix for the
+ * right-edge overflow) don't have this problem: the wrapped TEXT reflows
+ * inside the box as the composition grows, but the box's own outer
+ * dimensions stay fixed (width capped by `max-width`, height fixed by
+ * xterm's own untouched inline style) — so none of that reflow ever feeds
+ * back into what CompositionHelper syncs onto the textarea. Kept.
+ *
+ * Traded away: a composition that wraps past one line once again spills
+ * visually below this element's own 1-cell-tall painted background/border
+ * (default `overflow: visible`, restored) — the original v1.20.6-era bug.
+ * Deliberate: prompt, correct, ungarbled text while actively dictating
+ * outranks where the tail end of a long dictation happens to render. */
 .terminal-mount .xterm .composition-view {
   max-width: 100%;
-  height: auto !important;
-  max-height: 100%;
-  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   box-sizing: border-box;
