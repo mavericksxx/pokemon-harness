@@ -118,7 +118,7 @@
  * "do NOT launch the app"). Needs visual confirmation in the running app;
  * see this change's own report for what to check.
  */
-import { Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions, type NativeImage } from 'electron';
+import { app, Menu, nativeImage, nativeTheme, Tray, type MenuItemConstructorOptions, type NativeImage } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { UsageService } from './usageService';
@@ -660,13 +660,13 @@ export class TrayController {
     items.push(
       { type: 'separator' },
       { label: 'Open Pokéharness', click: () => this.deps.onOpenWindow() },
-      // `role: 'quit'` calls `app.quit()` under the hood — the SAME entry
-      // point Cmd+Q / Dock quit / the app-menu Quit item already use, so
-      // this goes through the existing `before-quit` live-session
-      // confirmation gate for free rather than needing its own quit path.
-      // Electron's `'quit'` role supplies its own default "Cmd+Q"
-      // accelerator label on macOS — no explicit `accelerator` needed.
-      { label: 'Quit', role: 'quit' }
+      // Plain item, no `role`/`accelerator`: `role: 'quit'` makes AppKit
+      // render a Cmd+Q key-equivalent column, reserving empty space on the
+      // right of every row in this menu — not just this one. Calling
+      // `app.quit()` directly is the SAME entry point Cmd+Q / Dock quit /
+      // the app-menu Quit item already use, so this still goes through the
+      // existing `before-quit` live-session confirmation gate for free.
+      { label: 'Quit', click: () => app.quit() }
     );
     return items;
   }
