@@ -32,15 +32,36 @@
  */
 import { createServer, type Socket } from 'node:net';
 import { createReadStream, existsSync, unlinkSync, writeSync } from 'node:fs';
+import * as pty from 'node-pty';
 import {
   FRAME_DATA,
   FRAME_EXIT,
   FRAME_KILL,
+  FRAME_RESIZE,
   FRAME_WRITE,
   FrameDecoder,
   KEEPER_REPLAY_MAX_CHARS,
+  decodeResizePayload,
   encodeFrame
 } from './ptyKeeperProtocol';
+
+/** `node-pty`'s typings deliberately don't declare `.native` ("not public
+ *  API and could be removed at any time" — node_modules/node-pty/lib/index.js)
+ *  because it's the raw addon, not the `IPty` wrapper — but it's exactly
+ *  what this process needs: `resize(fd, cols, rows)` does the real
+ *  `ioctl(TIOCSWINSZ)` on an arbitrary fd, the same call `UnixTerminal
+ *  .prototype.resize` makes internally on `this._fd` (node_modules/node-pty
+ *  /lib/unixTerminal.js), just usable here without a full `IPty` wrapping
+ *  the fd this process only inherited (see `PTY_FD` below). Packaging risk
+ *  is the same as `index.js`'s own `pty.spawn` calls, not a new one: both
+ *  live in the same `out/main/` bundle, resolve the same `node_modules/
+ *  node-pty` package, and are covered by the same `asarUnpack` glob
+ *  (package.json's `build.asarUnpack`) — if one works in a packaged build,
+ *  so does the other. */
+interface UnixPtyNative {
+  resize(fd: number, cols: number, rows: number): void;
+}
+const ptyNative = (pty as unknown as { native: UnixPtyNative }).native;
 
 // argv: [execPath, thisScript, sockPath, childPid] — see pty.ts's
 // `detachToKeeper` for how these are chosen/passed. Kept minimal on
@@ -125,6 +146,23 @@ const server = createServer((socket) => {
           process.kill(childPid, 'SIGTERM');
         } catch {
           /* already gone */
+        }
+      } else if (frame.type === FRAME_RESIZE) {
+        // Reattach-garbling fix — a genuine `ioctl(TIOCSWINSZ)` on the
+        // inherited master fd, so the kernel actually notifies the real
+        // child's foreground process group with SIGWINCH (see this file's
+        // top-of-file `ptyNative` comment for why this fd-level call, not a
+        // full `IPty`, is what's available here). Best-effort like every
+        // other write against `PTY_FD` in this file: if the child already
+        // exited, or the native binding somehow failed to load, this just
+        // silently does nothing rather than taking the keeper down.
+        const resize = decodeResizePayload(frame.payload);
+        if (resize) {
+          try {
+            ptyNative.resize(PTY_FD, resize.cols, resize.rows);
+          } catch {
+            /* pty gone, or native binding unavailable — best-effort */
+          }
         }
       }
     }

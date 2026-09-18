@@ -23,6 +23,30 @@ export const FRAME_KILL = 2;
  *  ptyKeeper.ts's own comment on why these are always best-effort
  *  placeholders, never the child's real wait() status. */
 export const FRAME_EXIT = 3;
+/** Client → server: resize the real pty. Payload = 8 bytes, `cols` then
+ *  `rows` as big-endian UInt32s (see `encodeResizePayload`/`decodeResizePayload`
+ *  below) — a reattaching client's terminal is only ever a handful of
+ *  columns/rows, so a fixed binary layout is simpler than a JSON round trip
+ *  for something this small and this hot (one reattach can fire this twice
+ *  in quick succession — see pty.ts's `KeeperClient.resize`). Reattach-fix
+ *  (garbled Claude Code TUI on "leave them running" relaunch) — the keeper
+ *  only inherits a raw fd (see ptyKeeper.ts's header), so unlike every other
+ *  frame here this one needs a real ioctl on that fd, not just a write. */
+export const FRAME_RESIZE = 4;
+
+/** `FRAME_RESIZE`'s payload codec — shared so `pty.ts` (encode) and
+ *  `ptyKeeper.ts` (decode) can't drift on byte order. */
+export function encodeResizePayload(cols: number, rows: number): Buffer {
+  const payload = Buffer.alloc(8);
+  payload.writeUInt32BE(Math.max(1, Math.floor(cols)), 0);
+  payload.writeUInt32BE(Math.max(1, Math.floor(rows)), 4);
+  return payload;
+}
+
+export function decodeResizePayload(payload: Buffer): { cols: number; rows: number } | null {
+  if (payload.length < 8) return null;
+  return { cols: payload.readUInt32BE(0), rows: payload.readUInt32BE(4) };
+}
 
 /** Same rough sizing idea as pty.ts's own REPLAY_MAX_CHARS — a detached
  *  session's backlog serves the exact same purpose `session.replay` does for

@@ -23,7 +23,16 @@ import { log } from './diagnostics';
 import { ARCEUS_SESSION_ID, buildArceusSystemPrompt } from '../shared/arceus';
 import type { PtyExit, PtyInfo, PtyResult, SpawnPtyOptions } from '../shared/types';
 import { TERMINAL_COLORS } from '../shared/terminalColors';
-import { FRAME_DATA, FRAME_EXIT, FRAME_KILL, FRAME_WRITE, FrameDecoder, encodeFrame } from './ptyKeeperProtocol';
+import {
+  FRAME_DATA,
+  FRAME_EXIT,
+  FRAME_KILL,
+  FRAME_RESIZE,
+  FRAME_WRITE,
+  FrameDecoder,
+  encodeFrame,
+  encodeResizePayload
+} from './ptyKeeperProtocol';
 
 /** Where per-session hook settings.json files live — plain OS temp, not
  *  userData: these are throwaway routing files, not app state. */
@@ -1020,7 +1029,44 @@ export class PtyManager {
   getReplay(id: string): string {
     const session = this.sessions.get(id);
     if (session) session.rendererAttached = true;
-    return session?.replay ?? '';
+    const replay = session?.replay ?? '';
+    // Reattach-garbling fix, part 2 — only relevant once `replay` is
+    // actually AT the cap: that's the only case where `wireSessionHandlers`'
+    // `.slice(-REPLAY_MAX_CHARS)` could have cut this buffer's START
+    // mid-escape-sequence (a shorter buffer grew from empty, so its first
+    // byte is genuinely this session's first-ever output byte, never a
+    // truncation artifact — trimming it would only throw away real content
+    // for nothing). A fresh xterm handed a fragment it can never complete
+    // can wedge its VT parser state and misread everything after it as
+    // stray parameters instead of new commands — cheap, safe resync: drop
+    // up to and including the first newline, since a literal '\n' byte
+    // never appears inside a CSI/OSC sequence body, so it's always a safe
+    // place for a parser to pick back up clean. No-op if the backlog
+    // somehow has no newline at all (real CLI output essentially always
+    // does). This alone doesn't fix cursor-addressed redraw corruption —
+    // see `isReattachedSession`/terminalRegistry.ts's forced-repaint kick
+    // for the part that actually does.
+    if (replay.length < REPLAY_MAX_CHARS) return replay;
+    const firstNewline = replay.indexOf('\n');
+    return firstNewline === -1 ? replay : replay.slice(firstNewline + 1);
+  }
+
+  /** Whether `id`'s currently-live session is a reattached "leave them
+   *  running" keeper connection (see `tryReattach`) rather than a directly
+   *  spawned pty or a plain boot-respawn shell. `sessions:restore`
+   *  (ipc/sessions.ts) threads this into the renderer's `RestoredSession` so
+   *  `terminalRegistry.ts`'s `attachTerminal`/`doFit` know to fire the
+   *  forced full-repaint kick exactly once for exactly this case: a keeper's
+   *  bounded replay backlog is Claude Code's own incremental, cursor-
+   *  addressed redraw output starting mid-stream, possibly captured at a
+   *  different terminal size — replaying it into a fresh xterm corrupts the
+   *  display until the CLI is made to redraw fully from scratch (see
+   *  KeeperClient.resize/FRAME_RESIZE for how). A freshly spawned or
+   *  fallback-shell session never has this problem — its terminal was
+   *  live the whole time, never re-created from a cold backlog. */
+  isReattachedSession(id: string): boolean {
+    const s = this.sessions.get(id);
+    return !!s && s.proc instanceof KeeperClient;
   }
 
   /** Records `id`'s exit code (`spawn()`'s `onExit`), evicting the oldest
@@ -1318,14 +1364,14 @@ class KeeperClient {
     this.socket.write(encodeFrame(FRAME_WRITE, payload));
   }
 
-  /** No-op — see ptyKeeper.ts's header: resizing an inherited fd from a
-   *  standalone process needs node-pty's own internal native binding,
-   *  which this V1 doesn't attempt to reach from the keeper (unverifiable
-   *  in a packaged asar build without actually shipping one — an accepted
-   *  V1 limitation per this feature's design doc). A reattached terminal
-   *  just keeps whatever size the pty already had. */
-  resize(_cols: number, _rows: number): void {
-    /* intentional no-op, see comment above */
+  /** Forwards to the keeper as `FRAME_RESIZE` — see ptyKeeperProtocol.ts's
+   *  own comment on that frame and ptyKeeper.ts's `ptyNative.resize` handler
+   *  for the real `ioctl(TIOCSWINSZ)` this triggers on the inherited master
+   *  fd. Fire-and-forget, like `write`/`kill` above: there's no reply frame,
+   *  the socket write itself is the only failure mode (dead keeper), and a
+   *  dead keeper is already handled by this class's own 'close' listener. */
+  resize(cols: number, rows: number): void {
+    this.socket.write(encodeFrame(FRAME_RESIZE, encodeResizePayload(cols, rows)));
   }
 
   kill(_signal?: string): void {

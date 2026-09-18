@@ -231,6 +231,13 @@ export interface SessionRecord {
 export interface RestoredSession {
   session: SessionRecord;
   replay: string;
+  /** Whether this session came back via a "leave them running" keeper
+   *  reattach (`PtyManager.isReattachedSession`) rather than a fresh spawn
+   *  or a plain boot-respawn shell — `terminalRegistry.ts`'s `createTerminal`/
+   *  `attachTerminal` use this to fire the reattach-only forced full-repaint
+   *  kick exactly once, see that file's own comment for why only this case
+   *  needs it. */
+  reattached: boolean;
 }
 
 /** Everything `restoreSessions` hands back on boot. `selectedId` is the last

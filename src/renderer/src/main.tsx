@@ -341,7 +341,9 @@ async function boot(): Promise<void> {
     watchSystemTheme(() => useAppSettingsStore.getState().settings.theme);
 
     if (restored.length > 0) {
-      for (const { session, replay } of restored) createTerminal(session.id, session.provider, replay);
+      for (const { session, replay, reattached } of restored) {
+        createTerminal(session.id, session.provider, replay, reattached);
+      }
       useStore.getState().restoreSessions(restored.map((r) => r.session), selectedId);
     }
 
