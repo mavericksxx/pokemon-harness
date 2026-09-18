@@ -594,6 +594,30 @@ export function GardenScene(): JSX.Element {
           const rt = runtimes.get(parentId);
           if (!rt) return;
           rt.lastStation = null;
+          // `setBusy(false)` BEFORE `beginWander()`, not instead of it: this
+          // fires the instant the battle ends, well before GardenScene's own
+          // reconcile would next re-derive `positionOwnedElsewhere` and
+          // discover `battleManager.isBattling(parentId)` has gone false —
+          // that only happens on the next STORE change, which nothing here
+          // guarantees (see the comment a few lines down on why
+          // `applyManualSwap` is also called directly rather than waiting for
+          // one). Without this, `rt.walker.busy` is still stale-true from the
+          // last reconcile while the battle WAS running, and `beginWander()`
+          // alone is a guaranteed no-op against its own `busy` guard — this
+          // was exactly what left a battle-finished parent frozen until some
+          // unrelated store write happened to come along (confirmed worst
+          // case: a DELEGATE's completion battle — `BattleManager.retireSub`
+          // returns early for a delegate sub before its one store write,
+          // `onBattlerDone`, so THIS call may be the only thing that ever
+          // flips `busy` back to false for the parent at all). `setBusy`
+          // itself also resumes wandering on the true->false edge, so the
+          // explicit `beginWander()` right after is a belt-and-braces
+          // no-op in the common case, not dead code: it's what actually
+          // fires when `busy` was ALREADY false (a background workspace's
+          // reconcile never got to set it true in the first place — see the
+          // `walker.setTracked`/`setBusy` comment above the inactive-
+          // workspace `continue`, below).
+          rt.walker.setBusy(false);
           rt.walker.beginWander();
           // A "change pokemon" swap requested mid-battle is deferred by
           // applyManualSwap (defined below — safe to reference here: this
@@ -776,9 +800,12 @@ export function GardenScene(): JSX.Element {
           // progress — doesn't pause just because you switched gardens).
           rt.status = session.status;
 
-          // Keep movement and nap state current even for a hidden workspace:
-          // non-working walkers are parked rather than continuing an old
-          // wander path off-stage, and napping still owns the parked pose.
+          // Keep movement and nap state current even for a hidden workspace
+          // (Phase 8.7: work/wander continues off-stage, just invisibly —
+          // see the `setTracked` comment further down): non-working walkers
+          // now keep wandering here too, same as an on-stage one (only
+          // `'blocked'` parks — see `setStatus`'s own comment), and napping
+          // still owns the parked pose regardless.
           walker.setStatus(session.status);
           walker.setNapping(!!session.napping);
 
@@ -864,6 +891,21 @@ export function GardenScene(): JSX.Element {
           // never visually overlap anything, and it re-anchors fresh the
           // moment its workspace is active again (see `setTracked`).
           walker.setTracked(inActiveWorkspace);
+          // This `continue` also means `walker.setBusy(positionOwnedElsewhere)`
+          // (below) is never reached for an inactive-workspace session — its
+          // `busy` flag can go stale (or, for a battle/errand that starts
+          // entirely while backgrounded, never get set true at all) until its
+          // workspace is active again or an explicit hand-back call reaches it
+          // directly (BattleManager's onBattleEnd and GardenCharm's errand
+          // completion both call `setBusy`/`beginWander` straight on the
+          // `Walker`, bypassing this loop entirely — see their own comments —
+          // so the common hand-back paths are unaffected). Accepted rather
+          // than fixed: the walker is invisible, so any resulting race
+          // between its own wander loop and a battle/errand's `goTo()` isn't
+          // something the player can see, and BattleManager's own stuck-wave
+          // watchdog (`forceConcludeWave`) is already the backstop for "this
+          // walker isn't where the choreography expects it," same as it is
+          // for an on-stage walker that gets stuck for any other reason.
           if (!inActiveWorkspace) continue;
 
           walker.setSelected(session.id === selectedId);

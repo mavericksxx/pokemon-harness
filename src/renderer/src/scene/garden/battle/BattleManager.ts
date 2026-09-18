@@ -424,11 +424,14 @@ export class BattleManager {
    *     edge check is what makes the queue fire once, and this is the belt to
    *     that braces (a rebuild, or any future second call site, must not
    *     enqueue the same walker twice).
-   *  2. WHO OWNS THE WALKER. GardenScene's reconcile parks every non-working
-   *     session's walker with `stayPut()` on every pass; a delegate is `done`
-   *     (i.e. not working) for its entire battle, so without this in that
-   *     gate, `stayPut` would truncate the approach path mid-walk, every
-   *     reconcile, and fight the choreography for the same walker.
+   *  2. WHO OWNS THE WALKER. GardenScene's reconcile feeds
+   *     `positionOwnedElsewhere` (of which this is one clause) into
+   *     `walker.setBusy(...)`, which stops that walker's OWN autonomous
+   *     wander loop from starting a new leg (see Walker.ts's `update()`
+   *     dispatch); a delegate is `done` (i.e. not working, and otherwise
+   *     idle-class-wandering) for its entire battle, so without this in that
+   *     gate, its own wander loop would fight this file's `goTo()`-driven
+   *     approach/stance for the same walker.
    *
    *  Note this is keyed by the DELEGATE's own session id, whereas
    *  `isBattling` above is keyed by the PARENT's — a delegate battle is

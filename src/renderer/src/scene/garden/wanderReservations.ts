@@ -12,10 +12,15 @@ import type { Point } from './TiledMapRenderer';
  * walkers never actually wandered, left them stuck within a small ring of
  * wherever they'd first spawned (see this project's changelog/bug report:
  * "idle Pokemon cluster in the four corners ... and flick around there").
- * This version tracks an approximate ANCHOR point per walker (its current
- * tile, or the tile it's currently walking toward as its next resting spot)
- * and is driven entirely from each Walker's own update tick — see
- * Walker.ts's `updateWander`/`updateWalk` — never from a reconcile.
+ * This version tracks one ANCHOR point per walker: the tile it's resting
+ * on, or — while it's walking there — the tile it committed to as its next
+ * resting spot (set the moment a leg is accepted: `goTo`/`tryStartWander`),
+ * NOT whatever intermediate tile it's currently passing through. Walker.ts's
+ * `updateWalk` deliberately only re-anchors on a leg's FINAL arrival, so the
+ * true destination stays claimed — and therefore off-limits to every OTHER
+ * idle walker's own pick — for the whole walk there, not just its first
+ * step. Driven entirely from each Walker's own update tick — see
+ * Walker.ts's `updateWander`/`updateWalk`/`goTo` — never from a reconcile.
  *
  * One instance per GardenScene mount generation, held alongside `runtimes`
  * and passed into every Walker at construction (WalkerOptions.reservations)
