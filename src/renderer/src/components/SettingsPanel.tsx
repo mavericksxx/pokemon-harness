@@ -34,7 +34,7 @@ const USAGE_PROVIDERS: { id: UsageProviderId; label: string }[] = [
   { id: 'codex', label: 'codex cli' }
 ];
 
-/** Options for the "advisor model" picker (harness home section) — the
+/** Options for the "advisor model" picker (agents section) — the
  *  portable `--model` aliases `claude --help` documents (`fable`/`opus`/
  *  `sonnet`, plus `haiku`, confirmed to work the same way) — see
  *  bundledHarnessAgents.ts's `BUNDLED_ADVISOR_AGENT` comment for why these
@@ -50,24 +50,32 @@ const ADVISOR_MODEL_OPTIONS: { value: string; label: string }[] = [
 ];
 
 /**
- * Left-rail section list for the settings dialog. Order matches the brief
- * ("appearance, automation, harness home, arceus, sound, diagnostics") with
- * the panel's other pre-existing sections (terminal, config, about) kept in
- * their original relative position between "sound" and "diagnostics" —
- * nothing dropped, just re-housed. Change this array to reorder/merge
- * sections; both the rail and the content switch below read off it.
+ * Left-rail section list for the settings dialog. Consolidated from the
+ * original ten sections (appearance/automation/usage/harness-home/arceus/
+ * sound/terminal/config/about/diagnostics) down to six — the old split left
+ * "appearance" as a full page holding just the theme toggle, and scattered
+ * agent-session configuration (automation, harness home, arceus) across
+ * three separate pages. Nothing was dropped, only re-housed:
+ *  - agents      = old automation + harness-home + arceus
+ *  - appearance  = old appearance (theme) + diagnostics' "low-res garden"
+ *                  (a display knob, not a diagnostic)
+ *  - usage       = unchanged
+ *  - sound       = unchanged
+ *  - terminal    = unchanged
+ *  - advanced    = old config + about + diagnostics (their two separate
+ *                  app-version readouts collapsed into one)
+ * "agents" leads (and is the dialog's default section) since agent
+ * configuration is this app's primary concern. Change this array to
+ * reorder/merge sections further; both the rail and the content switch
+ * below read off it.
  */
 const SECTIONS = [
+  { id: 'agents', label: 'agents' },
   { id: 'appearance', label: 'appearance' },
-  { id: 'automation', label: 'automation' },
   { id: 'usage', label: 'usage' },
-  { id: 'harness-home', label: 'harness home' },
-  { id: 'arceus', label: 'arceus' },
   { id: 'sound', label: 'sound' },
   { id: 'terminal', label: 'terminal' },
-  { id: 'config', label: 'config' },
-  { id: 'about', label: 'about' },
-  { id: 'diagnostics', label: 'diagnostics' }
+  { id: 'advanced', label: 'advanced' }
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -88,9 +96,9 @@ type SectionId = (typeof SECTIONS)[number]['id'];
 export function SettingsPanel(): JSX.Element | null {
   const open = useStore((s) => s.settingsOpen);
   const setOpen = useStore((s) => s.setSettingsOpen);
-  const [activeSection, setActiveSection] = useState<SectionId>('appearance');
+  const [activeSection, setActiveSection] = useState<SectionId>('agents');
   const [resetArceusOpen, setResetArceusOpen] = useState(false);
-  // Diagnostics section's danger zone (recovered wipe path, ex-QuitDialog's
+  // Advanced section's danger zone (recovered wipe path, ex-QuitDialog's
   // "clear & quit" step) — gates the destructive `wipeGardenAndQuit` call
   // behind an inline confirm, same two-step shape the old quit-dialog step
   // used. Reset alongside `activeSection` below so a stale confirm never
@@ -207,7 +215,8 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   }, [open]);
 
   // Export diagnostics bundle (BACKLOG friend-testing readiness) — same
-  // busy/status pattern as the "about" section's update-check button below.
+  // busy/status pattern as the advanced section's version card update-check
+  // button above.
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done' | 'error' | 'canceled'>('idle');
   const exportBundle = async (): Promise<void> => {
     setExportStatus('exporting');
@@ -232,7 +241,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
   // reason `confirmingClearGarden`'s own comment gives.
   useEffect(() => {
     if (open) {
-      setActiveSection('appearance');
+      setActiveSection('agents');
       setConfirmingClearGarden(false);
     }
   }, [open]);
@@ -256,9 +265,9 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
             {SECTIONS.map((s) => (
               <Fragment key={s.id}>
                 {/* Separates the app-behavior sections above from the
-                    meta/utility pair below (settings redesign — optional
+                    meta/utility section below (settings redesign — optional
                     rail divider per the design brief). */}
-                {s.id === 'about' && <div className="settings-rail-divider" />}
+                {s.id === 'advanced' && <div className="settings-rail-divider" />}
                 <button
                   type="button"
                   className={activeSection === s.id ? 'settings-rail-btn active' : 'settings-rail-btn'}
@@ -285,141 +294,60 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
             </header>
 
             <div className="settings-content-body">
-              {activeSection === 'appearance' && (
-                <div className="settings-card">
-                  <div className="settings-card-row">
-                    <span className="settings-row-label">theme</span>
-                    <div className="segmented" role="group" aria-label="theme">
-                      {(['system', 'light', 'dark'] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
-                          aria-pressed={appSettings.theme === mode}
-                          onClick={() => setTheme(mode)}
-                        >
-                          {mode}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeSection === 'automation' && (
-                <div className="settings-card">
-                  <div className="settings-card-row settings-default-provider-row">
-                    <span className="settings-row-label">default agent provider</span>
-                    <div className="segmented" role="group" aria-label="default agent provider">
-                      {PROVIDER_LIST.map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          className={
-                            appSettings.defaultAgentProvider === p.id ? 'segmented-btn active' : 'segmented-btn'
-                          }
-                          aria-pressed={appSettings.defaultAgentProvider === p.id}
-                          onClick={() => setDefaultAgentProvider(p.id)}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <p className="settings-row-hint">preselected for each new session</p>
-                  {AUTO_MODE_PROVIDERS.map((p) => {
-                    const on = appSettings.autoModeByProvider[p.id] ?? false;
-                    return (
-                      <label key={p.id} className="settings-row">
-                        <input type="checkbox" checked={on} onChange={(e) => setAutoMode(p.id, e.target.checked)} />
-                        <span className="settings-row-text">
-                          <span className="settings-row-label">{p.label} auto mode</span>
-                          <span className="settings-row-hint">
-                            {on ? 'agents act without asking first' : 'agents pause for your approval in the terminal'}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-
-                  <label className="settings-row">
-                    <input
-                      type="checkbox"
-                      checked={appSettings.keepAwake}
-                      onChange={(e) => setKeepAwake(e.target.checked)}
-                    />
-                    <span className="settings-row-text">
-                      <span className="settings-row-label">keep Mac awake</span>
-                      <span className="settings-row-hint">
-                        {appSettings.keepAwake && liveSessionCount > 0
-                          ? `keeping your mac awake — ${liveSessionCount} session${liveSessionCount === 1 ? '' : 's'} live`
-                          : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              )}
-
-              {activeSection === 'usage' && (
+              {activeSection === 'agents' && (
                 <>
                   <div className="settings-card">
-                    <label className="settings-row">
-                      <input
-                        type="checkbox"
-                        checked={appSettings.usageLimitsEnabled}
-                        onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
-                      />
-                      <span className="settings-row-text">
-                        <span className="settings-row-label">show provider usage limits</span>
-                        <span className="settings-row-hint">
-                          reads the credential your CLI already stores to ask its usage endpoint. read-only — never
-                          stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
-                          trigger a one-time macOS permission prompt.
-                        </span>
-                      </span>
-                    </label>
-
-                    <div className="settings-card-row">
-                      <span className="settings-row-label">main usage provider</span>
-                      <div className="segmented" role="group" aria-label="main usage provider">
-                        {(['auto', ...USAGE_PROVIDERS.map((p) => p.id)] as const).map((id) => (
+                    <div className="settings-card-row settings-default-provider-row">
+                      <span className="settings-row-label">default agent provider</span>
+                      <div className="segmented" role="group" aria-label="default agent provider">
+                        {PROVIDER_LIST.map((p) => (
                           <button
-                            key={id}
+                            key={p.id}
                             type="button"
-                            className={appSettings.mainUsageProvider === id ? 'segmented-btn active' : 'segmented-btn'}
-                            aria-pressed={appSettings.mainUsageProvider === id}
-                            disabled={!appSettings.usageLimitsEnabled}
-                            onClick={() => setMainUsageProvider(id)}
+                            className={
+                              appSettings.defaultAgentProvider === p.id ? 'segmented-btn active' : 'segmented-btn'
+                            }
+                            aria-pressed={appSettings.defaultAgentProvider === p.id}
+                            onClick={() => setDefaultAgentProvider(p.id)}
                           >
-                            {id === 'auto' ? 'auto' : USAGE_PROVIDERS.find((p) => p.id === id)?.label}
+                            {p.label}
                           </button>
                         ))}
                       </div>
                     </div>
-                    <p className="settings-row-hint">which provider's limits the topbar shows by default</p>
+                    <p className="settings-row-hint">preselected for each new session</p>
+                    {AUTO_MODE_PROVIDERS.map((p) => {
+                      const on = appSettings.autoModeByProvider[p.id] ?? false;
+                      return (
+                        <label key={p.id} className="settings-row">
+                          <input type="checkbox" checked={on} onChange={(e) => setAutoMode(p.id, e.target.checked)} />
+                          <span className="settings-row-text">
+                            <span className="settings-row-label">{p.label} auto mode</span>
+                            <span className="settings-row-hint">
+                              {on ? 'agents act without asking first' : 'agents pause for your approval in the terminal'}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.keepAwake}
+                        onChange={(e) => setKeepAwake(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">keep Mac awake</span>
+                        <span className="settings-row-hint">
+                          {appSettings.keepAwake && liveSessionCount > 0
+                            ? `keeping your mac awake — ${liveSessionCount} session${liveSessionCount === 1 ? '' : 's'} live`
+                            : `off: your Mac can sleep normally${appSettings.keepAwake ? ' (no sessions running)' : ''}`}
+                        </span>
+                      </span>
+                    </label>
                   </div>
 
-                  <div
-                    className={`settings-card settings-usage-providers${appSettings.usageLimitsEnabled ? '' : ' is-disabled'}`}
-                  >
-                    <p className="settings-card-label">include in usage metrics</p>
-                    {USAGE_PROVIDERS.map((p) => (
-                      <label key={p.id} className="settings-usage-provider-row">
-                        <input
-                          type="checkbox"
-                          checked={!appSettings.usageExcludedProviders.includes(p.id)}
-                          disabled={!appSettings.usageLimitsEnabled}
-                          onChange={(e) => setUsageProviderEnabled(p.id, e.target.checked)}
-                        />
-                        <span className="settings-row-label">{p.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {activeSection === 'harness-home' && (
-                <>
                   <div className="settings-card">
                     <p className="hint">
                       where the harness keeps agent-facing files — workspace list, and (later) per-agent memory.
@@ -524,18 +452,114 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                       model for <code>poke-delegate</code> dispatches.
                     </p>
                   </div>
+
+                  <div className="settings-card">
+                    <p className="hint">
+                      onboarded once — after that he&apos;s auto-summoned on every launch, no setup dialog.
+                    </p>
+                    <button type="button" onClick={() => setResetArceusOpen(true)}>
+                      reset arceus…
+                    </button>
+                  </div>
                 </>
               )}
 
-              {activeSection === 'arceus' && (
-                <div className="settings-card">
-                  <p className="hint">
-                    onboarded once — after that he&apos;s auto-summoned on every launch, no setup dialog.
-                  </p>
-                  <button type="button" onClick={() => setResetArceusOpen(true)}>
-                    reset arceus…
-                  </button>
-                </div>
+              {activeSection === 'appearance' && (
+                <>
+                  <div className="settings-card">
+                    <div className="settings-card-row">
+                      <span className="settings-row-label">theme</span>
+                      <div className="segmented" role="group" aria-label="theme">
+                        {(['system', 'light', 'dark'] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            className={appSettings.theme === mode ? 'segmented-btn active' : 'segmented-btn'}
+                            aria-pressed={appSettings.theme === mode}
+                            onClick={() => setTheme(mode)}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="settings-card">
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.lowResGarden}
+                        onChange={(e) => setLowResGarden(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">low-res garden (experiment)</span>
+                        <span className="settings-row-hint">
+                          renders the garden at 1x and lets the display upscale it — saves gpu on retina; labels get
+                          softer. restart pokéharness to apply.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </>
+              )}
+
+              {activeSection === 'usage' && (
+                <>
+                  <div className="settings-card">
+                    <label className="settings-row">
+                      <input
+                        type="checkbox"
+                        checked={appSettings.usageLimitsEnabled}
+                        onChange={(e) => setUsageLimitsEnabled(e.target.checked)}
+                      />
+                      <span className="settings-row-text">
+                        <span className="settings-row-label">show provider usage limits</span>
+                        <span className="settings-row-hint">
+                          reads the credential your CLI already stores to ask its usage endpoint. read-only — never
+                          stored, refreshed, or sent anywhere else. off = never touched. first keychain read will
+                          trigger a one-time macOS permission prompt.
+                        </span>
+                      </span>
+                    </label>
+
+                    <div className="settings-card-row">
+                      <span className="settings-row-label">main usage provider</span>
+                      <div className="segmented" role="group" aria-label="main usage provider">
+                        {(['auto', ...USAGE_PROVIDERS.map((p) => p.id)] as const).map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={appSettings.mainUsageProvider === id ? 'segmented-btn active' : 'segmented-btn'}
+                            aria-pressed={appSettings.mainUsageProvider === id}
+                            disabled={!appSettings.usageLimitsEnabled}
+                            onClick={() => setMainUsageProvider(id)}
+                          >
+                            {id === 'auto' ? 'auto' : USAGE_PROVIDERS.find((p) => p.id === id)?.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="settings-row-hint">which provider's limits the topbar shows by default</p>
+                  </div>
+
+                  <div
+                    className={`settings-card settings-usage-providers${appSettings.usageLimitsEnabled ? '' : ' is-disabled'}`}
+                  >
+                    <p className="settings-card-label">include in usage metrics</p>
+                    {USAGE_PROVIDERS.map((p) => (
+                      <label key={p.id} className="settings-usage-provider-row">
+                        <input
+                          type="checkbox"
+                          checked={!appSettings.usageExcludedProviders.includes(p.id)}
+                          disabled={!appSettings.usageLimitsEnabled}
+                          onChange={(e) => setUsageProviderEnabled(p.id, e.target.checked)}
+                        />
+                        <span className="settings-row-label">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
               )}
 
               {activeSection === 'sound' && (
@@ -661,38 +685,20 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                 </div>
               )}
 
-              {activeSection === 'config' && (
-                <div className="settings-card">
-                  <p className="hint settings-config-note">
-                    env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
-                  </p>
-                  <dl className="settings-config-list">
-                    <dt>shiny odds</dt>
-                    <dd>1 in {shiny.odds}</dd>
-                    <dt>evolve to stage 2</dt>
-                    <dd>{Math.round(evo.stage2Ms / 1000)}s worked</dd>
-                    <dt>evolve to stage 3</dt>
-                    <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
-                  </dl>
-                </div>
-              )}
-
-              {activeSection === 'about' && (
-                <div className="settings-card">
-                  <div className="row settings-version-row">
-                    <span>pokéharness {appVersion && `v${appVersion}`}</span>
-                    <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
-                      {checkStatus === 'checking' ? 'checking…' : 'check now'}
-                    </button>
-                  </div>
-                  {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
-                    <p className="hint">{checkStatus}</p>
-                  )}
-                </div>
-              )}
-
-              {activeSection === 'diagnostics' && (
+              {activeSection === 'advanced' && (
                 <>
+                  <div className="settings-card">
+                    <div className="row settings-version-row">
+                      <span>pokéharness {appVersion && `v${appVersion}`}</span>
+                      <button type="button" onClick={() => void checkForUpdateNow()} disabled={checkStatus === 'checking'}>
+                        {checkStatus === 'checking' ? 'checking…' : 'check now'}
+                      </button>
+                    </div>
+                    {(checkStatus === 'up to date' || checkStatus === 'checked — offline?') && (
+                      <p className="hint">{checkStatus}</p>
+                    )}
+                  </div>
+
                   <div className="settings-card">
                     <p className="hint">local-only — logs stay on this machine and are only shared if you export them below.</p>
                     <label className="settings-row">
@@ -710,23 +716,7 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                         </span>
                       </span>
                     </label>
-                    <label className="settings-row">
-                      <input
-                        type="checkbox"
-                        checked={appSettings.lowResGarden}
-                        onChange={(e) => setLowResGarden(e.target.checked)}
-                      />
-                      <span className="settings-row-text">
-                        <span className="settings-row-label">low-res garden (experiment)</span>
-                        <span className="settings-row-hint">
-                          renders the garden at 1x and lets the display upscale it — saves gpu on retina; labels get
-                          softer. restart pokéharness to apply.
-                        </span>
-                      </span>
-                    </label>
                     <dl className="settings-config-list">
-                      <dt>app version</dt>
-                      <dd>{diagnosticsInfo?.appVersion || '—'}</dd>
                       <dt>electron</dt>
                       <dd>{diagnosticsInfo?.electronVersion || '—'}</dd>
                       <dt>errors this session</dt>
@@ -760,6 +750,20 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                     </div>
                     {exportStatus === 'done' && <p className="hint">saved — revealed in Finder.</p>}
                     {exportStatus === 'error' && <p className="hint">export failed — try again, or use "open logs folder" instead.</p>}
+                  </div>
+
+                  <div className="settings-card">
+                    <p className="hint settings-config-note">
+                      env-only knobs (POKE_SHINY_ODDS / POKE_EVOLVE_SECONDS) — read-only here.
+                    </p>
+                    <dl className="settings-config-list">
+                      <dt>shiny odds</dt>
+                      <dd>1 in {shiny.odds}</dd>
+                      <dt>evolve to stage 2</dt>
+                      <dd>{Math.round(evo.stage2Ms / 1000)}s worked</dd>
+                      <dt>evolve to stage 3</dt>
+                      <dd>{Math.round(evo.stage3Ms / 1000)}s worked</dd>
+                    </dl>
                   </div>
 
                   <div className="settings-card">

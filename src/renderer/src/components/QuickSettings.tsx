@@ -41,7 +41,7 @@ export function QuickSettings(): JSX.Element {
   const [updateCheckStatus, setUpdateCheckStatus] = useState<
     'idle' | 'checking' | 'up to date' | 'checked — offline?'
   >('idle');
-  // Same one-time-on-mount fetch as SettingsPanel's "about" section —
+  // Same one-time-on-mount fetch as SettingsPanel's "advanced" section —
   // shown next to "check for updates" so this popover's own check row
   // reads the same as that page's version row.
   const [appVersion, setAppVersion] = useState('');
