@@ -337,6 +337,10 @@ function headerEntry(left: string, right: string): TrayEntry {
   return rowEntry({ kind: 'header', left, right }, [left, right].filter(Boolean).join(' — '));
 }
 
+function subheaderEntry(text: string): TrayEntry {
+  return rowEntry({ kind: 'subheader', text }, text);
+}
+
 function textEntry(text: string): TrayEntry {
   return rowEntry({ kind: 'text', text }, text);
 }
@@ -379,20 +383,24 @@ function sparklineEntry(days: CostHistoryDay[], palette: TrayPalette): TrayEntry
   return rowEntry({ kind: 'sparkline', bars }, '30-day trend');
 }
 
-/** The "Limits" section's rows — an unconditional header row ("Limits" left,
- *  the first provider's name right, per the mockup) followed by that
- *  provider's window rows, then one more header (empty left, that
- *  provider's name right) + windows per ADDITIONAL provider — unlike the
- *  first native-menu version, which only inserted a provider sub-header at
- *  all once there were 2+ providers. */
+/** The "Limits" section's rows — one unconditional "Limits" header row
+ *  (right side empty), then for EACH provider a left-aligned provider-name
+ *  sub-header row (e.g. "Claude Code", "Codex CLI") followed by that
+ *  provider's window rows. Provider names used to sit in the header row's
+ *  right column (see git history); moved to their own left-aligned row per
+ *  updated design feedback, since a provider name reads better on the
+ *  left — but reusing `headerEntry` for it would make every provider look
+ *  like its own top-level section (same bold/dim style as "Limits"), so
+ *  this uses the lighter-weight `subheader` row kind instead (see
+ *  trayRowImages.ts's `drawSubheader`). */
 function buildLimitsEntries(usage: UsageSnapshot, palette: TrayPalette): TrayEntry[] {
   if (!usage.enabled) return [headerEntry('Limits', ''), textEntry('usage limits are off — enable them in settings')];
   if (usage.providers.length === 0) return [headerEntry('Limits', ''), textEntry('no usage data yet')];
   const now = Date.now();
-  const entries: TrayEntry[] = [];
-  usage.providers.forEach((p, i) => {
+  const entries: TrayEntry[] = [headerEntry('Limits', '')];
+  usage.providers.forEach((p) => {
     const providerLabel = PROVIDER_LABEL[p.provider] ?? p.provider;
-    entries.push(headerEntry(i === 0 ? 'Limits' : '', providerLabel));
+    entries.push(subheaderEntry(providerLabel));
     if (p.state === 'ok' || p.state === 'stale') {
       if (p.state === 'stale') {
         // `message`/`fmtAgo` can each independently be empty — join only the
