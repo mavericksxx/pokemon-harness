@@ -852,7 +852,22 @@ export function GardenScene(): JSX.Element {
           walker.container.visible = inActiveWorkspace;
           walker.bubbleContainer.visible = inActiveWorkspace;
           battleManager.setVisible(session.id, inActiveWorkspace);
-          if (!inActiveWorkspace) continue;
+          if (!inActiveWorkspace) {
+            // The idle-placement block below (and therefore any reclaim of
+            // this session's tile) is skipped entirely while its workspace
+            // is inactive — `setStatus`/`setNapping` above still keep this
+            // walker's OWN position current even off-stage (see their call
+            // sites' own comments), but it can keep "working" and wandering
+            // to a completely different spot invisibly in the meantime.
+            // Without this, a claim taken before it went inactive would go
+            // stale (reserved tile nobody's actually on) for however long
+            // the workspace stays backgrounded. Safe to drop unconditionally:
+            // an invisible walker can never visually overlap anything, and
+            // it re-claims fresh, from wherever it actually is, the moment
+            // its workspace is active again and it's still non-working.
+            idleTiles.release(session.id);
+            continue;
+          }
 
           walker.setSelected(session.id === selectedId);
           // Phase 8.5 #3: `looping` is a flag orthogonal to `status` (see
@@ -869,95 +884,132 @@ export function GardenScene(): JSX.Element {
           // A battling parent owns its own walker's position/facing for the
           // duration (approach/faceoff/attack loop) — the normal station
           // reconcile stands down until BattleManager hands it back via
-          // onBattleEnd, which resets lastStation so this picks up again. A
-          // napping walker owns its own position the same way — it stays
-          // parked until it wakes.
+          // onBattleEnd, which resets lastStation so this picks up again.
           //
           // `isChallenger` is the delegate-parity half of that same rule, and
           // belongs in this one condition rather than a second gate beside it:
           // a delegate is `status: 'done'` (i.e. not working) for its whole
-          // completion battle, so the `stayPut()` branch below would otherwise
-          // fire on EVERY reconcile while BattleManager is walking that same
-          // walker up to its parent — truncating the approach path mid-stride.
-          // Keyed by the DELEGATE's id, where `isBattling` is keyed by the
-          // parent's; both are true at once during a delegate battle.
+          // completion battle, so the idle-placement branch below would
+          // otherwise fire on EVERY reconcile while BattleManager is walking
+          // that same walker up to its parent — truncating the approach path
+          // mid-stride. Keyed by the DELEGATE's id, where `isBattling` is
+          // keyed by the parent's; both are true at once during a delegate
+          // battle.
           //
           // GardenCharm's own `isBusy` gets the identical treatment: an idle
           // session's status doesn't change while it's off on a berry errand,
-          // so without this guard the `stayPut()` branch below would fire on
-          // EVERY reconcile during the errand (this function reruns on every
-          // store change) and truncate the walker's goTo path to the bush
-          // after a single tile, stranding it until GardenCharm's own
+          // so without this guard the idle-placement branch below would fire
+          // on EVERY reconcile during the errand (this function reruns on
+          // every store change) and truncate the walker's goTo path to the
+          // bush after a single tile, stranding it until GardenCharm's own
           // ERRAND_TIMEOUT_S gave up.
-          if (
-            !battleManager.isBattling(session.id) &&
-            !battleManager.isChallenger(session.id) &&
-            !walker.isNapping &&
-            !gardenCharm.isBusy(session.id)
-          ) {
-            if (session.status !== 'working') {
-              // Idle/starting/blocked/done walkers settle on a reserved
-              // tile (idleTiles.ts) so two Pokemon going idle around the
-              // same time don't land on the same spot and visually stack.
-              // Claimed once per idle stretch: this whole reconcile re-runs
-              // on every store change, but once a reservation is already
-              // held (whether the walker has arrived yet or is still
-              // walking there) this is a no-op, same as the old
-              // unconditional stayPut() it replaces was for an
-              // already-stopped walker.
-              if (!idleTiles.currentTile(session.id)) {
-                const canEnterIdleTile = (x: number, y: number): boolean =>
-                  map.isWalkable(x, y) || (walker.canFly && map.isWater(x, y));
-                const idleTile = idleTiles.claimNear(walker.tile, session.id, canEnterIdleTile);
-                if (idleTile.x === walker.tile.x && idleTile.y === walker.tile.y) {
-                  walker.stayPut();
-                } else {
-                  walker.goTo(idleTile);
-                }
-              }
-              // Reset the station marker so becoming working starts the
-              // existing working-state pathing again.
-              rt.lastStation = null;
-            } else {
-              // Leaving idle placement — free the tile immediately rather
-              // than waiting for despawn, so it's available to the next
-              // walker that goes idle instead of sitting reserved-but-empty
-              // for the rest of this session's life.
-              idleTiles.release(session.id);
-              // Free-roam (Phase 8.9): working sessions wander the whole map,
-              // so `session.station` (still populated by hookRouter/ptyParser
-              // for a possible future per-tool toggle) goes unread here.
-              const station: StationKind = 'wander';
+          //
+          // Battling, a delegate challenger, or off on a berry errand:
+          // something else owns this walker's position right now (may walk
+          // it far from wherever its idle-tile reservation was) — checked
+          // up front, once, since both branches below need it. Napping is
+          // deliberately NOT part of this: Walker.setNapping parks the
+          // walker in place (its own stayPut()) rather than moving it, so a
+          // napping walker still needs its idle-tile claim reconciled below,
+          // just via a different path than a walker that's free to walk.
+          const positionOwnedElsewhere =
+            battleManager.isBattling(session.id) || battleManager.isChallenger(session.id) || gardenCharm.isBusy(session.id);
 
-              if (station !== rt.lastStation) {
-                if (station === 'wander') {
-                  walker.beginWander();
-                  // beginWander() no-ops while an evolution ceremony owns the
-                  // walker (see its own guard) — leave lastStation alone so
-                  // this retries once the ceremony ends, same contract as the
-                  // failed-goTo branch below, instead of recording a wander
-                  // that never actually started.
-                  if (!walker.isEvolving) rt.lastStation = station;
-                } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
-                  rt.lastStation = station;
+          if (positionOwnedElsewhere) {
+            // Free the reservation so it isn't held hostage, unused, while
+            // something else has this walker.
+            idleTiles.release(session.id);
+          } else if (session.status !== 'working') {
+            // Idle/starting/blocked/done (and napping) walkers settle on a
+            // reserved tile (idleTiles.ts) so two Pokemon going idle around
+            // the same time don't land on the same spot and visually stack.
+            //
+            // Reconciled every reconcile (not "claimed once and left
+            // alone"): `walker.tile` reads the tile UNDER THE FEET RIGHT
+            // NOW, which for the first half of an in-flight segment is
+            // still the tile being LEFT — claiming from it, once, at the
+            // moment status flips non-working, could reserve a tile the
+            // walker was never actually headed for and never correct it
+            // until the session went working again. `settleTile` (the tile
+            // `path`'s current segment — truncated to at most one entry by
+            // setStatus's own stayPut() call above — will actually end on)
+            // is what this compares the held claim against instead, so a
+            // stale claim self-corrects on the very next reconcile rather
+            // than lingering for the walker's whole idle stretch.
+            //
+            // Skipped entirely while evolving: goTo/stayPut both already
+            // no-op mid-ceremony (see their own guards), and evolving never
+            // changes `px`/`py` — only reparents the sprite into
+            // ceremonyLayer for rendering — so whatever claim this walker
+            // already holds is still exactly where it really is; nothing
+            // to reconcile.
+            if (!walker.isEvolving) {
+              const settleTile = walker.settleTile;
+              const held = idleTiles.currentTile(session.id);
+              const alreadyCorrect = !!held && held.x === settleTile.x && held.y === settleTile.y;
+              if (!alreadyCorrect) {
+                if (walker.isNapping) {
+                  // Napping walkers never move (Walker.goTo refuses while
+                  // napping — sleeping in place is the whole point), so a
+                  // claim conflict here can't be resolved by routing
+                  // elsewhere the way a normal idle walker's can.
+                  // claimExact forces the reservation onto the walker's own
+                  // tile regardless of who else holds it, so the
+                  // bookkeeping matches reality instead of pointing at a
+                  // stale tile nobody's on — see its own comment for why
+                  // that's still enough to steer new arrivals elsewhere.
+                  idleTiles.claimExact(settleTile, session.id);
+                } else {
+                  const idleTile = idleTiles.claimNear(settleTile, session.id, walker.canEnter);
+                  if (idleTile.x !== settleTile.x || idleTile.y !== settleTile.y) {
+                    // claimNear only checks walkability, not reachability
+                    // (no full BFS from here) — an unreachable pocket across
+                    // a fence/pond can pass that check and still fail goTo's
+                    // own pathfind. Release rather than keep a claim on a
+                    // tile this walker can never actually reach, so the next
+                    // reconcile retries against whatever's free then instead
+                    // of leaving the claim stale for the rest of this idle
+                    // stretch.
+                    if (!walker.goTo(idleTile)) idleTiles.release(session.id);
+                  }
                 }
-                // A failed goTo leaves lastStation alone so the next status change
-                // retries rather than assuming the walker is en route.
               }
             }
+            // Reset the station marker so becoming working starts the
+            // existing working-state pathing again.
+            rt.lastStation = null;
           } else if (!walker.isNapping) {
-            // Battling, a delegate challenger, or off on a berry errand:
-            // something else owns this walker's position right now and may
-            // walk it far from wherever its idle-tile reservation was — free
-            // the reservation so it isn't held hostage, unused, in the
-            // meantime. Napping is excluded on purpose: Walker.setNapping
-            // parks the walker in place (its own stayPut()) rather than
-            // moving it, so the reservation still matches exactly where the
-            // walker visibly is and releasing it here would let another
-            // walker be routed onto the same tile — the very overlap this
-            // is meant to prevent.
+            // Leaving idle placement — free the tile immediately rather
+            // than waiting for despawn, so it's available to the next
+            // walker that goes idle instead of sitting reserved-but-empty
+            // for the rest of this session's life.
             idleTiles.release(session.id);
+            // Free-roam (Phase 8.9): working sessions wander the whole map,
+            // so `session.station` (still populated by hookRouter/ptyParser
+            // for a possible future per-tool toggle) goes unread here.
+            const station: StationKind = 'wander';
+
+            if (station !== rt.lastStation) {
+              if (station === 'wander') {
+                walker.beginWander();
+                // beginWander() no-ops while an evolution ceremony owns the
+                // walker (see its own guard) — leave lastStation alone so
+                // this retries once the ceremony ends, same contract as the
+                // failed-goTo branch below, instead of recording a wander
+                // that never actually started.
+                if (!walker.isEvolving) rt.lastStation = station;
+              } else if (walker.goTo(spawnTileFor(station, rt.slot, walker.canFly))) {
+                rt.lastStation = station;
+              }
+              // A failed goTo leaves lastStation alone so the next status change
+              // retries rather than assuming the walker is en route.
+            }
           }
+          // The remaining case — status === 'working' AND napping — is
+          // deliberately a no-op here: Walker.setNapping already resumes
+          // beginWander() itself the moment a working session wakes (see
+          // its own comment), so there is nothing left for this reconcile
+          // to do for it, same as before this fix.
 
           if (battleManager.isBattling(session.id)) {
             // Mid-battle, the choreography's own exclaim/move-text bubbles

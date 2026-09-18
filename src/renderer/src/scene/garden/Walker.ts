@@ -285,6 +285,21 @@ export class Walker {
     return this.map.pixelToTile(this.px, this.py - 1);
   }
 
+  /** The tile this walker will actually be standing on once its current
+   *  path (if any) finishes — the last queued path tile, or `tile` itself
+   *  when nothing is queued. `stayPut()` truncates `path` to at most one
+   *  entry (see its own comment) rather than clearing it outright, so right
+   *  after a working->idle (or ->napping) transition this is the tile the
+   *  walker is still finishing its current in-flight segment toward, NOT
+   *  `tile` — which mid-segment still reports the tile being LEFT.
+   *  GardenScene.tsx's idle-tile reservation reads this, not `tile`, for
+   *  exactly that reason (see its own comment — a v1 of that fix claimed
+   *  from `tile` and reserved a tile the walker wasn't actually headed
+   *  for). */
+  get settleTile(): { x: number; y: number } {
+    return this.path.length > 0 ? this.path[this.path.length - 1] : this.tile;
+  }
+
   /** Drawn sprite height, for placing battle UI (the "+N" overflow badge)
    *  above the head without hardcoding a per-species offset. */
   get spriteHeight(): number {
@@ -355,8 +370,11 @@ export class Walker {
   }
 
   /** Where this Pokemon may go. Fliers add the pond to the walkable grid; they
-   *  do not get a grid of their own, so the map stays the one source of truth. */
-  private canEnter = (x: number, y: number): boolean =>
+   *  do not get a grid of their own, so the map stays the one source of truth.
+   *  Public so GardenScene.tsx's idle-tile reservation can search candidate
+   *  tiles with the SAME walkability rule `goTo`/`findPath` actually use,
+   *  rather than keeping a second, easily-drifting copy of this rule. */
+  canEnter = (x: number, y: number): boolean =>
     this.map.isWalkable(x, y) || (this.canFly && this.map.isWater(x, y));
 
   /** Resume aimless strolling, free-roaming anywhere on the map. Any errand in

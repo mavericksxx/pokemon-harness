@@ -117,4 +117,18 @@ export class IdleTileReservations {
     this.claim(fallback, ownerId);
     return fallback;
   }
+
+  /** Force `ownerId`'s claim onto exactly `tile`, with no search and no
+   *  vacancy check — for a napping walker, which `Walker.goTo` refuses to
+   *  move (it sleeps in place by design), so if another session is already
+   *  holding the tile it's standing on there is nowhere else to route the
+   *  claim to. This makes the reservation match reality (two walkers really
+   *  are on that tile) rather than leaving a stale claim on a tile nobody's
+   *  on; every OTHER walker's own `claimNear` still counts this tile as
+   *  occupied, so a new arrival is steered elsewhere instead of being
+   *  routed onto the same spot. */
+  claimExact(tile: Point, ownerId: string): void {
+    this.release(ownerId);
+    this.claim(tile, ownerId);
+  }
 }
