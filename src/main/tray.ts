@@ -208,10 +208,10 @@ function gaugeTone(percent: number): 'normal' | 'warn' | 'danger' {
   return 'normal';
 }
 
-// 10, not 14 — at a 4pt-per-segment minimum (the original meter's own
-// reasoning, still true at the new full row width), 10 segments keeps each
-// fill comfortably readable without the bar looking mushy.
-const METER_SEGMENTS = 10;
+// 20, not 10 — each segment is a 5% step (finer than 10's 10% steps) and
+// still comes out to ~13pt/segment at the 294pt row width, well above the
+// 4pt-per-segment minimum the original meter's own reasoning called for.
+const METER_SEGMENTS = 20;
 
 // ─── Text formatting (unchanged behavior from the deleted popover's own
 // inline script, except `fmtUsd`'s thousands separator — new for this pass,
