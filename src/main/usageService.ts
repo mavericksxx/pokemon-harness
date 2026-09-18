@@ -641,6 +641,13 @@ export class UsageService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private snapshot: UsageSnapshot = { enabled: false, providers: [], updatedAt: 0 };
   private lastManualRefresh = 0;
+  /** Main-process-side subscribers to "the cached snapshot just changed" —
+   *  separate from `emit()`'s `webContents.send`, which only reaches the
+   *  (possibly not-yet-created) renderer. Added for the tray menu
+   *  (tray.ts): it needs to know when REAL usage data lands so it can
+   *  render its row images from actual data instead of the placeholder
+   *  snapshot this service starts with, without polling for it. */
+  private readonly snapshotListeners = new Set<() => void>();
   /** In-flight poll guard — `refreshNow` and the background timer can
    *  otherwise race two concurrent `pollAll` calls. */
   private polling: Promise<void> | null = null;
@@ -816,6 +823,18 @@ export class UsageService {
     return this.snapshot;
   }
 
+  /** Subscribe to "the cached snapshot just changed" (every `emit()` call —
+   *  a poll landing, a toggle flip, `setExcludedProviders` stripping a
+   *  provider). Returns an unsubscribe function, same shape as a DOM/Node
+   *  `EventEmitter`'s `off` would give, without pulling in an actual
+   *  `EventEmitter` for one callback list. Callbacks are never handed the
+   *  snapshot itself — call `getSnapshot()` if the new value is needed —
+   *  keeping this a pure "something changed, go re-read" signal. */
+  onSnapshot(cb: () => void): () => void {
+    this.snapshotListeners.add(cb);
+    return () => this.snapshotListeners.delete(cb);
+  }
+
   /** Re-send the cache to a renderer that has just finished loading. This is
    *  deliberately a push-only replay: it never starts a poll or reads a
    *  credential, including while usage limits are disabled. */
@@ -878,12 +897,14 @@ export class UsageService {
 
   private emit(): void {
     const wc = this.getWebContents();
-    if (!wc || wc.isDestroyed()) return;
-    try {
-      wc.send('usage:snapshot', this.snapshot);
-    } catch {
-      /* window tore down mid-send */
+    if (wc && !wc.isDestroyed()) {
+      try {
+        wc.send('usage:snapshot', this.snapshot);
+      } catch {
+        /* window tore down mid-send */
+      }
     }
+    for (const cb of this.snapshotListeners) cb();
   }
 
   private errorSnapshot(provider: UsageProviderId, state: UsageProviderState, message: string): UsageProviderSnapshot {
