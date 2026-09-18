@@ -62,6 +62,7 @@ export const TRAY_ROW_SCALE = 2;
  *  logic is duplicated in the injected JS. */
 export type TrayRowSpec =
   | { kind: 'header'; left: string; right: string }
+  | { kind: 'subheader'; text: string }
   | {
       kind: 'window';
       caption: string;
@@ -158,6 +159,20 @@ function drawHeader(ctx, w, h, spec, colors, scale) {
   drawTwoSided(ctx, w, h / 2, spec.left, spec.right, trayFont(12 * scale, '600'), colors.dim, trayFont(12 * scale, '400'), colors.dim, scale);
 }
 
+// A provider name over its own windows (e.g. "Claude Code" above the
+// Limits section's Claude rows) needs to read as subordinate to the bold
+// "Limits" section header above it, but distinct from a window row's bold
+// ink-colored caption below it — so this is neither drawHeader (bold, dim,
+// with a right column) nor drawText (regular weight, ink color). Medium
+// weight + dim color + no right column splits the difference.
+function drawSubheader(ctx, w, h, spec, colors, scale) {
+  ctx.textBaseline = 'middle';
+  ctx.font = trayFont(12 * scale, '500');
+  ctx.fillStyle = colors.dim;
+  ctx.textAlign = 'left';
+  ctx.fillText(truncateToWidth(ctx, spec.text, w), 0, h / 2);
+}
+
 function drawSegmentedBar(ctx, w, top, barH, colors, bar, scale) {
   var n = bar.totalSegments;
   var gap = scale;
@@ -221,6 +236,7 @@ function renderOneRow(row, widthPt, scale, colors) {
   ctx.clearRect(0, 0, w, h);
   var spec = row.spec;
   if (spec.kind === 'header') drawHeader(ctx, w, h, spec, colors, scale);
+  else if (spec.kind === 'subheader') drawSubheader(ctx, w, h, spec, colors, scale);
   else if (spec.kind === 'window') drawWindow(ctx, w, h, spec, colors, scale);
   else if (spec.kind === 'sparkline') drawSparkline(ctx, w, h, spec, scale);
   else if (spec.kind === 'stat') drawStat(ctx, w, h, spec, colors, scale);
