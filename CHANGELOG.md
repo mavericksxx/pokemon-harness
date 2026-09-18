@@ -2,7 +2,7 @@
 
 Completed work, grouped by release. Open work lives in [GitHub Issues](https://github.com/mavericksxx/pokemon-harness/issues) (see [BACKLOG.md](BACKLOG.md) for how they are organised).
 
-## Unreleased
+## v1.20.7 — 2026-09-18
 
 - Menu-bar text is legible again: the informational rows were built as disabled menu items, which AppKit dims — including their meter and sparkline images. The HP meters and cost sparkline now sit in a much narrower column, so menu titles are no longer pushed into a wide left gutter.
 - Idle Pokemon no longer stand on top of each other. Idle walkers now reserve the tile they settle on, so a second walker picks a free one nearby; the reservation is re-checked every update rather than taken once, and is released on despawn, on going back to work, and while a battle or errand owns the walker's position. This was most visible after a relaunch, where restored sessions could be assigned the same spawn tile.
