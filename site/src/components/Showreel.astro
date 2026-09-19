@@ -1,0 +1,86 @@
+---
+/**
+ * Full-width hero showreel. Server-renders only a static "specimen photo":
+ * the garden screenshot as a poster plus a representative roster card and
+ * terminal transcript — which is also exactly what prefers-reduced-motion
+ * visitors (and anyone without WebGL) keep seeing. The live reel is a
+ * client-only script (src/showreel/boot.ts) that lazy-loads the app's real
+ * Pixi garden once this section nears the viewport.
+ */
+import '../styles/showreel.css';
+---
+
+<section class="reel-section" aria-label="showreel: pokéharness running a few coding sessions">
+  <div class="reel-frame specimen-photo" data-reel>
+    <div class="specimen-pin" aria-hidden="true"></div>
+    <div class="reel-grid">
+      <aside class="reel-roster-pane" aria-hidden="true">
+        <p class="reel-pane-label">party</p>
+        <div class="reel-roster" data-reel-roster>
+          <div class="reel-card in selected" style="border-left-color: #ffd166">
+            <div class="reel-card-top">
+              <span class="reel-card-face"><span class="reel-card-face-img" style="background-image: url(/sprites/pikachu.gif)"></span></span>
+              <span class="reel-card-id">
+                <span class="reel-card-name">weather-app</span>
+                <span class="reel-card-provider">claude</span>
+                <span class="reel-card-species">pikachu</span>
+              </span>
+              <em class="reel-status working">working</em>
+            </div>
+            <div class="reel-card-tool">edit · src/api/forecast.ts</div>
+            <div class="reel-card-meta"><span class="reel-card-cost">$0.14</span><span class="reel-card-tokens">20.1k tok</span></div>
+          </div>
+          <div class="reel-card reel-card-sub in">
+            <div class="reel-card-top">
+              <span class="reel-card-face"><span class="reel-card-face-img" style="background-image: url(/sprites/gastly.gif)"></span></span>
+              <span class="reel-card-id">
+                <span class="reel-card-name">audit the error paths</span>
+                <span class="reel-card-species">gastly · ↳ weather-app</span>
+              </span>
+              <span class="reel-dot working"></span>
+            </div>
+            <div class="reel-card-elapsed">working — running 24s</div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="reel-garden garden-warp-frame">
+        <img
+          class="reel-poster"
+          src="/screenshots/garden.png"
+          alt="the pokéharness garden: a few pokémon walkers roaming a pixel-art garden, mid tool-call, with speech bubbles above them"
+          width="1210"
+          height="752"
+        >
+        <div class="garden reel-host" data-reel-host></div>
+        <div class="reel-warp" data-reel-warp></div>
+        <div class="reel-hud" data-reel-hud aria-hidden="true">
+          <p>hall of origin · dispatches</p>
+          <ul data-hud-list></ul>
+        </div>
+      </div>
+
+      <div class="reel-terminal" data-reel-terminal aria-hidden="true">
+        <div class="reel-term-head"><i></i><i></i><i></i><span data-term-title>~/code/weather-app</span></div>
+        <div class="reel-term-body" data-term-body>
+          <div class="term-line term-cmd">$ claude</div>
+          <div class="term-line term-prompt">&gt; add retry with backoff to the forecast fetcher</div>
+          <div class="term-line term-tool">● Read(src/api/forecast.ts)</div>
+          <div class="term-line term-result">  ⎿  Read 142 lines</div>
+          <div class="term-line term-tool">● Edit(src/api/forecast.ts)</div>
+          <div class="term-line term-result">  ⎿  Updated src/api/forecast.ts with 18 additions and 4 removals</div>
+          <div class="term-line term-tool">● Task(audit the error paths)</div>
+          <div class="term-line term-result">  ⎿  Running in the background…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="specimen-cap reel-caption" data-reel-caption>
+    <span class="reel-caption-fig">fig. 1</span> sessions at work in the garden, one of them mid-way through a subagent task.
+  </p>
+</section>
+
+<script>
+  import { bootShowreel } from '../showreel/boot';
+  bootShowreel();
+</script>

@@ -1,0 +1,575 @@
+/* ───────────────────────────────────────────────────────────────────────
+ * Hero showreel. Global (not scoped) because the roster cards, terminal
+ * lines and ArceusWarp's layers are all created at runtime.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+.reel-section {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 8px 24px 0;
+}
+@media (max-width: 560px) {
+  .reel-section {
+    padding: 8px 12px 0;
+  }
+}
+
+.reel-frame {
+  transform: rotate(0.25deg);
+}
+
+.reel-grid {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 330px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.reel-garden {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 52 / 36;
+  background: var(--reel-letterbox);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  min-width: 0;
+}
+
+.reel-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+  transition: opacity 600ms ease;
+}
+.reel-live .reel-poster {
+  opacity: 0;
+}
+
+.reel-host {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.reel-host canvas {
+  display: block;
+}
+
+.reel-warp {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Fade to paper between loops. */
+.reel-garden::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--reel-letterbox);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 800ms ease;
+  z-index: 6;
+}
+.reel-fading .reel-garden::after {
+  opacity: 1;
+}
+
+/* ── panes ───────────────────────────────────────────────────────────── */
+.reel-pane-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+  margin: 2px 2px 8px;
+}
+
+.reel-roster-pane {
+  /* `contain: size` (here and on .reel-terminal) keeps the side panes from
+     growing the grid row — the garden's aspect ratio alone sets its height,
+     and the panes stretch to match. */
+  contain: size;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.reel-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Roster card — AgentRosterCard's "full" layout in field-notes dress. */
+.reel-card {
+  flex: none;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--moss);
+  padding: 8px 9px 8px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 300ms ease,
+    transform 300ms ease,
+    box-shadow 200ms ease;
+}
+.reel-card.in {
+  opacity: 1;
+  transform: none;
+}
+.reel-card.selected {
+  box-shadow: 0 0 0 1px var(--rust), 0 3px 10px var(--shadow);
+}
+.reel-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.reel-card-face {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  background: var(--paper-deep);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.reel-card-face-img {
+  position: absolute;
+  inset: 1px;
+  background-size: contain;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.reel-card-shiny {
+  position: absolute;
+  right: -5px;
+  top: -6px;
+  font-size: 12px;
+  color: var(--gold);
+  text-shadow: 0 0 0 var(--paper);
+}
+.reel-card-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.reel-card-name {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reel-card-provider,
+.reel-card-species {
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reel-card-provider {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.reel-status {
+  flex: none;
+  font-style: italic;
+  font-family: var(--font-serif);
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-strong);
+  color: var(--ink-soft);
+}
+.reel-status.working {
+  color: var(--moss);
+  border-color: var(--moss);
+}
+.reel-status.blocked {
+  color: var(--rust);
+  border-color: var(--rust);
+}
+.reel-card-tool {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reel-card-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink);
+}
+.reel-card-tokens {
+  color: var(--ink-soft);
+}
+.reel-card-ctx {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.reel-bar {
+  flex: 1;
+  height: 5px;
+  background: var(--paper-deep);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.reel-bar-fill {
+  height: 100%;
+  width: calc(var(--fill, 0) * 100%);
+  background: var(--moss);
+  transition: width 400ms ease;
+}
+
+.reel-card-sub {
+  margin-left: 14px;
+  border-left-style: dashed;
+  border-left-color: var(--rust);
+}
+.reel-card-sub .reel-card-face {
+  width: 28px;
+  height: 28px;
+}
+.reel-card-elapsed {
+  margin-top: 5px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.reel-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rust);
+}
+.reel-dot.working {
+  background: var(--gold);
+}
+.reel-dot.done {
+  background: var(--moss);
+}
+
+.reel-card-arceus {
+  border: 1px solid var(--gold);
+  border-left: 3px solid var(--gold);
+  box-shadow: inset 0 0 0 2px var(--paper), inset 0 0 0 3px var(--gold);
+}
+
+/* ── terminal ────────────────────────────────────────────────────────── */
+.reel-terminal {
+  contain: size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--term-bg);
+  color: var(--term-ink);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.reel-term-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(236, 227, 207, 0.12);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: #b9ad93;
+}
+.reel-term-head i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5b5240;
+}
+.reel-term-head span {
+  margin-left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reel-term-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.term-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.term-cmd {
+  color: #ece3cf;
+}
+.term-prompt {
+  color: #e8c77a;
+  margin: 4px 0;
+}
+.term-tool {
+  color: #a9d19f;
+  margin-top: 4px;
+}
+.term-result {
+  color: #b9ad93;
+}
+.term-dim {
+  color: #8a7f68;
+}
+.term-banner {
+  display: inline-block;
+  color: #dd9270;
+  border: 1px solid rgba(221, 146, 112, 0.6);
+  padding: 3px 12px;
+  margin: 4px 0 2px;
+}
+.term-ok {
+  color: #a9d19f;
+  margin-top: 4px;
+}
+.term-typing::after {
+  content: '▍';
+  color: #e8c77a;
+  animation: term-caret 900ms steps(1) infinite;
+}
+@keyframes term-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── caption ─────────────────────────────────────────────────────────── */
+.reel-caption {
+  margin: 18px 6px 0;
+  font-size: 15px;
+  min-height: 1.6em;
+}
+.reel-caption.in {
+  animation: caption-in 500ms ease both;
+}
+.reel-caption-fig {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 12px;
+  color: var(--gold-ink);
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* ── hall of origin dispatch log (stands in for the app's ArceusHud) ─── */
+.reel-hud {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: min(300px, calc(100% - 24px));
+  z-index: 4;
+  padding: 10px 12px;
+  background: rgba(17, 21, 47, 0.9);
+  border: 1px solid rgba(232, 183, 64, 0.55);
+  color: #e6e1f5;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 250ms ease;
+  pointer-events: none;
+}
+.reel-hud.visible {
+  opacity: 1;
+}
+.reel-hud p {
+  margin: 0 0 6px;
+  color: #e8b740;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.reel-hud ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.reel-hud li {
+  padding: 3px 0;
+  border-top: 1px solid rgba(232, 183, 64, 0.18);
+  animation: caption-in 300ms ease both;
+}
+
+/* ── responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .reel-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'garden garden'
+      'roster term';
+  }
+  .reel-garden {
+    grid-area: garden;
+  }
+  .reel-roster-pane {
+    grid-area: roster;
+    height: 250px;
+  }
+  .reel-terminal {
+    grid-area: term;
+    height: 250px;
+  }
+}
+@media (max-width: 680px) {
+  .reel-frame {
+    transform: none;
+  }
+  .reel-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'garden'
+      'roster'
+      'term';
+  }
+  .reel-roster-pane {
+    contain: none;
+    height: auto;
+  }
+  .reel-roster {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+  .reel-roster .reel-card {
+    width: 210px;
+  }
+  .reel-card-sub {
+    margin-left: 0;
+  }
+  .reel-terminal {
+    height: 190px;
+  }
+  .reel-hud {
+    display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Copied from the app's src/renderer/src/index.css — the blocks
+ * components/ArceusWarp.tsx's layers depend on (.garden, .garden-warp-*,
+ * .garden-cosmos*, @keyframes arceus-bob). Keep in sync if those change.
+ * ───────────────────────────────────────────────────────────────────── */
+.garden-warp-frame {
+  position: relative;
+  overflow: hidden;
+}
+
+.garden {
+  position: absolute;
+  inset: 0;
+}
+
+.garden canvas {
+  display: block;
+}
+
+.garden-warp-streaks {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.garden-warp-flash {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  image-rendering: pixelated;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.garden-cosmos {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: #0b0b24;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.garden-cosmos-nebula {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+.garden-cosmos-figure {
+  position: absolute;
+  left: 38%;
+  top: 54%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  width: 172px;
+  height: 172px;
+  animation: arceus-bob 2600ms ease-in-out infinite;
+}
+
+.garden-cosmos-forme {
+  position: absolute;
+  inset: 0;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: opacity 200ms ease;
+}
+
+@keyframes arceus-bob {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) translateY(0);
+  }
+  50% {
+    transform: translate(-50%, -50%) translateY(-10px);
+  }
+}
