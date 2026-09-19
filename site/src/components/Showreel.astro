@@ -1,0 +1,43 @@
+---
+/**
+ * Full-width hero showreel: the pokéharness app window, rendered at a fixed
+ * 1440x900 design size and CSS-scaled to the hero's width. Server-renders
+ * only the window frame with a screenshot poster — which is also what
+ * prefers-reduced-motion visitors (and anyone without WebGL) keep seeing.
+ * The live window (the app's own components + the real Pixi garden) is a
+ * client-only script (src/showreel/boot.ts), lazy-loaded near the viewport.
+ */
+import '../styles/showreel.css';
+
+interface Props {
+  /** Vertical px kept free besides the site header (default 60). */
+  fitMargin?: number;
+  /** Max rendered window width in px (default 1400). */
+  maxWidth?: number;
+}
+const { fitMargin, maxWidth } = Astro.props;
+---
+
+<section class="reel-section" aria-label="pokéharness running a few coding sessions">
+  <div class="reel-stage" data-reel data-fit-margin={fitMargin} data-max-width={maxWidth}>
+    <div class="reel-scaler" data-reel-scaler>
+      <div class="reel-window">
+        <img
+          class="reel-poster"
+          src="/screenshots/showreel.jpg"
+          alt="the pokéharness window: a session card on the left, its pikachu in the pixel-art garden in the middle, and its claude code terminal on the right"
+          width="1440"
+          height="900"
+        >
+        <div class="reel-app" data-reel-window aria-hidden="true"></div>
+        <span class="reel-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      </div>
+    </div>
+  </div>
+  <p class="reel-caption" data-reel-caption>shiny</p>
+</section>
+
+<script>
+  import { bootShowreel } from '../showreel/boot';
+  bootShowreel();
+</script>

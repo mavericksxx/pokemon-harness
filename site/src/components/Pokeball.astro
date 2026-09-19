@@ -1,0 +1,10 @@
+---
+/** The app topbar's pixel pokéball (src/renderer/src/components/icons.tsx). */
+interface Props { size?: number; class?: string }
+const { size = 20, class: cls } = Astro.props;
+const red = '#e8524a', dark = '#1a1a1a', light = '#f2ede0';
+const rows: [number, number, number, number, string][] = [[6,1,4,1,red],[4,2,8,1,red],[3,3,10,1,red],[2,4,12,1,red],[2,5,12,1,red],[1,6,14,1,red],[6,6,4,1,dark],[1,7,14,1,dark],[7,7,2,1,light],[1,8,14,1,dark],[7,8,2,1,light],[1,9,1,1,dark],[2,9,12,1,light],[14,9,1,1,dark],[6,9,4,1,dark],[2,10,1,1,dark],[3,10,10,1,light],[13,10,1,1,dark],[2,11,1,1,dark],[3,11,10,1,light],[13,11,1,1,dark],[3,12,1,1,dark],[4,12,8,1,light],[12,12,1,1,dark],[4,13,1,1,dark],[5,13,6,1,light],[11,13,1,1,dark],[6,14,1,1,dark],[7,14,2,1,light],[9,14,1,1,dark]];
+---
+<svg class={cls} viewBox="0 0 16 16" width={size} height={size} shape-rendering="crispEdges" aria-hidden="true">
+  {rows.map(([x, y, w, h, f]) => <rect x={x} y={y} width={w} height={h} fill={f} />)}
+</svg>

@@ -1,0 +1,67 @@
+---
+import '../styles/site.css';
+import Pokeball from '../components/Pokeball.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  current?: 'home' | 'docs';
+}
+
+const DEFAULT_DESCRIPTION =
+  'pokéharness turns every claude, codex, or cursor session on your machine into a walker in a pixel-art garden. watch it work instead of staring at a terminal.';
+const { title, description = DEFAULT_DESCRIPTION, current } = Astro.props;
+const RELEASES = 'https://github.com/mavericksxx/pokemon-harness/releases/latest';
+const REPO = 'https://github.com/mavericksxx/pokemon-harness';
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<meta name="description" content={description}>
+<meta property="og:title" content={title}>
+<meta property="og:description" content={description}>
+<meta property="og:image" content="https://pokeharness.parthkohale.com/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#1d1d22">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preload" href="/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/press-start-2p-latin-400.woff2" as="font" type="font/woff2" crossorigin>
+<slot name="head" />
+</head>
+<body>
+<a class="skip-link" href="#main">skip to content</a>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="brand" href="/"><Pokeball size={20} /><span class="brand-word">pokéharness</span></a>
+    <nav class="site-nav" aria-label="primary">
+      <a href="/docs/" aria-current={current === 'docs' ? 'page' : undefined}>docs</a>
+      <a href={RELEASES}>download</a>
+      <a href={REPO}>github</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <slot />
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer-row">
+      <span class="footer-brand"><Pokeball size={14} />pokéharness</span>
+      <a href="/docs/">docs</a>
+      <a href={RELEASES}>download for mac</a>
+      <a href={REPO}>github</a>
+      <span class="footer-note">free and open source, mit licence</span>
+    </div>
+    <p class="disclaimer">Pokémon, Pokémon character names, and their designs are trademarks of Nintendo, Game Freak, and Creatures Inc. Sprites shown here are fan-made and used non-commercially; this project is not affiliated with or endorsed by any of them.</p>
+  </div>
+</footer>
+</body>
+</html>

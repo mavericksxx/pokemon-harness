@@ -1,0 +1,153 @@
+/* ───────────────────────────────────────────────────────────────────────
+ * Hero showreel frame. Everything INSIDE the window is the app's own
+ * index.css, scoped under `.reel-app` at build time (astro.config.mjs).
+ * The window lays out at a fixed 1440x900 and boot.ts scales it to fit.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+.reel-section {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0;
+}
+@media (max-width: 560px) {
+  .reel-section {
+    padding: 0;
+  }
+}
+
+.reel-stage {
+  position: relative;
+  /* boot.ts sets the exact width/height; these are the pre-JS fallback. */
+  width: min(100%, 1400px);
+  aspect-ratio: 1440 / 900;
+  margin: 0 auto;
+  overflow: hidden;
+  /* A macOS window at rest: rounded corners, a hairline edge plus a lit
+   * inner rim, and a long soft ambient shadow — no coloured border, so
+   * the app's own fine pixel borders carry the detail. */
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    0 24px 48px -12px rgba(0, 0, 0, 0.6),
+    0 60px 120px -40px rgba(0, 0, 0, 0.7);
+  background: #17171b;
+  animation: reel-stage-in 700ms 140ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+@keyframes reel-stage-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reel-stage {
+    animation: none;
+  }
+}
+
+.reel-scaler {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1440px;
+  height: 900px;
+  transform-origin: 0 0;
+}
+
+.reel-window {
+  position: relative;
+  width: 1440px;
+  height: 900px;
+  overflow: hidden;
+  background: #17171b;
+}
+
+.reel-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 600ms ease;
+}
+.reel-live .reel-poster {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.reel-app {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* macOS traffic lights — the app uses a hidden-inset title bar, so the OS
+ * draws these over the topbar's reserved left inset. */
+.reel-lights {
+  position: absolute;
+  left: 20px;
+  top: 21px;
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+}
+.reel-lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+}
+.reel-lights i:nth-child(2) {
+  background: #febc2e;
+}
+.reel-lights i:nth-child(3) {
+  background: #28c840;
+}
+
+/* Fade between loops. */
+.reel-window::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #17171b;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 800ms ease;
+  z-index: 6;
+}
+.reel-fading .reel-window::after {
+  opacity: 1;
+}
+
+.reel-caption {
+  margin: 16px 0 0;
+  max-width: 100%;
+  min-height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-pixel, var(--font-mono));
+  font-size: 8px;
+  line-height: 16px;
+  color: var(--muted, var(--ink-soft));
+}
+.reel-caption:not(:empty)::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  background: var(--gold, #f0bd45);
+}
+
+/* The app's `.app` fills 100% of its parent; give it the window's size. */
+.reel-app .app {
+  height: 900px;
+}
