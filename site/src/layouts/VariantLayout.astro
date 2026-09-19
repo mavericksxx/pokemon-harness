@@ -1,0 +1,265 @@
+---
+/**
+ * Shared shell for the /v1 /v2 /v3 landing-page variations: one dark theme,
+ * no toggle, header + footer + a small floating switcher. Each page styles
+ * its own look under `body.<variant>`.
+ */
+import Pokeball from '../components/Pokeball.astro';
+
+interface Props {
+  variant: 'v1' | 'v2' | 'v3';
+  themeColor: string;
+}
+const { variant, themeColor } = Astro.props;
+const RELEASES = 'https://github.com/mavericksxx/pokemon-harness/releases/latest';
+const REPO = 'https://github.com/mavericksxx/pokemon-harness';
+const title = 'pokéharness — your coding agents as pokémon';
+const description =
+  'pokéharness is a macos app that runs your claude code, codex and cursor-agent sessions and shows each one as a pokémon in a pixel-art garden.';
+const switches = [
+  { href: '/v1/', label: 'v1', id: 'v1' },
+  { href: '/v2/', label: 'v2', id: 'v2' },
+  { href: '/v3/', label: 'v3', id: 'v3' },
+  { href: '/', label: 'current', id: 'home' }
+];
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<meta name="description" content={description}>
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content={themeColor}>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preload" href="/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+</head>
+<body class={variant}>
+<a class="skip-link" href="#main">skip to content</a>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="brand" href="/"><Pokeball size={20} class="brand-ball" /><span class="brand-word">pokéharness</span></a>
+    <nav class="site-nav" aria-label="primary">
+      <a href="/docs/">docs</a>
+      <a href={RELEASES}>download</a>
+      <a href={REPO}>github</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <slot />
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="site-footer-row">
+      <span class="brand-small"><Pokeball size={14} />pokéharness</span>
+      <a href="/docs/">docs</a>
+      <a href={RELEASES}>download for mac</a>
+      <a href={REPO}>github</a>
+      <span class="footer-note">free and open source, mit licence</span>
+    </div>
+    <p class="disclaimer">Pokémon, Pokémon character names, and their designs are trademarks of Nintendo, Game Freak, and Creatures Inc. Sprites shown here are fan-made and used non-commercially; this project is not affiliated with or endorsed by any of them.</p>
+  </div>
+</footer>
+
+<nav class="variant-switcher" aria-label="design variations">
+  {switches.map((s) => (
+    <a href={s.href} aria-current={s.id === variant ? 'page' : undefined}>{s.label}</a>
+  ))}
+</nav>
+</body>
+</html>
+
+<style is:global>
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('/fonts/inter-latin-var.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('/fonts/jetbrains-mono-latin-var.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'Press Start 2P';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/press-start-2p-latin-400.woff2') format('woff2');
+  }
+
+  :root {
+    /* Page tokens each variant overrides; the showreel frame reads these. */
+    --page-bg: #17171b;
+    --page-text: #dedbd6;
+    --page-muted: #96919f;
+    --page-line: #313139;
+    --ink-soft: var(--page-muted);
+    --shadow: rgba(0, 0, 0, 0.55);
+    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-pixel: 'Press Start 2P', ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    margin: 0;
+  }
+  body {
+    background: var(--page-bg);
+    color: var(--page-text);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a {
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus, #e8b740);
+    outline-offset: 2px;
+  }
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+  }
+  .skip-link:focus {
+    left: 12px;
+    top: 12px;
+    z-index: 100;
+    background: var(--page-bg);
+    padding: 6px 10px;
+  }
+
+  .site-header-inner,
+  .site-footer-inner,
+  .wrap {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .site-header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+  }
+  .site-nav {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+  }
+  .site-nav a {
+    text-decoration: none;
+    color: var(--page-muted);
+  }
+  .site-nav a:hover {
+    color: var(--page-text);
+  }
+
+  .site-footer {
+    margin-top: 72px;
+    padding: 28px 0 40px;
+    border-top: 1px solid var(--page-line);
+    font-size: 13px;
+    color: var(--page-muted);
+  }
+  .site-footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 22px;
+  }
+  .site-footer-row a {
+    text-decoration: none;
+  }
+  .site-footer-row a:hover {
+    color: var(--page-text);
+  }
+  .brand-small {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--page-text);
+  }
+  .footer-note {
+    margin-left: auto;
+  }
+  .disclaimer {
+    margin: 16px 0 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    max-width: 72ch;
+    opacity: 0.75;
+  }
+
+  .variant-switcher {
+    position: fixed;
+    left: 10px;
+    bottom: 10px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 3px;
+    background: rgba(20, 20, 24, 0.92);
+    border: 1px solid #3e3d46;
+    font: 12px/1 var(--font-mono);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  }
+  .variant-switcher a {
+    padding: 6px 9px;
+    color: #b3b0ac;
+    text-decoration: none;
+  }
+  .variant-switcher a:hover {
+    color: #fff;
+  }
+  .variant-switcher a[aria-current='page'] {
+    background: #e8b740;
+    color: #1a1320;
+  }
+
+  .reel-caption {
+    font-size: 12px;
+  }
+  .hero-desc {
+    text-wrap: pretty;
+  }
+
+  @media (max-width: 560px) {
+    .site-header-inner,
+    .site-footer-inner,
+    .wrap {
+      padding: 0 16px;
+    }
+    .site-nav {
+      gap: 14px;
+    }
+    .footer-note {
+      margin-left: 0;
+    }
+  }
+</style>

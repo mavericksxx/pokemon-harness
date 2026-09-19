@@ -8,10 +8,18 @@
  * client-only script (src/showreel/boot.ts), lazy-loaded near the viewport.
  */
 import '../styles/showreel.css';
+
+interface Props {
+  /** Vertical px kept free besides the site header (default 60). */
+  fitMargin?: number;
+  /** Max rendered window width in px (default 1400). */
+  maxWidth?: number;
+}
+const { fitMargin, maxWidth } = Astro.props;
 ---
 
 <section class="reel-section" aria-label="pokéharness running a few coding sessions">
-  <div class="reel-stage" data-reel>
+  <div class="reel-stage" data-reel data-fit-margin={fitMargin} data-max-width={maxWidth}>
     <div class="reel-scaler" data-reel-scaler>
       <div class="reel-window">
         <img

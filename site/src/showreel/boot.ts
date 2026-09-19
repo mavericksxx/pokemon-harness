@@ -48,13 +48,15 @@ export function bootShowreel(): void {
   // (<700px) screens, where the width alone decides.
   const section = stage.parentElement ?? stage;
   const header = document.querySelector<HTMLElement>('.site-header');
+  const fitMargin = Number(stage.dataset.fitMargin ?? 60);
+  const maxWidth = Number(stage.dataset.maxWidth ?? MAX_RENDERED_WIDTH);
   const fit = (): void => {
     const vh = window.innerHeight;
     const headerH = header?.offsetHeight ?? 64;
     const top = stage.getBoundingClientRect().top + window.scrollY;
     // 44px under the window leaves room for its caption line.
-    const heightBudget = Math.min(vh - headerH - 60, vh - top - 44);
-    let scale = Math.min(section.clientWidth / DESIGN_WIDTH, MAX_RENDERED_WIDTH / DESIGN_WIDTH, heightBudget / DESIGN_HEIGHT);
+    const heightBudget = Math.min(vh - headerH - fitMargin, vh - top - 44);
+    let scale = Math.min(section.clientWidth / DESIGN_WIDTH, maxWidth / DESIGN_WIDTH, heightBudget / DESIGN_HEIGHT);
     if (window.innerWidth < 700) scale = Math.max(scale, Math.min(0.2, section.clientWidth / DESIGN_WIDTH));
     scale = Math.max(scale, 0.1);
     stage.style.width = `${Math.floor(DESIGN_WIDTH * scale)}px`;

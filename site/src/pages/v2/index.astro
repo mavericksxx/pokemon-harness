@@ -1,0 +1,105 @@
+---
+import VariantLayout from '../../layouts/VariantLayout.astro';
+import VariantHero from '../../components/VariantHero.astro';
+import Showreel from '../../components/Showreel.astro';
+---
+
+<VariantLayout variant="v2" themeColor="#000000">
+  <Showreel fitMargin={12} maxWidth={1440} />
+  <section class="wrap v2-intro"><VariantHero /></section>
+</VariantLayout>
+
+<style is:global>
+  /* v2 "minimal": neutral black, Inter, the window nearly full-screen. */
+  body.v2 {
+    --page-bg: #000;
+    --page-text: #ededed;
+    --page-muted: #8a8a8a;
+    --page-line: #1f1f1f;
+    --shadow: rgba(255, 255, 255, 0.02);
+    --focus: #ededed;
+  }
+  .v2 .site-header-inner {
+    height: 40px;
+  }
+  .v2 .brand-ball {
+    display: none;
+  }
+  .v2 .brand-word {
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+  }
+  .v2 .site-nav {
+    font-size: 13px;
+  }
+  .v2 .reel-section {
+    padding-top: 0;
+  }
+  .v2 .reel-stage {
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px #262626;
+  }
+  .v2 .reel-caption {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    color: #6b6b6b;
+    margin-top: 6px;
+    min-height: 0;
+  }
+  .v2-intro {
+    padding-top: 36px;
+  }
+  .v2 .hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px 40px;
+    flex-wrap: wrap;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .v2 .hero-copy {
+    flex: 1 1 480px;
+  }
+  .v2 h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+  .v2 .hero-desc {
+    margin: 6px 0 0;
+    color: var(--page-muted);
+    max-width: 62ch;
+  }
+  .v2 .hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .v2 .btn-download {
+    background: #ededed;
+    color: #000;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 10px 18px;
+    border-radius: 999px;
+  }
+  .v2 .btn-download:hover {
+    background: #fff;
+  }
+  .v2 .link-source {
+    color: var(--page-muted);
+    font-size: 14px;
+    text-decoration: none;
+  }
+  .v2 .link-source:hover {
+    color: var(--page-text);
+  }
+  .v2 .site-footer {
+    margin-top: 64px;
+  }
+</style>
