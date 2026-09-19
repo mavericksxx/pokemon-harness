@@ -72,12 +72,30 @@ export default defineConfig({
         { find: /^@\/audio\/audioEngine$/, replacement: here('./src/showreel/audioStub.ts') },
         { find: /^@\//, replacement: here('../src/renderer/src/') },
         { find: /^@shared\//, replacement: here('../src/shared/') },
-        { find: /^@assets\//, replacement: here('../assets/') }
+        { find: /^@assets\//, replacement: here('../assets/') },
+        // Files under ../src resolve bare imports by walking up from THEIR
+        // OWN location on disk, not from this config file's. That walk
+        // never reaches site/node_modules (site/ isn't an ancestor of
+        // ../src), so in CI — where only site/node_modules exists, not a
+        // root node_modules — every bare package the reel's import graph
+        // touches must be pinned here explicitly. Keep this list in sync
+        // with site/package.json's dependencies.
+        { find: /^zustand$/, replacement: here('./node_modules/zustand/index.js') },
+        { find: /^zustand\//, replacement: here('./node_modules/zustand/') },
+        { find: /^@xterm\/xterm$/, replacement: here('./node_modules/@xterm/xterm') },
+        { find: /^@xterm\/xterm\//, replacement: here('./node_modules/@xterm/xterm/') },
+        { find: /^@xterm\/addon-fit$/, replacement: here('./node_modules/@xterm/addon-fit') },
+        { find: /^@xterm\/addon-search$/, replacement: here('./node_modules/@xterm/addon-search') },
+        { find: /^@xterm\/addon-webgl$/, replacement: here('./node_modules/@xterm/addon-webgl') },
+        { find: /^pixi\.js$/, replacement: here('./node_modules/pixi.js') },
+        { find: /^gifuct-js$/, replacement: here('./node_modules/gifuct-js') },
+        { find: /^react-dom\/client$/, replacement: here('./node_modules/react-dom/client') },
+        { find: /^react-dom$/, replacement: here('./node_modules/react-dom') },
+        { find: /^react$/, replacement: here('./node_modules/react') }
       ],
-      // Files under ../src resolve bare imports by walking up from THEIR
-      // location, which would reach the app's own node_modules (absent in
-      // CI) or a second copy of pixi/react. Dedupe pins them to this site's.
-      dedupe: ['pixi.js', 'gifuct-js', 'react', 'react-dom']
+      // Belt-and-braces: also collapse any copy Vite does manage to find
+      // under ../src (or a nested dep's own node_modules) onto this site's.
+      dedupe: ['pixi.js', 'gifuct-js', 'react', 'react-dom', 'zustand']
     },
     server: {
       fs: { allow: ['..'] }
