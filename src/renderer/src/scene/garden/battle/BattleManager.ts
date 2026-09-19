@@ -314,7 +314,7 @@ import { pinAnimation, unpinAnimation } from '../lazySprites';
 import { notifyBattleStart, notifyBattleEnd, playAttackSound, playVictoryChime } from '@/audio/audioEngine';
 import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
-import { hasPendingAsyncSubagents } from '@/pty/hookRouter';
+import { hasPendingAsyncSubagents } from './asyncSubagentGate';
 import { markDirty } from '../renderDirty';
 import type { Attack, BattleDeps, Challenger, ParentBattle, SubBattler } from './battleTypes';
 import {
