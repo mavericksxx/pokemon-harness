@@ -60,6 +60,8 @@ export interface ReelGarden {
   readonly battles: BattleManager;
   sessions: Map<string, ReelSession>;
   runtime(id: string): Runtime | undefined;
+  /** Dev-only framing probe: the camera subject's screen positions vs the pane. */
+  debugFraming(): { kind: string; width: number; height: number; points: { x: number; y: number }[] };
   upsert(session: ReelSession): void;
   patch(id: string, patch: Partial<ReelSession>): void;
   remove(id: string): void;
@@ -303,7 +305,38 @@ export async function mountShowreel(host: HTMLElement, background: number): Prom
     if (!parent) return;
     const x = foe ? (parent.walker.worldX + foe.x) / 2 : parent.walker.worldX;
     const y = foe ? (parent.walker.worldY + foe.y) / 2 : parent.walker.worldY;
-    camera.focusOn(x + borderPx, y - 12 + borderPx, zoomFor(subject.zoom));
+    // Frame BOTH combatants: zoom out as far as needed (down to Camera's own
+    // fit-the-map minimum) so the pair plus a sprite-sized margin fits.
+    let zoom = subject.zoom ?? 2.4;
+    if (foe) {
+      const w = host.clientWidth || 1;
+      const h = host.clientHeight || 1;
+      const spanX = Math.abs(parent.walker.worldX - foe.x) + 140;
+      const spanY = Math.abs(parent.walker.worldY - foe.y) + 170;
+      zoom = Math.min(zoom, w / spanX, h / spanY);
+    }
+    camera.focusOn(x + borderPx, y - 30 + borderPx, zoom);
+  };
+
+  /** Screen-space (canvas CSS px) positions of the current camera subject(s)
+   *  — for the dev-only framing check (reel.ts exposes it). */
+  const subjectScreenPoints = (): { x: number; y: number }[] => {
+    const pts: { x: number; y: number }[] = [];
+    const push = (c: Container | undefined): void => {
+      if (!c || c.destroyed) return;
+      const g = c.getGlobalPosition();
+      pts.push({ x: g.x, y: g.y });
+    };
+    if (subject.kind === 'walker') push(runtimes.get(subject.id)?.walker.container);
+    if (subject.kind === 'battle') {
+      push(runtimes.get(subject.parentId)?.walker.container);
+      const pos = battles.getBattlerPosition(subject.key);
+      if (pos) {
+        const g = charLayer.toGlobal(pos);
+        pts.push({ x: g.x, y: g.y });
+      }
+    }
+    return pts;
   };
 
   const tickListeners: ((dtMs: number) => void)[] = [];
@@ -354,6 +387,12 @@ export async function mountShowreel(host: HTMLElement, background: number): Prom
     },
     sessions,
     runtime: (id) => runtimes.get(id),
+    debugFraming: () => ({
+      kind: subject.kind,
+      width: host.clientWidth,
+      height: host.clientHeight,
+      points: subjectScreenPoints()
+    }),
     upsert(session) {
       sessions.set(session.id, session);
       reconcile();

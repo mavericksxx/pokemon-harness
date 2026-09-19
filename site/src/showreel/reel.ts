@@ -170,6 +170,13 @@ export async function startReel(els: ReelElements): Promise<ReelController> {
   window.addEventListener('reel:battler', onBattler);
 
   // --- helpers --------------------------------------------------------------
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__reelFraming = () => ({
+      caption: els.caption.textContent,
+      ...garden.debugFraming()
+    });
+  }
+
   const caption = (text: string): void => {
     els.caption.textContent = text;
   };
@@ -299,7 +306,7 @@ export async function startReel(els: ReelElements): Promise<ReelController> {
   const runOnce = async (): Promise<void> => {
     garden.setNight('day');
     useAppSettingsStore.getState().setDayNightMode('auto');
-    garden.setCamera({ kind: 'fit' });
+    garden.setCamera({ kind: 'wide' });
 
     // 1. a new session hatches
     caption('new session');

@@ -187,7 +187,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   .intro-row {
     display: flex;
     gap: 48px;
-    align-items: flex-end;
+    align-items: flex-start;
     justify-content: space-between;
     flex-wrap: wrap;
   }
@@ -203,6 +203,9 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   .intro-side {
     flex: 0 1 420px;
     min-width: 0;
+  }
+  .intro-side {
+    padding-top: 6px;
   }
   .intro-side p {
     font-size: 15.5px;
