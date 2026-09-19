@@ -44,6 +44,14 @@
   --shadow: rgba(0, 0, 0, 0.55);
   --shadow-hard: 6px 6px 0 rgba(0, 0, 0, 0.5);
 
+  /* Hall of Origin's cosmic ground (src/renderer/src/index.css --arceus-*) —
+   * borrowed here as a faint atmosphere behind the whole site, not just
+   * Arceus's card, so the page reads as this app's world rather than a
+   * generic dark template. */
+  --cosmic-deep: #0d0f22;
+  --cosmic-mid: #1b1d43;
+  --cosmic-violet: #514678;
+
   /* read by the showreel frame (showreel.css) */
   --ink-soft: var(--muted);
 
@@ -68,12 +76,41 @@ body {
   margin: 0;
   min-height: 100vh;
   overflow-x: hidden;
-  background: var(--bg);
+  position: relative;
+  background:
+    radial-gradient(ellipse 1200px 640px at 18% -10%, var(--cosmic-mid) 0%, transparent 60%),
+    radial-gradient(ellipse 900px 600px at 100% 0%, var(--cosmic-violet) 0%, transparent 55%),
+    var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Faint scanline grain over the whole page — the same trick Arceus's Hall
+ * of Origin uses (index.css "Faint warm scanline grain"), cooled to match
+ * this page's palette instead of his warm one. Pure CSS, no image. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(222, 219, 214, 0.018) 0px,
+    rgba(222, 219, 214, 0.018) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+}
+.site-header,
+main,
+.site-footer {
+  position: relative;
+  z-index: 1;
 }
 
 img {
@@ -112,6 +149,17 @@ a {
 .site-header {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.site-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--gold) 0%, transparent 45%);
+  opacity: 0.55;
 }
 .site-header-inner {
   display: flex;

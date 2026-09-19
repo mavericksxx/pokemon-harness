@@ -9,7 +9,7 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
 <BaseLayout title="pokéharness — your coding agents as pokémon" current="home">
   <div class="home">
     <div class="home-copy">
-      <h1>your coding agents, as pokémon</h1>
+      <h1><span>your coding agents,</span><span>as pokémon</span></h1>
       <p>a mac app that shows each claude code, codex or cursor-agent session as a pokémon in a pixel-art garden, with its terminal beside it.</p>
       <div class="home-actions">
         <a class="btn-pixel" href={RELEASES}>download for mac</a>
@@ -34,14 +34,19 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
   }
   .home-copy {
     padding-bottom: 32px;
+    animation: home-rise 560ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
   }
   h1 {
-    margin: 0 0 14px;
-    font-size: clamp(28px, 2.8vw, 40px);
-    line-height: 1.12;
-    font-weight: 650;
-    letter-spacing: -0.02em;
-    text-wrap: balance;
+    margin: 0 0 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--font-pixel);
+    font-size: clamp(15px, 1.7vw, 20px);
+    line-height: 1.7;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
   }
   .home-copy p {
     margin: 0 0 24px;
@@ -57,10 +62,28 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
   }
   .home-reel {
     min-width: 0;
+    animation: home-rise 640ms 90ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
   }
   .home-reel :global(.reel-section) {
     padding: 0;
     max-width: none;
+  }
+
+  @keyframes home-rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .home-copy,
+    .home-reel {
+      animation: none;
+    }
   }
 
   @media (max-width: 1100px) {
@@ -81,8 +104,8 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
       padding-bottom: 0;
     }
     h1 {
-      font-size: clamp(24px, 5vw, 30px);
-      margin-bottom: 6px;
+      font-size: clamp(13px, 3.6vw, 16px);
+      margin-bottom: 10px;
     }
     .home-copy p {
       margin-bottom: 14px;
