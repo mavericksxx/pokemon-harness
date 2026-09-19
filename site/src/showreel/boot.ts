@@ -51,6 +51,7 @@ export function bootShowreel(): void {
   const scope = stage.closest('section') ?? document;
   let controller: ReelController | null = null;
   let starting = false;
+  let retried = false;
   let onScreen = false;
 
   const syncPaused = (): void => controller?.setPaused(!onScreen || document.hidden);
@@ -70,7 +71,14 @@ export function bootShowreel(): void {
       syncPaused();
     } catch (e) {
       // Anything failing leaves the poster in place — the page still works.
+      // One retry: a chunk fetch can fail transiently (a flaky connection, or
+      // the dev server re-optimizing deps on a cold load).
       console.error('[showreel] failed to start', e);
+      if (!retried) {
+        retried = true;
+        starting = false;
+        window.setTimeout(() => void start(), 1500);
+      }
     }
   };
 
