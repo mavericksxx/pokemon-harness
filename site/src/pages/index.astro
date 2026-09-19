@@ -17,7 +17,7 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
       </div>
     </div>
     <div class="home-reel">
-      <Showreel fitMargin={24} />
+      <Showreel fitMargin={96} />
     </div>
   </div>
 </BaseLayout>
@@ -25,96 +25,88 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
 <style>
   .home {
     display: grid;
-    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    grid-template-columns: minmax(300px, 352px) minmax(0, 1fr);
     align-items: center;
-    gap: 40px;
-    max-width: 1600px;
+    column-gap: clamp(40px, 4.5vw, 72px);
+    max-width: calc(var(--container) + 2 * var(--gutter));
     margin: 0 auto;
-    padding: 12px 24px 0;
+    min-height: calc(100svh - var(--header-h) - 48px);
+    padding: 16px var(--gutter) 32px;
   }
   .home-copy {
     padding-bottom: 32px;
-    animation: home-rise 560ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
   }
   h1 {
-    margin: 0 0 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-family: var(--font-pixel);
-    font-size: clamp(15px, 1.7vw, 20px);
-    line-height: 1.7;
-    font-weight: 400;
-    letter-spacing: 0;
-    text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+    margin: 0 0 24px;
+    font-family: var(--font-ui);
+    font-size: clamp(40px, 3.6vw, 56px);
+    line-height: 1.02;
+    font-weight: 650;
+    letter-spacing: -0.035em;
+    color: var(--text);
+    text-wrap: balance;
+  }
+  h1 span {
+    display: block;
   }
   .home-copy p {
-    margin: 0 0 24px;
+    margin: 0 0 40px;
+    max-width: 34ch;
     color: var(--text-soft);
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: 17px;
+    line-height: 1.6;
+    text-wrap: pretty;
   }
   .home-actions {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 18px 20px;
+    gap: 16px 32px;
   }
   .home-reel {
     min-width: 0;
-    animation: home-rise 640ms 90ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
   }
   .home-reel :global(.reel-section) {
     padding: 0;
     max-width: none;
   }
-
-  @keyframes home-rise {
-    from {
-      opacity: 0;
-      transform: translateY(14px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  .home-reel :global(.reel-stage) {
+    margin-right: 0;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .home-copy,
-    .home-reel {
-      animation: none;
-    }
+  .home-reel :global(.reel-caption) {
+    justify-content: flex-end;
   }
 
   @media (max-width: 1100px) {
     .home {
-      grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-      gap: 28px;
+      grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+    }
+    h1 {
+      font-size: 40px;
+    }
+    .home-copy p {
+      font-size: 16px;
+      margin-bottom: 32px;
     }
   }
 
-  /* Stacked: compact copy on top, the window below. */
+  /* Stacked: copy on top, the window below. */
   @media (max-width: 900px) {
     .home {
       grid-template-columns: minmax(0, 1fr);
-      gap: 14px;
-      padding-top: 16px;
+      row-gap: 32px;
+      min-height: 0;
+      padding-top: 24px;
     }
     .home-copy {
       padding-bottom: 0;
     }
     h1 {
-      font-size: clamp(13px, 3.6vw, 16px);
-      margin-bottom: 10px;
+      font-size: clamp(32px, 8vw, 40px);
+      margin-bottom: 16px;
     }
     .home-copy p {
-      margin-bottom: 14px;
-      font-size: 14px;
-    }
-  }
-  @media (max-width: 560px) {
-    .home {
-      padding: 16px 16px 0;
+      margin-bottom: 24px;
     }
   }
 </style>
