@@ -475,4 +475,37 @@ const pad = (n: number): string => String(n).padStart(2, '0');
       padding-top: 64px;
     }
   }
+
+  /* Short viewports (laptops with browser chrome): a one-row hero so the
+     headline, CTA and the whole showreel window fit without scrolling. */
+  @media (max-height: 760px) and (min-width: 700px) {
+    .intro {
+      padding-top: 12px;
+      padding-bottom: 10px;
+    }
+    .intro .kicker,
+    .intro-side p {
+      display: none;
+    }
+    .intro-row {
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 24px;
+    }
+    h1 {
+      font-size: clamp(22px, 2.6vw, 32px);
+      max-width: none;
+      flex: 1 1 auto;
+    }
+    .intro-side {
+      flex: none;
+    }
+    .cta-row {
+      flex-wrap: nowrap;
+    }
+    .stamp {
+      padding: 8px 16px;
+      font-size: 14px;
+    }
+  }
 </style>

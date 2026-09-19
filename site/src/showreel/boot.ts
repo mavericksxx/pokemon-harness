@@ -41,25 +41,33 @@ export function bootShowreel(): void {
   const scaler = document.querySelector<HTMLElement>('[data-reel-scaler]');
   if (!stage || !scaler) return;
 
-  // Scale the fixed 1440x900 window so it fits the section's width, a
-  // ~1100px cap, and the viewport height left below the hero copy (never
-  // more than viewport - 120px), then size the stage box to match.
+  // Scale the fixed 1440x900 window so the WHOLE window always fits on
+  // screen: within the section's width, a ~1100px cap, the viewport height
+  // under the site header (minus ~60px), and — on first view — the height
+  // left below the hero copy. A minimum scale applies only on narrow
+  // (<700px) screens, where the width alone decides.
   const section = stage.parentElement ?? stage;
+  const header = document.querySelector<HTMLElement>('.site-header');
   const fit = (): void => {
     const vh = window.innerHeight;
+    const headerH = header?.offsetHeight ?? 64;
     const top = stage.getBoundingClientRect().top + window.scrollY;
-    const belowHero = vh - top - 48;
-    const heightBudget = Math.min(vh - 120, Math.max(belowHero, vh * 0.55));
-    const scale = Math.max(
-      0.15,
-      Math.min(section.clientWidth / DESIGN_WIDTH, MAX_RENDERED_WIDTH / DESIGN_WIDTH, heightBudget / DESIGN_HEIGHT)
-    );
+    // 44px under the window leaves room for its caption line.
+    const heightBudget = Math.min(vh - headerH - 60, vh - top - 44);
+    let scale = Math.min(section.clientWidth / DESIGN_WIDTH, MAX_RENDERED_WIDTH / DESIGN_WIDTH, heightBudget / DESIGN_HEIGHT);
+    if (window.innerWidth < 700) scale = Math.max(scale, Math.min(0.2, section.clientWidth / DESIGN_WIDTH));
+    scale = Math.max(scale, 0.1);
     stage.style.width = `${Math.floor(DESIGN_WIDTH * scale)}px`;
     stage.style.height = `${Math.floor(DESIGN_HEIGHT * scale)}px`;
     scaler.style.transform = `scale(${scale})`;
   };
   fit();
-  new ResizeObserver(fit).observe(section);
+  // Refit when anything above the window reflows (web fonts landing change
+  // the headline's height), not just when the section itself resizes.
+  const ro = new ResizeObserver(fit);
+  ro.observe(section);
+  ro.observe(document.body);
+  void document.fonts?.ready.then(fit);
   window.addEventListener('resize', fit);
 
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
