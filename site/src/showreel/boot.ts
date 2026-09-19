@@ -8,6 +8,8 @@
 import type { ReelController } from './reel';
 
 const DESIGN_WIDTH = 1440;
+const DESIGN_HEIGHT = 900;
+const MAX_RENDERED_WIDTH = 1100;
 
 function supportsWebGL(): boolean {
   try {
@@ -39,11 +41,26 @@ export function bootShowreel(): void {
   const scaler = document.querySelector<HTMLElement>('[data-reel-scaler]');
   if (!stage || !scaler) return;
 
+  // Scale the fixed 1440x900 window so it fits the section's width, a
+  // ~1100px cap, and the viewport height left below the hero copy (never
+  // more than viewport - 120px), then size the stage box to match.
+  const section = stage.parentElement ?? stage;
   const fit = (): void => {
-    scaler.style.transform = `scale(${stage.clientWidth / DESIGN_WIDTH})`;
+    const vh = window.innerHeight;
+    const top = stage.getBoundingClientRect().top + window.scrollY;
+    const belowHero = vh - top - 48;
+    const heightBudget = Math.min(vh - 120, Math.max(belowHero, vh * 0.55));
+    const scale = Math.max(
+      0.15,
+      Math.min(section.clientWidth / DESIGN_WIDTH, MAX_RENDERED_WIDTH / DESIGN_WIDTH, heightBudget / DESIGN_HEIGHT)
+    );
+    stage.style.width = `${Math.floor(DESIGN_WIDTH * scale)}px`;
+    stage.style.height = `${Math.floor(DESIGN_HEIGHT * scale)}px`;
+    scaler.style.transform = `scale(${scale})`;
   };
   fit();
-  new ResizeObserver(fit).observe(stage);
+  new ResizeObserver(fit).observe(section);
+  window.addEventListener('resize', fit);
 
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
   if (reduce.matches || !supportsWebGL()) return; // poster stays

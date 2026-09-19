@@ -178,8 +178,11 @@ const pad = (n: number): string => String(n).padStart(2, '0');
 
 <style>
   .intro {
-    padding-top: 48px;
-    padding-bottom: 28px;
+    padding-top: 22px;
+    padding-bottom: 16px;
+  }
+  .intro .kicker {
+    margin-bottom: 8px;
   }
   .intro-row {
     display: flex;
@@ -190,7 +193,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   }
   h1 {
     font-weight: 500;
-    font-size: clamp(34px, 5vw, 58px);
+    font-size: clamp(30px, 3.4vw, 46px);
     line-height: 1.05;
     letter-spacing: -0.015em;
     margin: 0;
@@ -202,10 +205,10 @@ const pad = (n: number): string => String(n).padStart(2, '0');
     min-width: 0;
   }
   .intro-side p {
-    font-size: 16.5px;
-    line-height: 1.65;
+    font-size: 15.5px;
+    line-height: 1.55;
     color: var(--ink-soft);
-    margin: 0 0 24px;
+    margin: 0 0 16px;
   }
   .cta-row {
     display: flex;
