@@ -8,12 +8,12 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
 
 <BaseLayout title="pokéharness — your coding agents as pokémon" current="home">
   <div class="home">
+    <div class="home-reel">
+      <Showreel fitMargin={150} maxWidth={1520} />
+    </div>
     <div class="home-actions">
       <a class="btn-pixel" href={RELEASES}>download for mac</a>
       <a class="gold-link" href={REPO}>source ↗</a>
-    </div>
-    <div class="home-reel">
-      <Showreel fitMargin={24} maxWidth={1520} />
     </div>
     <p class="home-copy">a mac app that shows each claude code, codex or cursor-agent session as a pokémon in a pixel-art garden, with its terminal beside it.</p>
   </div>
@@ -31,7 +31,7 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
     justify-content: center;
     flex-wrap: wrap;
     gap: 16px 32px;
-    margin: 0 0 20px;
+    margin: 20px 0 0;
   }
   .home-reel :global(.reel-section) {
     padding: 0;
