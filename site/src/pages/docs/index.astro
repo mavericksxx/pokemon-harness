@@ -6,11 +6,10 @@ const allDocs = (await getCollection('docs')).sort((a, b) => a.data.order - b.da
 const pad = (n: number): string => String(n).padStart(2, '0');
 ---
 
-<BaseLayout title="field notes · pokéharness" current="docs">
+<BaseLayout title="docs · pokéharness" current="docs">
   <div class="wrap notes">
-    <p class="kicker">docs</p>
-    <h1 class="serif">field notes</h1>
-    <p class="lede">everything the garden does, one note per feature.</p>
+    <h1 class="serif">docs</h1>
+    <p class="lede">one page per feature.</p>
     <ol class="notes-list">
       {allDocs.map((doc, i) => (
         <li>

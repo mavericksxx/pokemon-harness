@@ -39,8 +39,20 @@ async function fetchSpriteGif(
   }
 }
 
+/** The one live "pty" channel: terminalRegistry.createTerminal subscribes
+ *  with onPtyData exactly as it does in Electron, and the reel pushes its
+ *  scripted transcript through `feedPty` — so the app's real xterm renders it. */
+const ptyListeners = new Map<string, (data: string) => void>();
+export function feedPty(sessionId: string, data: string): void {
+  ptyListeners.get(sessionId)?.(data);
+}
+
 const api = {
   fetchSpriteGif,
+  onPtyData: (id: string, cb: (data: string) => void): (() => void) => {
+    ptyListeners.set(id, cb);
+    return () => ptyListeners.delete(id);
+  },
   getCachedSprite: async (): Promise<null> => null,
   saveCachedSprite: async (): Promise<void> => {},
   getCachedThumbnail: async (): Promise<null> => null,
@@ -55,6 +67,20 @@ const api = {
   getShinyOddsOverride: async (): Promise<string> => '1000000000'
 };
 
-(window as unknown as { api: typeof api }).api = api;
+/**
+ * Everything else the app's components touch (terminalRegistry/hookRouter's
+ * module-scope `onPtyData`/`onHookEvent`/... registrations, topbar chips'
+ * one-off invokes) resolves to an inert stand-in: `on*` subscriptions return
+ * an unsubscribe no-op, every other call resolves to undefined.
+ */
+const inert = new Proxy(api as Record<string, unknown>, {
+  get(target, prop) {
+    if (typeof prop !== 'string') return undefined;
+    if (prop in target) return target[prop];
+    if (/^on[A-Z]/.test(prop)) return () => () => {};
+    return async () => undefined;
+  }
+});
 
-export {};
+(window as unknown as { api: unknown }).api = inert;
+

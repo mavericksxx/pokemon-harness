@@ -20,10 +20,10 @@ interface Plate {
 // shows up (see `uncatalogued` below) rather than silently going missing.
 const gardenPlates: Plate[] = [
   { slug: 'evolution', name: 'evolution', sprite: '/sprites/raichu.gif', note: 'working time adds up. cross a threshold and the walker plays the full ceremony: a flash, a silhouette, then the new form. some evolved forms fly instead of walk.' },
-  { slug: 'shiny-pokemon', name: 'shiny pokémon', sprite: '/sprites/shiny/eevee.gif', note: 'one session in sixty-four rolls a shiny coat and keeps it for life, through every stage. a sparkle burst on arrival, a small star in the record.' },
+  { slug: 'shiny-pokemon', name: 'shiny pokémon', sprite: '/sprites/shiny/eevee.gif', note: 'each session has a 1-in-64 chance to be shiny and stays shiny through every evolution. it gets a sparkle on arrival and a star on its card.' },
   { slug: 'subagent-battles', name: 'subagent battles', sprite: '/sprites/gastly.gif', note: 'a task call spawns a wild pokémon that roams while the subagent works. when it finishes, it walks up and fights its parent: lunges, hit flashes, move text. one battle at a time.' },
-  { slug: 'mega-evolution', name: 'mega evolution', sprite: '/sprites/charizard-megax.gif', note: 'forty-six species swell into a mega form for the length of a battle, with a ring, vortex and plume ceremony, then settle back once it ends.' },
-  { slug: 'arceus', name: 'arceus', sprite: '/sprites/arceus.gif', note: 'summoned, not hatched. a permanent, gold-framed orchestrator in the hall of origin that can hand work to any session in any garden.' },
+  { slug: 'mega-evolution', name: 'mega evolution', sprite: '/sprites/charizard-megax.gif', note: '46 species mega-evolve for the length of a battle, with a full ceremony, and revert when it ends.' },
+  { slug: 'arceus', name: 'arceus', sprite: '/sprites/arceus.gif', note: 'a permanent orchestrator session, shown in the hall of origin, that can hand work to any other session in any workspace.' },
   { slug: null, name: 'day and night', glyph: '☾', note: 'the garden keeps your local clock. lamps come on at dusk, the pond catches moonlight overnight, and it fades back to day at sunrise.' },
   { slug: 'pokemon-picker', name: 'pokémon picker', sprite: '/sprites/bulbasaur.gif', note: 'type-ahead over the whole #1–1025 dex. one of each evolution line at a time, and a note when your pick joins as its base stage.' },
   { slug: 'audio', name: 'audio', glyph: '♪', note: 'cries on spawn, battle sfx, and optional heartgold/soulsilver music. music starts off, sfx starts on, and every setting persists.' },
@@ -46,18 +46,18 @@ const catalogued = new Set([...gardenPlates, ...harnessPlates].map((p) => p.slug
 const uncatalogued: Plate[] = docs
   .filter((d) => !catalogued.has(d.id))
   .sort((a, b) => a.data.order - b.data.order)
-  .map((d) => ({ slug: d.id, name: d.data.title.toLowerCase(), glyph: '·', note: 'see the field notes for this one.' }));
+  .map((d) => ({ slug: d.id, name: d.data.title.toLowerCase(), glyph: '·', note: 'see the docs page.' }));
 const harnessAll = [...harnessPlates, ...uncatalogued];
 const pad = (n: number): string => String(n).padStart(2, '0');
 ---
 
-<BaseLayout title="pokéharness — a field guide to your coding agents" current="home">
+<BaseLayout title="pokéharness — your coding agents as pokémon" current="home">
   <header class="intro wrap">
-    <p class="kicker">a field guide · for claude, codex and cursor-agent</p>
+    <p class="kicker">for claude code, codex and cursor-agent</p>
     <div class="intro-row">
-      <h1 class="serif">a field guide to your coding agents</h1>
+      <h1 class="serif">your coding agents, as pokémon in a garden</h1>
       <div class="intro-side">
-        <p>pokéharness turns every coding-agent session on your machine into a pokémon in a pixel-art garden. spawn one, and watch it work, fight, and evolve instead of staring at a terminal.</p>
+        <p>pokéharness is a macos app that runs your claude code, codex and cursor-agent sessions and shows each one as a pokémon in a pixel-art garden, with its terminal alongside.</p>
         <div class="cta-row">
           <a class="stamp" href={RELEASES}>download for mac</a>
           <a class="ink-link" href={REPO}>browse the source</a>
@@ -70,14 +70,14 @@ const pad = (n: number): string => String(n).padStart(2, '0');
 
   <section class="wrap works" aria-label="compatibility">
     <p>
-      <span class="works-label">observed in the wild with</span>
+      <span class="works-label">works with</span>
       <span class="tag">claude</span><span class="tag">codex</span><span class="tag">cursor-agent</span>
     </p>
     <p class="works-note">free and open source. runs on your machine: no accounts, no cloud.</p>
   </section>
 
   <section class="wrap section" id="method">
-    <p class="kicker">field method</p>
+    <p class="kicker">getting started</p>
     <h2 class="serif">how it works</h2>
     <ol class="method">
       <li class="method-step">
@@ -117,11 +117,11 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   </section>
 
   <section class="wrap section" id="catalogue">
-    <p class="kicker">catalogue</p>
-    <h2 class="serif">notes from the garden</h2>
-    <p class="section-note">a plate of what turns up once you've been watching a while. each entry links to its full field notes.</p>
+    <p class="kicker">features</p>
+    <h2 class="serif">what it does</h2>
+    <p class="section-note">each one links to its docs page.</p>
 
-    <h3 class="plate-title serif"><span>plate i.</span> in the garden</h3>
+    <h3 class="plate-title serif">in the garden</h3>
     <div class="plate">
       {gardenPlates.map((p, i) => (
         <a class:list={['plate-row', { 'plate-row-static': !p.slug }]} href={p.slug ? `/docs/${p.slug}/` : undefined}>
@@ -133,12 +133,12 @@ const pad = (n: number): string => String(n).padStart(2, '0');
             <span class="plate-name serif">{p.name}</span>
             <span class="plate-note">{p.note}</span>
           </span>
-          {p.slug && <span class="plate-more" aria-hidden="true">notes →</span>}
+          {p.slug && <span class="plate-more" aria-hidden="true">docs →</span>}
         </a>
       ))}
     </div>
 
-    <h3 class="plate-title serif"><span>plate ii.</span> the harness itself</h3>
+    <h3 class="plate-title serif">the harness</h3>
     <div class="plate">
       {harnessAll.map((p, i) => (
         <a class="plate-row" href={`/docs/${p.slug}/`}>
@@ -148,7 +148,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
             <span class="plate-name serif">{p.name}</span>
             <span class="plate-note">{p.note}</span>
           </span>
-          <span class="plate-more" aria-hidden="true">notes →</span>
+          <span class="plate-more" aria-hidden="true">docs →</span>
         </a>
       ))}
     </div>
@@ -157,12 +157,12 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   <section class="wrap section" id="download">
     <div class="collect">
       <div class="collect-copy">
-        <p class="kicker">collecting</p>
-        <h2 class="serif">take one home</h2>
+        <p class="kicker">download</p>
+        <h2 class="serif">download pokéharness</h2>
         <p>pokéharness is a free macos app. it runs the agent clis you already have installed, keeps everything on your machine, and gets out of the way when you just want the terminal.</p>
         <div class="cta-row">
           <a class="stamp" href={RELEASES}>download for mac</a>
-          <a class="ink-link" href="/docs/">read the field notes</a>
+          <a class="ink-link" href="/docs/">read the docs</a>
         </div>
       </div>
       <figure class="collect-photo">
@@ -170,7 +170,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
           <div class="specimen-pin" aria-hidden="true"></div>
           <img src="/screenshots/arceus.png" alt="the hall of origin: arceus floating in a starfield, cycling through its type-plate formes" width="578" height="361" loading="lazy">
         </div>
-        <figcaption class="specimen-cap">fig. 10 — arceus, observed in the hall of origin.</figcaption>
+        <figcaption class="specimen-cap">arceus in the hall of origin.</figcaption>
       </figure>
     </div>
   </section>

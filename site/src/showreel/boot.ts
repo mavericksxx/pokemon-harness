@@ -1,17 +1,13 @@
 /**
  * Client-only entry for the hero showreel. Tiny on purpose: the heavy chunk
- * (Pixi + the app's garden modules + React for ArceusWarp) is a dynamic
- * import, fetched only once the hero is near the viewport, never under
- * prefers-reduced-motion (the static poster stays instead), and never on the
- * server.
+ * (Pixi, the app's garden modules and React components) is a dynamic import,
+ * fetched only once the hero nears the viewport, never under
+ * prefers-reduced-motion (the static poster stays instead), never on the
+ * server. Also keeps the fixed 1440x900 window scaled to the hero's width.
  */
 import type { ReelController } from './reel';
 
-function letterboxColor(): number {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--reel-letterbox').trim();
-  const n = parseInt(raw.replace('#', ''), 16);
-  return Number.isFinite(n) ? n : 0xe4d5ae;
-}
+const DESIGN_WIDTH = 1440;
 
 function supportsWebGL(): boolean {
   try {
@@ -22,10 +18,10 @@ function supportsWebGL(): boolean {
   }
 }
 
-/** Dev server only: @vitejs/plugin-react's fast-refresh transform of
- *  ArceusWarp.tsx expects the refresh preamble Astro only injects when a
- *  React island is on the page — and this page has none (the reel mounts
- *  React itself). Production builds have no refresh transform at all. */
+/** Dev server only: @vitejs/plugin-react's fast-refresh transform of the
+ *  app's .tsx components expects the refresh preamble Astro only injects
+ *  when a React island is on the page — and this page has none (the reel
+ *  mounts React itself). Production builds have no refresh transform. */
 async function installReactRefreshPreamble(): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
   if (w.__vite_plugin_react_preamble_installed__) return;
@@ -40,12 +36,19 @@ async function installReactRefreshPreamble(): Promise<void> {
 
 export function bootShowreel(): void {
   const stage = document.querySelector<HTMLElement>('[data-reel]');
-  if (!stage) return;
+  const scaler = document.querySelector<HTMLElement>('[data-reel-scaler]');
+  if (!stage || !scaler) return;
+
+  const fit = (): void => {
+    scaler.style.transform = `scale(${stage.clientWidth / DESIGN_WIDTH})`;
+  };
+  fit();
+  new ResizeObserver(fit).observe(stage);
+
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
-  if (reduce.matches || !supportsWebGL()) return; // poster + static caption stay
+  if (reduce.matches || !supportsWebGL()) return; // poster stays
 
   const scope = stage.closest('section') ?? document;
-  const q = <T extends HTMLElement>(sel: string): T => scope.querySelector<T>(sel)!;
   let controller: ReelController | null = null;
   let starting = false;
   let onScreen = false;
@@ -58,18 +61,11 @@ export function bootShowreel(): void {
     try {
       if (import.meta.env.DEV) await installReactRefreshPreamble();
       const { startReel } = await import('./reel');
-      controller = await startReel(
-        {
-          stage,
-          host: q<HTMLDivElement>('[data-reel-host]'),
-          warp: q('[data-reel-warp]'),
-          terminal: q('[data-reel-terminal]'),
-          roster: q('[data-reel-roster]'),
-          caption: q('[data-reel-caption]'),
-          hud: q('[data-reel-hud]')
-        },
-        letterboxColor()
-      );
+      controller = await startReel({
+        stage,
+        window: scope.querySelector<HTMLElement>('[data-reel-window]')!,
+        caption: scope.querySelector<HTMLElement>('[data-reel-caption]')!
+      });
       stage.classList.add('reel-live');
       syncPaused();
     } catch (e) {
@@ -87,7 +83,6 @@ export function bootShowreel(): void {
     { rootMargin: '200px 0px' }
   ).observe(stage);
   document.addEventListener('visibilitychange', syncPaused);
-  window.addEventListener('themechange', () => controller?.setBackground(letterboxColor()));
   reduce.addEventListener('change', () => {
     if (reduce.matches && controller) {
       controller.destroy();

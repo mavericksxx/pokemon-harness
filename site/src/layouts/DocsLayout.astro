@@ -16,11 +16,11 @@ const next = index >= 0 && index < allDocs.length - 1 ? allDocs[index + 1] : und
 const pad = (n: number): string => String(n).padStart(2, '0');
 ---
 
-<BaseLayout title={`${title} · pokéharness field notes`} current="docs">
+<BaseLayout title={`${title} · pokéharness docs`} current="docs">
   <div class="wrap docs-shell">
-    <nav class="docs-index" aria-label="field notes">
+    <nav class="docs-index" aria-label="docs">
       <details class="docs-index-details" open>
-        <summary class="docs-index-title serif">field notes</summary>
+        <summary class="docs-index-title serif">docs</summary>
         <ol>
           {allDocs.map((doc, i) => (
             <li>
@@ -34,12 +34,11 @@ const pad = (n: number): string => String(n).padStart(2, '0');
       </details>
     </nav>
     <article class="docs-body">
-      <p class="docs-kicker">field note {pad(index + 1)}</p>
-      <h1 class="serif">{title}</h1>
+            <h1 class="serif">{title}</h1>
       <div class="prose">
         <slot />
       </div>
-      <nav class="docs-pager" aria-label="more notes">
+      <nav class="docs-pager" aria-label="more docs">
         {prev ? <a href={`/docs/${prev.id}/`}><span>← previous</span>{prev.data.title}</a> : <span />}
         {next && <a class="docs-pager-next" href={`/docs/${next.id}/`}><span>next →</span>{next.data.title}</a>}
       </nav>
