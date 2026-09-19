@@ -1,91 +1,77 @@
 ---
 import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
 
 const allDocs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const pad = (n: number): string => String(n).padStart(2, '0');
 ---
 
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>docs · pokéharness</title>
-<link rel="icon" type="image/png" href="/favicon.png">
+<BaseLayout title="field notes · pokéharness" current="docs">
+  <div class="wrap notes">
+    <p class="kicker">docs</p>
+    <h1 class="serif">field notes</h1>
+    <p class="lede">everything the garden does, one note per feature.</p>
+    <ol class="notes-list">
+      {allDocs.map((doc, i) => (
+        <li>
+          <a href={`/docs/${doc.id}/`}>
+            <span class="notes-num">{pad(i + 1)}</span>
+            <span class="notes-title serif">{doc.data.title}</span>
+            <span class="notes-more" aria-hidden="true">→</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </div>
+</BaseLayout>
 
 <style>
-  @font-face {
-    font-family: 'Inter';
-    font-style: normal;
-    font-weight: 400 700;
-    font-display: swap;
-    src: url('/fonts/inter-latin-var.woff2') format('woff2');
+  .notes {
+    max-width: 760px;
+    padding-top: 48px;
   }
-  @font-face {
-    font-family: 'Press Start 2P';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/press-start-2p-latin-400.woff2') format('woff2');
+  h1 {
+    font-weight: 500;
+    font-size: clamp(32px, 4.5vw, 46px);
+    line-height: 1.1;
+    margin: 0 0 10px;
   }
-
-  :root {
-    --ground-0: #17171B;
-    --ground-100: #1D1D22;
-    --ink-900: #DEDBD6;
-    --ink-700: #B3B0AC;
-    --gold: #E8B740;
-    --font-display: 'Press Start 2P', monospace;
-    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  .lede {
+    color: var(--ink-soft);
+    margin: 0 0 32px;
   }
-
-  * { box-sizing: border-box; }
-  html { color-scheme: dark; }
-  body {
+  .notes-list {
+    list-style: none;
     margin: 0;
-    background: var(--ground-0);
-    color: var(--ink-900);
-    font-family: var(--font-ui);
-    line-height: 1.5;
+    padding: 0;
+    border-top: 1px solid var(--rule);
   }
-  a.brand {
-    display: block;
-    font-family: var(--font-display);
-    font-size: 10px;
-    color: var(--gold);
-    letter-spacing: 0.02em;
+  .notes-list a {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding: 14px 6px;
+    border-bottom: 1px solid var(--rule);
     text-decoration: none;
-    padding: 16px 24px;
-    border-bottom: 1px solid rgba(120, 118, 132, 0.2);
+    color: var(--ink);
   }
-  .wrap {
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 48px 24px;
+  .notes-list a:hover {
+    background: var(--moss-wash);
   }
-  h1 { font-size: 28px; margin: 0 0 24px; }
-  ul { list-style: none; padding: 0; margin: 0; }
-  li { margin: 0 0 8px; }
-  a.doc-link {
-    display: block;
-    padding: 14px 16px;
-    background: var(--ground-100);
-    box-shadow: inset 0 0 0 1px rgba(120, 118, 132, 0.2);
-    color: var(--ink-900);
-    text-decoration: none;
-    font-weight: 600;
+  .notes-num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--gold-ink);
+    flex: 0 0 22px;
   }
-  a.doc-link:hover { color: var(--gold); }
+  .notes-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .notes-more {
+    font-family: var(--font-serif);
+    color: var(--rust);
+  }
 </style>
-</head>
-<body>
-<a class="brand" href="/">pokéharness</a>
-<div class="wrap">
-  <h1>docs</h1>
-  <ul>
-    {allDocs.map((doc) => (
-      <li><a class="doc-link" href={`/docs/${doc.id}/`}>{doc.data.title}</a></li>
-    ))}
-  </ul>
-</div>
-</body>
-</html>

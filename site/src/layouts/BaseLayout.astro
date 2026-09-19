@@ -1,0 +1,118 @@
+---
+import '../styles/field-notes.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  current?: 'home' | 'docs';
+}
+
+const DEFAULT_DESCRIPTION =
+  'pokéharness turns every claude, codex, or cursor session on your machine into a walker in a pixel-art garden. watch it work instead of staring at a terminal.';
+const { title, description = DEFAULT_DESCRIPTION, current } = Astro.props;
+const RELEASES = 'https://github.com/mavericksxx/pokemon-harness/releases/latest';
+const REPO = 'https://github.com/mavericksxx/pokemon-harness';
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<meta name="description" content={description}>
+<meta property="og:title" content={title}>
+<meta property="og:description" content={description}>
+<meta property="og:image" content="https://pokeharness.parthkohale.com/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#efe6d3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1712" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preload" href="/fonts/fraunces-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Runs before first paint so a stored theme never flashes the other one. -->
+<script is:inline>
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('pokeharness-theme'); } catch (e) {}
+    if (stored === 'light' || stored === 'dark') {
+      document.documentElement.setAttribute('data-theme', stored);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  })();
+</script>
+<slot name="head" />
+</head>
+<body>
+<a class="skip-link" href="#main">skip to content</a>
+<header class="site-header">
+  <div class="wrap site-header-inner">
+    <a class="brand" href="/">pokéharness <span class="brand-vol">a field guide</span></a>
+    <nav class="site-nav" aria-label="primary">
+      <a class="nav-optional" href="/#catalogue">catalogue</a>
+      <a class="nav-optional" href="/#download">download</a>
+      <a href="/docs/" aria-current={current === 'docs' ? 'page' : undefined}>docs</a>
+      <a href={REPO}>github</a>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="switch to dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <slot />
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="site-footer-row">
+      <a class="brand" href="/">pokéharness</a>
+      <a href={REPO}>github repo</a>
+      <a href={RELEASES}>download for mac</a>
+      <a href="/docs/">docs</a>
+      <span>free and open source · mit</span>
+    </div>
+    <p class="disclaimer">Pokémon, Pokémon character names, and their designs are trademarks of Nintendo, Game Freak, and Creatures Inc. Sprites shown here are fan-made and used non-commercially; this project is not affiliated with or endorsed by any of them.</p>
+  </div>
+</footer>
+
+<script>
+  const root = document.documentElement;
+  const button = document.querySelector<HTMLButtonElement>('[data-theme-toggle]');
+  const label = (): void => {
+    const dark = root.getAttribute('data-theme') === 'dark';
+    button?.setAttribute('aria-label', dark ? 'switch to light mode' : 'switch to dark mode');
+  };
+  label();
+  button?.addEventListener('click', () => {
+    const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem('pokeharness-theme', next);
+    } catch {
+      /* private mode / blocked storage — the choice just won't persist */
+    }
+    label();
+    window.dispatchEvent(new Event('themechange'));
+  });
+  // Follow the OS while the visitor hasn't picked a theme themselves.
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem('pokeharness-theme');
+    } catch {
+      /* ignore */
+    }
+    if (stored) return;
+    root.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+    label();
+    window.dispatchEvent(new Event('themechange'));
+  });
+</script>
+</body>
+</html>
