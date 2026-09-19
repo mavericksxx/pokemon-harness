@@ -941,8 +941,9 @@ export class HookBridge {
   /** Same shape again, for the delegate CLI (first-class delegate sessions) —
    *  the exact command an orchestrator runs, via its own Bash tool, to spawn
    *  a delegate: `<this> --cwd <path> [--label <text>] [--effort <level>]
-   *  <prompt>`. Public for the same reason `codexHookCommand` is: nothing
-   *  inside this class ever invokes it directly (unlike `hookCommand`, wired
+   *  <prompt>` (`--effort` defaults to `low` when omitted — see index.ts's
+   *  delegate spawn handler). Public for the same reason `codexHookCommand`
+   *  is: nothing inside this class ever invokes it directly (unlike `hookCommand`, wired
    *  automatically into every claude session's settings), so a caller outside
    *  it needs the string — here, only for surfacing the invocation to a human
    *  (no settings file references this one). */

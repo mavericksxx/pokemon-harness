@@ -1,4 +1,4 @@
-import { shell } from 'electron';
+import { app, shell } from 'electron';
 import { handle } from './handle';
 import { loadAudioSettings, saveAudioSettings } from '../audioSettings';
 import { loadAppSettings, saveAppSettings } from '../appSettings';
@@ -100,7 +100,7 @@ hookBridge.setHideStatusline(settings.hideClaudeStatusline);
     if (nextHarnessHomeDir !== getHarnessHomeDir()) {
       setHarnessHomeDir(nextHarnessHomeDir);
       await ensureHarnessHome(nextHarnessHomeDir);
-      await ensureHarnessInstructions(nextHarnessHomeDir);
+      await ensureHarnessInstructions(nextHarnessHomeDir, app.getVersion());
       saveWorkspaceRegistry(nextHarnessHomeDir, getWorkspaceRegistry());
       initDiagnostics(nextHarnessHomeDir); // future log writes only — see its own comment
     }

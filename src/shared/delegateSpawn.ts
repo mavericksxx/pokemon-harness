@@ -34,7 +34,7 @@ export interface DelegateSpawnRequest {
   cwd: string;
   /** The task text, passed as `codex exec`'s trailing prompt argument. */
   prompt: string;
-  /** `-c model_reasoning_effort=<value>` — defaults to 'medium' when absent. */
+  /** `-c model_reasoning_effort=<value>` — defaults to 'low' when absent. */
   reasoningEffort?: string;
 }
 

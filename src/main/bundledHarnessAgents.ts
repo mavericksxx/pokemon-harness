@@ -1,15 +1,18 @@
 /**
- * Bundled `advisor` and `investigator` subagents — injected into claude
- * spawns via Claude Code's `--agents <json>` CLI flag so features that key
- * off a specific `subagentType` work out of the box on a fresh install with
- * zero personal config. `advisor` powers the hovering-companion feature (the
- * renderer's hookRouter.ts, which fires purely on a Task dispatch whose raw
- * `subagentType === 'advisor'`); `investigator` is the read-only research
- * lane HARNESS.md's routing prose tells the orchestrator to dispatch instead
- * of doing research work inline. Without this, both only ever fire for a
- * user who has independently hand-written their own
- * `~/.claude/agents/{advisor,investigator}.md` — a fresh install has
- * neither, so both features are silently dormant.
+ * Bundled `advisor`, `investigator`, and `implementer` subagents — injected
+ * into claude spawns via Claude Code's `--agents <json>` CLI flag so features
+ * that key off a specific `subagentType` work out of the box on a fresh
+ * install with zero personal config. `advisor` powers the hovering-companion
+ * feature (the renderer's hookRouter.ts, which fires purely on a Task
+ * dispatch whose raw `subagentType === 'advisor'`); `investigator` is the
+ * read-only research lane HARNESS.md's routing prose tells the orchestrator
+ * to dispatch instead of doing research work inline; `implementer` is the
+ * Claude-lane implementation dispatch that same routing prose sends
+ * fully-specified coding tasks to, at LOW reasoning effort, instead of a
+ * plain/general-purpose dispatch. Without this, all three only ever fire for
+ * a user who has independently hand-written their own
+ * `~/.claude/agents/{advisor,investigator,implementer}.md` — a fresh install
+ * has none of them, so all three features are silently dormant.
  *
  * `claude --help`: `--agents <json>  JSON object defining custom agents
  * (e.g. '{"reviewer": {"description": "Reviews code", "prompt": "You are a
@@ -112,9 +115,41 @@ const BUNDLED_INVESTIGATOR_AGENT = {
 };
 
 /**
+ * The agent definition injected under the `"implementer"` key. This is the
+ * Claude-lane counterpart to the Codex/Luna delegate path: HARNESS.md's
+ * routing prose sends a fully-specified, self-contained coding task here —
+ * `Agent({subagent_type: "implementer", model: "haiku"|"sonnet"|"opus"})` —
+ * rather than to a plain/general-purpose dispatch, so the reasoning already
+ * done by the orchestrator (which files, what shape, what to verify) isn't
+ * redone by the subagent.
+ *
+ * `effort: 'low'` is set directly on the definition (unlike `model`, which is
+ * left OFF here and supplied per-call as the Agent tool's own `model`
+ * parameter — Haiku, Sonnet, or Opus, whichever lane the user picked). Since
+ * the orchestrator's spec already carries the reasoning, the implementer's
+ * own job is mechanical follow-through, so it runs at low effort regardless
+ * of which model backs it. `claude --help`'s `--agents` JSON schema (2.1.278)
+ * accepts `effort` as one of `"low"|"medium"|"high"|"xhigh"|"max"` on an
+ * agent definition, same family of validated fields as `model`/`tools`
+ * documented on `BUNDLED_ADVISOR_AGENT` above.
+ *
+ * `tools` is left unset (all tools) — unlike the read-only advisor/
+ * investigator, an implementer needs to actually edit/write files and run
+ * build/typecheck commands.
+ */
+const BUNDLED_IMPLEMENTER_AGENT = {
+  description:
+    'Implements a fully-specified, self-contained coding task end-to-end and reports back. The orchestrator has already done the reasoning (which files, what shape, what to verify) — dispatch here instead of a plain/general-purpose subagent for Claude-lane implementation work.',
+  prompt:
+    'You are an implementer subagent working under an orchestrator that has already done the reasoning for this task — your job is faithful, mechanical follow-through, not re-deciding the approach. Follow the spec you were given exactly: the files, the shapes/interfaces to match, the constraints. Make surgical changes that match the surrounding code style; do not refactor, "improve", or touch anything outside the spec, and do not expand scope beyond what was asked. Never launch the app and never spawn a provider CLI (`claude` or `codex`) yourself. Verify your work with typecheck and build commands only. Never consult the advisor — that is the top-level orchestrator\'s job, not yours. Your final report must state: the files you changed, the verification commands you ran and their results, and anything left undone or out of scope.',
+  effort: 'low'
+};
+
+/**
  * Returns the `--agents` flag VALUE (a JSON string holding whichever of the
- * bundled `advisor`/`investigator` keys aren't shadowed) for a claude spawn
- * in `cwd`, or `undefined` when injection should be skipped entirely.
+ * bundled `advisor`/`investigator`/`implementer` keys aren't shadowed) for a
+ * claude spawn in `cwd`, or `undefined` when injection should be skipped
+ * entirely.
  *
  * `advisorModel`, trimmed, when non-empty, is spread into a FRESH copy of
  * `BUNDLED_ADVISOR_AGENT` as its `model` key (never mutates the module-level
@@ -122,8 +157,10 @@ const BUNDLED_INVESTIGATOR_AGENT = {
  * comment above for why an arbitrary alias/model string is safe to accept
  * here unvalidated. Absent/empty/whitespace-only leaves `advisor.model`
  * unset, same as before this setting existed (inherits whatever model the
- * calling session runs on). `investigator` never takes a model override —
- * this parameter is advisor-only.
+ * calling session runs on). `investigator` and `implementer` never take a
+ * model override from this function — this parameter is advisor-only (the
+ * implementer's model instead comes from the Agent tool's own `model`
+ * argument at dispatch time, per its own comment above).
  *
  * `--agents` has the HIGHEST precedence of any way Claude Code resolves a
  * subagent definition, so injecting it unconditionally would silently
@@ -133,11 +170,11 @@ const BUNDLED_INVESTIGATOR_AGENT = {
  * already exists at either the user level (`~/.claude/agents/<name>.md`) or
  * the project level (`<cwd>/.claude/agents/<name>.md`), checked with
  * `existsSync` right here at spawn time rather than cached — same
- * live-disk-read posture pty.ts already uses for HARNESS.md. The two agents
- * are checked INDEPENDENTLY (a user might have their own `advisor.md` but
- * not `investigator.md`, or vice versa), so one being shadowed never affects
- * the other's injection. Only when BOTH are shadowed does this return
- * `undefined` — never `--agents '{}'`.
+ * live-disk-read posture pty.ts already uses for HARNESS.md. The three agents
+ * are checked INDEPENDENTLY (a user might have their own `advisor.md` but not
+ * `investigator.md` or `implementer.md`, or any other combination), so one
+ * being shadowed never affects the others' injection. Only when ALL THREE are
+ * shadowed does this return `undefined` — never `--agents '{}'`.
  *
  * Best-effort: never throws. A read failure (e.g. an inaccessible home dir)
  * just means no `--agents` flag gets appended, same as pty.ts's HARNESS.md
@@ -157,6 +194,7 @@ export function buildAgentsFlagValue(cwd: string, advisorModel?: string): string
       agents.advisor = model ? { ...BUNDLED_ADVISOR_AGENT, model } : BUNDLED_ADVISOR_AGENT;
     }
     if (!shadowed('investigator')) agents.investigator = BUNDLED_INVESTIGATOR_AGENT;
+    if (!shadowed('implementer')) agents.implementer = BUNDLED_IMPLEMENTER_AGENT;
 
     if (Object.keys(agents).length === 0) return undefined;
     return JSON.stringify(agents);

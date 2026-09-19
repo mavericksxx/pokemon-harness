@@ -380,7 +380,8 @@ const setHideClaudeStatusline = useAppSettingsStore((s) => s.setHideClaudeStatus
                         <span className="settings-row-hint">
                           appends this file's contents to every session's system prompt — claude and codex alike.
                           edit the file itself to change what agents are told; new sessions pick up the change on
-                          their next start.
+                          their next start. edits persist until the next app update, which restores the shipped
+                          version.
                         </span>
                       </span>
                     </label>

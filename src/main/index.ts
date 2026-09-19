@@ -398,7 +398,7 @@ const hookBridge: HookBridge = new HookBridge(
   // relies on, with nothing delegate-specific needed.
   (req: DelegateSpawnRequest): DelegateSpawnResponse => {
     const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    const effort = req.reasoningEffort?.trim() || 'medium';
+    const effort = req.reasoningEffort?.trim() || 'low';
     const delegateModel = codexDelegateModel.trim();
     const args = [
       'exec',
@@ -1590,7 +1590,7 @@ app.whenReady().then(async () => {
   // network/iCloud path, so these awaits are not guaranteed instant.
   harnessHomeDir = resolveHarnessHomeDir(appSettings);
   await ensureHarnessHome(harnessHomeDir);
-  await ensureHarnessInstructions(harnessHomeDir);
+  await ensureHarnessInstructions(harnessHomeDir, app.getVersion());
   // Perf — create the window here, as soon as the above (theme + usage
   // snapshot + harness home) is ready, instead of after the entire init
   // chain below. show:false + ready-to-show already hide the empty-window
