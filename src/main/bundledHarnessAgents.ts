@@ -16,7 +16,7 @@
  *
  * `claude --help`: `--agents <json>  JSON object defining custom agents
  * (e.g. '{"reviewer": {"description": "Reviews code", "prompt": "You are a
- * code reviewer"}}')`. Confirmed present on the installed CLI (2.1.259).
+ * code reviewer"}}')`. Confirmed present on the installed CLI (2.1.278).
  *
  * Dependency-free (no electron, no UI) — same convention as
  * shared/harnessInstructions.ts and shared/agentProvider.ts, even though this

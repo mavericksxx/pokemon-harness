@@ -5,10 +5,11 @@ order: 16
 
 `HARNESS.md` is the harness's own instructions file — its equivalent of a
 project `CLAUDE.md`, but owned by the app rather than whatever project
-you're pointed at. It's seeded once, the first time it's needed, to
-`<harness home>/HARNESS.md`, and never overwritten after that: edit the file
-directly to retune how every session the harness launches behaves, and new
-sessions pick up the change on their next start. The bundled default covers
+you're pointed at. It's written to `<harness home>/HARNESS.md` the first time it's needed and
+rewritten from the shipped version whenever you install a new app version, so
+instruction updates always reach you. Edit the file directly to retune how
+every session the harness launches behaves; new sessions pick up the change
+on their next start, and your edits last until the next app update. The bundled default covers
 working through subagents and delegates, model choice, the advisor consult
 rule (see [Advisor](/docs/advisor/)), and cross-session coordination and
 commit hygiene.
