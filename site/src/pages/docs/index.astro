@@ -8,7 +8,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
 
 <BaseLayout title="docs · pokéharness" current="docs">
   <div class="wrap notes">
-    <h1 class="serif">docs</h1>
+    <h1>docs</h1>
     <p class="lede">one page per feature.</p>
     <p class="intro">
       pokéharness is a free, open-source macos app for claude code, codex and
@@ -24,7 +24,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
         <li>
           <a href={`/docs/${doc.id}/`}>
             <span class="notes-num">{pad(i + 1)}</span>
-            <span class="notes-title serif">{doc.data.title}</span>
+            <span class="notes-title">{doc.data.title}</span>
             <span class="notes-more" aria-hidden="true">→</span>
           </a>
         </li>
@@ -39,17 +39,18 @@ const pad = (n: number): string => String(n).padStart(2, '0');
     padding-top: 48px;
   }
   h1 {
-    font-weight: 500;
+    font-weight: 650;
+    letter-spacing: -0.02em;
     font-size: clamp(32px, 4.5vw, 46px);
     line-height: 1.1;
     margin: 0 0 10px;
   }
   .lede {
-    color: var(--ink-soft);
+    color: var(--text-soft);
     margin: 0 0 12px;
   }
   .intro {
-    color: var(--ink-soft);
+    color: var(--text-soft);
     max-width: 640px;
     line-height: 1.6;
     margin: 0 0 32px;
@@ -58,24 +59,24 @@ const pad = (n: number): string => String(n).padStart(2, '0');
     list-style: none;
     margin: 0;
     padding: 0;
-    border-top: 1px solid var(--rule);
+    border-top: 1px solid var(--line);
   }
   .notes-list a {
     display: flex;
     align-items: baseline;
     gap: 16px;
     padding: 14px 6px;
-    border-bottom: 1px solid var(--rule);
+    border-bottom: 1px solid var(--line);
     text-decoration: none;
-    color: var(--ink);
+    color: var(--text);
   }
   .notes-list a:hover {
-    background: var(--moss-wash);
+    background: var(--gold-wash);
   }
   .notes-num {
     font-family: var(--font-mono);
     font-size: 12px;
-    color: var(--gold-ink);
+    color: var(--gold);
     flex: 0 0 22px;
   }
   .notes-title {
@@ -85,7 +86,7 @@ const pad = (n: number): string => String(n).padStart(2, '0');
     font-weight: 500;
   }
   .notes-more {
-    font-family: var(--font-serif);
-    color: var(--rust);
+    font-family: var(--font-ui);
+    color: var(--gold);
   }
 </style>

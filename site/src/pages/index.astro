@@ -7,106 +7,91 @@ const REPO = 'https://github.com/mavericksxx/pokemon-harness';
 ---
 
 <BaseLayout title="pokéharness — your coding agents as pokémon" current="home">
-  <header class="intro wrap">
-    <p class="kicker">for claude code, codex and cursor-agent</p>
-    <div class="intro-row">
-      <h1 class="serif">your coding agents, as pokémon in a garden</h1>
-      <div class="intro-side">
-        <p>pokéharness is a macos app that runs your claude code, codex and cursor-agent sessions and shows each one as a pokémon in a pixel-art garden, with its terminal alongside.</p>
-        <div class="cta-row">
-          <a class="stamp" href={RELEASES}>download for mac</a>
-          <a class="ink-link" href={REPO}>browse the source</a>
-        </div>
+  <div class="home">
+    <div class="home-copy">
+      <h1>your coding agents, as pokémon</h1>
+      <p>a mac app that shows each claude code, codex or cursor-agent session as a pokémon in a pixel-art garden, with its terminal beside it.</p>
+      <div class="home-actions">
+        <a class="btn-pixel" href={RELEASES}>download for mac</a>
+        <a class="gold-link" href={REPO}>source ↗</a>
       </div>
     </div>
-  </header>
-
-  <Showreel />
+    <div class="home-reel">
+      <Showreel fitMargin={24} />
+    </div>
+  </div>
 </BaseLayout>
 
 <style>
-  .intro {
-    padding-top: 22px;
-    padding-bottom: 16px;
+  .home {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    align-items: center;
+    gap: 40px;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 12px 24px 0;
   }
-  .intro .kicker {
-    margin-bottom: 8px;
-  }
-  .intro-row {
-    display: flex;
-    gap: 48px;
-    align-items: flex-start;
-    justify-content: space-between;
-    flex-wrap: wrap;
+  .home-copy {
+    padding-bottom: 32px;
   }
   h1 {
-    font-weight: 500;
-    font-size: clamp(30px, 3.4vw, 46px);
-    line-height: 1.05;
-    letter-spacing: -0.015em;
-    margin: 0;
-    max-width: 640px;
-    flex: 1 1 420px;
+    margin: 0 0 14px;
+    font-size: clamp(28px, 2.8vw, 40px);
+    line-height: 1.12;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
   }
-  .intro-side {
-    flex: 0 1 420px;
-    min-width: 0;
-  }
-  .intro-side {
-    padding-top: 6px;
-  }
-  .intro-side p {
-    font-size: 15.5px;
+  .home-copy p {
+    margin: 0 0 24px;
+    color: var(--text-soft);
+    font-size: 15px;
     line-height: 1.55;
-    color: var(--ink-soft);
-    margin: 0 0 16px;
   }
-  .cta-row {
+  .home-actions {
     display: flex;
     align-items: center;
-    gap: 22px;
     flex-wrap: wrap;
+    gap: 18px 20px;
+  }
+  .home-reel {
+    min-width: 0;
+  }
+  .home-reel :global(.reel-section) {
+    padding: 0;
+    max-width: none;
   }
 
-  @media (max-width: 560px) {
-    .intro {
-      padding-top: 32px;
-    }
-    .intro-row {
-      gap: 20px;
+  @media (max-width: 1100px) {
+    .home {
+      grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+      gap: 28px;
     }
   }
 
-  /* Short viewports (laptops with browser chrome): a one-row hero so the
-     headline, CTA and the whole showreel window fit without scrolling. */
-  @media (max-height: 760px) and (min-width: 700px) {
-    .intro {
-      padding-top: 12px;
-      padding-bottom: 10px;
+  /* Stacked: compact copy on top, the window below. */
+  @media (max-width: 900px) {
+    .home {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+      padding-top: 16px;
     }
-    .intro .kicker,
-    .intro-side p {
-      display: none;
-    }
-    .intro-row {
-      align-items: center;
-      flex-wrap: nowrap;
-      gap: 24px;
+    .home-copy {
+      padding-bottom: 0;
     }
     h1 {
-      font-size: clamp(22px, 2.6vw, 32px);
-      max-width: none;
-      flex: 1 1 auto;
+      font-size: clamp(24px, 5vw, 30px);
+      margin-bottom: 6px;
     }
-    .intro-side {
-      flex: none;
-    }
-    .cta-row {
-      flex-wrap: nowrap;
-    }
-    .stamp {
-      padding: 8px 16px;
+    .home-copy p {
+      margin-bottom: 14px;
       font-size: 14px;
+    }
+  }
+  @media (max-width: 560px) {
+    .home {
+      padding: 16px 16px 0;
     }
   }
 </style>

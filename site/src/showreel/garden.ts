@@ -69,6 +69,9 @@ export interface ReelGarden {
   /** Species lines a wild battler must NOT be drawn from (BattleDeps). */
   setExcludedLines(lines: string[]): void;
   setCamera(subject: CameraSubject): void;
+  /** Jump the camera straight to its current subject on the next tick
+   *  instead of easing there (the reel's opening frame). */
+  snapCamera(): void;
   setNight(hour: number | 'day'): void;
   setBackground(color: number): void;
   /** Called every rendered tick with the (clamped) frame delta in ms. */
@@ -279,6 +282,7 @@ export async function mountShowreel(host: HTMLElement, background: number): Prom
   };
 
   let subject: CameraSubject = { kind: 'wide' };
+  let snapNext = false;
   const coverZoom = (): number => {
     const w = host.clientWidth || 1;
     const h = host.clientHeight || 1;
@@ -357,6 +361,14 @@ export async function mountShowreel(host: HTMLElement, background: number): Prom
         reconcile();
       }
       aimCamera();
+      if (snapNext) {
+        snapNext = false;
+        // Camera keeps its lerp state private; bracket access is the one
+        // escape hatch TS allows, and only the reel needs a hard cut.
+        camera['currentX'] = camera['targetX'];
+        camera['currentY'] = camera['targetY'];
+        camera['currentZoom'] = camera['targetZoom'];
+      }
       camera.update();
       for (const cb of tickListeners) cb(dt * 1000);
     } catch (e) {
@@ -417,6 +429,9 @@ export async function mountShowreel(host: HTMLElement, background: number): Prom
     },
     setCamera(next) {
       subject = next;
+    },
+    snapCamera() {
+      snapNext = true;
     },
     setNight(hour) {
       // DayNightOverlay's own QA hour override ('poke:daynightHourOverride',

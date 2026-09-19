@@ -306,15 +306,19 @@ export async function startReel(els: ReelElements): Promise<ReelController> {
   const runOnce = async (): Promise<void> => {
     garden.setNight('day');
     useAppSettingsStore.getState().setDayNightMode('auto');
-    garden.setCamera({ kind: 'wide' });
 
-    // 1. a new session hatches
+    // 1. a new session hatches. Spawned and selected on frame 0 (camera
+    // already zoomed on it, its terminal showing) so the reel never opens,
+    // or restarts, on an empty wide shot — the poster matches this frame.
     caption('new session');
-    await wait(900);
     spawn('dev-work', 'dev-work-main', 'pikachu', { cwd: '~/Developer/dev-work' });
     select('dev-work');
+    garden.snapCamera();
     banner('dev-work', '~/Developer/dev-work');
-    await wait(900);
+    // On a loop restart the fade-to-black lifts only once this frame is set.
+    await wait(100);
+    els.stage.classList.remove('reel-fading');
+    await wait(1300);
     await prompt('dev-work', 'add retry with backoff to the forecast fetcher');
     status('dev-work', 'working');
 
@@ -469,7 +473,6 @@ export async function startReel(els: ReelElements): Promise<ReelController> {
         await runOnce();
         resetAll();
         await wait(300);
-        els.stage.classList.remove('reel-fading');
       }
     } catch (e) {
       if (!(e instanceof Stopped)) console.error('[showreel] script failed', e);
