@@ -9,7 +9,7 @@ import type { ReelController } from './reel';
 
 const DESIGN_WIDTH = 1440;
 const DESIGN_HEIGHT = 900;
-const MAX_RENDERED_WIDTH = 1100;
+const MAX_RENDERED_WIDTH = 1400;
 
 function supportsWebGL(): boolean {
   try {
@@ -42,7 +42,7 @@ export function bootShowreel(): void {
   if (!stage || !scaler) return;
 
   // Scale the fixed 1440x900 window so the WHOLE window always fits on
-  // screen: within the section's width, a ~1100px cap, the viewport height
+  // screen: within the section's width, a ~1400px cap, the viewport height
   // under the site header (minus ~60px), and — on first view — the height
   // left below the hero copy. A minimum scale applies only on narrow
   // (<700px) screens, where the width alone decides.

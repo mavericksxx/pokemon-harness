@@ -18,7 +18,7 @@
 .reel-stage {
   position: relative;
   /* boot.ts sets the exact width/height; these are the pre-JS fallback. */
-  width: min(100%, 1100px);
+  width: min(100%, 1400px);
   aspect-ratio: 1440 / 900;
   margin: 0 auto;
   overflow: hidden;

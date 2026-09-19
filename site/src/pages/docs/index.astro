@@ -10,6 +10,15 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   <div class="wrap notes">
     <h1 class="serif">docs</h1>
     <p class="lede">one page per feature.</p>
+    <p class="intro">
+      pokéharness is a free, open-source macos app for claude code, codex and
+      cursor-agent: download the .zip, drag it to /Applications, then
+      right-click → open once past gatekeeper. point it at a project folder
+      and pick a pokémon (or let it choose a starter) to spawn a session —
+      tool calls show up as a speech bubble, subagents spawn as battles, and
+      long sessions evolve. everything runs on your machine: no accounts, no
+      cloud.
+    </p>
     <ol class="notes-list">
       {allDocs.map((doc, i) => (
         <li>
@@ -37,6 +46,12 @@ const pad = (n: number): string => String(n).padStart(2, '0');
   }
   .lede {
     color: var(--ink-soft);
+    margin: 0 0 12px;
+  }
+  .intro {
+    color: var(--ink-soft);
+    max-width: 640px;
+    line-height: 1.6;
     margin: 0 0 32px;
   }
   .notes-list {
