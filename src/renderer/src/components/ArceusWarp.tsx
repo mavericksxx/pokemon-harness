@@ -250,7 +250,11 @@ export function ArceusWarp({ hostRef, ascended }: Props): JSX.Element {
       const prevP = progressRef.current;
       progressRef.current = clamp01(progressRef.current + (dir * dt) / WARP_MS);
       const crossedMidpoint = (prevP - 0.5) * (progressRef.current - 0.5) <= 0;
-      applyStyles(progressRef.current, crossedMidpoint);
+      // A hitch big enough to jump straight from one end to the other (e.g. a
+      // backgrounded tab's rAF resuming) lands ON the target in the same step
+      // it crossed the midpoint — forcing full cover there would leave the
+      // cover stuck on screen, since this is also the final frame drawn.
+      applyStyles(progressRef.current, crossedMidpoint && progressRef.current !== target);
       rafRef.current = progressRef.current === target ? null : requestAnimationFrame(step);
     };
     rafRef.current = requestAnimationFrame(step);
