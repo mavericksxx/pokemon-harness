@@ -539,7 +539,7 @@ export function createTerminal(
 }
 
 /** Force a genuine SIGWINCH round trip: resize to cols-1, then back to cols
- *  50ms later. A same-size resize never reaches the kernel's
+ *  `HOLD_MS` later. A same-size resize never reaches the kernel's
  *  `ioctl(TIOCSWINSZ)` (node-pty's UnixTerminal.resize is a direct
  *  passthrough, and the kernel itself only raises SIGWINCH on an ACTUAL
  *  winsize change), so a full-screen TUI painting incrementally into an
@@ -548,27 +548,40 @@ export function createTerminal(
  *  sizes in a row (cols-1 can never equal cols), so the kernel is guaranteed
  *  to mark SIGWINCH pending regardless of the pty's actual current size.
  *
- *  The 50ms gap between the two calls is not load-bearing for correctness —
- *  POSIX never drops a raised signal outright, and by the time the CLI's
- *  handler finally runs (whether it's invoked once for the coalesced pair or
- *  twice), a TIOCGWINSZ query always returns whatever the CURRENT
- *  kernel-side size is, which by then is already the correct final (cols,
- *  rows) either way. It's cheap insurance against real-world scheduling: if
- *  both ioctls land before the CLI's event loop gets a turn, some runtimes
- *  coalesce the pending signal into a single delivery, and a redraw that's
- *  fired but still mid-flight when the "back" resize lands can end up
- *  measuring a briefly-stale size. 50ms is comfortably more than one
- *  scheduler tick on any desktop OS and well under the ~100ms a user would
- *  perceive as a delay, so it buys a clean two-step redraw at effectively
- *  zero cost. See KeeperClient.resize/FRAME_RESIZE (pty.ts/
- *  ptyKeeperProtocol.ts/ptyKeeper.ts) for the real ioctl this reaches on a
- *  reattached (keeper-held) session, which used to be a no-op. Shared by
- *  `doFit`'s `pendingReattachRepaint` consumption and `forceRepaint` below. */
+ *  `HOLD_MS` is how long the intermediate cols-1 size is held before
+ *  flipping back. POSIX signals aren't queued — only a pending bit — so if
+ *  the second `ioctl` lands before the CLI has consumed the first raised
+ *  SIGWINCH, the two coalesce into a single delivery and the CLI's handler
+ *  only ever sees the FINAL (unchanged) size, skipping the full reflow the
+ *  intermediate size should have forced.
+ *
+ *  That is the leading explanation for a symptom seen after a keeper
+ *  reattach, where the CLI is busy redrawing a large replay backlog: the top
+ *  of the frame painted correctly but the bottom chrome (input box and hint
+ *  row) never landed. It is inferred, not confirmed — the supporting
+ *  evidence is that toggling the terminal fullscreen and back, two real UI
+ *  actions seconds apart and so far too slow to coalesce, reliably repairs
+ *  it. 50ms was not clearing the race; 200ms gives the CLI a more realistic
+ *  window to consume the first signal, and is still well under what reads as
+ *  a delay. If it turns out not to be enough, raising this constant is the
+ *  next lever before reaching for anything adaptive.
+ *
+ *  The final resize is paired with an explicit `term.refresh` — the same
+ *  stale-cell backstop `applyTerminalTheme` and `createWebglAddon`'s
+ *  context-loss recreate use — so xterm repaints every cell regardless of
+ *  what the CLI itself rewrote. Shared by `doFit`'s `pendingReattachRepaint`
+ *  consumption and `forceRepaint` below; the ctrl+c-relaunch path has no
+ *  replay backlog and an already-idle CLI, so the same hold is harmless
+ *  there (worst case, a slightly longer imperceptible blip). */
+const HOLD_MS = 200;
+
 function kickRepaint(sessionId: string, cols: number, rows: number): void {
   void window.api.resizePty(sessionId, Math.max(cols - 1, 1), rows);
   setTimeout(() => {
     void window.api.resizePty(sessionId, cols, rows);
-  }, 50);
+    const e = entries.get(sessionId);
+    if (e && e.term.rows > 0) e.term.refresh(0, e.term.rows - 1);
+  }, HOLD_MS);
 }
 
 /** Mount the session's terminal into `parent` and start tracking its size. */
