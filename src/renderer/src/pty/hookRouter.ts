@@ -19,6 +19,7 @@ import { bumpCounter } from '@/diagnosticsCounters';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { noteToolUse, resetLoopStreak } from './loopDetector';
 import { pendingAsyncLaunches, hasPendingAsyncSubagents } from '@/scene/garden/battle/asyncSubagentGate';
+import { forceRepaint, hasFallbackShell } from './terminalRegistry';
 
 /** How long a claude session's hooks may go quiet before regex fallback
  *  resumes authority. Generous on purpose — see file header. */
@@ -297,7 +298,26 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
   // Stop racing the process's own exit) — never resurrect a done session's
   // state, same guard the regex parser's idle timer uses.
   const live = useStore.getState().sessions.find((s) => s.id === sessionId);
-  if (!live || live.status === 'done') {
+  if (!live) {
+    bumpCounter('hookEventsDropped');
+    return;
+  }
+  // A `done` session (pty exited, including the ctrl+c-then-fallback-shell
+  // case — terminalRegistry.ts's onPtyExit) is normally a dead end for
+  // hooks, but SessionStart is the one event whose job is to un-done it: the
+  // fallback shell's CLAUDE_CLI_SHIM re-injects hook settings when the user
+  // types `claude` again (hookBridge.ts). Gated on `hasFallbackShell` (not
+  // just `evt.event === 'SessionStart'`) so this can't be used to resurrect
+  // a genuinely dead session — main does not itself gate hook delivery on
+  // pty liveness (any payload carrying POKEHARNESS_AGENT_ID reaches here,
+  // including from a nested `claude -p ...` an agent runs via Bash, which
+  // inherits that env var), and without this a stray/nested SessionStart
+  // could flip a dead card's status back to idle and overwrite
+  // claudeSessionId. `hasFallbackShell` is true only once THIS session's own
+  // pty has actually been replaced by its fallback shell, so it's the
+  // narrowest "this id still has something live behind it" signal available.
+  // Every other event type keeps the drop unconditionally.
+  if (live.status === 'done' && (evt.event !== 'SessionStart' || !hasFallbackShell(sessionId))) {
     bumpCounter('hookEventsDropped');
     return;
   }
@@ -324,6 +344,19 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
         // (it's already unset).
         ...(evt.source === 'compact' ? { napping: false } : {})
       });
+      // A SessionStart while this entry's fallback shell is active means the
+      // user relaunched `claude` inside an existing terminal after a ctrl+c
+      // dropped it to the fallback shell (not the first SessionStart at
+      // spawn, when the flag is never set) — the new TUI will paint
+      // incrementally into an xterm whose cols/rows never changed, so force
+      // the same cols-1/cols repaint kick the keeper-reattach path uses.
+      // Checked directly rather than via a `wasDone`-style snapshot: past
+      // the FIRST relaunch, `claude` runs as a child of the fallback shell,
+      // so ctrl+c never flips `status` back to `'done'` again and the flag
+      // is the only durable signal left. A spurious kick here is cheap (two
+      // resizePty IPCs), so this deliberately fires on every SessionStart
+      // while the flag is set, not just the one right after it flips.
+      if (hasFallbackShell(sessionId)) forceRepaint(sessionId);
       break;
 
     // Phase 8.5 Wave B item 4 — about to compact; nap until the post-compact

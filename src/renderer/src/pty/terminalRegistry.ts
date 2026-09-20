@@ -178,16 +178,33 @@ interface Entry {
   /** Same lifecycle as `offDragEnd` above, for the `GARDEN_FULLSCREEN_CHANGE_EVENT`
    *  listener in attachTerminal. */
   offFullscreenChange: (() => void) | null;
-  /** Reattach-garbling fix — true from `createTerminal` only when this entry
-   *  was created from a keeper-reattached boot restore
-   *  (`RestoredSession.reattached`, main/index.ts's `sessions:restore`).
+  /** Reattach-garbling fix — set from `createTerminal` when this entry was
+   *  created from a keeper-reattached boot restore (`RestoredSession
+   *  .reattached`, main/index.ts's `sessions:restore`), and also set by
+   *  `forceRepaint` (hookRouter.ts's `SessionStart` relaunch-repaint case)
+   *  when it's asked to kick a session that isn't currently attached — a
+   *  detach never resizes the pty, so the next `attachTerminal` → `doFit`
+   *  often lands on the SAME cols/rows and raises no SIGWINCH on its own.
    *  Consumed (set false) the first time `attachTerminal`'s `doFit` runs
    *  with a real, laid-out size — that's the one point this file can be
    *  sure the terminal both replayed AND knows its actual cols/rows, which
    *  is exactly when the forced full-repaint kick belongs. Stays false
-   *  forever after, so a later garden-view detach/reattach of the same
+   *  forever after that, so a later garden-view detach/reattach of the same
    *  entry (which calls `doFit` again) never refires it. */
   pendingReattachRepaint: boolean;
+  /** True once `PtyExit.fallback` has fired for this entry — the pty this
+   *  session id was created for has exited and a plain fallback shell now
+   *  owns it (main/pty.ts's BUG/UX-fix path). From then on, a `claude`
+   *  launched by the user inside that shell is a CHILD process: ctrl+c
+   *  kills only the child, the shell survives, and there is no further
+   *  `pty:exit` — so `status` never returns to `'done'` on the 2nd, 3rd, ...
+   *  relaunch, and `wasDone` alone can't drive the relaunch repaint past the
+   *  first time. hookRouter.ts's `SessionStart` case checks this flag
+   *  instead. Never cleared for a live entry (once the shim shell owns the
+   *  pty it owns it for the entry's whole remaining life); an entry that's
+   *  actually replaced starts fresh via `createTerminal`, which always
+   *  initializes this false. */
+  fallbackShellActive: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -228,6 +245,72 @@ function disposeWebgl(e: Entry, expected?: WebglAddon): void {
     gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
     /* already gone */
+  }
+}
+
+/** Number of consecutive context-loss recreation attempts `createWebglAddon`
+ *  will make before giving up and leaving `e.webgl` null (xterm's DOM
+ *  renderer still works). Bounded so sustained WebGL budget pressure (file
+ *  header) can't spin this into recreating and immediately losing a context
+ *  forever. */
+const MAX_WEBGL_RECREATE_ATTEMPTS = 2;
+
+/** Create a WebGL addon and load it onto `e.term`, wiring `onContextLoss` to
+ *  dispose it and — while the terminal is still attached, and up to
+ *  `MAX_WEBGL_RECREATE_ATTEMPTS` — recreate it in place so a context lost
+ *  mid-session doesn't strand the last-drawn pixels until the next detach/
+ *  reattach. Shared by `attachTerminal`'s first-attach path (`attempt` 0) and
+ *  its own recreate call. */
+function createWebglAddon(e: Entry, attempt = 0): void {
+  try {
+    const webgl = new WebglAddon();
+    // Chromium can still evict this context under pressure; fall back quietly.
+    // Guarded against double-dispose the same way every other disposeWebgl
+    // caller is: disposeWebgl no-ops once `e.webgl` no longer matches (or
+    // is already null), so a stray context-loss signal after this session
+    // was already torn down some other way (releaseInactiveWebgl,
+    // disposeTerminal) does nothing.
+    webgl.onContextLoss(() => {
+      // xterm's addon fires this on a 3-second setTimeout after
+      // `webglcontextlost`, and that timer is NOT cleared by the addon's own
+      // dispose() — so a loss signal for THIS addon can still arrive after
+      // it was already disposed (releaseInactiveWebgl, a detach/attach
+      // cycle) and replaced by a newer live addon. Bail before touching
+      // `e.webgl` at all in that case: falling through to disposeWebgl/
+      // recreate below would overwrite the newer addon with yet another one,
+      // orphaning it with a live WebGL2 context nothing can ever reach again.
+      if (e.webgl !== webgl) return;
+      disposeWebgl(e, webgl);
+      // `e.resizeObserver` is only set while attached (see attachTerminal/
+      // detachTerminal) — a detach is a deliberate release, not a context
+      // loss, and shouldn't trigger a recreate.
+      if (e.resizeObserver && attempt < MAX_WEBGL_RECREATE_ATTEMPTS) {
+        createWebglAddon(e, attempt + 1);
+        e.term.refresh(0, e.term.rows - 1);
+      }
+    });
+    e.term.loadAddon(webgl);
+    e.webgl = webgl;
+    // Capture the addon's own WebGL2 context now, while its canvas is
+    // still attached — see the Entry.webglGlContext/disposeWebgl comments
+    // for why. The WebGL renderer also creates plain 2D canvases under
+    // `e.host` for overlay layers (selection, etc.); re-requesting
+    // 'webgl2' on one of those just returns null instead of creating a
+    // second context (a canvas's context type is fixed on first request),
+    // so this reliably finds the one real WebGL canvas regardless of how
+    // many sibling canvases exist.
+    e.webglGlContext = null;
+    for (const canvas of Array.from(e.host.querySelectorAll('canvas'))) {
+      const gl = canvas.getContext('webgl2');
+      if (gl) {
+        e.webglGlContext = gl;
+        break;
+      }
+    }
+  } catch {
+    // No WebGL available — xterm's DOM renderer still works fine.
+    e.webgl = null;
+    e.webglGlContext = null;
   }
 }
 
@@ -346,6 +429,8 @@ export function createTerminal(
       // disposes and recreates the entry before resuming, rather than
       // reusing it, so it never inherits a dead parser.
       parser = null;
+      const fallbackEntry = entries.get(sessionId);
+      if (fallbackEntry) fallbackEntry.fallbackShellActive = true;
     }
     term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
     useStore.getState().updateSession(sessionId, {
@@ -446,10 +531,44 @@ export function createTerminal(
     resizeObserver: null,
     offDragEnd: null,
     offFullscreenChange: null,
+    fallbackShellActive: false,
     pendingReattachRepaint: !!reattached
   });
 
   if (replay) term.write(replay);
+}
+
+/** Force a genuine SIGWINCH round trip: resize to cols-1, then back to cols
+ *  50ms later. A same-size resize never reaches the kernel's
+ *  `ioctl(TIOCSWINSZ)` (node-pty's UnixTerminal.resize is a direct
+ *  passthrough, and the kernel itself only raises SIGWINCH on an ACTUAL
+ *  winsize change), so a full-screen TUI painting incrementally into an
+ *  xterm whose cols/rows haven't changed never gets the kick it needs to
+ *  redraw fully. Stepping to cols-1 first guarantees two genuinely different
+ *  sizes in a row (cols-1 can never equal cols), so the kernel is guaranteed
+ *  to mark SIGWINCH pending regardless of the pty's actual current size.
+ *
+ *  The 50ms gap between the two calls is not load-bearing for correctness —
+ *  POSIX never drops a raised signal outright, and by the time the CLI's
+ *  handler finally runs (whether it's invoked once for the coalesced pair or
+ *  twice), a TIOCGWINSZ query always returns whatever the CURRENT
+ *  kernel-side size is, which by then is already the correct final (cols,
+ *  rows) either way. It's cheap insurance against real-world scheduling: if
+ *  both ioctls land before the CLI's event loop gets a turn, some runtimes
+ *  coalesce the pending signal into a single delivery, and a redraw that's
+ *  fired but still mid-flight when the "back" resize lands can end up
+ *  measuring a briefly-stale size. 50ms is comfortably more than one
+ *  scheduler tick on any desktop OS and well under the ~100ms a user would
+ *  perceive as a delay, so it buys a clean two-step redraw at effectively
+ *  zero cost. See KeeperClient.resize/FRAME_RESIZE (pty.ts/
+ *  ptyKeeperProtocol.ts/ptyKeeper.ts) for the real ioctl this reaches on a
+ *  reattached (keeper-held) session, which used to be a no-op. Shared by
+ *  `doFit`'s `pendingReattachRepaint` consumption and `forceRepaint` below. */
+function kickRepaint(sessionId: string, cols: number, rows: number): void {
+  void window.api.resizePty(sessionId, Math.max(cols - 1, 1), rows);
+  setTimeout(() => {
+    void window.api.resizePty(sessionId, cols, rows);
+  }, 50);
 }
 
 /** Mount the session's terminal into `parent` and start tracking its size. */
@@ -464,42 +583,7 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
   parent.appendChild(e.host);
   if (!e.host.querySelector('.xterm')) e.term.open(e.host);
 
-  if (!e.webgl) {
-    try {
-      const webgl = new WebglAddon();
-      // Chromium can still evict this context under pressure; fall back quietly.
-      // Guarded against double-dispose the same way every other disposeWebgl
-      // caller is: disposeWebgl no-ops once `e.webgl` no longer matches (or
-      // is already null), so a stray context-loss signal after this session
-      // was already torn down some other way (releaseInactiveWebgl,
-      // disposeTerminal) does nothing.
-      webgl.onContextLoss(() => {
-        disposeWebgl(e, webgl);
-      });
-      e.term.loadAddon(webgl);
-      e.webgl = webgl;
-      // Capture the addon's own WebGL2 context now, while its canvas is
-      // still attached — see the Entry.webglGlContext/disposeWebgl comments
-      // for why. The WebGL renderer also creates plain 2D canvases under
-      // `e.host` for overlay layers (selection, etc.); re-requesting
-      // 'webgl2' on one of those just returns null instead of creating a
-      // second context (a canvas's context type is fixed on first request),
-      // so this reliably finds the one real WebGL canvas regardless of how
-      // many sibling canvases exist.
-      e.webglGlContext = null;
-      for (const canvas of Array.from(e.host.querySelectorAll('canvas'))) {
-        const gl = canvas.getContext('webgl2');
-        if (gl) {
-          e.webglGlContext = gl;
-          break;
-        }
-      }
-    } catch {
-      // No WebGL available — xterm's DOM renderer still works fine.
-      e.webgl = null;
-      e.webglGlContext = null;
-    }
-  }
+  if (!e.webgl) createWebglAddon(e);
 
   // While the garden/terminal split is being dragged (`body.is-splitting`,
   // toggled by GardenSplitHandle.tsx), `parent`'s width changes on every
@@ -529,36 +613,7 @@ export function attachTerminal(sessionId: string, parent: HTMLElement): void {
         // ResizeObserver below can coalesce several ResizeObserver callbacks
         // into back-to-back calls — can never fire this twice.
         e.pendingReattachRepaint = false;
-        // A same-size resize never reaches the kernel's `ioctl(TIOCSWINSZ)`
-        // (node-pty's UnixTerminal.resize is a direct passthrough, and the
-        // kernel itself only raises SIGWINCH on an ACTUAL winsize change) —
-        // the resizePty call just above, if this reattached pty already
-        // happened to be sitting at (cols, rows) from before the app quit,
-        // would be exactly that no-op. Stepping to cols-1 first guarantees
-        // two genuinely different sizes in a row (cols-1 can never equal
-        // cols), so the kernel is guaranteed to mark SIGWINCH pending
-        // regardless of what the keeper-held pty's actual prior size was.
-        //
-        // The 50ms gap between the two calls is not load-bearing for
-        // correctness — POSIX never drops a raised signal outright, and by
-        // the time the CLI's handler finally runs (whether it's invoked once
-        // for the coalesced pair or twice), a TIOCGWINSZ query always
-        // returns whatever the CURRENT kernel-side size is, which by then is
-        // already the correct final (cols, rows) either way. It's cheap
-        // insurance against real-world scheduling: if both ioctls land
-        // before the CLI's event loop gets a turn, some runtimes coalesce
-        // the pending signal into a single delivery, and a redraw that's
-        // fired but still mid-flight when the "back" resize lands can end up
-        // measuring a briefly-stale size. 50ms is comfortably more than one
-        // scheduler tick on any desktop OS and well under the ~100ms a user
-        // would perceive as a delay, so it buys a clean two-step redraw at
-        // effectively zero cost. See KeeperClient.resize/FRAME_RESIZE
-        // (pty.ts/ptyKeeperProtocol.ts/ptyKeeper.ts) for the real ioctl this
-        // now reaches on a reattached session, which used to be a no-op.
-        void window.api.resizePty(sessionId, Math.max(cols - 1, 1), rows);
-        setTimeout(() => {
-          void window.api.resizePty(sessionId, cols, rows);
-        }, 50);
+        kickRepaint(sessionId, cols, rows);
       }
     } catch {
       /* element not laid out yet */
@@ -625,6 +680,41 @@ export function disposeTerminal(sessionId: string): void {
 
 export function hasTerminal(sessionId: string): boolean {
   return entries.has(sessionId);
+}
+
+/** Force a full repaint on a CLI relaunch inside an existing terminal —
+ *  hookRouter.ts's `SessionStart` case calls this when the session was
+ *  `done`, or its fallback shell has taken over the pty (the
+ *  ctrl+c-then-fallback-shell case) and the user types `claude` again: the
+ *  new TUI paints incrementally into an xterm whose cols/rows never
+ *  changed, so nothing else forces the stale cells to clear. No-op if the
+ *  session has no entry at all. If the entry exists but isn't currently
+ *  attached (drawer closed, another tab selected), a same-size resizePty on
+ *  the next attach/doFit would raise no SIGWINCH on its own (see
+ *  `kickRepaint`'s comment) — so this instead arms `pendingReattachRepaint`,
+ *  which `doFit` consumes the moment it's actually attached and laid out.
+ *  Otherwise reuses the same cols-1/cols SIGWINCH dance as the
+ *  keeper-reattach path via `kickRepaint`. */
+export function forceRepaint(sessionId: string): void {
+  const e = entries.get(sessionId);
+  if (!e) return;
+  if (!e.resizeObserver) {
+    e.pendingReattachRepaint = true;
+    return;
+  }
+  const { cols, rows } = e.term;
+  kickRepaint(sessionId, cols, rows);
+}
+
+/** Whether this session's pty has already been replaced by a plain fallback
+ *  shell (`PtyExit.fallback` — see `Entry.fallbackShellActive`'s own
+ *  comment). hookRouter.ts's `SessionStart` case uses this to decide
+ *  whether a relaunch repaint is warranted: past the
+ *  first ctrl+c, a `claude` relaunched inside the shim shell is a child
+ *  process whose exit never flips `status` back to `'done'`, so this flag is
+ *  the only durable signal left. False for an unknown session id. */
+export function hasFallbackShell(sessionId: string): boolean {
+  return entries.get(sessionId)?.fallbackShellActive ?? false;
 }
 
 /** Dispose and recreate a terminal entry under the SAME id, then re-attach it
