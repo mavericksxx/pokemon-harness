@@ -77,6 +77,13 @@ export interface HookPayload {
    *  it can never collide with anything Claude/codex's own payload carries. */
   harness_delegate_parent?: string | null;
   harness_delegate_label?: string | null;
+  /** PostToolUse-only — the tool's own result, present per Claude Code's
+   *  public hooks docs ("PostToolUse... tool_response") but with a shape
+   *  that varies per tool and isn't documented for `AskUserQuestion`
+   *  specifically. `unknown` deliberately: hookBridge.ts's delegation gate
+   *  reads this via a stringified substring search rather than a typed
+   *  field access, exactly because that shape isn't pinned down. */
+  tool_response?: unknown;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */

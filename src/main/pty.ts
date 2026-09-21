@@ -324,6 +324,17 @@ export class PtyManager {
     // persona composition below can't be missed on any of them.
     const isArceus = opts.id === ARCEUS_SESSION_ID;
 
+    // Delegation gate (hookBridge.ts's `prepareSession` `delegationGate`
+    // param) must be enrolled for EXACTLY the sessions that receive
+    // HARNESS.md below — that prose is what tells a session the routing
+    // question (and its self-edit unlock) exists at all, so the enforcement
+    // side can never be wider than the sessions it was told about. Hoisted
+    // here, above both use sites (`prepareSession`'s call below wants it too
+    // and runs first), so the two conditions are structurally the same
+    // expression rather than two copies that could drift.
+    const wantsHarnessInstructions =
+      !opts.isDelegate && !isArceus && this.harnessInstructionsEnabled && !!this.harnessInstructionsPath;
+
     // Phase 4 Part A — wire the Claude Code hooks shim for claude sessions
     // only: a per-session --settings file routes lifecycle hooks over a UDS
     // back to this app, so the garden can use them as the authoritative state
@@ -339,7 +350,8 @@ export class PtyManager {
       const settingsPath = this.hookBridge.prepareSession(
         opts.id,
         hookTmpDir(),
-        isArceus ? POKE_TOOL_PERMISSION_RULES : undefined
+        isArceus ? POKE_TOOL_PERMISSION_RULES : undefined,
+        wantsHarnessInstructions
       );
       claudeSettingsPath = settingsPath;
       args = [...args, '--settings', settingsPath];
@@ -360,10 +372,11 @@ export class PtyManager {
     // takes effect on the very next spawn. Missing/empty/unreadable file
     // just means no flag gets appended — same best-effort posture as every
     // other disk read in this function.
-    if (!opts.isDelegate && !isArceus && this.harnessInstructionsEnabled && this.harnessInstructionsPath) {
+    if (wantsHarnessInstructions && this.harnessInstructionsPath) {
+      const harnessInstructionsPath = this.harnessInstructionsPath;
       let instructions = '';
       try {
-        instructions = readFileSync(this.harnessInstructionsPath, 'utf8');
+        instructions = readFileSync(harnessInstructionsPath, 'utf8');
       } catch {
         /* file missing/unreadable — spawn without it */
       }
@@ -371,7 +384,7 @@ export class PtyManager {
         if (opts.provider === 'claude') {
           // `claude --help`: --append-system-prompt-file <path> — appends to
           // (never replaces) Claude Code's own system prompt.
-          args = [...args, '--append-system-prompt-file', this.harnessInstructionsPath];
+          args = [...args, '--append-system-prompt-file', harnessInstructionsPath];
         } else if (opts.provider === 'codex') {
           // Codex config docs (developers.openai.com/codex/config-reference)
           // describe `developer_instructions` as "Additional developer
