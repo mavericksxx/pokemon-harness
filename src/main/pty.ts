@@ -150,6 +150,15 @@ interface PtySession {
   claudeSettingsPath?: string;
   rendererAttached: boolean;
   oscCarry: string;
+  /** True when this session was reattached from a keeper (see `tryReattach`)
+   *  whose argv predates a later app version — flags a fresh `spawn()` would
+   *  now add (e.g. `--agents`) are missing from the still-running process.
+   *  Purely informational: the renderer surfaces it as a chip
+   *  (StaleArgvChip.tsx) with a user-triggered restart action, since the app
+   *  never kills a session to refresh its own flags. Always false for a
+   *  session built by `spawn()` itself — it was just constructed with the
+   *  current flag set by definition. */
+  staleArgv: boolean;
 }
 
 export class PtyManager {
@@ -201,9 +210,11 @@ export class PtyManager {
    *  spawned, so a keeper left running across an app upgrade can never pick
    *  up new flags (e.g. the `--agents` bundled-subagent injection added in
    *  v1.11.0); a version mismatch (or a missing stamp, from a keeper written
-   *  before this field existed) makes `tryReattach` refuse the reattach and
-   *  fall through to a fresh `spawn()` instead, which rebuilds argv with
-   *  whatever's current. */
+   *  before this field existed) makes `tryReattach` mark the rebuilt session
+   *  `staleArgv: true`. The reattach itself always still succeeds — the app
+   *  never kills a session to refresh its own flags — so this only affects
+   *  what gets reported to the renderer, not whether the session comes
+   *  back. */
   private appVersion: string | null = null;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
@@ -560,7 +571,8 @@ export class PtyManager {
         claudeSettingsPath,
         isDelegate: opts.isDelegate === true,
         rendererAttached,
-        oscCarry: ''
+        oscCarry: '',
+        staleArgv: false
       };
       this.sessions.set(opts.id, session);
       this.onSessionsChanged?.();
@@ -770,7 +782,8 @@ export class PtyManager {
         claudeSettingsPath: source.claudeSettingsPath,
         isDelegate: false,
         rendererAttached: source.rendererAttached,
-        oscCarry: ''
+        oscCarry: '',
+        staleArgv: false
       };
       this.sessions.set(id, session);
       this.onSessionsChanged?.();
@@ -1077,6 +1090,15 @@ export class PtyManager {
     });
   }
 
+  /** Whether session `id`'s live process is running with a stale (pre-current-
+   *  app-version) argv — see `tryReattach`'s own comment. False for an
+   *  unknown id. Read by `sessionRespawn.ts`'s `respawnSession` right after a
+   *  successful reattach so the value can ride the same `SessionRecord` DTO
+   *  every other per-session field already reaches the renderer through. */
+  isStaleArgv(id: string): boolean {
+    return this.sessions.get(id)?.staleArgv ?? false;
+  }
+
   /** This PTY's trailing output (bounded, see REPLAY_MAX_CHARS), for a
    *  reattaching terminal to repaint before live data resumes. Empty for an
    *  unknown/dead id — the caller just gets a blank terminal, same as today. */
@@ -1272,13 +1294,8 @@ export class PtyManager {
    *  while detached — `sessionRespawn.ts`'s caller falls through to today's
    *  unchanged spawn/resume path for both cases, which already handles them
    *  correctly (a `claude --resume` against an already-completed transcript
-   *  works fine).
-   *
-   *  `opts.canResume` — whether `sessionRespawn.ts`'s caller can actually
-   *  reissue `--resume <claudeSessionId>` if this reattach is refused (see
-   *  the stale-argv guard below). Optional/defaults to false so any other
-   *  caller, and tests, see unchanged behavior. */
-  async tryReattach(id: string, opts?: { canResume?: boolean }): Promise<boolean> {
+   *  works fine). */
+  async tryReattach(id: string): Promise<boolean> {
     let socket: Socket;
     try {
       socket = await connectKeeperSocket(keeperSockPath(id));
@@ -1301,58 +1318,31 @@ export class PtyManager {
       /* best-effort — single-use file, a leftover here is harmless */
     }
 
-    // Stale-argv guard — a reattached pty is the SAME OS process it always
-    // was, so its argv (including flags spawn() appends, like
+    // Stale-argv detection — a reattached pty is the SAME OS process it
+    // always was, so its argv (including flags spawn() appends, like
     // `--append-system-prompt-file` and the `--agents` bundled-subagent
     // injection) is frozen at whatever it was when it was first spawned,
-    // possibly app-versions ago. Reattaching it silently keeps that stale
-    // argv forever. A missing/mismatched `appVersion` stamp (missing means a
-    // keeper written before this field existed — exactly the upgrade case
-    // this guards against) means "don't trust this argv anymore": kill the
-    // orphaned keeper/child, clean up its files, and report failure so
-    // `sessionRespawn.ts` falls through to a fresh `spawn()`, which reissues
-    // `--resume <claudeSessionId>` plus the CURRENT flag set — the
-    // conversation is preserved via the CLI's own transcript, only the
-    // process (and its argv) is new. Fallback shells and delegates have no
-    // such flags to go stale, and only the claude spawn path appends them,
-    // so this never touches codex/fallback/delegate sessions.
-    //
-    // `opts?.canResume` is also required: refusing only helps if the
-    // fallthrough can actually reissue `--resume`. A claude session with no
-    // captured `claudeSessionId` (`shouldResume`/`respawnArgs` in
-    // sessionRespawn.ts) respawns with NO resume flag at all if refused here
-    // — a brand-new, empty conversation, not a refreshed one. That would
-    // trade stale argv for outright losing the user's history, which is
-    // strictly worse. So a stale session that can't be resumed deliberately
-    // keeps reattaching with its stale argv — the lesser harm — instead of
-    // being refused.
-    const isStale =
+    // possibly app-versions ago. A missing/mismatched `appVersion` stamp
+    // (missing means a keeper written before this field existed — exactly
+    // the upgrade case this detects) means the running process's flags may
+    // no longer match what a fresh spawn would use today. This is now only
+    // REPORTED (`staleArgv` on the rebuilt session below), never acted on
+    // here: the reattach always succeeds, unconditionally. The "leave them
+    // running" quit path exists precisely so a user can quit the app and
+    // have their sessions keep working — killing one of them at the next
+    // launch, as this used to do, defeats that feature for exactly the
+    // sessions a user deliberately left running. Nothing in this app kills
+    // a user's session as a side effect of refreshing its flags; a stale
+    // session can only be restarted by explicit user action (see
+    // `sessions:restartStale` in ipc/sessions.ts). Fallback shells and
+    // delegates have no such flags to go stale, and only the claude spawn
+    // path appends them, so this never flags codex/fallback/delegate
+    // sessions.
+    const staleArgv =
       (!meta.appVersion || meta.appVersion !== this.appVersion) &&
       !meta.isFallback &&
       !meta.isDelegate &&
-      meta.provider === 'claude' &&
-      !!opts?.canResume;
-    if (isStale) {
-      try {
-        socket.destroy();
-      } catch {
-        /* best-effort */
-      }
-      if (meta.pid > 0) {
-        try {
-          process.kill(-meta.pid, 'SIGKILL');
-        } catch {
-          /* already gone */
-        }
-      }
-      try {
-        unlinkSync(keeperSockPath(id));
-      } catch {
-        /* already gone */
-      }
-      log('pty', 'info', 'refused stale reattach, forcing respawn', { id, metaAppVersion: meta.appVersion });
-      return false;
-    }
+      meta.provider === 'claude';
 
     const proc = new KeeperClient(socket, meta.pid);
     const session: PtySession = {
@@ -1371,7 +1361,8 @@ export class PtyManager {
       // `spawnFallbackShellFromRespawn`) — flips true the moment the
       // renderer's terminal actually calls `getReplay()`.
       rendererAttached: false,
-      oscCarry: ''
+      oscCarry: '',
+      staleArgv
     };
     this.sessions.set(id, session);
     this.onSessionsChanged?.();

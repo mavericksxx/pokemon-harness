@@ -31,6 +31,12 @@ export interface RespawnOutcome {
    *  substitute instead — `restoreFromDisk` (main/index.ts) turns this into a
    *  toast note. */
   fallbackReason?: string;
+  /** Set when this outcome came from a reattach (see `tryReattach`) to a
+   *  keeper whose argv predates the current app version — `restoreFromDisk`
+   *  carries this onto the restored `SessionRecord` so the renderer can show
+   *  its own restart-to-update chip (StaleArgvChip.tsx). Always false/absent
+   *  for a fresh spawn, which is built with today's flags by definition. */
+  staleArgv?: boolean;
 }
 
 /** Respawn one persisted session under its original id. Tries the recorded
@@ -64,16 +70,11 @@ export async function respawnSession(
   // falls through to the unchanged spawn/resume logic below, same as a
   // session that was never detached in the first place.
   //
-  // `canResume: shouldResume(effective)` — tryReattach's stale-argv guard
-  // (pty.ts) may want to refuse this reattach, but refusing only helps if
-  // the fallthrough below can reissue `--resume`. If this session has no
-  // captured `claudeSessionId`, refusing would spawn a brand-new, empty
-  // conversation instead of preserving history — strictly worse than
-  // keeping the stale argv. So `tryReattach` only acts on staleness when
-  // resuming is actually possible; a stale-but-unresumable session keeps
-  // reattaching as it always did, on the theory that stale argv is the
-  // lesser harm next to losing the user's conversation outright.
-  if (await ptyManager.tryReattach(record.id, { canResume: shouldResume(effective) })) return { ok: true };
+  // A reattach always succeeds regardless of argv staleness (see
+  // `tryReattach`'s own comment — this app never kills a session to refresh
+  // its flags); `isStaleArgv` just reads back what `tryReattach` detected so
+  // it can ride this outcome onto the restored `SessionRecord`.
+  if (await ptyManager.tryReattach(record.id)) return { ok: true, staleArgv: ptyManager.isStaleArgv(record.id) };
 
   const useResume = shouldResume(effective);
   const primary = ptyManager.spawn({

@@ -11,6 +11,7 @@ import { sessionStatusLabel } from '@/design/sessionLabel';
 import { formatToolTarget } from '@/design/toolTargetLabel';
 import { LoopIcon, PokeballIcon, SwapIcon, TerminalIcon } from '@/components/icons';
 import { ModelBadge } from '@/components/ModelBadge';
+import { StaleArgvChip } from '@/components/StaleArgvChip';
 import { TrainerCard } from '@/components/TrainerCard';
 import { gaugeTone } from '@/design/gaugeTone';
 import { swapSessionPokemon } from '@/sessions';
@@ -254,6 +255,15 @@ export const AgentRosterCard = memo(function AgentRosterCard({
                 )}
               </em>
             </div>
+
+            {/* Reattach guard removal follow-up — only rendered for the rare
+                session that came back from the "leave them running" quit path
+                with a pre-current-version argv (see shared/types.ts's
+                `staleArgv`). Not part of the fixed-height row set just below:
+                unlike `toolText`/`hint`/`cost`, this doesn't flicker in and out
+                during a session's normal life, so there's no jitter to guard
+                against. */}
+            {session.staleArgv && <StaleArgvChip sessionId={session.id} />}
 
             {/* Strip height jitter fix (parity sweep item 1) — every row below is
                 now ALWAYS mounted (never conditionally omitted), so a card's own

@@ -1026,7 +1026,7 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
   const outcomes = await Promise.allSettled(
     dedupedSessions.map((record) =>
       alreadyReattached.has(record.id)
-        ? Promise.resolve<RespawnOutcome>({ ok: true })
+        ? Promise.resolve<RespawnOutcome>({ ok: true, staleArgv: ptyManager.isStaleArgv(record.id) })
         : respawnSession(ptyManager, record, {
             harnessHomeDir,
             defaultAgentProvider: appSettings.defaultAgentProvider
@@ -1073,7 +1073,8 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
       tool: undefined,
       toolTarget: undefined,
       looping: false,
-      ...(outcome.fallbackReason ? { error: outcome.fallbackReason } : {})
+      ...(outcome.fallbackReason ? { error: outcome.fallbackReason } : {}),
+      ...(outcome.staleArgv ? { staleArgv: true } : {})
     });
     if (outcome.fallbackReason) {
       notes.push(`${record.title}: ${outcome.fallbackReason} — opened a shell with pokeharness wiring.`);
@@ -1832,6 +1833,12 @@ registerSessionsIpc({
     lastSelectedId = id;
   },
   getHarnessHomeDir: () => harnessHomeDir,
+  // No module-scope `appSettings` exists here (it's local to the `whenReady`
+  // async function above, which has long since returned by the time a user
+  // clicks a restart chip) — a fresh disk read mirrors exactly what boot's
+  // own `restoreFromDisk` caller does, and is cheap/rare enough (one
+  // deliberate user click) that caching it isn't worth the staleness risk.
+  getDefaultAgentProvider: async () => (await loadAppSettings()).defaultAgentProvider,
   getWorkspaceRegistry: () => workspaceRegistry,
   getDiskRestorePromise: () => diskRestorePromise,
   isDiskRestoreConsumed: () => diskRestoreConsumed,

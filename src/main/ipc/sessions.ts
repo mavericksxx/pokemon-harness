@@ -5,8 +5,10 @@ import type { SessionPersistence } from '../sessionPersistence';
 import type { PokeRelay } from '../pokeTools';
 import type { CostWatcher } from '../costWatcher';
 import type { TaskNotificationWatcher } from '../taskNotificationWatcher';
-import type { DiskRestoreInfo, SessionRecord } from '../../shared/types';
+import type { DiskRestoreInfo, RestartStaleResult, SessionRecord } from '../../shared/types';
 import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
+import type { AgentProviderId } from '../../shared/agentProvider';
+import { respawnSession, shouldResume } from '../sessionRespawn';
 
 export interface SessionsIpcDeps {
   ptyManager: PtyManager;
@@ -20,6 +22,7 @@ export interface SessionsIpcDeps {
   getLastSelectedId: () => string | null;
   setLastSelectedId: (id: string | null) => void;
   getHarnessHomeDir: () => string;
+  getDefaultAgentProvider: () => Promise<AgentProviderId>;
   getWorkspaceRegistry: () => WorkspaceSnapshot;
   getDiskRestorePromise: () => Promise<DiskRestoreInfo>;
   isDiskRestoreConsumed: () => boolean;
@@ -39,6 +42,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     getLastSelectedId,
     setLastSelectedId,
     getHarnessHomeDir,
+    getDefaultAgentProvider,
     getWorkspaceRegistry,
     getDiskRestorePromise,
     isDiskRestoreConsumed,
@@ -125,5 +129,38 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     if (isDiskRestoreConsumed() || info.count === 0) return null;
     setDiskRestoreConsumed(true);
     return info;
+  });
+
+  // User-triggered counterpart to the reattach-time stale-argv guard this app
+  // used to have (pty.ts's `tryReattach` no longer kills anything on its
+  // own — see that function's comment): the ONLY way a stale session's argv
+  // ever gets refreshed now is this explicit action, wired to
+  // StaleArgvChip.tsx's restart button. Reuses `respawnSession` exactly as
+  // `restoreFromDisk` does, so this is the same code path as a normal
+  // boot-time respawn, just triggered by the user instead of app launch.
+  //
+  // `shouldResume` gate: a claude session with no captured `claudeSessionId`
+  // (pre-hooks-firing, or a very old record) would respawn with NO `--resume`
+  // flag at all — a brand-new, empty conversation, not a refreshed one. That
+  // would silently blow away the user's history, which is strictly worse
+  // than leaving the stale argv in place, so this refuses instead and hands
+  // the renderer a reason to show.
+  handle('sessions:restartStale', async (_e, id: string): Promise<RestartStaleResult> => {
+    const record = getSessionRegistry().find((s) => s.id === id);
+    if (!record) return { ok: false, reason: 'session not found' };
+    if (!shouldResume(record)) {
+      return { ok: false, reason: "can't safely restart — no captured conversation id to resume" };
+    }
+    const outcome = await respawnSession(ptyManager, record, {
+      harnessHomeDir: getHarnessHomeDir(),
+      defaultAgentProvider: await getDefaultAgentProvider()
+    });
+    if (!outcome.ok) return { ok: false, reason: outcome.fallbackReason ?? 'restart failed' };
+    setSessionRegistry(
+      getSessionRegistry().map((s) =>
+        s.id === id ? { ...s, staleArgv: false, tool: undefined, toolTarget: undefined, looping: false } : s
+      )
+    );
+    return { ok: true };
   });
 }

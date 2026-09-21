@@ -7,6 +7,7 @@ import type {
   PtyInfo,
   PtyResult,
   RendererCrashInfo,
+  RestartStaleResult,
   RestoreSnapshot,
   SessionRecord,
   SpawnPtyOptions,
@@ -96,6 +97,12 @@ const api = {
    *  plus the last-selected id — called once on boot to re-adopt them after a
    *  crash or a plain reload. */
   restoreSessions: (): Promise<RestoreSnapshot> => ipcRenderer.invoke('sessions:restore'),
+  /** User-triggered restart of a session whose live process is running with
+   *  a stale (pre-current-app-version) argv (`SessionRecord.staleArgv`) —
+   *  StaleArgvChip.tsx's action. Never automatic — see pty.ts's
+   *  `tryReattach` for why this app doesn't refresh flags on its own. */
+  restartStaleSession: (id: string): Promise<RestartStaleResult> =>
+    ipcRenderer.invoke('sessions:restartStale', id),
   /** Non-null exactly once, right after a launch that respawned at least one
    *  disk-persisted session (Phase 8.5 #1) — see main/index.ts's
    *  `diskRestoreConsumed`. Pulled on boot the same way `getCrashInfo` is. */
