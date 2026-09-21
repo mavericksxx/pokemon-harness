@@ -31,12 +31,6 @@ export interface RespawnOutcome {
    *  substitute instead — `restoreFromDisk` (main/index.ts) turns this into a
    *  toast note. */
   fallbackReason?: string;
-  /** Set when this outcome came from a reattach (see `tryReattach`) to a
-   *  keeper whose argv predates the current app version — `restoreFromDisk`
-   *  carries this onto the restored `SessionRecord` so the renderer can show
-   *  its own restart-to-update chip (StaleArgvChip.tsx). Always false/absent
-   *  for a fresh spawn, which is built with today's flags by definition. */
-  staleArgv?: boolean;
 }
 
 /** Respawn one persisted session under its original id. Tries the recorded
@@ -48,36 +42,11 @@ export interface RespawnOutcome {
  *  so the shell's PATH shims can make a hand-relaunched CLI behave like the
  *  original session.
  */
-export interface RespawnSessionOptions {
-  /** Restart-stale fix (`sessions:restartStale`, ipc/sessions.ts) — skips the
-   *  `tryReattach` attempt below entirely. A session offered the stale-argv
-   *  restart chip is BY DEFINITION currently reattached: its keeper is still
-   *  alive, so an ordinary call here would `tryReattach` it a SECOND time —
-   *  which just overwrites the live `PtySession` with a blank-metadata one
-   *  and leaks the first `KeeperClient`'s socket (see `tryReattach`'s own
-   *  comment in pty.ts) — instead of ever reaching the kill+respawn the
-   *  restart actually needs. The restart handler kills and awaits the real
-   *  exit itself, BEFORE calling this, so there is nothing left to reattach
-   *  to by the time this runs anyway. Never set by `restoreFromDisk` (boot
-   *  path) — that path's behavior is unchanged. */
-  skipReattach?: boolean;
-}
-
 export async function respawnSession(
   ptyManager: PtyManager,
   record: SessionRecord,
-  arceusConfig: ArceusRespawnConfig,
-  options?: RespawnSessionOptions
+  arceusConfig: ArceusRespawnConfig
 ): Promise<RespawnOutcome> {
-  // Resolved BEFORE the reattach attempt below (not after, as originally
-  // written) — `tryReattach` needs to know whether a refused reattach can
-  // actually fall through to a resumed session, and `effective` (not the
-  // raw `record`) is the exact value `respawnArgs` itself is called with a
-  // few lines down. Passing anything else risks the two disagreeing about
-  // whether `--resume` will be issued, which is the whole hazard this
-  // guards against.
-  const effective = await resolveEffectiveRespawn(record, arceusConfig);
-
   // "Leave them running" quit path (QuitDialog.tsx) — if this id's CLI
   // survived the last quit detached to its own keeper process, reattach to
   // it instead of spawning a brand-new one. Covers both "still running" and
@@ -85,14 +54,9 @@ export async function respawnSession(
   // reattach (its keeper already exited and cleaned up its socket) and
   // falls through to the unchanged spawn/resume logic below, same as a
   // session that was never detached in the first place.
-  //
-  // A reattach always succeeds regardless of argv staleness (see
-  // `tryReattach`'s own comment — this app never kills a session to refresh
-  // its flags); `isStaleArgv` just reads back what `tryReattach` detected so
-  // it can ride this outcome onto the restored `SessionRecord`.
-  if (!options?.skipReattach && (await ptyManager.tryReattach(record.id))) {
-    return { ok: true, staleArgv: ptyManager.isStaleArgv(record.id) };
-  }
+  if (await ptyManager.tryReattach(record.id)) return { ok: true };
+
+  const effective = await resolveEffectiveRespawn(record, arceusConfig);
 
   const useResume = shouldResume(effective);
   const primary = ptyManager.spawn({

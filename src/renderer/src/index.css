@@ -4331,36 +4331,6 @@ body.garden-lowres .garden canvas {
   text-overflow: ellipsis;
 }
 
-/* Stale-argv chip (reattach guard removal follow-up, StaleArgvChip.tsx) —
- * plain text pill styled off `.harness-instructions-chip`'s own tokens
- * (muted at rest, warn-tinted so it reads as "worth a look" without
- * introducing a new color), own row under the top status line. The
- * `--blocked` variant (can't safely restart) is a non-interactive span
- * rather than a button, so it gets no hover treatment. */
-.roster-card-stale-chip {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  height: var(--topbar-icon-size);
-  padding: 2px 8px;
-  font-family: var(--font-mono);
-  font-size: var(--font-body-sm-size);
-  color: var(--status-working);
-  background: transparent;
-  border: 1px solid var(--line);
-  white-space: nowrap;
-}
-
-button.roster-card-stale-chip:hover:not(:disabled) {
-  color: var(--accent-text);
-  background: var(--panel-2);
-  border-color: var(--line);
-}
-
-.roster-card-stale-chip--blocked {
-  color: var(--muted);
-}
-
 .roster-card-tool {
   font-size: var(--font-body-sm-size);
   color: var(--muted);

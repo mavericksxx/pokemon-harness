@@ -13,14 +13,8 @@
  * with `POKEHARNESS_AGENT_ID` (set on the child's env — see pty.ts), and
  * forwards it over a Unix domain socket this class listens on. We normalize
  * the payload and push it to the renderer over `hooks:event:<agentId>`; the
- * shim gets `{}` back for almost every hook, EXCEPT one deliberate exception:
- * the delegation gate (`checkDelegationGate`) can deny a PreToolUse Edit/
- * Write/NotebookEdit for a session enrolled via `prepareSession`'s
- * `delegationGate` param, returning a real `hookSpecificOutput` deny blob
- * instead of `{}`. A denied PreToolUse returns before the renderer forward
- * below, so the garden never sees that Edit attempt at all, and no
- * PostToolUse follows for it (Claude Code never runs the tool). Every other
- * hook/tool stays observation-only, exactly as before.
+ * shim always gets `{}` back (this app never denies/gates a tool call at the
+ * hook boundary).
  *
  * The shim itself is invoked by Claude via a bare `sh -c` with a stripped
  * PATH — a plain `node "<script>"` command 127s on a machine whose node only
@@ -31,7 +25,7 @@
  */
 import { createServer, type Server } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import type { WebContents } from 'electron';
 import { log } from './diagnostics';
 import {
@@ -73,62 +67,6 @@ export const AGENT_ID_ENV = 'POKEHARNESS_AGENT_ID';
  *  battler attaches to; `DELEGATE_LABEL_ENV` is an optional card title. */
 export const DELEGATE_PARENT_ENV = 'POKEHARNESS_DELEGATE_PARENT';
 export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
-
-/** Delegation gate (routing-question rule, HARNESS.md's "Work through
- *  subagents") — the exact fourth-option label the orchestrator is told to
- *  offer the user in its `AskUserQuestion` call, and the string `handle()`'s
- *  PostToolUse check builds its unlock match against to unlock self-editing
- *  for that session. Shared between the prose (harnessInstructions.ts) and
- *  the enforcement (this file) so the two can never drift apart — if this
- *  constant's text changes, both sides change together.
- *
- *  `AskUserQuestion`'s PostToolUse `tool_response` shape IS now confirmed —
- *  live capture, four real calls — a plain STRING of the form:
- *    Your questions have been answered: "Which lane should build this?"="Sonnet (Recommended)". You can now continue with these answers in mind.
- *  with a second observed variant beginning `The user answered: "..."="..."`
- *  instead. Only the SELECTED option's label appears — unselected labels and
- *  every option's description never show up in the response at all. That
- *  means the unlock match must be against the rendered `="<label>"` answer
- *  form, not a bare substring search for the label text anywhere in the
- *  response: a bare search would also fire if a model's own QUESTION text
- *  happened to quote this label (self-unlock via question-writing, not an
- *  actual selection) — see `checkDelegationGate`'s call site for the actual
- *  match expression built from this constant. */
-export const SELF_EDIT_OPTION_LABEL = "I'll do it myself (small change)";
-
-/** The claude CLI conversation id to persist for a later `claude --resume` —
- *  preferably the ACTIVE conversation, not necessarily this process's
- *  original `session_id`. `transcript_path`'s basename (minus `.jsonl`) IS
- *  the exact file `--resume <id>` would reopen, whereas a live capture
- *  showed a session's OWN background-task output written under a directory
- *  named for the pre-`/clear` session even though that same process's
- *  `CLAUDE_CODE_SESSION_ID` env var had already moved on to the new one —
- *  i.e. the CLI does not update every internal reference to "the current
- *  session id" uniformly after a `/clear`, so `session_id` on a payload
- *  can't be trusted to have followed it either. `transcript_path` is the
- *  more reliable signal precisely because it's what costWatcher.ts already
- *  keys its own per-conversation tracking on (see that file's header) and
- *  its 2026-09-06 fix for the exact same "`/clear` swaps the file out from
- *  under a still-registered id" shape. Falls back to `session_id` only when
- *  no transcript path is present at all (e.g. any payload shape that omits
- *  it), so every other caller of this field keeps its prior behavior. */
-function claudeSessionIdFromPayload(p: HookPayload): string | undefined {
-  if (p.transcript_path) {
-    const id = claudeSessionIdFromTranscriptPath(p.transcript_path);
-    if (id) return id;
-  }
-  return p.session_id;
-}
-
-/** `transcript_path`'s basename, `.jsonl` stripped — the exact id a
- *  `claude --resume <id>` would reopen. Split out of `claudeSessionIdFromPayload`
- *  above so `restartStale` (ipc/sessions.ts) can derive the SAME id from a
- *  bare transcript path (`getLiveTranscriptPath`'s value) without duplicating
- *  the stripping logic. */
-export function claudeSessionIdFromTranscriptPath(transcriptPath: string): string {
-  const base = basename(transcriptPath);
-  return base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
-}
 
 const SHIM_FILENAME = 'cth-hook.cjs';
 const CLI_SHIM_DIRNAME = 'cli-shims';
@@ -546,44 +484,6 @@ export class HookBridge {
    *  through per-call. Default off so a freshly-constructed bridge (tests,
    *  other callers) behaves exactly as before this setting existed. */
   private hideStatusline = false;
-  /** Delegation-gate unlock, keyed by `harness_agent_id` (the same id
-   *  `handle()` already routes on) — set when the top-level session's own
-   *  `AskUserQuestion` PostToolUse comes back with the user having picked
-   *  the self-edit option (see `SELF_EDIT_OPTION_LABEL`), cleared on that
-   *  session's very next `UserPromptSubmit` so one authorized small fix
-   *  can't ride into a later, unrelated edit. A `Set` rather than a plain
-   *  boolean flag per session because this class already tracks state
-   *  per-agentId only implicitly (via the socket payload) — this is the
-   *  first place PreToolUse needs to remember something ACROSS calls for
-   *  the same session. */
-  private readonly delegationUnlocked = new Set<string>();
-  /** Sessions the gate actually applies to — populated only by the
-   *  `delegationGate: true` opt-in `prepareSession` receives from pty.ts,
-   *  which passes it from the SAME condition that decides whether that
-   *  session gets HARNESS.md appended at all (see pty.ts's `spawn()`,
-   *  `wantsHarnessInstructions`). This has to be a real per-session set, not
-   *  "gate everyone", because the two other sessions this class also
-   *  services — Arceus, and any session with harness instructions toggled
-   *  off in settings — get a `--settings` file (for hooks/poke-tools) but
-   *  were never told the routing-question rule exists. Blocking their edits
-   *  without ever having given them the prose that explains how to unlock
-   *  would strand them with no reachable escape hatch. */
-  private readonly delegationGateSessions = new Set<string>();
-  /** Most recent `transcript_path` seen for each top-level session, keyed by
-   *  `harness_agent_id` — restart-stale fix (`sessions:restartStale`,
-   *  ipc/sessions.ts): a session reattached from a PRE-this-release keeper
-   *  still has whatever `claudeSessionId` was persisted at its last quit, and
-   *  nothing corrects that stale id until the CLI fires a hook of its own —
-   *  which a reattached-but-otherwise-idle process never does on its own.
-   *  Updated in `handle()` below on ANY known hook event, so a mere
-   *  PreToolUse/Stop from the user poking a reattached session is enough to
-   *  learn its CURRENT transcript, without waiting for a SessionStart that
-   *  will never come. `!p.agent_id`-gated at the write site — a dispatched
-   *  Task subagent's payload carries its OWN transcript_path and must never
-   *  be recorded as its parent's, which would point a future restart's
-   *  `--resume` at the wrong conversation entirely. Cleaned up alongside
-   *  `cleanupSession`'s other per-session state. */
-  private readonly liveTranscriptPaths = new Map<string, string>();
 
   constructor(
     userDataDir: string,
@@ -1059,25 +959,8 @@ export class HookBridge {
    *  `POKE_TOOL_PERMISSION_RULES` for an Arceus spawn only) adds
    *  `permissions.allow` entries so auto-mode-off doesn't stall a session on
    *  an unattended permission prompt for a Bash command it's expected to run
-   *  autonomously.
-   *
-   *  `delegationGate` (default false, same opt-in posture as
-   *  `extraAllowRules`) enrolls this session in the PreToolUse Edit/Write/
-   *  NotebookEdit gate (`checkDelegationGate`). Callers MUST pass this as
-   *  exactly the same boolean that decided whether this session gets
-   *  HARNESS.md appended to its prompt — see pty.ts's `spawn()`, which
-   *  computes that condition once and reuses it for both. The gate exists to
-   *  enforce a rule HARNESS.md's prose describes; a session that never
-   *  received the prose (Arceus, or harness instructions toggled off) must
-   *  never be enrolled, or it'd be blocked by instructions it was never
-   *  given and have no way to answer the routing question it doesn't know
-   *  exists. */
-  prepareSession(agentId: string, tmpDir: string, extraAllowRules?: string[], delegationGate = false): string {
-    if (delegationGate) {
-      this.delegationGateSessions.add(agentId);
-    } else {
-      this.delegationGateSessions.delete(agentId);
-    }
+   *  autonomously. */
+  prepareSession(agentId: string, tmpDir: string, extraAllowRules?: string[]): string {
     mkdirSync(tmpDir, { recursive: true });
     const settingsPath = join(tmpDir, `hook-settings-${agentId}.json`);
     const cmd = this.hookCommand();
@@ -1151,82 +1034,14 @@ export class HookBridge {
     this.hideStatusline = hide;
   }
 
-  /** See `liveTranscriptPaths`'s own field comment — the live-observed
-   *  transcript path for a top-level session, if any hook has fired for it
-   *  since this process started. `undefined` for a session that's never
-   *  fired a hook yet (e.g. restart clicked immediately after a reattach,
-   *  before the user has typed anything). */
-  getLiveTranscriptPath(agentId: string): string | undefined {
-    return this.liveTranscriptPaths.get(agentId);
-  }
-
   /** Best-effort teardown of a session's generated settings file. */
   cleanupSession(agentId: string, tmpDir: string): void {
-    this.delegationUnlocked.delete(agentId);
-    this.delegationGateSessions.delete(agentId);
-    this.liveTranscriptPaths.delete(agentId);
     try {
       const p = join(tmpDir, `hook-settings-${agentId}.json`);
       if (existsSync(p)) rmSync(p);
     } catch {
       /* noop */
     }
-  }
-
-  /** Delegation-gate allowlist — files the orchestrator may always edit
-   *  directly, no routing question needed (HARNESS.md bullet 1's path-based
-   *  carve-out: docs, changelog, backlog). Basename-only match, same spirit
-   *  as `CODEX_SHIM_FILENAME`'s substring check elsewhere in this file —
-   *  deliberately simple rather than a real glob engine, since the three
-   *  patterns are all "extension or filename prefix". */
-  private isDelegationGateAllowlisted(filePath: string | undefined): boolean {
-    if (!filePath) return false;
-    const base = filePath.split('/').pop() ?? filePath;
-    return base.endsWith('.md') || base.startsWith('CHANGELOG') || base.startsWith('BACKLOG');
-  }
-
-  /** Delegation gate (HARNESS.md "Work through subagents") — returns a deny
-   *  reason string for a PreToolUse edit that hasn't been authorized, or
-   *  `null` to allow it through. Only ever called for `Edit`/`Write`/
-   *  `NotebookEdit` (see `handle()`'s call site) — every other tool is
-   *  unaffected, per this feature's explicit out-of-scope note on `Bash`. */
-  private checkDelegationGate(agentId: string, p: HookPayload): string | null {
-    // Only applies to sessions pty.ts opted in — see `delegationGateSessions`'
-    // own comment for why "gate everyone with a settings file" is wrong.
-    if (!this.delegationGateSessions.has(agentId)) return null;
-    // A top-level session's own tool call never carries Claude Code's
-    // internal subagent `agent_id` field (see this file's header comment on
-    // why HOOK_SHIM stamps `harness_agent_id` under a different key to
-    // avoid colliding with this one) — only a dispatched Task subagent's
-    // tool calls do. Subagents ARE the delegation target this whole gate
-    // exists to route work to, so their own edits must never be blocked by
-    // it; that would defeat the mechanism entirely.
-    if (p.agent_id) return null;
-    const input = p.tool_input as Record<string, unknown> | undefined;
-    const filePath = typeof input?.file_path === 'string' ? input.file_path : undefined;
-    if (this.isDelegationGateAllowlisted(filePath)) return null;
-    if (this.delegationUnlocked.has(agentId)) return null;
-    log('hooks', 'warn', 'delegation gate denied a tool call', {
-      agentId,
-      hasAgentId: !!p.agent_id,
-      tool: p.tool_name,
-      file: filePath
-    });
-    // Deliberately verbose — this string is the only channel that reaches a
-    // model whose HARNESS.md prose has since been compacted out of context,
-    // and it's also what has to break the real failure loop where the model
-    // asks the routing question in plain text, the user replies "you do it"
-    // in plain text, nothing unlocks, and the model has no idea why it's
-    // being denied again.
-    return (
-      `This edit is blocked. Ask the user via the \`AskUserQuestion\` tool, with one option's label ` +
-      `EXACTLY "${SELF_EDIT_OPTION_LABEL}" and the other three Haiku, Sonnet, and Luna (via Codex). ` +
-      'A plain-text answer from the user does NOT unlock this — it must be that tool call, with that ' +
-      'exact label selected. Retrying this edit without doing that will be denied again. Do not work ' +
-      'around this with `sed -i`, a heredoc, or `git apply` via Bash — that is the same violation. ' +
-      'If you are a subagent dispatched via the Agent tool, this deny is a harness bug: stop and report ' +
-      '"delegation gate misfired" to your caller.'
-    );
   }
 
   private handle(p: HookPayload): unknown {
@@ -1244,47 +1059,7 @@ export class HookBridge {
       return {};
     }
     this.onRawPayload?.(agentId, p.transcript_path, p.hook_event_name, p.agent_id);
-    // See `liveTranscriptPaths`'s own comment — top-level payloads only
-    // (`!p.agent_id`): a dispatched Task subagent's transcript is its own,
-    // never this session's.
-    if (!p.agent_id && p.transcript_path) this.liveTranscriptPaths.set(agentId, p.transcript_path);
     if (!isKnownHookEvent(eventName)) return {};
-
-    // Delegation gate — the unlock only survives until the user's NEXT
-    // message, so it's cleared on UserPromptSubmit; ALSO cleared on Stop
-    // (end of the model's own turn), which is strictly earlier and catches
-    // paths that never reach a UserPromptSubmit at all (e.g. the next
-    // message arriving from another session via SendMessage/poke-relay
-    // rather than the user typing into this one).
-    if (eventName === 'UserPromptSubmit' || eventName === 'Stop') {
-      this.delegationUnlocked.delete(agentId);
-    } else if (eventName === 'PreToolUse' && (p.tool_name === 'Edit' || p.tool_name === 'Write' || p.tool_name === 'NotebookEdit')) {
-      const denyReason = this.checkDelegationGate(agentId, p);
-      if (denyReason) {
-        return {
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'deny',
-            permissionDecisionReason: denyReason
-          }
-        };
-      }
-    } else if (eventName === 'PostToolUse' && p.tool_name === 'AskUserQuestion' && !p.agent_id) {
-      // `!p.agent_id`: a dispatched SUBAGENT's own AskUserQuestion must
-      // never unlock its PARENT session — they're different sessions with
-      // different delegation-gate enrollment, and conflating them would let
-      // a subagent's own question-asking (for whatever it's doing) silently
-      // authorize the orchestrator to self-edit.
-      //
-      // Match built from SELF_EDIT_OPTION_LABEL's own comment: the captured
-      // tool_response only ever echoes the SELECTED option's label, in the
-      // rendered `="<label>"` answer form — matching bare occurrences of the
-      // label text would also fire on a model that merely quoted the label
-      // in its own QUESTION text, without the user ever selecting it.
-      if (JSON.stringify((p as { tool_response?: unknown }).tool_response ?? '').includes(`="${SELF_EDIT_OPTION_LABEL}"`)) {
-        this.delegationUnlocked.add(agentId);
-      }
-    }
 
     const tool = normalizeToolName(p.tool_name);
     const event: HookEvent = {
@@ -1295,7 +1070,7 @@ export class HookBridge {
       notificationType: p.notification_type,
       message: p.message,
       source: p.source,
-      claudeSessionId: claudeSessionIdFromPayload(p),
+      claudeSessionId: p.session_id,
       toolUseId: p.tool_use_id,
       subagentType: subagentTypeFromInput(tool, p.tool_input),
       agent_id: p.agent_id,
@@ -1309,10 +1084,7 @@ export class HookBridge {
         /* window tore down mid-send */
       }
     }
-    // Reaching here means this event was allowed through (the delegation
-    // gate's deny above already returned early for a blocked PreToolUse) —
-    // every other hook stays observation-only, same as before that gate
-    // existed.
+    // Never gate/deny — this app's hooks are observation-only.
     return {};
   }
 

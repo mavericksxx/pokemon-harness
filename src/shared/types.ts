@@ -45,16 +45,6 @@ export interface PtyExit {
   lastOutput?: string;
 }
 
-/** Result of `sessions:restartStale` (ipc/sessions.ts) — the renderer's
- *  user-triggered counterpart to the reattach-time stale-argv guard this app
- *  used to have (pty.ts's `tryReattach` no longer kills anything). */
-export interface RestartStaleResult {
-  ok: boolean;
-  /** Set when `ok` is false: why the restart didn't happen, for
-   *  StaleArgvChip.tsx to show instead of silently doing nothing. */
-  reason?: string;
-}
-
 export interface PtyInfo {
   id: string;
   cwd: string;
@@ -157,14 +147,6 @@ export interface SessionRecord {
    *  starting a fresh conversation. Absent for non-claude sessions and for
    *  any claude session whose hooks haven't fired yet. */
   claudeSessionId?: string;
-  /** True when this session was reattached (app-launch "leave them running"
-   *  quit path — see pty.ts's `tryReattach`) to a live process whose argv
-   *  predates the current app version: flags a fresh spawn would now add
-   *  (e.g. `--agents`) are missing from it. Purely informational — the
-   *  reattach always succeeds regardless — surfaced as a small chip
-   *  (StaleArgvChip.tsx) with a user-triggered restart via
-   *  `sessions:restartStale`. Absent/false for any session spawned fresh. */
-  staleArgv?: boolean;
   /** True once this session's PostToolUse events have repeated the same
    *  tool+target enough times in a row to trip the loop-detection circuit
    *  breaker (Phase 8.5 #3) — the walker/roster card show a distinct

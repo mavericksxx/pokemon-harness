@@ -77,13 +77,6 @@ export interface HookPayload {
    *  it can never collide with anything Claude/codex's own payload carries. */
   harness_delegate_parent?: string | null;
   harness_delegate_label?: string | null;
-  /** PostToolUse-only — the tool's own result, present per Claude Code's
-   *  public hooks docs ("PostToolUse... tool_response") but with a shape
-   *  that varies per tool and isn't documented for `AskUserQuestion`
-   *  specifically. `unknown` deliberately: hookBridge.ts's delegation gate
-   *  reads this via a stringified substring search rather than a typed
-   *  field access, exactly because that shape isn't pinned down. */
-  tool_response?: unknown;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */
@@ -95,12 +88,9 @@ export interface HookEvent {
   notificationType?: string;
   message?: string;
   source?: string;
-  /** The claude CLI's own conversation id — preferably `transcript_path`'s
-   *  basename, falling back to `session_id` (see hookBridge.ts's
-   *  `claudeSessionIdFromPayload`, which is why this isn't simply
-   *  `session_id`) — captured so a SessionStart can stash it on the
-   *  SessionRecord for disk-persisted `claude --resume` respawns (Phase
-   *  8.5 #1). */
+  /** The claude CLI's own session id (`session_id` on the raw payload), when
+   *  present — captured so a SessionStart can stash it on the SessionRecord
+   *  for disk-persisted `claude --resume` respawns (Phase 8.5 #1). */
   claudeSessionId?: string;
   /** `tool_use_id` off the raw payload (see `HookPayload.tool_use_id`) — for
    *  a `Task` PreToolUse this is the one identity available at spawn time,

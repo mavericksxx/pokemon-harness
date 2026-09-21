@@ -954,10 +954,9 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
   //
   // Checked for an intentional "two panes/sessions on one conversation"
   // feature before writing this dedup, since that's exactly the shape this
-  // would break if it existed: found none. `claudeSessionId` is captured off
-  // ITS OWN `SessionStart` hook payload (hookBridge.ts's
-  // `claudeSessionIdFromPayload`, which follows a `/clear` mid-session
-  // rather than only capturing once) — nothing in
+  // would break if it existed: found none. `claudeSessionId` is captured
+  // exactly once per live process, straight off ITS OWN `SessionStart` hook
+  // payload (hookBridge.ts: `claudeSessionId: p.session_id`) — nothing in
   // this codebase ever reads one record's `claudeSessionId` and writes it
   // onto another (no duplicate/clone/split-pane session action exists; the
   // only two places that construct a respawn arg list from it,
@@ -1027,7 +1026,7 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
   const outcomes = await Promise.allSettled(
     dedupedSessions.map((record) =>
       alreadyReattached.has(record.id)
-        ? Promise.resolve<RespawnOutcome>({ ok: true, staleArgv: ptyManager.isStaleArgv(record.id) })
+        ? Promise.resolve<RespawnOutcome>({ ok: true })
         : respawnSession(ptyManager, record, {
             harnessHomeDir,
             defaultAgentProvider: appSettings.defaultAgentProvider
@@ -1074,8 +1073,7 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
       tool: undefined,
       toolTarget: undefined,
       looping: false,
-      ...(outcome.fallbackReason ? { error: outcome.fallbackReason } : {}),
-      ...(outcome.staleArgv ? { staleArgv: true } : {})
+      ...(outcome.fallbackReason ? { error: outcome.fallbackReason } : {})
     });
     if (outcome.fallbackReason) {
       notes.push(`${record.title}: ${outcome.fallbackReason} — opened a shell with pokeharness wiring.`);
@@ -1637,10 +1635,6 @@ app.whenReady().then(async () => {
   usageService.setExcludedProviders(appSettings.usageExcludedProviders);
   usageService.setEnabled(appSettings.usageLimitsEnabled);
   ptyManager.setHarnessInstructions(appSettings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
-  // Must be set BEFORE `restoreFromDisk()` below — `tryReattach()` compares
-  // this against each keeper's stamped `appVersion` to decide whether a
-  // reattach's frozen argv is stale (see PtyManager's `appVersion` field).
-  ptyManager.setAppVersion(app.getVersion());
   ptyManager.setAdvisorModel(appSettings.advisorModel);
   // Arceus v2 (docs/arceus-v2-plan.md §3.5) — must be set BEFORE
   // `restoreFromDisk()` below, since a persisted Arceus record's boot
@@ -1824,7 +1818,6 @@ registerSessionsIpc({
   pokeRelay,
   costWatcher,
   taskNotificationWatcher,
-  hookBridge,
   notifyStatusTransitions,
   getSessionRegistry: () => sessionRegistry,
   setSessionRegistry: (sessions) => {
@@ -1835,12 +1828,6 @@ registerSessionsIpc({
     lastSelectedId = id;
   },
   getHarnessHomeDir: () => harnessHomeDir,
-  // No module-scope `appSettings` exists here (it's local to the `whenReady`
-  // async function above, which has long since returned by the time a user
-  // clicks a restart chip) — a fresh disk read mirrors exactly what boot's
-  // own `restoreFromDisk` caller does, and is cheap/rare enough (one
-  // deliberate user click) that caching it isn't worth the staleness risk.
-  getDefaultAgentProvider: async () => (await loadAppSettings()).defaultAgentProvider,
   getWorkspaceRegistry: () => workspaceRegistry,
   getDiskRestorePromise: () => diskRestorePromise,
   isDiskRestoreConsumed: () => diskRestoreConsumed,

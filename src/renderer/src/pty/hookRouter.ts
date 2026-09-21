@@ -331,16 +331,12 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // SessionStart (shouldn't happen mid-session, but be defensive) ever
       // arrived without one, silently dropping an already-captured id would
       // break disk-persisted `--resume` respawns for no reason.
-      // `!evt.agent_id`: a dispatched Task subagent can itself fire a
-      // SessionStart-shaped hook, and its `claudeSessionId` names ITS OWN
-      // transcript, never the top-level session's — writing it here would
-      // point a future `--resume` at the wrong conversation.
       update({
         status: 'idle',
         tool: undefined,
         toolTarget: undefined,
         station: 'wander',
-        ...(evt.claudeSessionId && !evt.agent_id ? { claudeSessionId: evt.claudeSessionId } : {}),
+        ...(evt.claudeSessionId ? { claudeSessionId: evt.claudeSessionId } : {}),
         // Post-compact wake (item 4): a SessionStart whose `source` is
         // 'compact' is the one Claude Code fires right after it finishes
         // compacting — clear the nap the matching PreCompact set below.

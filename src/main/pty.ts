@@ -150,15 +150,6 @@ interface PtySession {
   claudeSettingsPath?: string;
   rendererAttached: boolean;
   oscCarry: string;
-  /** True when this session was reattached from a keeper (see `tryReattach`)
-   *  whose argv predates a later app version — flags a fresh `spawn()` would
-   *  now add (e.g. `--agents`) are missing from the still-running process.
-   *  Purely informational: the renderer surfaces it as a chip
-   *  (StaleArgvChip.tsx) with a user-triggered restart action, since the app
-   *  never kills a session to refresh its own flags. Always false for a
-   *  session built by `spawn()` itself — it was just constructed with the
-   *  current flag set by definition. */
-  staleArgv: boolean;
 }
 
 export class PtyManager {
@@ -202,20 +193,6 @@ export class PtyManager {
    *  `opts.id === ARCEUS_SESSION_ID` — see that method's own comment. */
   private arceusSystemPromptPath: string | null = null;
   private arceusRosterPath: string | null = null;
-  /** Set from `app.getVersion()` at boot (main/index.ts), same "cache the
-   *  value, PtyManager can't reach electron's `app` itself" pattern as
-   *  `harnessInstructionsPath` above. Stamped into every claude keeper's
-   *  `KeeperMeta` in `detachToKeeper` and compared against that stamp in
-   *  `tryReattach` — a reattached pty's argv is frozen at the moment it was
-   *  spawned, so a keeper left running across an app upgrade can never pick
-   *  up new flags (e.g. the `--agents` bundled-subagent injection added in
-   *  v1.11.0); a version mismatch (or a missing stamp, from a keeper written
-   *  before this field existed) makes `tryReattach` mark the rebuilt session
-   *  `staleArgv: true`. The reattach itself always still succeeds — the app
-   *  never kills a session to refresh its own flags — so this only affects
-   *  what gets reported to the renderer, not whether the session comes
-   *  back. */
-  private appVersion: string | null = null;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -288,13 +265,6 @@ export class PtyManager {
     this.arceusRosterPath = rosterPath;
   }
 
-  /** Set from `app.getVersion()` at boot (main/index.ts) — see this class's
-   *  own `appVersion` field comment for why it's cached here and how
-   *  `tryReattach` uses it. */
-  setAppVersion(version: string): void {
-    this.appVersion = version;
-  }
-
   /** Set from `appSettings.advisorModel` at boot and on every settings save
    *  (main/index.ts) — read the next time any claude session spawns, so
    *  changing it never touches an already-running session's pty. */
@@ -354,17 +324,6 @@ export class PtyManager {
     // persona composition below can't be missed on any of them.
     const isArceus = opts.id === ARCEUS_SESSION_ID;
 
-    // Delegation gate (hookBridge.ts's `prepareSession` `delegationGate`
-    // param) must be enrolled for EXACTLY the sessions that receive
-    // HARNESS.md below — that prose is what tells a session the routing
-    // question (and its self-edit unlock) exists at all, so the enforcement
-    // side can never be wider than the sessions it was told about. Hoisted
-    // here, above both use sites (`prepareSession`'s call below wants it too
-    // and runs first), so the two conditions are structurally the same
-    // expression rather than two copies that could drift.
-    const wantsHarnessInstructions =
-      !opts.isDelegate && !isArceus && this.harnessInstructionsEnabled && !!this.harnessInstructionsPath;
-
     // Phase 4 Part A — wire the Claude Code hooks shim for claude sessions
     // only: a per-session --settings file routes lifecycle hooks over a UDS
     // back to this app, so the garden can use them as the authoritative state
@@ -380,8 +339,7 @@ export class PtyManager {
       const settingsPath = this.hookBridge.prepareSession(
         opts.id,
         hookTmpDir(),
-        isArceus ? POKE_TOOL_PERMISSION_RULES : undefined,
-        wantsHarnessInstructions
+        isArceus ? POKE_TOOL_PERMISSION_RULES : undefined
       );
       claudeSettingsPath = settingsPath;
       args = [...args, '--settings', settingsPath];
@@ -402,11 +360,10 @@ export class PtyManager {
     // takes effect on the very next spawn. Missing/empty/unreadable file
     // just means no flag gets appended — same best-effort posture as every
     // other disk read in this function.
-    if (wantsHarnessInstructions && this.harnessInstructionsPath) {
-      const harnessInstructionsPath = this.harnessInstructionsPath;
+    if (!opts.isDelegate && !isArceus && this.harnessInstructionsEnabled && this.harnessInstructionsPath) {
       let instructions = '';
       try {
-        instructions = readFileSync(harnessInstructionsPath, 'utf8');
+        instructions = readFileSync(this.harnessInstructionsPath, 'utf8');
       } catch {
         /* file missing/unreadable — spawn without it */
       }
@@ -414,7 +371,7 @@ export class PtyManager {
         if (opts.provider === 'claude') {
           // `claude --help`: --append-system-prompt-file <path> — appends to
           // (never replaces) Claude Code's own system prompt.
-          args = [...args, '--append-system-prompt-file', harnessInstructionsPath];
+          args = [...args, '--append-system-prompt-file', this.harnessInstructionsPath];
         } else if (opts.provider === 'codex') {
           // Codex config docs (developers.openai.com/codex/config-reference)
           // describe `developer_instructions` as "Additional developer
@@ -571,8 +528,7 @@ export class PtyManager {
         claudeSettingsPath,
         isDelegate: opts.isDelegate === true,
         rendererAttached,
-        oscCarry: '',
-        staleArgv: false
+        oscCarry: ''
       };
       this.sessions.set(opts.id, session);
       this.onSessionsChanged?.();
@@ -782,8 +738,7 @@ export class PtyManager {
         claudeSettingsPath: source.claudeSettingsPath,
         isDelegate: false,
         rendererAttached: source.rendererAttached,
-        oscCarry: '',
-        staleArgv: false
+        oscCarry: ''
       };
       this.sessions.set(id, session);
       this.onSessionsChanged?.();
@@ -929,49 +884,6 @@ export class PtyManager {
     }
   }
 
-  /** Restart-stale fix (`sessions:restartStale`, ipc/sessions.ts) — kills
-   *  session `id` and resolves only once its underlying process has ACTUALLY
-   *  exited, not merely once the kill signal was sent. `kill()` itself is
-   *  fire-and-forget (a real pty's `.kill()` sends a signal the child may
-   *  take a moment to act on; a `KeeperClient`'s `.kill()` just writes a
-   *  `FRAME_KILL` frame the detached keeper process then relays as a
-   *  `SIGTERM` to the real child — see ptyKeeper.ts) — a caller that
-   *  immediately respawns under the same id without waiting risks two
-   *  processes briefly both alive and both appending to the same `--resume`
-   *  transcript file, the exact corruption `restoreFromDisk`'s own dedup
-   *  guards against (see index.ts's 2026-09-17 fix comment). The listener is
-   *  registered on the captured `session.proc` BEFORE `kill()` runs, since a
-   *  `KeeperClient`'s exit can in principle arrive as fast as the socket
-   *  write flushes. Resolves `true` once `onExit` fires (a `KeeperClient`
-   *  fires this on the keeper's `FRAME_EXIT` or, failing that, the socket's
-   *  own `close` — see that class's constructor — and a keeper only reaches
-   *  either of those AFTER it has already unlinked its own socket file in
-   *  `cleanupAndExit`, so by the time this resolves `true` nothing is left
-   *  for a later `detachToKeeper` under this same id to collide with).
-   *  Resolves `false` if `timeoutMs` elapses first — the caller must NOT
-   *  spawn a replacement in that case; the old process may still be alive
-   *  and writing. Resolves `true` immediately for an already-unknown id
-   *  (nothing to wait for). */
-  killAndAwaitExit(id: string, timeoutMs: number): Promise<boolean> {
-    const session = this.sessions.get(id);
-    if (!session) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      let done = false;
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        resolve(false);
-      }, timeoutMs);
-      session.proc.onExit(() => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        resolve(true);
-      });
-      this.kill(id);
-    });
-  }
-
   /** "Leave them running" quit path (QuitDialog.tsx's "quit" action) — hands
    *  session `id`'s live pty master off to a small detached `ptyKeeper.ts`
    *  helper process instead of killing it, so the underlying CLI survives
@@ -1019,11 +931,7 @@ export class PtyManager {
         isFallback: session.isFallback,
         isDelegate: session.isDelegate,
         provider: session.provider,
-        claudeSettingsPath: session.claudeSettingsPath,
-        // See PtyManager's `appVersion` field comment — this is what
-        // `tryReattach` compares against the running app's own version to
-        // detect a stale (pre-upgrade) argv.
-        appVersion: this.appVersion ?? undefined
+        claudeSettingsPath: session.claudeSettingsPath
       };
       writeFileSync(keeperMetaPath(id), JSON.stringify(meta), 'utf8');
       const child = spawnProcess(process.execPath, [keeperScriptPath(), keeperSockPath(id), String(pid)], {
@@ -1131,15 +1039,6 @@ export class PtyManager {
         resolve(false);
       });
     });
-  }
-
-  /** Whether session `id`'s live process is running with a stale (pre-current-
-   *  app-version) argv — see `tryReattach`'s own comment. False for an
-   *  unknown id. Read by `sessionRespawn.ts`'s `respawnSession` right after a
-   *  successful reattach so the value can ride the same `SessionRecord` DTO
-   *  every other per-session field already reaches the renderer through. */
-  isStaleArgv(id: string): boolean {
-    return this.sessions.get(id)?.staleArgv ?? false;
   }
 
   /** This PTY's trailing output (bounded, see REPLAY_MAX_CHARS), for a
@@ -1361,32 +1260,6 @@ export class PtyManager {
       /* best-effort — single-use file, a leftover here is harmless */
     }
 
-    // Stale-argv detection — a reattached pty is the SAME OS process it
-    // always was, so its argv (including flags spawn() appends, like
-    // `--append-system-prompt-file` and the `--agents` bundled-subagent
-    // injection) is frozen at whatever it was when it was first spawned,
-    // possibly app-versions ago. A missing/mismatched `appVersion` stamp
-    // (missing means a keeper written before this field existed — exactly
-    // the upgrade case this detects) means the running process's flags may
-    // no longer match what a fresh spawn would use today. This is now only
-    // REPORTED (`staleArgv` on the rebuilt session below), never acted on
-    // here: the reattach always succeeds, unconditionally. The "leave them
-    // running" quit path exists precisely so a user can quit the app and
-    // have their sessions keep working — killing one of them at the next
-    // launch, as this used to do, defeats that feature for exactly the
-    // sessions a user deliberately left running. Nothing in this app kills
-    // a user's session as a side effect of refreshing its flags; a stale
-    // session can only be restarted by explicit user action (see
-    // `sessions:restartStale` in ipc/sessions.ts). Fallback shells and
-    // delegates have no such flags to go stale, and only the claude spawn
-    // path appends them, so this never flags codex/fallback/delegate
-    // sessions.
-    const staleArgv =
-      (!meta.appVersion || meta.appVersion !== this.appVersion) &&
-      !meta.isFallback &&
-      !meta.isDelegate &&
-      meta.provider === 'claude';
-
     const proc = new KeeperClient(socket, meta.pid);
     const session: PtySession = {
       id,
@@ -1404,8 +1277,7 @@ export class PtyManager {
       // `spawnFallbackShellFromRespawn`) — flips true the moment the
       // renderer's terminal actually calls `getReplay()`.
       rendererAttached: false,
-      oscCarry: '',
-      staleArgv
+      oscCarry: ''
     };
     this.sessions.set(id, session);
     this.onSessionsChanged?.();
@@ -1436,10 +1308,6 @@ interface KeeperMeta {
   isDelegate: boolean;
   provider?: string;
   claudeSettingsPath?: string;
-  /** Stamped from `PtyManager.appVersion` by `detachToKeeper`; missing on
-   *  meta files written before this field existed. See `tryReattach`'s
-   *  staleness check and PtyManager's own `appVersion` field comment. */
-  appVersion?: string;
 }
 
 /** Connects to a keeper's Unix socket, resolving once (and only once) —
