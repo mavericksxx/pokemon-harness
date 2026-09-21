@@ -193,6 +193,18 @@ export class PtyManager {
    *  `opts.id === ARCEUS_SESSION_ID` — see that method's own comment. */
   private arceusSystemPromptPath: string | null = null;
   private arceusRosterPath: string | null = null;
+  /** Set from `app.getVersion()` at boot (main/index.ts), same "cache the
+   *  value, PtyManager can't reach electron's `app` itself" pattern as
+   *  `harnessInstructionsPath` above. Stamped into every claude keeper's
+   *  `KeeperMeta` in `detachToKeeper` and compared against that stamp in
+   *  `tryReattach` — a reattached pty's argv is frozen at the moment it was
+   *  spawned, so a keeper left running across an app upgrade can never pick
+   *  up new flags (e.g. the `--agents` bundled-subagent injection added in
+   *  v1.11.0); a version mismatch (or a missing stamp, from a keeper written
+   *  before this field existed) makes `tryReattach` refuse the reattach and
+   *  fall through to a fresh `spawn()` instead, which rebuilds argv with
+   *  whatever's current. */
+  private appVersion: string | null = null;
 
   /** Phase 4 Part A — optional so tests/other providers spawn unchanged when
    *  it's absent. `onSessionsChanged` (parity sweep item 4) fires after any
@@ -263,6 +275,13 @@ export class PtyManager {
   setArceusPaths(systemPromptPath: string, rosterPath: string): void {
     this.arceusSystemPromptPath = systemPromptPath;
     this.arceusRosterPath = rosterPath;
+  }
+
+  /** Set from `app.getVersion()` at boot (main/index.ts) — see this class's
+   *  own `appVersion` field comment for why it's cached here and how
+   *  `tryReattach` uses it. */
+  setAppVersion(version: string): void {
+    this.appVersion = version;
   }
 
   /** Set from `appSettings.advisorModel` at boot and on every settings save
@@ -944,7 +963,11 @@ export class PtyManager {
         isFallback: session.isFallback,
         isDelegate: session.isDelegate,
         provider: session.provider,
-        claudeSettingsPath: session.claudeSettingsPath
+        claudeSettingsPath: session.claudeSettingsPath,
+        // See PtyManager's `appVersion` field comment — this is what
+        // `tryReattach` compares against the running app's own version to
+        // detect a stale (pre-upgrade) argv.
+        appVersion: this.appVersion ?? undefined
       };
       writeFileSync(keeperMetaPath(id), JSON.stringify(meta), 'utf8');
       const child = spawnProcess(process.execPath, [keeperScriptPath(), keeperSockPath(id), String(pid)], {
@@ -1249,8 +1272,13 @@ export class PtyManager {
    *  while detached — `sessionRespawn.ts`'s caller falls through to today's
    *  unchanged spawn/resume path for both cases, which already handles them
    *  correctly (a `claude --resume` against an already-completed transcript
-   *  works fine). */
-  async tryReattach(id: string): Promise<boolean> {
+   *  works fine).
+   *
+   *  `opts.canResume` — whether `sessionRespawn.ts`'s caller can actually
+   *  reissue `--resume <claudeSessionId>` if this reattach is refused (see
+   *  the stale-argv guard below). Optional/defaults to false so any other
+   *  caller, and tests, see unchanged behavior. */
+  async tryReattach(id: string, opts?: { canResume?: boolean }): Promise<boolean> {
     let socket: Socket;
     try {
       socket = await connectKeeperSocket(keeperSockPath(id));
@@ -1271,6 +1299,59 @@ export class PtyManager {
       unlinkSync(metaPath);
     } catch {
       /* best-effort — single-use file, a leftover here is harmless */
+    }
+
+    // Stale-argv guard — a reattached pty is the SAME OS process it always
+    // was, so its argv (including flags spawn() appends, like
+    // `--append-system-prompt-file` and the `--agents` bundled-subagent
+    // injection) is frozen at whatever it was when it was first spawned,
+    // possibly app-versions ago. Reattaching it silently keeps that stale
+    // argv forever. A missing/mismatched `appVersion` stamp (missing means a
+    // keeper written before this field existed — exactly the upgrade case
+    // this guards against) means "don't trust this argv anymore": kill the
+    // orphaned keeper/child, clean up its files, and report failure so
+    // `sessionRespawn.ts` falls through to a fresh `spawn()`, which reissues
+    // `--resume <claudeSessionId>` plus the CURRENT flag set — the
+    // conversation is preserved via the CLI's own transcript, only the
+    // process (and its argv) is new. Fallback shells and delegates have no
+    // such flags to go stale, and only the claude spawn path appends them,
+    // so this never touches codex/fallback/delegate sessions.
+    //
+    // `opts?.canResume` is also required: refusing only helps if the
+    // fallthrough can actually reissue `--resume`. A claude session with no
+    // captured `claudeSessionId` (`shouldResume`/`respawnArgs` in
+    // sessionRespawn.ts) respawns with NO resume flag at all if refused here
+    // — a brand-new, empty conversation, not a refreshed one. That would
+    // trade stale argv for outright losing the user's history, which is
+    // strictly worse. So a stale session that can't be resumed deliberately
+    // keeps reattaching with its stale argv — the lesser harm — instead of
+    // being refused.
+    const isStale =
+      (!meta.appVersion || meta.appVersion !== this.appVersion) &&
+      !meta.isFallback &&
+      !meta.isDelegate &&
+      meta.provider === 'claude' &&
+      !!opts?.canResume;
+    if (isStale) {
+      try {
+        socket.destroy();
+      } catch {
+        /* best-effort */
+      }
+      if (meta.pid > 0) {
+        try {
+          process.kill(-meta.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+      try {
+        unlinkSync(keeperSockPath(id));
+      } catch {
+        /* already gone */
+      }
+      log('pty', 'info', 'refused stale reattach, forcing respawn', { id, metaAppVersion: meta.appVersion });
+      return false;
     }
 
     const proc = new KeeperClient(socket, meta.pid);
@@ -1321,6 +1402,10 @@ interface KeeperMeta {
   isDelegate: boolean;
   provider?: string;
   claudeSettingsPath?: string;
+  /** Stamped from `PtyManager.appVersion` by `detachToKeeper`; missing on
+   *  meta files written before this field existed. See `tryReattach`'s
+   *  staleness check and PtyManager's own `appVersion` field comment. */
+  appVersion?: string;
 }
 
 /** Connects to a keeper's Unix socket, resolving once (and only once) —

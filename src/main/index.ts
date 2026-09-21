@@ -1635,6 +1635,10 @@ app.whenReady().then(async () => {
   usageService.setExcludedProviders(appSettings.usageExcludedProviders);
   usageService.setEnabled(appSettings.usageLimitsEnabled);
   ptyManager.setHarnessInstructions(appSettings.harnessInstructionsEnabled, harnessInstructionsPath(harnessHomeDir));
+  // Must be set BEFORE `restoreFromDisk()` below — `tryReattach()` compares
+  // this against each keeper's stamped `appVersion` to decide whether a
+  // reattach's frozen argv is stale (see PtyManager's `appVersion` field).
+  ptyManager.setAppVersion(app.getVersion());
   ptyManager.setAdvisorModel(appSettings.advisorModel);
   // Arceus v2 (docs/arceus-v2-plan.md §3.5) — must be set BEFORE
   // `restoreFromDisk()` below, since a persisted Arceus record's boot

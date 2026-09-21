@@ -47,6 +47,15 @@ export async function respawnSession(
   record: SessionRecord,
   arceusConfig: ArceusRespawnConfig
 ): Promise<RespawnOutcome> {
+  // Resolved BEFORE the reattach attempt below (not after, as originally
+  // written) — `tryReattach` needs to know whether a refused reattach can
+  // actually fall through to a resumed session, and `effective` (not the
+  // raw `record`) is the exact value `respawnArgs` itself is called with a
+  // few lines down. Passing anything else risks the two disagreeing about
+  // whether `--resume` will be issued, which is the whole hazard this
+  // guards against.
+  const effective = await resolveEffectiveRespawn(record, arceusConfig);
+
   // "Leave them running" quit path (QuitDialog.tsx) — if this id's CLI
   // survived the last quit detached to its own keeper process, reattach to
   // it instead of spawning a brand-new one. Covers both "still running" and
@@ -54,9 +63,17 @@ export async function respawnSession(
   // reattach (its keeper already exited and cleaned up its socket) and
   // falls through to the unchanged spawn/resume logic below, same as a
   // session that was never detached in the first place.
-  if (await ptyManager.tryReattach(record.id)) return { ok: true };
-
-  const effective = await resolveEffectiveRespawn(record, arceusConfig);
+  //
+  // `canResume: shouldResume(effective)` — tryReattach's stale-argv guard
+  // (pty.ts) may want to refuse this reattach, but refusing only helps if
+  // the fallthrough below can reissue `--resume`. If this session has no
+  // captured `claudeSessionId`, refusing would spawn a brand-new, empty
+  // conversation instead of preserving history — strictly worse than
+  // keeping the stale argv. So `tryReattach` only acts on staleness when
+  // resuming is actually possible; a stale-but-unresumable session keeps
+  // reattaching as it always did, on the theory that stale argv is the
+  // lesser harm next to losing the user's conversation outright.
+  if (await ptyManager.tryReattach(record.id, { canResume: shouldResume(effective) })) return { ok: true };
 
   const useResume = shouldResume(effective);
   const primary = ptyManager.spawn({
