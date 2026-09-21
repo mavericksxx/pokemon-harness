@@ -48,10 +48,26 @@ export interface RespawnOutcome {
  *  so the shell's PATH shims can make a hand-relaunched CLI behave like the
  *  original session.
  */
+export interface RespawnSessionOptions {
+  /** Restart-stale fix (`sessions:restartStale`, ipc/sessions.ts) — skips the
+   *  `tryReattach` attempt below entirely. A session offered the stale-argv
+   *  restart chip is BY DEFINITION currently reattached: its keeper is still
+   *  alive, so an ordinary call here would `tryReattach` it a SECOND time —
+   *  which just overwrites the live `PtySession` with a blank-metadata one
+   *  and leaks the first `KeeperClient`'s socket (see `tryReattach`'s own
+   *  comment in pty.ts) — instead of ever reaching the kill+respawn the
+   *  restart actually needs. The restart handler kills and awaits the real
+   *  exit itself, BEFORE calling this, so there is nothing left to reattach
+   *  to by the time this runs anyway. Never set by `restoreFromDisk` (boot
+   *  path) — that path's behavior is unchanged. */
+  skipReattach?: boolean;
+}
+
 export async function respawnSession(
   ptyManager: PtyManager,
   record: SessionRecord,
-  arceusConfig: ArceusRespawnConfig
+  arceusConfig: ArceusRespawnConfig,
+  options?: RespawnSessionOptions
 ): Promise<RespawnOutcome> {
   // Resolved BEFORE the reattach attempt below (not after, as originally
   // written) — `tryReattach` needs to know whether a refused reattach can
@@ -74,7 +90,9 @@ export async function respawnSession(
   // `tryReattach`'s own comment — this app never kills a session to refresh
   // its flags); `isStaleArgv` just reads back what `tryReattach` detected so
   // it can ride this outcome onto the restored `SessionRecord`.
-  if (await ptyManager.tryReattach(record.id)) return { ok: true, staleArgv: ptyManager.isStaleArgv(record.id) };
+  if (!options?.skipReattach && (await ptyManager.tryReattach(record.id))) {
+    return { ok: true, staleArgv: ptyManager.isStaleArgv(record.id) };
+  }
 
   const useResume = shouldResume(effective);
   const primary = ptyManager.spawn({

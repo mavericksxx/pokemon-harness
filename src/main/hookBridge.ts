@@ -114,11 +114,20 @@ export const SELF_EDIT_OPTION_LABEL = "I'll do it myself (small change)";
  *  it), so every other caller of this field keeps its prior behavior. */
 function claudeSessionIdFromPayload(p: HookPayload): string | undefined {
   if (p.transcript_path) {
-    const base = basename(p.transcript_path);
-    const id = base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
+    const id = claudeSessionIdFromTranscriptPath(p.transcript_path);
     if (id) return id;
   }
   return p.session_id;
+}
+
+/** `transcript_path`'s basename, `.jsonl` stripped — the exact id a
+ *  `claude --resume <id>` would reopen. Split out of `claudeSessionIdFromPayload`
+ *  above so `restartStale` (ipc/sessions.ts) can derive the SAME id from a
+ *  bare transcript path (`getLiveTranscriptPath`'s value) without duplicating
+ *  the stripping logic. */
+export function claudeSessionIdFromTranscriptPath(transcriptPath: string): string {
+  const base = basename(transcriptPath);
+  return base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
 }
 
 const SHIM_FILENAME = 'cth-hook.cjs';
@@ -560,6 +569,21 @@ export class HookBridge {
    *  without ever having given them the prose that explains how to unlock
    *  would strand them with no reachable escape hatch. */
   private readonly delegationGateSessions = new Set<string>();
+  /** Most recent `transcript_path` seen for each top-level session, keyed by
+   *  `harness_agent_id` — restart-stale fix (`sessions:restartStale`,
+   *  ipc/sessions.ts): a session reattached from a PRE-this-release keeper
+   *  still has whatever `claudeSessionId` was persisted at its last quit, and
+   *  nothing corrects that stale id until the CLI fires a hook of its own —
+   *  which a reattached-but-otherwise-idle process never does on its own.
+   *  Updated in `handle()` below on ANY known hook event, so a mere
+   *  PreToolUse/Stop from the user poking a reattached session is enough to
+   *  learn its CURRENT transcript, without waiting for a SessionStart that
+   *  will never come. `!p.agent_id`-gated at the write site — a dispatched
+   *  Task subagent's payload carries its OWN transcript_path and must never
+   *  be recorded as its parent's, which would point a future restart's
+   *  `--resume` at the wrong conversation entirely. Cleaned up alongside
+   *  `cleanupSession`'s other per-session state. */
+  private readonly liveTranscriptPaths = new Map<string, string>();
 
   constructor(
     userDataDir: string,
@@ -1127,10 +1151,20 @@ export class HookBridge {
     this.hideStatusline = hide;
   }
 
+  /** See `liveTranscriptPaths`'s own field comment — the live-observed
+   *  transcript path for a top-level session, if any hook has fired for it
+   *  since this process started. `undefined` for a session that's never
+   *  fired a hook yet (e.g. restart clicked immediately after a reattach,
+   *  before the user has typed anything). */
+  getLiveTranscriptPath(agentId: string): string | undefined {
+    return this.liveTranscriptPaths.get(agentId);
+  }
+
   /** Best-effort teardown of a session's generated settings file. */
   cleanupSession(agentId: string, tmpDir: string): void {
     this.delegationUnlocked.delete(agentId);
     this.delegationGateSessions.delete(agentId);
+    this.liveTranscriptPaths.delete(agentId);
     try {
       const p = join(tmpDir, `hook-settings-${agentId}.json`);
       if (existsSync(p)) rmSync(p);
@@ -1210,6 +1244,10 @@ export class HookBridge {
       return {};
     }
     this.onRawPayload?.(agentId, p.transcript_path, p.hook_event_name, p.agent_id);
+    // See `liveTranscriptPaths`'s own comment — top-level payloads only
+    // (`!p.agent_id`): a dispatched Task subagent's transcript is its own,
+    // never this session's.
+    if (!p.agent_id && p.transcript_path) this.liveTranscriptPaths.set(agentId, p.transcript_path);
     if (!isKnownHookEvent(eventName)) return {};
 
     // Delegation gate — the unlock only survives until the user's NEXT

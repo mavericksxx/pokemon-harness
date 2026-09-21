@@ -1824,6 +1824,7 @@ registerSessionsIpc({
   pokeRelay,
   costWatcher,
   taskNotificationWatcher,
+  hookBridge,
   notifyStatusTransitions,
   getSessionRegistry: () => sessionRegistry,
   setSessionRegistry: (sessions) => {

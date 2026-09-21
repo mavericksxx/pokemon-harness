@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '@/store/store';
+import { forceRepaint } from '@/pty/terminalRegistry';
 
 /**
  * Stale-argv indicator (reattach guard removal follow-up) — shown on a
@@ -12,7 +13,10 @@ import { useStore } from '@/store/store';
  * calls `sessions:restartStale` (ipc/sessions.ts), which itself refuses (and
  * this chip surfaces the reason) rather than respawning a session with no
  * captured conversation id, since that would silently start a brand-new,
- * empty conversation instead of a refreshed one.
+ * empty conversation instead of a refreshed one. The restart kills the old
+ * process and resumes via `--resume` against its saved transcript — not a
+ * live handoff, so anything typed in the brief kill→spawn window is not
+ * carried over.
  */
 export function StaleArgvChip({ sessionId }: { sessionId: string }): JSX.Element {
   const [restarting, setRestarting] = useState(false);
@@ -34,7 +38,7 @@ export function StaleArgvChip({ sessionId }: { sessionId: string }): JSX.Element
     <button
       type="button"
       className="tip roster-card-stale-chip"
-      data-tip="running with an older version's flags — restart to update (optional; conversation is preserved)"
+      data-tip="running with an older version's flags — restart to update (optional; the conversation resumes from its saved transcript)"
       aria-label="older session — restart to update"
       disabled={restarting}
       onClick={async (e) => {
@@ -50,6 +54,13 @@ export function StaleArgvChip({ sessionId }: { sessionId: string }): JSX.Element
         // mirror it into the renderer's own store so this chip disappears
         // without waiting for a future checkpoint round-trip.
         useStore.getState().updateSession(sessionId, { staleArgv: false });
+        // The new pty is spawned at a fixed 100x30 (pty.ts/sessionRespawn.ts)
+        // into an xterm that's already sized to its real layout — without
+        // this, the CLI's incremental, cursor-addressed redraw paints into
+        // the wrong geometry until something else forces a full repaint.
+        // Same fix hookRouter.ts's `SessionStart` case applies for a
+        // fallback-shell relaunch.
+        forceRepaint(sessionId);
       }}
     >
       {restarting ? 'restarting…' : 'older session — restart to update'}
