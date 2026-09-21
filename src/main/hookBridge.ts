@@ -13,8 +13,14 @@
  * with `POKEHARNESS_AGENT_ID` (set on the child's env — see pty.ts), and
  * forwards it over a Unix domain socket this class listens on. We normalize
  * the payload and push it to the renderer over `hooks:event:<agentId>`; the
- * shim always gets `{}` back (this app never denies/gates a tool call at the
- * hook boundary).
+ * shim gets `{}` back for almost every hook, EXCEPT one deliberate exception:
+ * the delegation gate (`checkDelegationGate`) can deny a PreToolUse Edit/
+ * Write/NotebookEdit for a session enrolled via `prepareSession`'s
+ * `delegationGate` param, returning a real `hookSpecificOutput` deny blob
+ * instead of `{}`. A denied PreToolUse returns before the renderer forward
+ * below, so the garden never sees that Edit attempt at all, and no
+ * PostToolUse follows for it (Claude Code never runs the tool). Every other
+ * hook/tool stays observation-only, exactly as before.
  *
  * The shim itself is invoked by Claude via a bare `sh -c` with a stripped
  * PATH — a plain `node "<script>"` command 127s on a machine whose node only
@@ -70,16 +76,24 @@ export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
 
 /** Delegation gate (routing-question rule, HARNESS.md's "Work through
  *  subagents") — the exact fourth-option label the orchestrator is told to
- *  offer the user in its `AskUserQuestion` call, and the ONLY string
- *  `handle()`'s PostToolUse check matches against to unlock self-editing for
- *  that session. Shared between the prose (harnessInstructions.ts) and the
- *  enforcement (this file) so the two can never drift apart — if this
- *  constant's text changes, both sides change together. Matched via a
- *  substring search over the whole (stringified) `tool_response`, not a
- *  parsed field: `AskUserQuestion`'s tool_response shape isn't documented
- *  anywhere this file can cite, unlike the hook payload fields elsewhere in
- *  this file that ARE (tool_use_id, session_id, ...) — a substring match is
- *  the one approach that's correct regardless of that shape. */
+ *  offer the user in its `AskUserQuestion` call, and the string `handle()`'s
+ *  PostToolUse check builds its unlock match against to unlock self-editing
+ *  for that session. Shared between the prose (harnessInstructions.ts) and
+ *  the enforcement (this file) so the two can never drift apart — if this
+ *  constant's text changes, both sides change together.
+ *
+ *  `AskUserQuestion`'s PostToolUse `tool_response` shape IS now confirmed —
+ *  live capture, four real calls — a plain STRING of the form:
+ *    Your questions have been answered: "Which lane should build this?"="Sonnet (Recommended)". You can now continue with these answers in mind.
+ *  with a second observed variant beginning `The user answered: "..."="..."`
+ *  instead. Only the SELECTED option's label appears — unselected labels and
+ *  every option's description never show up in the response at all. That
+ *  means the unlock match must be against the rendered `="<label>"` answer
+ *  form, not a bare substring search for the label text anywhere in the
+ *  response: a bare search would also fire if a model's own QUESTION text
+ *  happened to quote this label (self-unlock via question-writing, not an
+ *  actual selection) — see `checkDelegationGate`'s call site for the actual
+ *  match expression built from this constant. */
 export const SELF_EDIT_OPTION_LABEL = "I'll do it myself (small change)";
 
 const SHIM_FILENAME = 'cth-hook.cjs';
@@ -1133,10 +1147,26 @@ export class HookBridge {
     const filePath = typeof input?.file_path === 'string' ? input.file_path : undefined;
     if (this.isDelegationGateAllowlisted(filePath)) return null;
     if (this.delegationUnlocked.has(agentId)) return null;
+    log('hooks', 'warn', 'delegation gate denied a tool call', {
+      agentId,
+      hasAgentId: !!p.agent_id,
+      tool: p.tool_name,
+      file: filePath
+    });
+    // Deliberately verbose — this string is the only channel that reaches a
+    // model whose HARNESS.md prose has since been compacted out of context,
+    // and it's also what has to break the real failure loop where the model
+    // asks the routing question in plain text, the user replies "you do it"
+    // in plain text, nothing unlocks, and the model has no idea why it's
+    // being denied again.
     return (
-      'This edit is blocked until you ask the user the four-option routing question ' +
-      `(Haiku / Sonnet / Luna via Codex / "${SELF_EDIT_OPTION_LABEL}") and get an answer. ` +
-      'Retrying this edit without asking will be denied again.'
+      `This edit is blocked. Ask the user via the \`AskUserQuestion\` tool, with one option's label ` +
+      `EXACTLY "${SELF_EDIT_OPTION_LABEL}" and the other three Haiku, Sonnet, and Luna (via Codex). ` +
+      'A plain-text answer from the user does NOT unlock this — it must be that tool call, with that ' +
+      'exact label selected. Retrying this edit without doing that will be denied again. Do not work ' +
+      'around this with `sed -i`, a heredoc, or `git apply` via Bash — that is the same violation. ' +
+      'If you are a subagent dispatched via the Agent tool, this deny is a harness bug: stop and report ' +
+      '"delegation gate misfired" to your caller.'
     );
   }
 
@@ -1158,10 +1188,12 @@ export class HookBridge {
     if (!isKnownHookEvent(eventName)) return {};
 
     // Delegation gate — the unlock only survives until the user's NEXT
-    // message (never across it), so it's cleared here on every
-    // UserPromptSubmit rather than on some longer-lived boundary like
-    // Stop/SessionStart.
-    if (eventName === 'UserPromptSubmit') {
+    // message, so it's cleared on UserPromptSubmit; ALSO cleared on Stop
+    // (end of the model's own turn), which is strictly earlier and catches
+    // paths that never reach a UserPromptSubmit at all (e.g. the next
+    // message arriving from another session via SendMessage/poke-relay
+    // rather than the user typing into this one).
+    if (eventName === 'UserPromptSubmit' || eventName === 'Stop') {
       this.delegationUnlocked.delete(agentId);
     } else if (eventName === 'PreToolUse' && (p.tool_name === 'Edit' || p.tool_name === 'Write' || p.tool_name === 'NotebookEdit')) {
       const denyReason = this.checkDelegationGate(agentId, p);
@@ -1174,10 +1206,19 @@ export class HookBridge {
           }
         };
       }
-    } else if (eventName === 'PostToolUse' && p.tool_name === 'AskUserQuestion') {
-      // See SELF_EDIT_OPTION_LABEL's own comment for why this is a
-      // substring search rather than a parsed-field check.
-      if (JSON.stringify((p as { tool_response?: unknown }).tool_response ?? '').includes(SELF_EDIT_OPTION_LABEL)) {
+    } else if (eventName === 'PostToolUse' && p.tool_name === 'AskUserQuestion' && !p.agent_id) {
+      // `!p.agent_id`: a dispatched SUBAGENT's own AskUserQuestion must
+      // never unlock its PARENT session — they're different sessions with
+      // different delegation-gate enrollment, and conflating them would let
+      // a subagent's own question-asking (for whatever it's doing) silently
+      // authorize the orchestrator to self-edit.
+      //
+      // Match built from SELF_EDIT_OPTION_LABEL's own comment: the captured
+      // tool_response only ever echoes the SELECTED option's label, in the
+      // rendered `="<label>"` answer form — matching bare occurrences of the
+      // label text would also fire on a model that merely quoted the label
+      // in its own QUESTION text, without the user ever selecting it.
+      if (JSON.stringify((p as { tool_response?: unknown }).tool_response ?? '').includes(`="${SELF_EDIT_OPTION_LABEL}"`)) {
         this.delegationUnlocked.add(agentId);
       }
     }
@@ -1205,7 +1246,10 @@ export class HookBridge {
         /* window tore down mid-send */
       }
     }
-    // Never gate/deny — this app's hooks are observation-only.
+    // Reaching here means this event was allowed through (the delegation
+    // gate's deny above already returned early for a blocked PreToolUse) —
+    // every other hook stays observation-only, same as before that gate
+    // existed.
     return {};
   }
 
