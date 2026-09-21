@@ -31,7 +31,7 @@
  */
 import { createServer, type Server } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { WebContents } from 'electron';
 import { log } from './diagnostics';
 import {
@@ -95,6 +95,31 @@ export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
  *  actual selection) — see `checkDelegationGate`'s call site for the actual
  *  match expression built from this constant. */
 export const SELF_EDIT_OPTION_LABEL = "I'll do it myself (small change)";
+
+/** The claude CLI conversation id to persist for a later `claude --resume` —
+ *  preferably the ACTIVE conversation, not necessarily this process's
+ *  original `session_id`. `transcript_path`'s basename (minus `.jsonl`) IS
+ *  the exact file `--resume <id>` would reopen, whereas a live capture
+ *  showed a session's OWN background-task output written under a directory
+ *  named for the pre-`/clear` session even though that same process's
+ *  `CLAUDE_CODE_SESSION_ID` env var had already moved on to the new one —
+ *  i.e. the CLI does not update every internal reference to "the current
+ *  session id" uniformly after a `/clear`, so `session_id` on a payload
+ *  can't be trusted to have followed it either. `transcript_path` is the
+ *  more reliable signal precisely because it's what costWatcher.ts already
+ *  keys its own per-conversation tracking on (see that file's header) and
+ *  its 2026-09-06 fix for the exact same "`/clear` swaps the file out from
+ *  under a still-registered id" shape. Falls back to `session_id` only when
+ *  no transcript path is present at all (e.g. any payload shape that omits
+ *  it), so every other caller of this field keeps its prior behavior. */
+function claudeSessionIdFromPayload(p: HookPayload): string | undefined {
+  if (p.transcript_path) {
+    const base = basename(p.transcript_path);
+    const id = base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
+    if (id) return id;
+  }
+  return p.session_id;
+}
 
 const SHIM_FILENAME = 'cth-hook.cjs';
 const CLI_SHIM_DIRNAME = 'cli-shims';
@@ -1232,7 +1257,7 @@ export class HookBridge {
       notificationType: p.notification_type,
       message: p.message,
       source: p.source,
-      claudeSessionId: p.session_id,
+      claudeSessionId: claudeSessionIdFromPayload(p),
       toolUseId: p.tool_use_id,
       subagentType: subagentTypeFromInput(tool, p.tool_input),
       agent_id: p.agent_id,

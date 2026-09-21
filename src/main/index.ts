@@ -954,9 +954,10 @@ async function restoreFromDisk(appSettings: AppSettings): Promise<DiskRestoreInf
   //
   // Checked for an intentional "two panes/sessions on one conversation"
   // feature before writing this dedup, since that's exactly the shape this
-  // would break if it existed: found none. `claudeSessionId` is captured
-  // exactly once per live process, straight off ITS OWN `SessionStart` hook
-  // payload (hookBridge.ts: `claudeSessionId: p.session_id`) — nothing in
+  // would break if it existed: found none. `claudeSessionId` is captured off
+  // ITS OWN `SessionStart` hook payload (hookBridge.ts's
+  // `claudeSessionIdFromPayload`, which follows a `/clear` mid-session
+  // rather than only capturing once) — nothing in
   // this codebase ever reads one record's `claudeSessionId` and writes it
   // onto another (no duplicate/clone/split-pane session action exists; the
   // only two places that construct a respawn arg list from it,

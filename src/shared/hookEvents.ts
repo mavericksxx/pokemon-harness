@@ -95,9 +95,12 @@ export interface HookEvent {
   notificationType?: string;
   message?: string;
   source?: string;
-  /** The claude CLI's own session id (`session_id` on the raw payload), when
-   *  present — captured so a SessionStart can stash it on the SessionRecord
-   *  for disk-persisted `claude --resume` respawns (Phase 8.5 #1). */
+  /** The claude CLI's own conversation id — preferably `transcript_path`'s
+   *  basename, falling back to `session_id` (see hookBridge.ts's
+   *  `claudeSessionIdFromPayload`, which is why this isn't simply
+   *  `session_id`) — captured so a SessionStart can stash it on the
+   *  SessionRecord for disk-persisted `claude --resume` respawns (Phase
+   *  8.5 #1). */
   claudeSessionId?: string;
   /** `tool_use_id` off the raw payload (see `HookPayload.tool_use_id`) — for
    *  a `Task` PreToolUse this is the one identity available at spawn time,
