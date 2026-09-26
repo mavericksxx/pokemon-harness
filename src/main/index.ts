@@ -1817,6 +1817,8 @@ app.on('before-quit', (e) => {
   log('main', 'info', 'before-quit: hookBridge.stop() done');
   costWatcher.stop();
   log('main', 'info', 'before-quit: costWatcher.stop() done');
+  outsideWriteDetector.dispose();
+  log('main', 'info', 'before-quit: outsideWriteDetector.dispose() done');
   costHistoryService.stop();
   log('main', 'info', 'before-quit: costHistoryService.stop() done');
   trayController.destroy();
@@ -1837,7 +1839,6 @@ registerSessionsIpc({
   pokeRelay,
   costWatcher,
   taskNotificationWatcher,
-  hookBridge,
   outsideWriteDetector,
   notifyStatusTransitions,
   getSessionRegistry: () => sessionRegistry,

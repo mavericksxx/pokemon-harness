@@ -5,8 +5,6 @@ import type { SessionPersistence } from '../sessionPersistence';
 import type { PokeRelay } from '../pokeTools';
 import type { CostWatcher } from '../costWatcher';
 import type { TaskNotificationWatcher } from '../taskNotificationWatcher';
-import type { HookBridge } from '../hookBridge';
-import { claudeSessionIdFromTranscriptPath } from '../hookBridge';
 import type { OutsideWriteDetector } from '../outsideWriteDetector';
 import type { DiskRestoreInfo, ReloadSessionResult, SessionRecord } from '../../shared/types';
 import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
@@ -25,7 +23,6 @@ export interface SessionsIpcDeps {
   pokeRelay: PokeRelay;
   costWatcher: CostWatcher;
   taskNotificationWatcher: TaskNotificationWatcher;
-  hookBridge: HookBridge;
   outsideWriteDetector: OutsideWriteDetector;
   notifyStatusTransitions: (sessions: SessionRecord[], selectedId: string | null) => void;
   getSessionRegistry: () => SessionRecord[];
@@ -46,7 +43,6 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     pokeRelay,
     costWatcher,
     taskNotificationWatcher,
-    hookBridge,
     outsideWriteDetector,
     notifyStatusTransitions,
     getSessionRegistry,
@@ -154,64 +150,67 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
   // explicit call (a user-clicked chip, or the auto-reload gate opening) is
   // the one place that does, and only for `continuedFrom` sessions per the
   // caller's own scoping.
+  // D9 fix — per-id in-flight guard: two overlapping `sessions:reload` calls
+  // for the SAME id (e.g. the auto-reload gate opening right as the user
+  // clicks the manual chip) must never both run kill->await->respawn at
+  // once — the second call's kill would race the first's respawn, right
+  // back into the two-writers hazard `killAndAwaitExit` exists to prevent.
+  const reloadsInFlight = new Set<string>();
+
   handle('sessions:reload', async (_e, id: string): Promise<ReloadSessionResult> => {
-    const record = getSessionRegistry().find((s) => s.id === id);
-    if (!record) return { ok: false, reason: 'session not found' };
+    if (reloadsInFlight.has(id)) {
+      return { ok: false, reason: 'a reload for this session is already in progress' };
+    }
+    reloadsInFlight.add(id);
+    try {
+      const record = getSessionRegistry().find((s) => s.id === id);
+      if (!record) return { ok: false, reason: 'session not found' };
 
-    // Prefer the live-observed conversation id over the persisted one — the
-    // whole point of a reload is to catch up to whatever another surface
-    // just appended, and a stale `claudeSessionId` on the record (this
-    // session hasn't fired a fresh hook since the outside write) would
-    // resume the WRONG conversation. See HookBridge.getLiveTranscriptPath's
-    // own comment.
-    const liveTranscriptPath = hookBridge.getLiveTranscriptPath(id);
-    const liveClaudeSessionId = liveTranscriptPath
-      ? claudeSessionIdFromTranscriptPath(liveTranscriptPath)
-      : undefined;
-    let effectiveRecord = record;
-    if (liveClaudeSessionId && liveClaudeSessionId !== record.claudeSessionId) {
-      log('pty', 'info', 'sessions:reload: live transcript id differs from persisted claudeSessionId — using live id', {
+      // D13 fix — resume from the PERSISTED `claudeSessionId`, not a
+      // "live-observed transcript path" override. That override
+      // (`HookBridge.getLiveTranscriptPath`) is keyed only on this session's
+      // `harness_agent_id`, which a nested `claude -p` run (inherited env,
+      // same as the nested-startup hazard hookRouter.ts's SessionStart case
+      // guards against) can ALSO write to via its own top-level-shaped
+      // hooks — pointing a reload at the nested run's unrelated transcript.
+      // `record.claudeSessionId` is now kept current by the revived `/clear`
+      // fix (hookBridge.ts's `claudeSessionIdFromPayload`) plus that same
+      // nested-startup guard, so it no longer needs a live-path escape hatch
+      // here.
+      if (!shouldResume(record)) {
+        return { ok: false, reason: "can't safely reload — no captured conversation id to resume" };
+      }
+
+      const exited = await ptyManager.killAndAwaitExit(id, RELOAD_KILL_TIMEOUT_MS);
+      if (!exited) {
+        // Never spawn on top of a process we can't confirm is actually dead
+        // — the two-writers-on-one-transcript hazard this sequence exists
+        // to avoid. `killAndAwaitExit` itself re-tracks the session on this
+        // path (D9), so it's left live and untouched; surfaced as a failed
+        // reload, never a disconnected card.
+        log('pty', 'warn', 'sessions:reload: old process did not exit in time — nothing reloaded', { id });
+        return { ok: false, reason: "the old session didn't stop in time — nothing was reloaded" };
+      }
+
+      const res = ptyManager.spawn({
         id,
-        persisted: record.claudeSessionId,
-        live: liveClaudeSessionId
+        cwd: record.cwd,
+        command: record.command,
+        args: respawnArgs(record),
+        provider: record.provider,
+        cols: 100,
+        rows: 30
       });
-      effectiveRecord = { ...record, claudeSessionId: liveClaudeSessionId };
+      if (!res.ok) return { ok: false, reason: res.error ?? 'reload failed to spawn' };
+
+      // Signal (c) — our own reload just resumed; its own SessionStart/
+      // growth must never be mistaken for a fresh outside write.
+      outsideWriteDetector.rebaseline(id);
+
+      setSessionRegistry(getSessionRegistry().map((s) => (s.id === id ? { ...s, exitCode: undefined } : s)));
+      return { ok: true, cwd: res.cwd ?? record.cwd, claudeSessionId: record.claudeSessionId };
+    } finally {
+      reloadsInFlight.delete(id);
     }
-
-    if (!shouldResume(effectiveRecord)) {
-      return { ok: false, reason: "can't safely reload — no captured conversation id to resume" };
-    }
-
-    const exited = await ptyManager.killAndAwaitExit(id, RELOAD_KILL_TIMEOUT_MS);
-    if (!exited) {
-      // Never spawn on top of a process we can't confirm is actually dead —
-      // the two-writers-on-one-transcript hazard this sequence exists to
-      // avoid. Leave the old session untouched; the caller logs/surfaces
-      // this as a failed reload, never a disconnected card.
-      log('pty', 'warn', 'sessions:reload: old process did not exit in time — nothing reloaded', { id });
-      return { ok: false, reason: "the old session didn't stop in time — nothing was reloaded" };
-    }
-
-    const res = ptyManager.spawn({
-      id,
-      cwd: effectiveRecord.cwd,
-      command: effectiveRecord.command,
-      args: respawnArgs(effectiveRecord),
-      provider: effectiveRecord.provider,
-      cols: 100,
-      rows: 30
-    });
-    if (!res.ok) return { ok: false, reason: res.error ?? 'reload failed to spawn' };
-
-    // Signal (c) — our own reload just resumed; its own SessionStart/growth
-    // must never be mistaken for a fresh outside write.
-    outsideWriteDetector.rebaseline(id);
-
-    setSessionRegistry(
-      getSessionRegistry().map((s) =>
-        s.id === id ? { ...s, claudeSessionId: effectiveRecord.claudeSessionId, exitCode: undefined } : s
-      )
-    );
-    return { ok: true, cwd: res.cwd ?? effectiveRecord.cwd, claudeSessionId: effectiveRecord.claudeSessionId };
   });
 }

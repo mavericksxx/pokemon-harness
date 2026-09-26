@@ -571,6 +571,18 @@ export async function stopSession(id: string): Promise<void> {
 export async function restartSessionFresh(id: string): Promise<void> {
   const session = useStore.getState().sessions.find((s) => s.id === id);
   if (!session) return;
+  // D7 fix (external sessions plan §7 step 0's nested-startup guard,
+  // hookRouter.ts) — that guard now ignores a `SessionStart` with
+  // `source: 'startup'` while `claudeSessionId` is already set AND status is
+  // 'working' (a nested `claude -p` can only fire from inside a tool call).
+  // This session is 'done' at the moment this runs (that's the whole reason
+  // the banner exists), so the guard wouldn't actually block the fresh
+  // process's own SessionStart below — but clear the STALE id explicitly
+  // anyway, defensively: this respawn is deliberately never a `--resume`,
+  // and leaving the old id sitting on the record until the new process's
+  // first hook fires is one more thing that could silently go stale (a
+  // crash before that hook fires would otherwise persist the wrong id).
+  useStore.getState().updateSession(id, { claudeSessionId: undefined });
   // A session showing this banner got here via a shell-fallback exit under
   // its id, which permanently nulls this id's terminal entry's regex-fallback
   // `parser` (terminalRegistry.ts's `createTerminal` — see the `fallback`

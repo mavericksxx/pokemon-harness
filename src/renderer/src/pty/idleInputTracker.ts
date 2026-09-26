@@ -28,7 +28,20 @@ const IDLE_KEYPRESS_MS = 10_000;
  *  again. */
 export function noteTypedInput(sessionId: string, data: string): void {
   const s = states.get(sessionId) ?? { hasBytesSinceEnter: false, lastKeypressAt: 0 };
+  // D14 fix: any chunk still counts as recent activity (real arrow-key
+  // navigation should keep the 10s "just active" window alive), but an
+  // ESC-prefixed chunk never counts toward "a draft is in progress" below.
+  // xterm feeds SYNTHETIC replies back through this exact same `onData`
+  // path — an OSC 10/11 colour-query response, a focus in/out DECSET 1004
+  // report — none of which the user actually typed, and a real arrow/
+  // function key is ALSO ESC-prefixed and just as much "not a draft".
+  // Without this, those synthetic replies alone could keep the "ours" idle
+  // gate permanently closed.
   s.lastKeypressAt = Date.now();
+  if (data.charCodeAt(0) === 0x1b) {
+    states.set(sessionId, s);
+    return;
+  }
   const lastEnterIdx = Math.max(data.lastIndexOf('\r'), data.lastIndexOf('\n'));
   const remainder = lastEnterIdx >= 0 ? data.slice(lastEnterIdx + 1) : data;
   s.hasBytesSinceEnter = remainder.length > 0;

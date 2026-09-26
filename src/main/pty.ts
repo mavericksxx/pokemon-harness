@@ -884,6 +884,23 @@ export class PtyManager {
     }
   }
 
+  /** D9 fix's own grace window — after escalating to `SIGKILL` on the raw
+   *  pid, how long to wait for it to actually take effect before concluding
+   *  the process is somehow still alive and refusing outright. */
+  private static readonly SIGKILL_GRACE_MS = 1000;
+
+  /** Whether pid `pid` still names a live process — `kill(pid, 0)` sends no
+   *  signal, only probes. `ESRCH` means dead; anything else (e.g. `EPERM`,
+   *  alive but unowned) counts as alive. */
+  private isPidAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code !== 'ESRCH';
+    }
+  }
+
   /** External sessions plan §7 step 4 (revived from `5bbfe4b`, reverted in
    *  `c5b4835`) — kills session `id` and resolves only once its underlying
    *  process has ACTUALLY exited, not merely once the kill signal was sent.
@@ -897,26 +914,58 @@ export class PtyManager {
    *  guards against (see index.ts's 2026-09-17 fix comment). The listener is
    *  registered on the captured `session.proc` BEFORE `kill()` runs, since a
    *  `KeeperClient`'s exit can in principle arrive as fast as the socket
-   *  write flushes. Resolves `true` once `onExit` fires. Resolves `false` if
-   *  `timeoutMs` elapses first — the caller must NOT spawn a replacement in
-   *  that case; the old process may still be alive and writing. Resolves
-   *  `true` immediately for an already-unknown id (nothing to wait for). */
+   *  write flushes. Resolves `true` once `onExit` fires.
+   *
+   *  D9 fix: on `timeoutMs` elapsing with no exit, this used to just resolve
+   *  `false` — but `kill(id)` above already deleted `id` from `this.sessions`
+   *  BEFORE the timeout, so the caller's "refuse, leave the old session
+   *  untouched" left the process genuinely untracked-but-alive, and any
+   *  retry (or a plain respawn elsewhere) would spawn a second writer onto
+   *  the same transcript — the exact hazard this whole function exists to
+   *  prevent. On timeout this now escalates to a direct `SIGKILL` on the
+   *  captured pid and gives it one more short grace window: if it's
+   *  confirmed dead by then, resolves `true` as normal; if it's SOMEHOW
+   *  still alive (a wedged/zombie process), the session is put BACK into
+   *  `this.sessions` (so it's tracked again, not orphaned) and this resolves
+   *  `false` — the caller must NOT spawn a replacement in that case.
+   *  Resolves `true` immediately for an already-unknown id (nothing to wait
+   *  for). */
   killAndAwaitExit(id: string, timeoutMs: number): Promise<boolean> {
     const session = this.sessions.get(id);
     if (!session) return Promise.resolve(true);
+    const pid = session.proc.pid;
     return new Promise((resolve) => {
       let done = false;
-      const timer = setTimeout(() => {
-        if (done) return;
-        done = true;
-        resolve(false);
-      }, timeoutMs);
-      session.proc.onExit(() => {
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (result: boolean): void => {
         if (done) return;
         done = true;
         clearTimeout(timer);
-        resolve(true);
-      });
+        resolve(result);
+      };
+      session.proc.onExit(() => finish(true));
+      timer = setTimeout(() => {
+        if (done) return;
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          /* already dead, or not our own child (KeeperClient's own pid is
+             the detached keeper-relayed child) — either way, nothing more
+             to do here but check below */
+        }
+        setTimeout(() => {
+          if (done) return;
+          if (this.isPidAlive(pid)) {
+            // Still alive after SIGKILL — re-track it (kill(id) above
+            // already removed it) rather than leaving it orphaned-but-live.
+            this.sessions.set(id, session);
+            this.onSessionsChanged?.();
+            finish(false);
+          } else {
+            finish(true);
+          }
+        }, PtyManager.SIGKILL_GRACE_MS);
+      }, timeoutMs);
       this.kill(id);
     });
   }

@@ -347,9 +347,21 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
       // with `source: 'startup'` — left unguarded, that would overwrite this
       // session's OWN claudeSessionId with the nested run's unrelated one. A
       // real `/clear` sends source 'clear', and post-compact wake sends
-      // 'compact', so gating only 'startup', and only once we already have
-      // an id, can't block either of those legitimate updates.
-      const isNestedStartup = evt.source === 'startup' && !!live.claudeSessionId;
+      // 'compact', so gating only 'startup' can't block either of those
+      // legitimate updates.
+      //
+      // D7 fix: also require `live.status === 'working'` — a nested
+      // `claude -p` can only ever run from INSIDE a tool call (Bash), so the
+      // parent session is necessarily 'working' at the moment it fires.
+      // Without this, the guard also blocked the two legitimate cases where
+      // a session that already has an id gets a genuine fresh 'startup'
+      // while idle/done: `restartSessionFresh` (sessions.ts) respawning a
+      // brand-new (never `--resume`) process under a REUSED id after a
+      // "could not be resumed" banner — which relies on the fresh process's
+      // own SessionStart overwriting the stale id, or the banner recurs
+      // forever — and a user who exits to the fallback shell and relaunches
+      // `claude` by hand, who would otherwise keep a stale id too.
+      const isNestedStartup = evt.source === 'startup' && !!live.claudeSessionId && live.status === 'working';
       // claudeSessionId is only ever added, never cleared, here: if a later
       // SessionStart (shouldn't happen mid-session, but be defensive) ever
       // arrived without one, silently dropping an already-captured id would
