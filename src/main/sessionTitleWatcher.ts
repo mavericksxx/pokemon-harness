@@ -141,6 +141,11 @@ interface TrackedSession {
    *  it there, which the normal read/restore path already handles like any
    *  other content). */
   needsInitialMark: boolean;
+  /** This transcript's own conversation id (the `.jsonl` basename) —
+   *  compared against `getContinuedFromClaudeSessionId` on every
+   *  `tryInitialMark`/`restoreMarker` attempt (D6 fix, not just once at
+   *  registration — see those methods' own comments). */
+  claudeSessionId: string;
 }
 
 export class SessionTitleWatcher {
@@ -295,21 +300,18 @@ export class SessionTitleWatcher {
       watchDir: dirname(customTitlePath),
       lastEmittedTitle: null,
       lastRawSeen: null,
-      needsInitialMark: false
+      needsInitialMark: false,
+      claudeSessionId
     };
     this.sessions.set(agentId, s);
 
-    const continuedFromId = this.getContinuedFromClaudeSessionId?.(agentId);
-    if (continuedFromId && continuedFromId === claudeSessionId) {
-      // This transcript IS the continued outside conversation — skip the 👾
-      // stamp entirely (see constructor comment). Still let a real rename's
-      // title surface normally.
-      this.checkAndEmit(agentId, s);
-      this.watchDirFor(agentId, s);
-      this.reconcileTimer();
-      return;
-    }
-
+    // The continuedFrom check itself lives in `tryInitialMark`/
+    // `restoreMarker`, checked on EVERY attempt rather than once here (D6
+    // fix) — at boot the session registry stays empty until every respawn
+    // finishes (main/index.ts), so a one-shot check made right here, at
+    // registration time, can read a still-empty registry and let the 👾
+    // stamp through before the registry catches up. See those methods' own
+    // comments.
     if (!existsSync(customTitlePath)) {
       // Brand-new session (never renamed, and not a resume of one this
       // watcher already marked) — stamp Claude Desktop's own 👾 marker up
@@ -354,7 +356,18 @@ export class SessionTitleWatcher {
    *  the file). If `getSessionTitle` doesn't have an answer yet (the
    *  renderer's own session-registry checkpoint hasn't caught up with this
    *  hook payload — see this class's constructor comment), or the write
-   *  itself fails, `needsInitialMark` stays true and `pollAll` retries. */
+   *  itself fails, `needsInitialMark` stays true and `pollAll` retries.
+   *
+   *  D6 fix (2026-09-26 review): the continuedFrom check happens HERE, on
+   *  EVERY attempt, not once at registration — at boot the session registry
+   *  stays empty until every respawn finishes (main/index.ts), so a check
+   *  made only when `registerSession` first ran could read a still-empty
+   *  registry (`getContinuedFromClaudeSessionId` returns undefined for
+   *  everyone) and let this method stamp the marker before the registry
+   *  ever caught up. Deferring on `!title` below already means no write
+   *  happens while the registry is unpopulated; re-checking continuedFrom
+   *  on every retry (not just the first) means that once it IS populated,
+   *  a continued session still gets caught before any write. */
   private tryInitialMark(agentId: string, s: TrackedSession): void {
     if (!s.needsInitialMark) return;
     if (existsSync(s.customTitlePath)) {
@@ -363,8 +376,13 @@ export class SessionTitleWatcher {
       s.needsInitialMark = false;
       return;
     }
+    const continuedFromId = this.getContinuedFromClaudeSessionId?.(agentId);
+    if (continuedFromId && continuedFromId === s.claudeSessionId) {
+      s.needsInitialMark = false; // never mark a continued outside conversation
+      return;
+    }
     const title = this.getSessionTitle(agentId)?.trim();
-    if (!title) return; // not known yet (or blank) — retried next poll tick
+    if (!title) return; // registry not populated yet (or blank) — retried next poll tick, which re-checks continuedFrom too
     const markedTitle = CLAUDE_DESKTOP_MARKER + title;
     if (!writeCustomTitleAtomic(s.customTitlePath, markedTitle)) return; // retried next poll tick
     s.needsInitialMark = false;
@@ -453,6 +471,11 @@ export class SessionTitleWatcher {
       s.lastEmittedTitle = title;
       this.emit(agentId, title);
     }
+    // D6 fix: a continued outside conversation must never get the marker
+    // restored either — same check as `tryInitialMark`, checked on every
+    // call rather than cached, for the same boot-registry-empty reason.
+    const continuedFromId = this.getContinuedFromClaudeSessionId?.(agentId);
+    if (continuedFromId && continuedFromId === s.claudeSessionId) return;
     if (!writeCustomTitleAtomic(s.customTitlePath, CLAUDE_DESKTOP_MARKER + title)) {
       s.lastRawSeen = null;
     }

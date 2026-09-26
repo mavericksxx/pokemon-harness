@@ -97,10 +97,24 @@ interface DesktopRecord {
   isArchived?: boolean;
 }
 
+/** What's actually cached by (mtime, size) — the parsed head/tail metadata
+ *  ONLY, never an own-id/👾/archived decision (2026-09-26 review, D1): those
+ *  three depend on state that can change WITHOUT the jsonl file itself
+ *  changing (the session registry gaining/losing a live claudeSessionId
+ *  across a Continue; a custom-title.json sidecar written independently of
+ *  the transcript; a Desktop `isArchived` flip) — caching the FINAL
+ *  own/live/hidden decision by the jsonl's own (mtime, size) froze it stale:
+ *  a session scanned while live stayed hidden forever after it closed, and
+ *  a row cached as visible stayed listed after Continue, letting Continue
+ *  be clicked twice onto the same conversation. `base: null` means
+ *  PERMANENTLY excluded on structural grounds tied only to the jsonl's own
+ *  content (no records parsed, `sdk-*` entrypoint, sidechain-only) — that
+ *  part IS safe to cache by (mtime, size), since it can't change without the
+ *  file itself changing. */
 interface CacheEntry {
   mtimeMs: number;
   size: number;
-  summary: ExternalSessionSummary | null; // null = excluded (sidechain-only, sdk-*, etc.)
+  base: { head: HeadMeta; tail: TailMeta } | null;
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -437,42 +451,42 @@ export class ExternalSessionsService {
       return null;
     }
 
-    const cached = this.cache.get(path);
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
-      return this.finalizeLive(cached.summary, liveIds);
-    }
-
     const claudeSessionId = basename(path, '.jsonl');
 
-    // Own-session exclusion via 👾 marker sidecar — checked before doing any
-    // other work, since it's the cheapest possible reject.
+    // Own-session exclusion — re-checked on EVERY call, cache or no cache
+    // (D1): both the registry's live ids and the sidecar can change without
+    // the jsonl itself changing (a Continue, or a fresh `/rename`), so
+    // caching this decision by the jsonl's own (mtime, size) would freeze it
+    // stale. The sidecar read is a single small file, cheap enough to redo
+    // every list() alongside the (already per-call) desktop/registry reads.
     const sidecar = await readCustomTitleSidecar(dir, claudeSessionId);
-    if (sidecar?.isOwn) {
-      this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary: null });
-      return null;
-    }
-    if (ownIds.has(claudeSessionId)) {
-      this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary: null });
-      return null;
-    }
+    if (sidecar?.isOwn) return null;
+    if (ownIds.has(claudeSessionId)) return null;
 
-    const head = await readHead(path);
-    if (!head.sawAnyRecord) {
-      this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary: null });
-      return null;
+    let base: { head: HeadMeta; tail: TailMeta } | null;
+    const cached = this.cache.get(path);
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      base = cached.base;
+    } else {
+      const head = await readHead(path);
+      // Structural exclusions tied ONLY to the jsonl's own content — safe to
+      // cache by (mtime, size), since they can't change without the file
+      // itself changing.
+      if (!head.sawAnyRecord || head.entrypoint?.startsWith('sdk-') || head.hasSidechain) {
+        base = null;
+      } else {
+        const tail = await readTail(path, st.size);
+        base = { head, tail };
+      }
+      this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, base });
     }
-    // sdk-* entrypoints and sidechain-only files are excluded (§7).
-    if (head.entrypoint?.startsWith('sdk-') || head.hasSidechain) {
-      this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary: null });
-      return null;
-    }
+    if (!base) return null;
+    const { head, tail } = base;
 
-    const tail = await readTail(path, st.size);
+    // Desktop `isArchived` — also re-checked every call, not cached (D1):
+    // `desktopRecords` is freshly loaded once per `list()` already.
     const desktop = desktopRecords.get(claudeSessionId);
-    if (desktop?.isArchived) {
-      this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary: null });
-      return null;
-    }
+    if (desktop?.isArchived) return null;
 
     const source: ExternalSessionSource = desktop || head.entrypoint === 'claude-desktop' ? 'desktop' : 'cli';
 
@@ -500,19 +514,10 @@ export class ExternalSessionsService {
       permissionMode: desktop?.permissionMode,
       lastActiveAt: tail.lastActiveAt ?? st.mtimeMs,
       createdAt: head.createdAt ?? st.birthtimeMs,
-      live: false // filled in by finalizeLive on every return path
+      live: liveIds.has(claudeSessionId)
     };
 
-    this.cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary });
-    return this.finalizeLive(summary, liveIds);
-  }
-
-  private finalizeLive(
-    summary: ExternalSessionSummary | null,
-    liveIds: Set<string>
-  ): ExternalSessionSummary | null {
-    if (!summary) return null;
-    return { ...summary, live: liveIds.has(summary.id) };
+    return summary;
   }
 }
 

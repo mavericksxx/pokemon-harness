@@ -122,31 +122,24 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
   // `.drawer-wide`'s `flex: 1`, no width of its own to override.
   const splitStyle = wide ? undefined : { width: terminalWidthCss(gardenSplit) };
 
-  // Read-only chat preview (§7 step 3) — takes over the SAME `<aside>` slot
-  // the ordinary tab strip + FocusView terminal use, in place of both,
-  // regardless of `open`/`viewMode`: clicking an "Other sessions" row always
-  // shows it. See FocusView.tsx's own header for why the terminal's own
-  // mount div is never touched by this branch — this renders instead of
-  // that whole subtree, not alongside it.
-  if (previewSession) {
-    return (
-      <aside className={wide ? 'drawer drawer-wide' : 'drawer'} style={splitStyle}>
-        <TranscriptView
-          session={previewSession}
-          onClose={() => setPreviewExternalId(null)}
-          onContinue={() => onContinueExternal(previewSession)}
-        />
-      </aside>
-    );
-  }
-
-  if (!open) return null;
+  // Read-only chat preview (§7 step 3, fixed 2026-09-26 review D2) — rendered
+  // as an OVERLAY on top of the ordinary tab strip + FocusView terminal,
+  // never in place of them. The earlier version swapped the whole `<aside>`
+  // subtree, unmounting FocusView's `mountRef` div; the attach effect above
+  // is keyed on `[open, selectedId]` only, so nothing re-fired to reattach
+  // xterm once that div came back — Continue and closing the preview with ×
+  // both left a blank terminal. Keeping FocusView permanently mounted
+  // (same reasoning as its own header comment: one stable component
+  // instance, never swapped) means the terminal is simply never detached in
+  // the first place, so there's nothing to reattach.
+  const showPreview = !!previewSession;
+  if (!open && !showPreview) return null;
 
   const session = selectedSession;
 
   return (
     <aside className={wide ? 'drawer drawer-wide' : 'drawer'} style={splitStyle}>
-      {showTabs && (
+      {open && showTabs && (
         <header className="drawer-head">
           <div className="drawer-tabs">
             {tabSessions.map((s) => (
@@ -169,19 +162,31 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
         </header>
       )}
 
-      {/* FocusView.tsx owns everything below the tabs header for EVERY view
-          mode (BACKLOG phase E) — see its own header for why TerminalDrawer
-          must always render exactly this one component, never switch
-          between two, so the `mountRef` div it renders keeps its identity
-          (and therefore every session's terminal/scrollback) across a
-          viewMode toggle. */}
-      <FocusView
-        session={session}
-        viewMode={viewMode}
-        mountRef={mountRef}
-        findOpen={findOpen}
-        onCloseFind={() => setFindOpen(false)}
-      />
+      {open && (
+        /* FocusView.tsx owns everything below the tabs header for EVERY view
+           mode (BACKLOG phase E) — see its own header for why TerminalDrawer
+           must always render exactly this one component, never switch
+           between two, so the `mountRef` div it renders keeps its identity
+           (and therefore every session's terminal/scrollback) across a
+           viewMode toggle, AND across the preview overlay above (D2). */
+        <FocusView
+          session={session}
+          viewMode={viewMode}
+          mountRef={mountRef}
+          findOpen={findOpen}
+          onCloseFind={() => setFindOpen(false)}
+        />
+      )}
+
+      {showPreview && previewSession && (
+        <div className="transcript-view-overlay">
+          <TranscriptView
+            session={previewSession}
+            onClose={() => setPreviewExternalId(null)}
+            onContinue={() => onContinueExternal(previewSession)}
+          />
+        </div>
+      )}
     </aside>
   );
 }

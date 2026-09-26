@@ -152,6 +152,12 @@ export async function continueSession(req: ContinueSessionRequest): Promise<void
   const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const preset = AGENT_PROVIDERS.claude;
   let sessionAdded = false;
+  // D10 fix (2026-09-26 review): tracks whether `spawnPty` actually
+  // succeeded, so the catch below can kill the live pty it left running
+  // instead of just tearing down the renderer-side terminal/store entry —
+  // without this, a failed grace check (below) orphaned a real fallback
+  // shell process that nothing ever cleaned up.
+  let spawnSucceeded = false;
   const previousSelectedId = useStore.getState().selectedId;
 
   try {
@@ -205,6 +211,7 @@ export async function continueSession(req: ContinueSessionRequest): Promise<void
       provider: 'claude'
     });
     if (!res.ok) throw new Error(res.error ?? 'failed to continue session.');
+    spawnSucceeded = true;
     useStore.getState().updateSession(id, { status: 'idle', cwd: res.cwd ?? req.cwd });
     useAppSettingsStore.getState().addRecentFolder(res.cwd ?? req.cwd);
 
@@ -217,6 +224,18 @@ export async function continueSession(req: ContinueSessionRequest): Promise<void
       throw new Error('the session could not be resumed — it may have already exited.');
     }
   } catch (err) {
+    // D10 fix: a spawn that succeeded but then failed the grace check left a
+    // real `claude --resume` (or its fallback shell) process running with
+    // nothing left in the store or terminal registry to ever kill it —
+    // best-effort, since the pty may already be dead (the grace check's own
+    // failure mode) and a kill on a dead id is expected to just no-op.
+    if (spawnSucceeded) {
+      try {
+        await window.api.killPty(id);
+      } catch {
+        /* already dead, or main-side teardown races — nothing more to do */
+      }
+    }
     if (hasTerminal(id)) disposeTerminal(id);
     if (sessionAdded) {
       useStore.getState().removeSession(id);

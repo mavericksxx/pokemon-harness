@@ -25,30 +25,45 @@ export function TranscriptView({ session, onClose, onContinue }: Props): JSX.Ele
   const listRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
-  const loadInitial = useCallback(async () => {
-    setTurns([]);
-    setCursor(null);
-    setAtTop(false);
-    const page = await window.api.readExternalTranscript(session.transcriptPath, null);
-    setTurns(page.turns);
-    setCursor(page.cursor);
-    if (page.cursor === null) setAtTop(true);
-    await window.api.subscribeExternalTranscript(session.id, session.transcriptPath, page.tailOffset);
-  }, [session.id, session.transcriptPath]);
-
   useEffect(() => {
-    void loadInitial();
-    const unsubscribe = window.api.onExternalTranscriptTurns(session.id, (newTurns) => {
+    // D11 fix (2026-09-26 review): switching quickly from row A to row B
+    // used to let A's late `loadInitial` resolve AFTER A's own cleanup had
+    // already run — its `subscribe` call would land after B's effect had
+    // taken over (leaking a main-side fs.watch on A's file), and its late
+    // `setTurns` could overwrite B's already-loading pane. `cancelled` is
+    // checked after every await, and if a subscribe call itself lands after
+    // cancellation, it's unsubscribed again right away rather than left
+    // running.
+    let cancelled = false;
+
+    const load = async (): Promise<void> => {
+      setTurns([]);
+      setCursor(null);
+      setAtTop(false);
+      const page = await window.api.readExternalTranscript(session.transcriptPath, null);
+      if (cancelled) return;
+      setTurns(page.turns);
+      setCursor(page.cursor);
+      if (page.cursor === null) setAtTop(true);
+      await window.api.subscribeExternalTranscript(session.id, session.transcriptPath, page.tailOffset);
+      if (cancelled) {
+        void window.api.unsubscribeExternalTranscript(session.id);
+      }
+    };
+    void load();
+
+    const unsubscribeEvents = window.api.onExternalTranscriptTurns(session.id, (newTurns) => {
+      if (cancelled) return;
       const el = listRef.current;
       stickToBottomRef.current = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       setTurns((prev) => [...prev, ...newTurns]);
     });
     return () => {
-      unsubscribe();
+      cancelled = true;
+      unsubscribeEvents();
       void window.api.unsubscribeExternalTranscript(session.id);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.id]);
+  }, [session.id, session.transcriptPath]);
 
   // Stick to the bottom for freshly-appended live turns, unless the user has
   // scrolled up to read history.
