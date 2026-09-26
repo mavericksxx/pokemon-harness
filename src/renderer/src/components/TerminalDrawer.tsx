@@ -43,6 +43,10 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
   const previewSessions = useExternalSessionsStore((s) => s.sessions);
   const setPreviewExternalId = useExternalSessionsStore((s) => s.setPreviewExternalId);
   const previewSession = previewSessions.find((s) => s.id === previewExternalId);
+  // Computed up here (not just at the bottom, near the JSX) so the attach
+  // effect below can read it too — see that effect's own comment (2026-09-26
+  // re-review, D2/#5).
+  const showPreview = !!previewSession;
   const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
@@ -85,11 +89,28 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
     const el = mountRef.current;
     if (!open || !el || !selectedId || !hasTerminal(selectedId)) return;
     attachTerminal(selectedId, el);
-    focusTerminal(selectedId);
+    // 2026-09-26 re-review (#5): while the preview overlay is open, this
+    // terminal is mounted but hidden BEHIND it (D2's fix) — stealing focus
+    // onto a session the user can't see would send keystrokes into the
+    // wrong place. Attaching still happens unconditionally so the terminal
+    // keeps rendering underneath and is instantly visible once the overlay
+    // closes.
+    if (!showPreview) focusTerminal(selectedId);
     return () => detachTerminal(selectedId);
     // Deliberately NOT keyed on the session list: re-attaching on every
     // spawn/kill would churn the terminal's WebGL context for no reason.
-  }, [open, selectedId]);
+  }, [open, selectedId, showPreview]);
+
+  // 2026-09-26 re-review (#5): clicking an agent card while the preview is
+  // open changes `selectedId` — that must show the clicked card's terminal,
+  // not leave it hidden under a now-stale preview. Deliberately NOT keyed on
+  // `previewExternalId` itself (only `selectedId`): opening a preview via
+  // RosterStrip's "Other sessions" row never touches `selectedId`, so this
+  // must not immediately clear the preview it just set.
+  useEffect(() => {
+    if (previewExternalId) setPreviewExternalId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   // If the selected delegate is the one that just completed, move focus to
   // its parent (or the next remaining tab) so the drawer closes that dead
@@ -124,15 +145,15 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
 
   // Read-only chat preview (§7 step 3, fixed 2026-09-26 review D2) — rendered
   // as an OVERLAY on top of the ordinary tab strip + FocusView terminal,
-  // never in place of them. The earlier version swapped the whole `<aside>`
-  // subtree, unmounting FocusView's `mountRef` div; the attach effect above
-  // is keyed on `[open, selectedId]` only, so nothing re-fired to reattach
-  // xterm once that div came back — Continue and closing the preview with ×
-  // both left a blank terminal. Keeping FocusView permanently mounted
-  // (same reasoning as its own header comment: one stable component
-  // instance, never swapped) means the terminal is simply never detached in
-  // the first place, so there's nothing to reattach.
-  const showPreview = !!previewSession;
+  // never in place of them (`showPreview`, computed above). The earlier
+  // version swapped the whole `<aside>` subtree, unmounting FocusView's
+  // `mountRef` div; the attach effect above is keyed on `[open, selectedId]`
+  // only, so nothing re-fired to reattach xterm once that div came back —
+  // Continue and closing the preview with × both left a blank terminal.
+  // Keeping FocusView permanently mounted (same reasoning as its own header
+  // comment: one stable component instance, never swapped) means the
+  // terminal is simply never detached in the first place, so there's
+  // nothing to reattach.
   if (!open && !showPreview) return null;
 
   const session = selectedSession;

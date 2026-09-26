@@ -15,6 +15,11 @@ import { DoubleChevronLeftIcon, DoubleChevronRightIcon } from '@/components/icon
 const OTHER_SESSIONS_POLL_MS = 10_000;
 
 function repoLabel(s: { repoName: string; gitBranch?: string }): string {
+  // 2026-09-26 review, item 3: an empty repoName (no cwd at all — see
+  // externalSessions.ts's own fix) renders as an omitted segment, never the
+  // literal word "unknown" — a branch name means nothing without a repo to
+  // hang it off, so it's dropped too in that case.
+  if (!s.repoName) return '';
   return s.gitBranch ? `${s.repoName} · ${s.gitBranch}` : s.repoName;
 }
 
@@ -336,8 +341,12 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
               </div>
               <div className="other-session-meta">
                 <span className={`badge badge-${s.source}`}>{s.source === 'desktop' ? 'Desktop' : 'CLI'}</span>
-                <span>{repoLabel(s)}</span>
-                <span>{relativeAge(s.lastActiveAt)}</span>
+                {/* Fixed-width badge/age flank a middle segment that ellipsizes
+                    instead of pushing the age off the card's right edge
+                    (2026-09-26 review, item 2) — the age is how the owner
+                    tells apart two rows with the same title. */}
+                <span className="other-session-repo">{repoLabel(s)}</span>
+                <span className="other-session-age">{relativeAge(s.lastActiveAt)}</span>
               </div>
             </button>
           ))}
