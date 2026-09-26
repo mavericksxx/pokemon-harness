@@ -94,7 +94,24 @@ interface TrackedSession {
   cumulativeCostUsd: number;
   lastContextTokens: number;
   lastModel: string | null;
+  /** True until this session's very first `pollOne` read has happened — see
+   *  `INITIAL_TAIL_BYTES`'s own comment. Cleared unconditionally after that
+   *  first read, whether or not it actually needed bounding. */
+  firstRead: boolean;
 }
+
+/** Bounded tail (not a full-file read) for a session's very FIRST poll —
+ *  registerSession's immediate `pollOne` used to read the whole transcript
+ *  synchronously, and a transcript can reach 195 MB (docs/external-sessions-
+ *  plan.md §3), which would freeze main for a `--resume`/continued session
+ *  with a large existing history. Reading only the last 2 MB is enough to
+ *  recover the CURRENT model and context-window state (`applyLine` only
+ *  ever keeps the LATEST value of those), at the accepted cost that
+ *  `cumulativeInputTokens`/`cumulativeOutputTokens`/`cumulativeCostUsd` then
+ *  only count what's inside this window, not the conversation's full
+ *  history — acceptable per spec. Steady-state tailing (every read after
+ *  the first) is unbounded and unchanged. */
+const INITIAL_TAIL_BYTES = 2 * 1024 * 1024;
 
 export class CostWatcher {
   private sessions = new Map<string, TrackedSession>();
@@ -239,7 +256,8 @@ export class CostWatcher {
       cumulativeOutputTokens: 0,
       cumulativeCostUsd: 0,
       lastContextTokens: 0,
-      lastModel: null
+      lastModel: null,
+      firstRead: true
     };
     this.sessions.set(agentId, s);
     this.watchPath(agentId, transcriptPath);
@@ -315,13 +333,22 @@ export class CostWatcher {
       return;
     }
     try {
-      const len = size - s.offset;
+      // Bounded tail on the very first read only (see `INITIAL_TAIL_BYTES`'s
+      // own comment) — every later read (this same session's steady-state
+      // tailing) keeps reading from `s.offset` exactly as before.
+      const isBoundedFirstRead = s.firstRead && size - s.offset > INITIAL_TAIL_BYTES;
+      const start = isBoundedFirstRead ? size - INITIAL_TAIL_BYTES : s.offset;
+      const len = size - start;
       const buf = Buffer.alloc(len);
-      readSync(fd, buf, 0, len, s.offset);
+      readSync(fd, buf, 0, len, start);
       s.offset = size;
       const chunk = s.carry + buf.toString('utf8');
       const lines = chunk.split('\n');
       s.carry = lines.pop() ?? '';
+      // A bounded tail almost certainly starts mid-line — drop that leading
+      // partial line rather than feeding `applyLine` a truncated JSON record.
+      if (isBoundedFirstRead) lines.shift();
+      s.firstRead = false;
       for (const line of lines) {
         if (line.trim()) this.applyLine(s, line);
       }
