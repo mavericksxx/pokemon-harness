@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
+import { useExternalSessionsStore } from '@/store/externalSessionsStore';
+import type { ExternalSessionSummary } from '@shared/externalSessions';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { FocusView } from '@/components/FocusView';
 import { NewTerminalButton } from '@/components/NewTerminalButton';
+import { TranscriptView } from '@/components/TranscriptView';
 import { terminalWidthCss } from '@/gardenSplit';
 import { useEffectiveLayout } from '@/effectiveLayout';
+
+interface Props {
+  /** Continue-mode entry point (docs/external-sessions-plan.md §7 step 3) —
+   *  called with the row TranscriptView's "Continue session" button was
+   *  clicked for. App.tsx owns the new-agent dialog's continue-target state,
+   *  so this is the callback that hands it that row. */
+  onContinueExternal(session: ExternalSessionSummary): void;
+}
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget).
@@ -23,8 +34,15 @@ import { useEffectiveLayout } from '@/effectiveLayout';
  *  drawer on every OTHER session's tick too) — its identity only changes
  *  when the selected session itself changes, or a genuine patch lands on it
  *  (see store.ts's `updateSession` no-op guard). */
-export function TerminalDrawer(): JSX.Element | null {
+export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | null {
   const selectedSession = useStore((s) => s.sessions.find((x) => x.id === s.selectedId) ?? undefined);
+  // Read-only chat preview (§7 step 3) — when set, this drawer shows
+  // TranscriptView in place of the ordinary tab strip + FocusView terminal,
+  // regardless of view mode (see the early return in the JSX below).
+  const previewExternalId = useExternalSessionsStore((s) => s.previewExternalId);
+  const previewSessions = useExternalSessionsStore((s) => s.sessions);
+  const setPreviewExternalId = useExternalSessionsStore((s) => s.setPreviewExternalId);
+  const previewSession = previewSessions.find((s) => s.id === previewExternalId);
   const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
@@ -99,14 +117,32 @@ export function TerminalDrawer(): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, selectedId]);
 
-  if (!open) return null;
-
-  const session = selectedSession;
-
   // The draggable split (GardenSplitHandle.tsx) only applies to the
   // side-by-side 'garden' layout — `wide` mode fills the row on its own via
   // `.drawer-wide`'s `flex: 1`, no width of its own to override.
   const splitStyle = wide ? undefined : { width: terminalWidthCss(gardenSplit) };
+
+  // Read-only chat preview (§7 step 3) — takes over the SAME `<aside>` slot
+  // the ordinary tab strip + FocusView terminal use, in place of both,
+  // regardless of `open`/`viewMode`: clicking an "Other sessions" row always
+  // shows it. See FocusView.tsx's own header for why the terminal's own
+  // mount div is never touched by this branch — this renders instead of
+  // that whole subtree, not alongside it.
+  if (previewSession) {
+    return (
+      <aside className={wide ? 'drawer drawer-wide' : 'drawer'} style={splitStyle}>
+        <TranscriptView
+          session={previewSession}
+          onClose={() => setPreviewExternalId(null)}
+          onContinue={() => onContinueExternal(previewSession)}
+        />
+      </aside>
+    );
+  }
+
+  if (!open) return null;
+
+  const session = selectedSession;
 
   return (
     <aside className={wide ? 'drawer drawer-wide' : 'drawer'} style={splitStyle}>
