@@ -3444,6 +3444,211 @@ body.garden-lowres .garden canvas {
   text-transform: uppercase;
 }
 
+/* "Other sessions" section (docs/external-sessions-plan.md §7 step 1) —
+ * collapsed by default, sits below the "agents" section in the same
+ * `.party-rail-list` scroller. */
+.other-sessions-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 2px 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.other-sessions-toggle:hover {
+  color: var(--text);
+}
+
+.other-sessions-chevron {
+  display: inline-block;
+  transition: transform 0.1s ease;
+}
+
+.other-sessions-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.other-session-row {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.other-session-row:hover {
+  border-color: var(--accent-text);
+}
+
+.other-session-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.other-session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--font-body-sm-size);
+}
+
+.other-session-live-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-working);
+}
+
+.other-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.badge {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.badge-desktop {
+  border-color: var(--accent-sky);
+  color: var(--accent-sky);
+}
+
+.badge-cli {
+  border-color: var(--accent-mint);
+  color: var(--accent-mint);
+}
+
+/* Read-only chat preview (TranscriptView.tsx, §7 step 3) — mounted in place
+ * of FocusView's terminal panel when an "Other sessions" row is open. */
+.transcript-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.transcript-view-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-ui);
+}
+
+.transcript-view-title {
+  font-family: var(--font-display);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 30ch;
+}
+
+.transcript-view-meta {
+  color: var(--muted);
+  font-size: var(--font-body-sm-size);
+  white-space: nowrap;
+}
+
+.transcript-view-spacer {
+  flex: 1;
+}
+
+.transcript-view-continue {
+  flex: none;
+}
+
+.transcript-view-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-terminal);
+}
+
+.transcript-view-loadmore {
+  flex: none;
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px;
+}
+
+.transcript-turn {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transcript-turn-role {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.transcript-turn-user {
+  color: var(--text);
+}
+
+.transcript-turn-assistant {
+  color: var(--text-secondary);
+}
+
+.transcript-turn-tool {
+  color: var(--muted);
+  font-size: 11px;
+  padding-left: 12px;
+  border-left: 2px solid var(--muted-dim);
+}
+
+.transcript-view-empty {
+  margin: auto;
+}
+
 /* Subagent/delegate nesting (per-parent disclosure rework) — indented under
  * its parent with a mint left border, replacing the old flat list a global
  * show/hide toggle used to gate. */

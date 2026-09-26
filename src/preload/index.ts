@@ -25,6 +25,7 @@ import type { ArceusSummonConfig } from '../shared/arceus';
 import type { PokeAskNotice, PokeRelayDeliveredNotice, PokeSpawnedNotice } from '../shared/pokeTools';
 import type { DiagnosticsInfo, ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
 import type { UsageSnapshot } from '../shared/usageTypes';
+import type { ExternalSessionsListResult, ExternalTranscriptPage, ExternalTranscriptTurn } from '../shared/externalSessions';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -395,6 +396,24 @@ const api = {
     const listener = (_e: IpcRendererEvent, snapshot: UsageSnapshot): void => cb(snapshot);
     ipcRenderer.on('usage:snapshot', listener);
     return () => ipcRenderer.removeListener('usage:snapshot', listener);
+  },
+
+  // ─── External sessions (docs/external-sessions-plan.md §7 steps 1–3) —
+  // "Other sessions" list, read-only chat preview, and continue flow. ─────
+  listExternalSessions: (): Promise<ExternalSessionsListResult> => ipcRenderer.invoke('externalSessions:list'),
+  readExternalTranscript: (path: string, cursor: number | null): Promise<ExternalTranscriptPage> =>
+    ipcRenderer.invoke('externalSessions:readTranscript', path, cursor),
+  checkExternalContinueTarget: (transcriptPath: string, cwd: string): Promise<{ cwdExists: boolean; transcriptExists: boolean }> =>
+    ipcRenderer.invoke('externalSessions:checkContinueTarget', transcriptPath, cwd),
+  subscribeExternalTranscript: (id: string, path: string, fromOffset: number): Promise<void> =>
+    ipcRenderer.invoke('externalSessions:subscribe', id, path, fromOffset),
+  unsubscribeExternalTranscript: (id: string): Promise<void> =>
+    ipcRenderer.invoke('externalSessions:unsubscribe', id),
+  onExternalTranscriptTurns: (id: string, cb: (turns: ExternalTranscriptTurn[]) => void): (() => void) => {
+    const channel = `externalSessions:turns:${id}`;
+    const listener = (_e: IpcRendererEvent, turns: ExternalTranscriptTurn[]): void => cb(turns);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
   }
 };
 

@@ -18,6 +18,7 @@ import { registerWorkspacesIpc } from './ipc/workspaces';
 import { registerSettingsIpc } from './ipc/settings';
 import { registerAssetsIpc } from './ipc/assets';
 import { registerAppIpc } from './ipc/app';
+import { registerExternalSessionsIpc } from './ipc/externalSessions';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
@@ -276,7 +277,8 @@ const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
 // comment).
 const sessionTitleWatcher = new SessionTitleWatcher(
   () => mainWindow?.webContents ?? null,
-  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.title
+  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.title,
+  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.continuedFrom?.claudeSessionId
 );
 // In-app provider usage-limits panel (BACKLOG "next up" item 1) — off until
 // `setEnabled(true)` is called below with the persisted setting; see
@@ -1856,6 +1858,11 @@ registerSessionsIpc({
 });
 
 registerAssetsIpc();
+
+registerExternalSessionsIpc({
+  getSessionRegistry: () => sessionRegistry,
+  getWebContents: () => mainWindow?.webContents ?? null
+});
 
 registerSettingsIpc({
   ptyManager,

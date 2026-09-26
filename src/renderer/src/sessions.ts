@@ -13,6 +13,7 @@ import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, speciesEntry } from '@/scene/garden/dexData';
 import { initShinyConfig, rollShiny } from '@/scene/garden/shiny';
 import { evolutionConfig } from '@/scene/garden/evolution';
+import { RESUME_GRACE_MS } from '@shared/resumeTiming';
 
 function basename(p: string): string {
   const parts = p.replace(/\/+$/, '').split('/');
@@ -111,6 +112,111 @@ export async function startSession(req: NewSessionRequest): Promise<void> {
     // A failed spawn must not leave a stale store entry or a ghost tab: undo the
     // terminal and the store entry together rather than surfacing the failure as
     // a permanently-"done" session.
+    if (hasTerminal(id)) disposeTerminal(id);
+    if (sessionAdded) {
+      useStore.getState().removeSession(id);
+      if (previousSelectedId && useStore.getState().sessions.some((session) => session.id === previousSelectedId)) {
+        useStore.getState().select(previousSelectedId);
+      }
+    }
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+/** Continue-mode request for NewSessionDialog's "Continue session" flow
+ *  (docs/external-sessions-plan.md §7 step 3) — a Claude Code conversation
+ *  started outside Pokéharness, resumed through the normal `spawnPty` ->
+ *  `PtyManager.spawn` path (hooks, harness instructions, agent id all
+ *  apply). */
+export interface ContinueSessionRequest {
+  /** The outside conversation's own id — passed to `claude --resume`. */
+  externalId: string;
+  source: 'desktop' | 'cli';
+  cwd: string;
+  title: string;
+  model?: string;
+  permissionMode?: string;
+  pokemon?: string;
+}
+
+/** Spawns `claude --resume <id>` (plus `--model`/`--permission-mode` when
+ *  set) for a session that started outside Pokéharness. Mirrors
+ *  `startSession` above (same terminal-first ordering, same undo-on-failure
+ *  path), with two differences: the command/args always resume the outside
+ *  conversation rather than building a fresh one, and a
+ *  `RESUME_GRACE_MS` liveness check runs after spawn (same approach
+ *  `arceus.ts`'s `tryResumeArceus` uses for its own `--resume`) since a
+ *  `--resume` of a missing/corrupt conversation can exit almost immediately
+ *  rather than returning a spawn error. */
+export async function continueSession(req: ContinueSessionRequest): Promise<void> {
+  const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const preset = AGENT_PROVIDERS.claude;
+  let sessionAdded = false;
+  const previousSelectedId = useStore.getState().selectedId;
+
+  try {
+    createTerminal(id, 'claude');
+
+    let pokemon = '';
+    let line = '';
+    if (req.pokemon) {
+      const picked = speciesEntry(req.pokemon);
+      const base = baseStageOf(req.pokemon);
+      pokemon = picked?.baseSpecies ? req.pokemon : base.id;
+      line = base.line;
+    } else {
+      const picked = pickFreeLine(useStore.getState().takenLines());
+      pokemon = picked.name;
+      line = picked.line;
+    }
+    await initShinyConfig();
+    const shiny = rollShiny();
+
+    useStore.getState().addSession({
+      id,
+      title: req.title.trim() || basename(req.cwd),
+      cwd: req.cwd,
+      command: preset.defaultCommand,
+      provider: 'claude',
+      model: req.model,
+      pokemon,
+      line,
+      shiny,
+      isPlainTerminal: false,
+      workspaceId: useWorkspaceStore.getState().activeWorkspaceId,
+      claudeSessionId: req.externalId,
+      continuedFrom: { claudeSessionId: req.externalId, source: req.source },
+      permissionMode: req.permissionMode
+    });
+    sessionAdded = true;
+
+    const args = ['--resume', req.externalId];
+    if (req.model) args.push('--model', req.model);
+    if (req.permissionMode) args.push('--permission-mode', req.permissionMode);
+
+    const res = await window.api.spawnPty({
+      id,
+      cwd: req.cwd,
+      command: preset.defaultCommand,
+      args,
+      env: preset.env,
+      cols: 100,
+      rows: 30,
+      provider: 'claude'
+    });
+    if (!res.ok) throw new Error(res.error ?? 'failed to continue session.');
+    useStore.getState().updateSession(id, { status: 'idle', cwd: res.cwd ?? req.cwd });
+    useAppSettingsStore.getState().addRecentFolder(res.cwd ?? req.cwd);
+
+    // Grace check (see this function's own comment) — a resume of a
+    // missing/corrupt conversation id can exit almost immediately rather
+    // than failing the spawn call itself.
+    await new Promise((resolve) => setTimeout(resolve, RESUME_GRACE_MS));
+    const record = useStore.getState().sessions.find((s) => s.id === id);
+    if (record?.status === 'done') {
+      throw new Error('the session could not be resumed — it may have already exited.');
+    }
+  } catch (err) {
     if (hasTerminal(id)) disposeTerminal(id);
     if (sessionAdded) {
       useStore.getState().removeSession(id);
