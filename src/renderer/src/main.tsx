@@ -195,11 +195,21 @@ if (!rootEl) throw new Error('#root missing');
 // layout containers, while revealing the IME composition caret in xterm's
 // hidden helper textarea. Keep intentional panes and xterm's own scrollers
 // free to scroll, but clamp every other element that Chromium shifts.
+//
+// `.transcript-view-list` (the external-sessions read-only chat preview,
+// TranscriptView.tsx) was missing here (2026-09-26 re-review) — every
+// scroll on it, wheel or programmatic (including TranscriptView's own
+// open-at-bottom layout-effect pin), was getting clamped straight back to
+// 0 by this same guard, confirmed live via a `clampScrollPosition` stack
+// trace over CDP. That's the actual root cause of both "can't scroll the
+// preview" and "doesn't open at the bottom" — not a stacking-context or
+// wheel-propagation issue.
 const documentScrollGuardTargets = [document.documentElement, document.body, rootEl];
 const documentScrollGuardExemptSelector =
   '.session-chips, .garden-picker-menu, .pokemon-picker, .drawer-tabs, .modal, ' +
   '.usage-popover-panel, .mini-player-list, ' +
   '.party-rail-list, .sessions-overview, .settings-rail, .settings-content-body, .xterm, ' +
+  '.transcript-view-list, ' +
   '.overflow-chip-menu, textarea, input, select';
 const clampScrollPosition = (target: Element) => {
   if (target.scrollLeft !== 0) target.scrollLeft = 0;

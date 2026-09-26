@@ -179,7 +179,7 @@ export function TranscriptView({ session, onClose, onContinue }: Props): JSX.Ele
   const ageLabel = relativeAge(session.lastActiveAt);
 
   return (
-    <div className="transcript-view" onWheel={(e) => e.stopPropagation()}>
+    <div className="transcript-view">
       <header className="transcript-view-header">
         <span className="transcript-view-title">{session.title}</span>
         <span className="transcript-view-meta">

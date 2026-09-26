@@ -206,9 +206,7 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
               confirmed-live bug this fixes (switching rows updated the
               header but left the turn list showing an earlier row's
               content). This overlay div is a SIBLING of FocusView above,
-              never a descendant of it — TranscriptView's own `onWheel`
-              stopPropagation additionally keeps a wheel gesture over this
-              pane from ever reaching FocusView/the terminal underneath. */}
+              never a descendant of it. */}
           <TranscriptView
             key={previewSession.id}
             session={previewSession}
