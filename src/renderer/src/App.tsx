@@ -29,6 +29,7 @@ import { NARROW_LAYOUT_MAX_PX } from '@/gardenSplit';
 import { ARCEUS_SESSION_ID } from '@shared/arceus';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
+import type { ExternalSessionSummary } from '@shared/externalSessions';
 
 /** Cmd/Ctrl+1..3 → the three view modes, matching ViewModeSwitcher's order.
  *  Bound globally (not per-input) — none of the app's text inputs use
@@ -53,6 +54,10 @@ const DIGIT_CODE_RE = /^Digit([1-9])$/;
 
 export function App(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Continue-mode target (docs/external-sessions-plan.md §7 step 3) — set by
+  // TranscriptView's "Continue session" button, consumed by the same
+  // NewSessionDialog instance below. Cleared on close alongside dialogOpen.
+  const [continueTarget, setContinueTarget] = useState<ExternalSessionSummary | null>(null);
   // First-launch welcome dialog (BACKLOG item 2) — `onboardingDone` also
   // gates boot's auto-summon (main.tsx), so this dialog and a silent
   // Arceus reappearance never race. `welcomeArceusDialogOpen` is a SEPARATE
@@ -288,11 +293,24 @@ export function App(): JSX.Element {
               half — closing it in the first place — is the topbar's
               restored hide-terminal chevron above. */}
           {viewMode === 'garden' && !drawerOpen && !arceusSelected && <GardenDrawerEdgeTab />}
-          <TerminalDrawer />
+          <TerminalDrawer
+            onContinueExternal={(session) => {
+              setContinueTarget(session);
+              setDialogOpen(true);
+            }}
+          />
         </div>
       </main>
 
-      {dialogOpen && <NewSessionDialog onClose={() => setDialogOpen(false)} />}
+      {dialogOpen && (
+        <NewSessionDialog
+          onClose={() => {
+            setDialogOpen(false);
+            setContinueTarget(null);
+          }}
+          continueTarget={continueTarget ?? undefined}
+        />
+      )}
       <SessionsOverview />
       <SettingsPanel />
       <QuitDialog />

@@ -18,6 +18,7 @@ import { registerWorkspacesIpc } from './ipc/workspaces';
 import { registerSettingsIpc } from './ipc/settings';
 import { registerAssetsIpc } from './ipc/assets';
 import { registerAppIpc } from './ipc/app';
+import { registerExternalSessionsIpc } from './ipc/externalSessions';
 import { AGENT_ID_ENV, DELEGATE_LABEL_ENV, DELEGATE_PARENT_ENV, HookBridge } from './hookBridge';
 import { ensureCodexHooks } from './codexHooks';
 import { CostWatcher } from './costWatcher';
@@ -27,6 +28,7 @@ import { UsageService } from './usageService';
 import { TrayController } from './tray';
 import { PokeRelay, resolveWorkspaceHint } from './pokeTools';
 import { TaskNotificationWatcher } from './taskNotificationWatcher';
+import { OutsideWriteDetector } from './outsideWriteDetector';
 import { loadAudioSettings } from './audioSettings';
 import { loadAppSettings, saveAppSettings } from './appSettings';
 import { loadPersistedSessions, SessionPersistence } from './sessionPersistence';
@@ -275,7 +277,8 @@ const costWatcher = new CostWatcher(() => mainWindow?.webContents ?? null);
 // comment).
 const sessionTitleWatcher = new SessionTitleWatcher(
   () => mainWindow?.webContents ?? null,
-  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.title
+  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.title,
+  (agentId) => sessionRegistry.find((s) => s.id === agentId)?.continuedFrom?.claudeSessionId
 );
 // In-app provider usage-limits panel (BACKLOG "next up" item 1) — off until
 // `setEnabled(true)` is called below with the persisted setting; see
@@ -338,6 +341,15 @@ const pokeRelay = new PokeRelay(
 // the real, evidence-backed reason `Stop` alone can no longer be trusted as
 // subagent-completion proof for an async `Task`/`Agent` dispatch.
 const taskNotificationWatcher = new TaskNotificationWatcher(() => mainWindow?.webContents ?? null);
+// External sessions plan §7 step 5 — forward-referenced the same way
+// `ptyManager` is below (the callbacks that use it only ever run once
+// everything's constructed): `getOwnPid` needs `ptyManager.list()`, which
+// isn't built until after `hookBridge`, and `onCandidate` needs
+// `mainWindow`, which doesn't exist yet either.
+const outsideWriteDetector = new OutsideWriteDetector(
+  (agentId) => mainWindow?.webContents.send('outsideWrite:candidate', agentId),
+  (agentId) => ptyManager.list().find((p) => p.id === agentId)?.pid
+);
 // Explicit type annotation (unlike `pokeRelay` above, which needs none): the
 // delegate-validation callback below returns `boolean`, not `void`, so TS
 // must actually resolve `ptyManager`'s type to check it — and `ptyManager`
@@ -350,6 +362,10 @@ const hookBridge: HookBridge = new HookBridge(
   (agentId, transcriptPath, hookEventName, subagentAgentId) => {
     costWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
     taskNotificationWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
+    // Detector's own transcript tail, kept current for signal (b) — never
+    // for a subagent's own transcript (`subagentAgentId` set), same guard
+    // costWatcher.ts's registerSession uses.
+    if (!subagentAgentId && transcriptPath) outsideWriteDetector.noteTranscriptPath(agentId, transcriptPath);
     sessionTitleWatcher.onHookPayload(agentId, transcriptPath, hookEventName, subagentAgentId);
   },
   // External-codex-delegate feature — same forward-reference trick as
@@ -519,7 +535,10 @@ const hookBridge: HookBridge = new HookBridge(
       ? `${req.agent} is busy — message queued, will deliver once idle`
       : `message delivered to ${req.agent}`;
     return { ok: true, note };
-  }
+  },
+  // External sessions plan §7 step 5's outside-write detector — signal
+  // (b)'s "this is a prompt we ourselves submitted" exclusion list.
+  (agentId, prompt) => outsideWriteDetector.noteOwnPrompt(agentId, prompt)
 );
 // Third arg (GitHub #8) — mirrors `pty:kill`'s own
 // `taskNotificationWatcher.unregisterSession(id)` for the one teardown path
@@ -1798,6 +1817,8 @@ app.on('before-quit', (e) => {
   log('main', 'info', 'before-quit: hookBridge.stop() done');
   costWatcher.stop();
   log('main', 'info', 'before-quit: costWatcher.stop() done');
+  outsideWriteDetector.dispose();
+  log('main', 'info', 'before-quit: outsideWriteDetector.dispose() done');
   costHistoryService.stop();
   log('main', 'info', 'before-quit: costHistoryService.stop() done');
   trayController.destroy();
@@ -1818,6 +1839,7 @@ registerSessionsIpc({
   pokeRelay,
   costWatcher,
   taskNotificationWatcher,
+  outsideWriteDetector,
   notifyStatusTransitions,
   getSessionRegistry: () => sessionRegistry,
   setSessionRegistry: (sessions) => {
@@ -1837,6 +1859,11 @@ registerSessionsIpc({
 });
 
 registerAssetsIpc();
+
+registerExternalSessionsIpc({
+  getSessionRegistry: () => sessionRegistry,
+  getWebContents: () => mainWindow?.webContents ?? null
+});
 
 registerSettingsIpc({
   ptyManager,

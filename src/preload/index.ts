@@ -6,6 +6,7 @@ import type {
   PtyExit,
   PtyInfo,
   PtyResult,
+  ReloadSessionResult,
   RendererCrashInfo,
   RestoreSnapshot,
   SessionRecord,
@@ -24,6 +25,7 @@ import type { ArceusSummonConfig } from '../shared/arceus';
 import type { PokeAskNotice, PokeRelayDeliveredNotice, PokeSpawnedNotice } from '../shared/pokeTools';
 import type { DiagnosticsInfo, ExportDiagnosticsResult, LogLevel } from '../shared/diagnosticsTypes';
 import type { UsageSnapshot } from '../shared/usageTypes';
+import type { ExternalSessionsListResult, ExternalTranscriptPage, ExternalTranscriptTurn } from '../shared/externalSessions';
 
 /** The entire privileged surface the renderer gets. Keep it narrow, and keep
  *  this file to `electron` imports only — the preload runs sandboxed. */
@@ -96,6 +98,20 @@ const api = {
    *  plus the last-selected id — called once on boot to re-adopt them after a
    *  crash or a plain reload. */
   restoreSessions: (): Promise<RestoreSnapshot> => ipcRenderer.invoke('sessions:restore'),
+  // External sessions plan §7 step 4 — kill this session's current process,
+  // await its real exit, then respawn via `claude --resume` (main/ipc/
+  // sessions.ts's `sessions:reload`). Caller (arceus.ts-style renderer flow)
+  // still owns recreating the terminal + forcing a repaint afterward.
+  reloadSession: (id: string): Promise<ReloadSessionResult> => ipcRenderer.invoke('sessions:reload', id),
+  // External sessions plan §7 step 5 — main's outsideWriteDetector.ts fires
+  // this whenever a `continuedFrom` session looks like it needs to catch up
+  // to another surface's turns. Single global channel, same reasoning as
+  // `onDelegateHookEvent` above.
+  onOutsideWriteCandidate: (cb: (agentId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, agentId: string): void => cb(agentId);
+    ipcRenderer.on('outsideWrite:candidate', listener);
+    return () => ipcRenderer.removeListener('outsideWrite:candidate', listener);
+  },
   /** Non-null exactly once, right after a launch that respawned at least one
    *  disk-persisted session (Phase 8.5 #1) — see main/index.ts's
    *  `diskRestoreConsumed`. Pulled on boot the same way `getCrashInfo` is. */
@@ -380,6 +396,24 @@ const api = {
     const listener = (_e: IpcRendererEvent, snapshot: UsageSnapshot): void => cb(snapshot);
     ipcRenderer.on('usage:snapshot', listener);
     return () => ipcRenderer.removeListener('usage:snapshot', listener);
+  },
+
+  // ─── External sessions (docs/external-sessions-plan.md §7 steps 1–3) —
+  // "Other sessions" list, read-only chat preview, and continue flow. ─────
+  listExternalSessions: (): Promise<ExternalSessionsListResult> => ipcRenderer.invoke('externalSessions:list'),
+  readExternalTranscript: (path: string, cursor: number | null): Promise<ExternalTranscriptPage> =>
+    ipcRenderer.invoke('externalSessions:readTranscript', path, cursor),
+  checkExternalContinueTarget: (transcriptPath: string, cwd: string): Promise<{ cwdExists: boolean; transcriptExists: boolean }> =>
+    ipcRenderer.invoke('externalSessions:checkContinueTarget', transcriptPath, cwd),
+  subscribeExternalTranscript: (id: string, path: string, fromOffset: number): Promise<void> =>
+    ipcRenderer.invoke('externalSessions:subscribe', id, path, fromOffset),
+  unsubscribeExternalTranscript: (id: string): Promise<void> =>
+    ipcRenderer.invoke('externalSessions:unsubscribe', id),
+  onExternalTranscriptTurns: (id: string, cb: (turns: ExternalTranscriptTurn[]) => void): (() => void) => {
+    const channel = `externalSessions:turns:${id}`;
+    const listener = (_e: IpcRendererEvent, turns: ExternalTranscriptTurn[]): void => cb(turns);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
   }
 };
 

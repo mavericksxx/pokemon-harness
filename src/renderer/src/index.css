@@ -1544,6 +1544,26 @@ body.garden-lowres .garden canvas {
 
 /* ── terminal drawer ─────────────────────────────────────────────────────── */
 .drawer {
+  /* Positioning context for `.transcript-view-overlay` (§7 step 3, D2 fix)
+   * — the preview covers this pane without unmounting FocusView underneath
+   * it. */
+  position: relative;
+  /* 2026-09-26 re-review (item 1 root cause): `position: relative` alone
+   * does NOT give this element its own stacking context (that needs an
+   * explicit `z-index`, which this never had) — so `.transcript-view-
+   * overlay`'s `z-index: 2` was being compared against whatever REAL
+   * stacking context happens to exist further up the tree, alongside every
+   * OTHER z-indexed element in the app (FocusView's own find-bar at 10, its
+   * tooltips at 1100, toasts, modals...). None of those are meant to be in
+   * the running for "on top of this specific pane" at all — the overlay's
+   * precedence over FocusView's subtree underneath it was accidental, not
+   * guaranteed, and exactly the kind of gap that can leave pointer/wheel
+   * events landing on the wrong element depending on unrelated app state.
+   * `isolation: isolate` traps ALL of `.drawer`'s own descendants (tabs
+   * header, FocusView's whole subtree, the overlay) into ONE local stacking
+   * context, where the overlay — last DOM child, the only one at this level
+   * with an explicit `z-index` — deterministically wins. */
+  isolation: isolate;
   width: 46%;
   /* Matches gardenSplit.ts's TERMINAL_MIN_PX — 'garden' mode overrides
    * `width` inline (via GardenSplitHandle.tsx's ratio) with a `clamp()`
@@ -3444,6 +3464,304 @@ body.garden-lowres .garden canvas {
   text-transform: uppercase;
 }
 
+/* "Other sessions" section (docs/external-sessions-plan.md §7 step 1) —
+ * collapsed by default, sits below the "agents" section in the same
+ * `.party-rail-list` scroller. */
+.other-sessions-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 2px 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-display-sm-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.other-sessions-toggle:hover {
+  color: var(--text);
+}
+
+.other-sessions-chevron {
+  display: inline-block;
+  transition: transform 0.1s ease;
+}
+
+.other-sessions-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.other-session-row {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.other-session-row:hover {
+  border-color: var(--accent-text);
+}
+
+.other-session-row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.other-session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--font-body-sm-size);
+}
+
+.other-session-live-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-working);
+}
+
+.other-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* Middle segment ellipsizes instead of pushing the fixed-width badge/age out
+ * past the card's right edge (2026-09-26 review, item 2) — a long repo path
+ * or branch name ("scratch-2026-09-25-43…", "pokemon-harness · mas…") used
+ * to clip the age clean off the row, which is the one thing that tells two
+ * same-titled rows apart. */
+.other-session-repo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.other-session-age {
+  flex: none;
+  white-space: nowrap;
+}
+
+.badge {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.badge-desktop {
+  border-color: var(--accent-sky);
+  color: var(--accent-sky);
+}
+
+.badge-cli {
+  border-color: var(--accent-mint);
+  color: var(--accent-mint);
+}
+
+/* Overlay wrapper (D2 fix, 2026-09-26 review) — covers `.drawer` on top of
+ * FocusView's terminal, which stays mounted underneath rather than being
+ * unmounted/swapped. Closing the preview or a successful Continue both just
+ * stop rendering this wrapper — the terminal below was never detached, so
+ * there's nothing to reattach. */
+.transcript-view-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  /* Defensive/explicit (2026-09-26 re-review) — this must never be able to
+   * silently inherit `pointer-events: none` from anywhere above it (nothing
+   * currently sets one on an ancestor, but `pointer-events` DOES inherit,
+   * and this is the one element in the app whose entire job is to intercept
+   * every pointer/wheel event over this pane instead of letting them fall
+   * through to FocusView's terminal underneath). */
+  pointer-events: auto;
+  /* Belt-and-braces alongside `.drawer`'s own `isolation: isolate` above —
+   * this element's height is already fully determined by `inset: 0` against
+   * `.drawer`'s box, but `overflow: hidden` here guarantees nothing it
+   * contains can ever visually or hit-test-wise spill past that box either. */
+  overflow: hidden;
+}
+
+/* Read-only chat preview (TranscriptView.tsx, §7 step 3) — fills
+ * `.transcript-view-overlay` above. */
+.transcript-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.transcript-view-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-ui);
+}
+
+.transcript-view-title {
+  font-family: var(--font-display);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 30ch;
+}
+
+.transcript-view-meta {
+  color: var(--muted);
+  font-size: var(--font-body-sm-size);
+  white-space: nowrap;
+}
+
+.transcript-view-spacer {
+  flex: 1;
+}
+
+.transcript-view-continue {
+  flex: none;
+}
+
+.transcript-view-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-terminal);
+}
+
+.transcript-view-loadmore {
+  flex: none;
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px;
+}
+
+.transcript-turn {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.transcript-turn-role {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* User turns (2026-09-26 re-review, item 2) — a tinted block with a left
+ * accent border, same "accent = the owner's own" convention as
+ * `.roster-card.selected`'s border elsewhere in the app. `--accent-text` is
+ * already the theme-correct token (dark: brand gold; light: darkened for
+ * WCAG contrast — see design/tokens.ts's `accentTextLight`), so this reads
+ * correctly in both themes with no separate light-mode override needed. The
+ * extra `margin-top` (on top of `.transcript-view-list`'s own `gap`) makes a
+ * user prompt always visibly start a new exchange, not just another line in
+ * the same run. */
+.transcript-turn-user {
+  color: var(--text);
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent-text);
+  padding: 8px 12px;
+  margin-top: 10px;
+}
+
+.transcript-turn-role-user {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+/* Claude turns — plain text directly on the panel background (no block,
+ * no border), so the contrast with a user turn's tinted block is immediate
+ * rather than needing to read the small role label first. */
+.transcript-turn-assistant {
+  color: var(--text-secondary);
+  padding: 0 2px;
+}
+
+.transcript-turn-tool {
+  color: var(--muted);
+  font-size: 11px;
+  padding-left: 12px;
+  border-left: 2px solid var(--muted-dim);
+}
+
+/* CLI markup normalized into a muted one-liner (2026-09-26 review, item 1) —
+ * slash-command echoes, bash-input, background-task notices. Centered and
+ * italic so it reads as an aside, distinct from both chat text and the
+ * tool-call rail above. */
+.transcript-turn-system {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+}
+
+.transcript-view-empty {
+  margin: auto;
+}
+
+/* Inline failure state (2026-09-26 re-review) — a slow/huge/deleted
+ * transcript's read failure shows HERE, in the same pane, instead of a
+ * stuck spinner; `.error` is the app's existing error-text style. */
+.transcript-view-error-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.transcript-view-error {
+  max-width: 80%;
+  text-align: center;
+}
+
 /* Subagent/delegate nesting (per-parent disclosure rework) — indented under
  * its parent with a mint left border, replacing the old flat list a global
  * show/hide toggle used to gate. */
@@ -4329,6 +4647,29 @@ body.garden-lowres .garden canvas {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Outside-write chip (external sessions plan §7 step 5, OutsideWriteChip.tsx)
+ * — same plain-pill shape the old (reverted) stale-argv chip used: muted at
+ * rest, warn-tinted so it reads as "worth a look" without a new color. */
+.roster-card-outside-write-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  height: var(--topbar-icon-size);
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--font-body-sm-size);
+  color: var(--status-working);
+  background: transparent;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.roster-card-outside-write-chip:hover:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--panel-2);
+  border-color: var(--line);
 }
 
 .roster-card-tool {

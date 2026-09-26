@@ -5,8 +5,17 @@ import type { SessionPersistence } from '../sessionPersistence';
 import type { PokeRelay } from '../pokeTools';
 import type { CostWatcher } from '../costWatcher';
 import type { TaskNotificationWatcher } from '../taskNotificationWatcher';
-import type { DiskRestoreInfo, SessionRecord } from '../../shared/types';
+import type { OutsideWriteDetector } from '../outsideWriteDetector';
+import type { DiskRestoreInfo, ReloadSessionResult, SessionRecord } from '../../shared/types';
 import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
+import { respawnArgs, shouldResume } from '../sessionRespawn';
+import { log } from '../diagnostics';
+
+/** External sessions plan §7 step 4 — how long `sessions:reload` waits for
+ *  the old process to actually exit before giving up rather than risking two
+ *  writers on the same `--resume` transcript (see `killAndAwaitExit`'s own
+ *  comment in pty.ts). */
+const RELOAD_KILL_TIMEOUT_MS = 5000;
 
 export interface SessionsIpcDeps {
   ptyManager: PtyManager;
@@ -14,6 +23,7 @@ export interface SessionsIpcDeps {
   pokeRelay: PokeRelay;
   costWatcher: CostWatcher;
   taskNotificationWatcher: TaskNotificationWatcher;
+  outsideWriteDetector: OutsideWriteDetector;
   notifyStatusTransitions: (sessions: SessionRecord[], selectedId: string | null) => void;
   getSessionRegistry: () => SessionRecord[];
   setSessionRegistry: (sessions: SessionRecord[]) => void;
@@ -33,6 +43,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     pokeRelay,
     costWatcher,
     taskNotificationWatcher,
+    outsideWriteDetector,
     notifyStatusTransitions,
     getSessionRegistry,
     setSessionRegistry,
@@ -82,6 +93,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     // See each watcher's own file header for the exact gate.
     costWatcher.onSessionsChecked(sessions);
     taskNotificationWatcher.onSessionsChecked(sessions);
+    outsideWriteDetector.onSessionsChecked(sessions);
     // Regenerates agents/arceus/roster.json (self-serve roster Arceus can read
     // with his own tools) — cheap no-op when nothing roster-relevant changed.
     writeArceusRosterFile(getHarnessHomeDir(), sessions, getWorkspaceRegistry().workspaces);
@@ -125,5 +137,80 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     if (isDiskRestoreConsumed() || info.count === 0) return null;
     setDiskRestoreConsumed(true);
     return info;
+  });
+
+  // External sessions plan §7 step 4 — kill the session's current process,
+  // AWAIT its real exit, then respawn via `claude --resume`. Never reattach
+  // (this id is definitionally already live under this app, unlike the
+  // stale-keeper-reattach case `5bbfe4b` originally built this pattern for):
+  // the point here is a full kill+resume cycle so the terminal redraws with
+  // whatever another surface appended to the transcript while this session
+  // sat idle (plan §2 item 5, §7 step 5's detector). This app never kills a
+  // session as a side effect of anything else (f58aa3c's hard rule) — this
+  // explicit call (a user-clicked chip, or the auto-reload gate opening) is
+  // the one place that does, and only for `continuedFrom` sessions per the
+  // caller's own scoping.
+  // D9 fix — per-id in-flight guard: two overlapping `sessions:reload` calls
+  // for the SAME id (e.g. the auto-reload gate opening right as the user
+  // clicks the manual chip) must never both run kill->await->respawn at
+  // once — the second call's kill would race the first's respawn, right
+  // back into the two-writers hazard `killAndAwaitExit` exists to prevent.
+  const reloadsInFlight = new Set<string>();
+
+  handle('sessions:reload', async (_e, id: string): Promise<ReloadSessionResult> => {
+    if (reloadsInFlight.has(id)) {
+      return { ok: false, reason: 'a reload for this session is already in progress' };
+    }
+    reloadsInFlight.add(id);
+    try {
+      const record = getSessionRegistry().find((s) => s.id === id);
+      if (!record) return { ok: false, reason: 'session not found' };
+
+      // D13 fix — resume from the PERSISTED `claudeSessionId`, not a
+      // "live-observed transcript path" override. That override
+      // (`HookBridge.getLiveTranscriptPath`) is keyed only on this session's
+      // `harness_agent_id`, which a nested `claude -p` run (inherited env,
+      // same as the nested-startup hazard hookRouter.ts's SessionStart case
+      // guards against) can ALSO write to via its own top-level-shaped
+      // hooks — pointing a reload at the nested run's unrelated transcript.
+      // `record.claudeSessionId` is now kept current by the revived `/clear`
+      // fix (hookBridge.ts's `claudeSessionIdFromPayload`) plus that same
+      // nested-startup guard, so it no longer needs a live-path escape hatch
+      // here.
+      if (!shouldResume(record)) {
+        return { ok: false, reason: "can't safely reload — no captured conversation id to resume" };
+      }
+
+      const exited = await ptyManager.killAndAwaitExit(id, RELOAD_KILL_TIMEOUT_MS);
+      if (!exited) {
+        // Never spawn on top of a process we can't confirm is actually dead
+        // — the two-writers-on-one-transcript hazard this sequence exists
+        // to avoid. `killAndAwaitExit` itself re-tracks the session on this
+        // path (D9), so it's left live and untouched; surfaced as a failed
+        // reload, never a disconnected card.
+        log('pty', 'warn', 'sessions:reload: old process did not exit in time — nothing reloaded', { id });
+        return { ok: false, reason: "the old session didn't stop in time — nothing was reloaded" };
+      }
+
+      const res = ptyManager.spawn({
+        id,
+        cwd: record.cwd,
+        command: record.command,
+        args: respawnArgs(record),
+        provider: record.provider,
+        cols: 100,
+        rows: 30
+      });
+      if (!res.ok) return { ok: false, reason: res.error ?? 'reload failed to spawn' };
+
+      // Signal (c) — our own reload just resumed; its own SessionStart/
+      // growth must never be mistaken for a fresh outside write.
+      outsideWriteDetector.rebaseline(id);
+
+      setSessionRegistry(getSessionRegistry().map((s) => (s.id === id ? { ...s, exitCode: undefined } : s)));
+      return { ok: true, cwd: res.cwd ?? record.cwd, claudeSessionId: record.claudeSessionId };
+    } finally {
+      reloadsInFlight.delete(id);
+    }
   });
 }

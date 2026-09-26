@@ -21,6 +21,7 @@ import '@xterm/xterm/css/xterm.css';
 import { createPtyParser, type PtyParser } from './ptyParser';
 import { handleHookEvent } from './hookRouter';
 import { resetLoopStreak } from './loopDetector';
+import { noteTypedInput } from './idleInputTracker';
 import { useStore, GARDEN_FULLSCREEN_CHANGE_EVENT } from '@/store/store';
 import { safeLogDiagnostic } from '@/diagnosticsClient';
 import { bumpCounter } from '@/diagnosticsCounters';
@@ -447,6 +448,7 @@ export function createTerminal(
     // breaker's other reset trigger besides a different tool+target
     // (Phase 8.5 #3).
     resetLoopStreak(sessionId);
+    noteTypedInput(sessionId, data);
     void window.api.writePty(sessionId, data);
   });
 

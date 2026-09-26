@@ -14,6 +14,7 @@ import { ModelBadge } from '@/components/ModelBadge';
 import { TrainerCard } from '@/components/TrainerCard';
 import { gaugeTone } from '@/design/gaugeTone';
 import { swapSessionPokemon } from '@/sessions';
+import { OutsideWriteChip } from '@/components/OutsideWriteChip';
 
 /** Phase 8 §3 — one session as a roster card: sprite face, name, provider,
  *  status, current tool, an evolution progress hint, and a shiny star.
@@ -322,6 +323,13 @@ export const AgentRosterCard = memo(function AgentRosterCard({
           {collapsed ? '▸' : '▾'} {childCount}
         </button>
       )}
+
+      {/* External sessions plan §7 step 5 — scoped to `continuedFrom`
+          sessions only, per the plan's own "native sessions must never
+          auto-reload or show the chip" rule; the component itself already
+          renders nothing while not pending, this just avoids mounting it at
+          all for a session type that can never be pending anyway. */}
+      {session.continuedFrom && <OutsideWriteChip sessionId={session.id} />}
 
       {/* Phase C item 2: was an 18x18 icon-only corner badge users couldn't
           find/hit (screenshot complaint) — now a labeled pill hover-revealed

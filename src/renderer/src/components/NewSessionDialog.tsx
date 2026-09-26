@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AGENT_PROVIDERS, DEFAULT_PROVIDER, PROVIDER_LIST, type AgentProviderId } from '@shared/agentProvider';
-import { startSession } from '@/sessions';
+import type { ExternalSessionSummary } from '@shared/externalSessions';
+import { continueSession, startSession } from '@/sessions';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
+import { useExternalSessionsStore } from '@/store/externalSessionsStore';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, chainLabel, speciesEntry } from '@/scene/garden/dexData';
 import { PokemonPicker } from './PokemonPicker';
@@ -11,9 +13,16 @@ import { useEscapeToClose } from './useEscapeToClose';
 
 interface Props {
   onClose(): void;
+  /** Continue mode (docs/external-sessions-plan.md §7 step 3) — set when
+   *  this dialog was opened from TranscriptView's "Continue session"
+   *  button. Locks provider (Claude Code) and cwd to the outside session's
+   *  own values, prefills name/model/mode from it, and the primary button
+   *  reads "Continue" instead of "start". `null`/absent is the ordinary
+   *  new-agent flow. */
+  continueTarget?: ExternalSessionSummary;
 }
 
-export function NewSessionDialog({ onClose }: Props): JSX.Element {
+export function NewSessionDialog({ onClose, continueTarget }: Props): JSX.Element {
   const sessions = useStore((s) => s.sessions);
   const takenLines = new Set(sessions.map((s) => s.line));
   const appSettings = useAppSettingsStore((s) => s.settings);
@@ -24,22 +33,42 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   const activeWorkspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId));
   // Random default, chosen once on open from whichever bundled line is free.
   const [pokemon, setPokemon] = useState(() => pickFreeLine([...takenLines]).name);
-  const [provider, setProvider] = useState<AgentProviderId>(configuredProvider);
+  const [provider, setProvider] = useState<AgentProviderId>(continueTarget ? 'claude' : configuredProvider);
   // Prefilled from the ACTIVE workspace's primary folder (Phase 8.7) — still
   // freely editable; this is a starting point, not a constraint (a session's
-  // cwd can be anything, same as before workspaces existed).
+  // cwd can be anything, same as before workspaces existed). Continue mode
+  // locks this to the outside session's own cwd instead (plan §7: "resuming
+  // from a different cwd forks the chat").
   const [cwd, setCwd] = useState(
-    () => activeWorkspace?.primaryFolder?.trim() || recentFolders[0]?.trim() || '~'
+    () => continueTarget?.cwd || activeWorkspace?.primaryFolder?.trim() || recentFolders[0]?.trim() || '~'
   );
-  const [command, setCommand] = useState(AGENT_PROVIDERS[configuredProvider].defaultCommand);
-  const [model, setModel] = useState('');
-  const [title, setTitle] = useState('');
+  const [command, setCommand] = useState(AGENT_PROVIDERS[continueTarget ? 'claude' : configuredProvider].defaultCommand);
+  const [model, setModel] = useState(continueTarget?.model ?? '');
+  const [title, setTitle] = useState(continueTarget?.title ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Per-session override of the provider's auto-permission-mode setting
   // (parity sweep item 1) — defaults to whatever the Settings panel has for
-  // THIS provider, editable per session from here.
-  const [autoMode, setAutoMode] = useState(() => appSettings.autoModeByProvider[configuredProvider] ?? false);
+  // THIS provider, editable per session from here. Continue mode instead
+  // prefills from the outside session's own last permission mode.
+  const [autoMode, setAutoMode] = useState(
+    () => continueTarget?.permissionMode === 'auto' || (!continueTarget && (appSettings.autoModeByProvider[configuredProvider] ?? false))
+  );
+  // Continue mode's cwd/transcript existence check (plan §7: "verify the
+  // transcript exists before spawning", "if the cwd no longer exists, show
+  // an error and disable Continue"). `null` = still checking.
+  const [continueCheck, setContinueCheck] = useState<{ cwdExists: boolean; transcriptExists: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!continueTarget) return;
+    let cancelled = false;
+    void window.api.checkExternalContinueTarget(continueTarget.transcriptPath, continueTarget.cwd).then((res) => {
+      if (!cancelled) setContinueCheck(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [continueTarget]);
 
   useEscapeToClose(onClose);
 
@@ -124,8 +153,44 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
     }
   };
 
+  const doContinue = async (target: ExternalSessionSummary): Promise<void> => {
+    if (takenLines.has(base.line)) {
+      setError(`${base.name}'s line is already out in the garden.`);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await continueSession({
+        externalId: target.id,
+        source: target.source,
+        cwd: target.cwd,
+        title,
+        model: model.trim() || undefined,
+        permissionMode: autoMode ? 'auto' : undefined,
+        pokemon
+      });
+      // D2 fix (2026-09-26 review): drop the preview and the row right away
+      // on a successful Continue — otherwise the row stays clickable/listed
+      // and a second Continue can spawn a SECOND `claude --resume` onto the
+      // same conversation id, two writers that then reload each other.
+      // `list()`'s own own-id exclusion is still the source of truth (this
+      // is UI latency only) — the next poll independently confirms it.
+      useExternalSessionsStore.getState().setPreviewExternalId(null);
+      useExternalSessionsStore.getState().removeSession(target.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
+    if (continueTarget) {
+      await doContinue(continueTarget);
+      return;
+    }
     await launch(provider, autoMode);
   };
 
@@ -136,16 +201,24 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <form className="modal new-session-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>new agent</h2>
+        <h2>{continueTarget ? 'continue session' : 'new agent'}</h2>
 
         <label>
           agent
-          <select value={provider} onChange={(e) => onProvider(e.target.value as AgentProviderId)}>
-            {PROVIDER_LIST.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
+          <select
+            value={provider}
+            disabled={!!continueTarget}
+            onChange={(e) => onProvider(e.target.value as AgentProviderId)}
+          >
+            {continueTarget ? (
+              <option value="claude">{AGENT_PROVIDERS.claude.label}</option>
+            ) : (
+              PROVIDER_LIST.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))
+            )}
           </select>
         </label>
 
@@ -158,11 +231,24 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
               placeholder="~/Developer/my-project"
               spellCheck={false}
               list="recent-folders"
+              disabled={!!continueTarget}
             />
-            <button type="button" onClick={pickFolder}>
-              browse…
-            </button>
+            {!continueTarget && (
+              <button type="button" onClick={pickFolder}>
+                browse…
+              </button>
+            )}
           </div>
+          {/* Continue mode (plan §7): cwd is locked to the outside
+              session's own value — resuming from a different cwd forks the
+              chat. If it no longer exists, this disables Continue below
+              rather than offering another folder. */}
+          {continueTarget && continueCheck && !continueCheck.cwdExists && (
+            <p className="error">this folder no longer exists — the session can't be continued.</p>
+          )}
+          {continueTarget && continueCheck && !continueCheck.transcriptExists && (
+            <p className="error">this session's transcript is missing — it can't be continued.</p>
+          )}
           {/* Recent-repos quick-pick (parity sweep item 6) — a native
               datalist combo: typeable like before, with the last ~10 working
               directories offered as suggestions, newest first. */}
@@ -173,7 +259,7 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
           </datalist>
         </label>
 
-        {provider !== 'shell' && (
+        {!continueTarget && provider !== 'shell' && (
           <label>
             command
             <input value={command} onChange={(e) => setCommand(e.target.value)} spellCheck={false} />
@@ -221,11 +307,23 @@ export function NewSessionDialog({ onClose }: Props): JSX.Element {
           <button type="button" onClick={onClose}>
             cancel
           </button>
-          <button type="button" className="secondary" onClick={startPlainTerminal} disabled={busy}>
-            just a terminal
-          </button>
-          <button type="submit" className="primary" disabled={busy}>
-            {busy ? 'starting…' : 'start'}
+          {!continueTarget && (
+            <button type="button" className="secondary" onClick={startPlainTerminal} disabled={busy}>
+              just a terminal
+            </button>
+          )}
+          <button
+            type="submit"
+            className="primary"
+            disabled={
+              busy ||
+              // D10 (2026-09-26 review): disabled while the existence check
+              // is still in flight too, not just once it comes back bad —
+              // otherwise a fast click lands before `continueCheck` resolves.
+              (!!continueTarget && (continueCheck === null || !continueCheck.cwdExists || !continueCheck.transcriptExists))
+            }
+          >
+            {continueTarget ? (busy ? 'continuing…' : 'Continue') : busy ? 'starting…' : 'start'}
           </button>
         </div>
       </form>

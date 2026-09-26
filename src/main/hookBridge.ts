@@ -25,7 +25,7 @@
  */
 import { createServer, type Server } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { WebContents } from 'electron';
 import { log } from './diagnostics';
 import {
@@ -67,6 +67,39 @@ export const AGENT_ID_ENV = 'POKEHARNESS_AGENT_ID';
  *  battler attaches to; `DELEGATE_LABEL_ENV` is an optional card title. */
 export const DELEGATE_PARENT_ENV = 'POKEHARNESS_DELEGATE_PARENT';
 export const DELEGATE_LABEL_ENV = 'POKEHARNESS_DELEGATE_LABEL';
+
+/** The claude CLI conversation id to persist for a later `claude --resume` —
+ *  preferably the ACTIVE conversation, not necessarily this process's
+ *  original `session_id`. `transcript_path`'s basename (minus `.jsonl`) IS
+ *  the exact file `--resume <id>` would reopen, whereas a live capture
+ *  showed a session's OWN background-task output written under a directory
+ *  named for the pre-`/clear` session even though that same process's
+ *  `CLAUDE_CODE_SESSION_ID` env var had already moved on to the new one —
+ *  i.e. the CLI does not update every internal reference to "the current
+ *  session id" uniformly after a `/clear`, so `session_id` on a payload
+ *  can't be trusted to have followed it either. `transcript_path` is the
+ *  more reliable signal precisely because it's what costWatcher.ts already
+ *  keys its own per-conversation tracking on (see that file's header) and
+ *  its 2026-09-06 fix for the exact same "`/clear` swaps the file out from
+ *  under a still-registered id" shape. Falls back to `session_id` only when
+ *  no transcript path is present at all (e.g. any payload shape that omits
+ *  it), so every other caller of this field keeps its prior behavior. */
+function claudeSessionIdFromPayload(p: HookPayload): string | undefined {
+  if (p.transcript_path) {
+    const id = claudeSessionIdFromTranscriptPath(p.transcript_path);
+    if (id) return id;
+  }
+  return p.session_id;
+}
+
+/** `transcript_path`'s basename, `.jsonl` stripped — the exact id a
+ *  `claude --resume <id>` would reopen. Exported so callers elsewhere that
+ *  only have a bare transcript path (not a full hook payload) can derive the
+ *  same id without duplicating the stripping logic. */
+export function claudeSessionIdFromTranscriptPath(transcriptPath: string): string {
+  const base = basename(transcriptPath);
+  return base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
+}
 
 const SHIM_FILENAME = 'cth-hook.cjs';
 const CLI_SHIM_DIRNAME = 'cli-shims';
@@ -553,7 +586,14 @@ export class HookBridge {
      *  `POKE_TOOLS_SCRIPT` header. */
     private onPokeAsk?: (req: PokeAskRequest) => PokeToolResponse,
     private onPokeSpawn?: (req: PokeSpawnRequest) => PokeToolResponse,
-    private onPokeRelay?: (req: PokeRelayRequest) => PokeToolResponse
+    private onPokeRelay?: (req: PokeRelayRequest) => PokeToolResponse,
+    /** External sessions plan §7 step 5's outside-write detector — fired for
+     *  every top-level (`!p.agent_id`) `UserPromptSubmit` with a nonblank
+     *  `prompt`, so the detector can tell "a human-prompt transcript record
+     *  we ourselves submitted" apart from one written by another surface.
+     *  Optional for the same standalone-usability reason as every other
+     *  callback above. */
+    private onUserPromptSubmit?: (agentId: string, prompt: string) => void
   ) {
     this.binDir = join(userDataDir, 'hooks-bin');
     this.shimFile = join(this.binDir, SHIM_FILENAME);
@@ -1050,8 +1090,27 @@ export class HookBridge {
     this.hideStatusline = hide;
   }
 
+  /** Most recent top-level `transcript_path` seen for each session, keyed by
+   *  `harness_agent_id` — external sessions plan §7 step 4 (revived from
+   *  `5bbfe4b`): a reattached-but-otherwise-idle process fires no
+   *  `SessionStart` of its own, so nothing else here would learn its CURRENT
+   *  transcript if it diverged from whatever was persisted. Written on ANY
+   *  known hook event below, `!p.agent_id`-gated — a dispatched Task
+   *  subagent's payload carries its OWN transcript_path and must never be
+   *  recorded as its parent's. Cleaned up alongside `cleanupSession`'s other
+   *  per-session state. */
+  private readonly liveTranscriptPaths = new Map<string, string>();
+
+  /** See `liveTranscriptPaths`'s own comment — the live-observed transcript
+   *  path for a top-level session, if any hook has fired for it since this
+   *  process started. `undefined` if none has yet. */
+  getLiveTranscriptPath(agentId: string): string | undefined {
+    return this.liveTranscriptPaths.get(agentId);
+  }
+
   /** Best-effort teardown of a session's generated settings file. */
   cleanupSession(agentId: string, tmpDir: string): void {
+    this.liveTranscriptPaths.delete(agentId);
     try {
       const p = join(tmpDir, `hook-settings-${agentId}.json`);
       if (existsSync(p)) rmSync(p);
@@ -1075,6 +1134,11 @@ export class HookBridge {
       return {};
     }
     this.onRawPayload?.(agentId, p.transcript_path, p.hook_event_name, p.agent_id);
+    // See `liveTranscriptPaths`'s own comment — top-level payloads only.
+    if (!p.agent_id && p.transcript_path) this.liveTranscriptPaths.set(agentId, p.transcript_path);
+    if (!p.agent_id && eventName === 'UserPromptSubmit' && p.prompt?.trim()) {
+      this.onUserPromptSubmit?.(agentId, p.prompt);
+    }
     if (!isKnownHookEvent(eventName)) return {};
 
     const tool = normalizeToolName(p.tool_name);
@@ -1086,7 +1150,12 @@ export class HookBridge {
       notificationType: p.notification_type,
       message: p.message,
       source: p.source,
-      claudeSessionId: p.session_id,
+      // `!p.agent_id`: a dispatched Task subagent can itself fire a
+      // SessionStart-shaped hook, and its transcript/session id names ITS
+      // OWN conversation, never the top-level session's — letting it through
+      // here would point a future `--resume` at the wrong conversation.
+      claudeSessionId: p.agent_id ? undefined : claudeSessionIdFromPayload(p),
+      permissionMode: p.permission_mode,
       toolUseId: p.tool_use_id,
       subagentType: subagentTypeFromInput(tool, p.tool_input),
       agent_id: p.agent_id,

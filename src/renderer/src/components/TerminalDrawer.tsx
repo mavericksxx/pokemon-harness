@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
+import { useExternalSessionsStore } from '@/store/externalSessionsStore';
+import type { ExternalSessionSummary } from '@shared/externalSessions';
 import { attachTerminal, detachTerminal, focusTerminal, hasTerminal } from '@/pty/terminalRegistry';
 import { FocusView } from '@/components/FocusView';
 import { NewTerminalButton } from '@/components/NewTerminalButton';
+import { TranscriptView } from '@/components/TranscriptView';
 import { terminalWidthCss } from '@/gardenSplit';
 import { useEffectiveLayout } from '@/effectiveLayout';
+
+interface Props {
+  /** Continue-mode entry point (docs/external-sessions-plan.md §7 step 3) —
+   *  called with the row TranscriptView's "Continue session" button was
+   *  clicked for. App.tsx owns the new-agent dialog's continue-target state,
+   *  so this is the callback that hands it that row. */
+  onContinueExternal(session: ExternalSessionSummary): void;
+}
 
 /** Side panel showing the SELECTED session's terminal. Only one terminal is
  *  mounted at a time — see terminalRegistry for why (WebGL context budget).
@@ -23,8 +34,19 @@ import { useEffectiveLayout } from '@/effectiveLayout';
  *  drawer on every OTHER session's tick too) — its identity only changes
  *  when the selected session itself changes, or a genuine patch lands on it
  *  (see store.ts's `updateSession` no-op guard). */
-export function TerminalDrawer(): JSX.Element | null {
+export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | null {
   const selectedSession = useStore((s) => s.sessions.find((x) => x.id === s.selectedId) ?? undefined);
+  // Read-only chat preview (§7 step 3) — when set, this drawer shows
+  // TranscriptView in place of the ordinary tab strip + FocusView terminal,
+  // regardless of view mode (see the early return in the JSX below).
+  const previewExternalId = useExternalSessionsStore((s) => s.previewExternalId);
+  const previewSessions = useExternalSessionsStore((s) => s.sessions);
+  const setPreviewExternalId = useExternalSessionsStore((s) => s.setPreviewExternalId);
+  const previewSession = previewSessions.find((s) => s.id === previewExternalId);
+  // Computed up here (not just at the bottom, near the JSX) so the attach
+  // effect below can read it too — see that effect's own comment (2026-09-26
+  // re-review, D2/#5).
+  const showPreview = !!previewSession;
   const sessions = useActiveWorkspaceSessions();
   const selectedId = useStore((s) => s.selectedId);
   const setDrawerOpen = useStore((s) => s.setDrawerOpen);
@@ -67,11 +89,28 @@ export function TerminalDrawer(): JSX.Element | null {
     const el = mountRef.current;
     if (!open || !el || !selectedId || !hasTerminal(selectedId)) return;
     attachTerminal(selectedId, el);
-    focusTerminal(selectedId);
+    // 2026-09-26 re-review (#5): while the preview overlay is open, this
+    // terminal is mounted but hidden BEHIND it (D2's fix) — stealing focus
+    // onto a session the user can't see would send keystrokes into the
+    // wrong place. Attaching still happens unconditionally so the terminal
+    // keeps rendering underneath and is instantly visible once the overlay
+    // closes.
+    if (!showPreview) focusTerminal(selectedId);
     return () => detachTerminal(selectedId);
     // Deliberately NOT keyed on the session list: re-attaching on every
     // spawn/kill would churn the terminal's WebGL context for no reason.
-  }, [open, selectedId]);
+  }, [open, selectedId, showPreview]);
+
+  // 2026-09-26 re-review (#5): clicking an agent card while the preview is
+  // open changes `selectedId` — that must show the clicked card's terminal,
+  // not leave it hidden under a now-stale preview. Deliberately NOT keyed on
+  // `previewExternalId` itself (only `selectedId`): opening a preview via
+  // RosterStrip's "Other sessions" row never touches `selectedId`, so this
+  // must not immediately clear the preview it just set.
+  useEffect(() => {
+    if (previewExternalId) setPreviewExternalId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   // If the selected delegate is the one that just completed, move focus to
   // its parent (or the next remaining tab) so the drawer closes that dead
@@ -99,18 +138,29 @@ export function TerminalDrawer(): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, selectedId]);
 
-  if (!open) return null;
-
-  const session = selectedSession;
-
   // The draggable split (GardenSplitHandle.tsx) only applies to the
   // side-by-side 'garden' layout — `wide` mode fills the row on its own via
   // `.drawer-wide`'s `flex: 1`, no width of its own to override.
   const splitStyle = wide ? undefined : { width: terminalWidthCss(gardenSplit) };
 
+  // Read-only chat preview (§7 step 3, fixed 2026-09-26 review D2) — rendered
+  // as an OVERLAY on top of the ordinary tab strip + FocusView terminal,
+  // never in place of them (`showPreview`, computed above). The earlier
+  // version swapped the whole `<aside>` subtree, unmounting FocusView's
+  // `mountRef` div; the attach effect above is keyed on `[open, selectedId]`
+  // only, so nothing re-fired to reattach xterm once that div came back —
+  // Continue and closing the preview with × both left a blank terminal.
+  // Keeping FocusView permanently mounted (same reasoning as its own header
+  // comment: one stable component instance, never swapped) means the
+  // terminal is simply never detached in the first place, so there's
+  // nothing to reattach.
+  if (!open && !showPreview) return null;
+
+  const session = selectedSession;
+
   return (
     <aside className={wide ? 'drawer drawer-wide' : 'drawer'} style={splitStyle}>
-      {showTabs && (
+      {open && showTabs && (
         <header className="drawer-head">
           <div className="drawer-tabs">
             {tabSessions.map((s) => (
@@ -133,19 +183,38 @@ export function TerminalDrawer(): JSX.Element | null {
         </header>
       )}
 
-      {/* FocusView.tsx owns everything below the tabs header for EVERY view
-          mode (BACKLOG phase E) — see its own header for why TerminalDrawer
-          must always render exactly this one component, never switch
-          between two, so the `mountRef` div it renders keeps its identity
-          (and therefore every session's terminal/scrollback) across a
-          viewMode toggle. */}
-      <FocusView
-        session={session}
-        viewMode={viewMode}
-        mountRef={mountRef}
-        findOpen={findOpen}
-        onCloseFind={() => setFindOpen(false)}
-      />
+      {open && (
+        /* FocusView.tsx owns everything below the tabs header for EVERY view
+           mode (BACKLOG phase E) — see its own header for why TerminalDrawer
+           must always render exactly this one component, never switch
+           between two, so the `mountRef` div it renders keeps its identity
+           (and therefore every session's terminal/scrollback) across a
+           viewMode toggle, AND across the preview overlay above (D2). */
+        <FocusView
+          session={session}
+          viewMode={viewMode}
+          mountRef={mountRef}
+          findOpen={findOpen}
+          onCloseFind={() => setFindOpen(false)}
+        />
+      )}
+
+      {showPreview && previewSession && (
+        <div className="transcript-view-overlay">
+          {/* `key` (2026-09-26 re-review) forces a full remount on every row
+              switch — see TranscriptView.tsx's own header comment for the
+              confirmed-live bug this fixes (switching rows updated the
+              header but left the turn list showing an earlier row's
+              content). This overlay div is a SIBLING of FocusView above,
+              never a descendant of it. */}
+          <TranscriptView
+            key={previewSession.id}
+            session={previewSession}
+            onClose={() => setPreviewExternalId(null)}
+            onContinue={() => onContinueExternal(previewSession)}
+          />
+        </div>
+      )}
     </aside>
   );
 }

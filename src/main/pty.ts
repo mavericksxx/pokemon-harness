@@ -884,6 +884,149 @@ export class PtyManager {
     }
   }
 
+  /** D9 fix's own grace window — after escalating to `SIGKILL` on the raw
+   *  pid, how long to wait for it to actually take effect before concluding
+   *  the process is somehow still alive and refusing outright. */
+  private static readonly SIGKILL_GRACE_MS = 1000;
+
+  /** Whether pid `pid` still names a live process — `kill(pid, 0)` sends no
+   *  signal, only probes. `ESRCH` means dead; anything else (e.g. `EPERM`,
+   *  alive but unowned) counts as alive.
+   *
+   *  CRITICAL fix (re-review item 1): NEVER called with `pid <= 1` — `0`
+   *  means "this process's own process GROUP" and `1` is init, and on POSIX
+   *  `kill()` (signal OR probe) treats them specially. `tryReattach` falls
+   *  back to `meta.pid = 0` when a keeper's meta file is missing, so a
+   *  bogus pid can genuinely reach here; the caller below (`killAndAwaitExit`)
+   *  never lets one this low reach `process.kill` at all — see its own
+   *  comment. */
+  private isPidAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code !== 'ESRCH';
+    }
+  }
+
+  /** External sessions plan §7 step 4 (revived from `5bbfe4b`, reverted in
+   *  `c5b4835`) — kills session `id` and resolves only once its underlying
+   *  process has ACTUALLY exited, not merely once the kill signal was sent.
+   *  `kill()` itself is fire-and-forget (a real pty's `.kill()` sends a
+   *  signal the child may take a moment to act on; a `KeeperClient`'s
+   *  `.kill()` just writes a `FRAME_KILL` frame the detached keeper process
+   *  then relays as a `SIGTERM` — see ptyKeeper.ts) — a caller that
+   *  immediately respawns under the same id without waiting risks two
+   *  processes briefly both alive and both appending to the same `--resume`
+   *  transcript file, the exact corruption `restoreFromDisk`'s own dedup
+   *  guards against (see index.ts's 2026-09-17 fix comment). The listener is
+   *  registered on the captured `session.proc` BEFORE `kill()` runs, since a
+   *  `KeeperClient`'s exit can in principle arrive as fast as the socket
+   *  write flushes. Resolves `true` once `onExit` fires.
+   *
+   *  D9 fix: on `timeoutMs` elapsing with no exit, this used to just resolve
+   *  `false` — but `kill(id)` above already deleted `id` from `this.sessions`
+   *  BEFORE the timeout, so the caller's "refuse, leave the old session
+   *  untouched" left the process genuinely untracked-but-alive, and any
+   *  retry (or a plain respawn elsewhere) would spawn a second writer onto
+   *  the same transcript — the exact hazard this whole function exists to
+   *  prevent. On timeout this now escalates to a direct `SIGKILL` on the
+   *  captured pid and gives it one more short grace window: if it's
+   *  confirmed dead by then, resolves `true` as normal; if it's SOMEHOW
+   *  still alive (a wedged/zombie process), the session is re-tracked (see
+   *  below) and this resolves `false` — the caller must NOT spawn a
+   *  replacement in that case. Resolves `true` immediately for an
+   *  already-unknown id (nothing to wait for).
+   *
+   *  CRITICAL fix (re-review item 1): `pid` is only ever escalated to
+   *  `SIGKILL`/probed when `pid > 1` — `tryReattach` falls back to
+   *  `meta.pid = 0` when a keeper's meta file is missing (see that
+   *  function's own comment), and `process.kill(0, 'SIGKILL')` sends the
+   *  signal to THIS APP'S OWN PROCESS GROUP, killing Pokéharness itself and
+   *  every native session with it. A `pid <= 1` (0, or 1/init — never a
+   *  real child of this app either) skips straight to "still alive, don't
+   *  trust it, don't touch it" without calling `process.kill` at all.
+   *
+   *  Re-review item 2: re-tracking on the still-alive path can otherwise
+   *  clobber a NEWER session under the same id — `pty:kill` or
+   *  `restartSessionFresh` may have closed/respawned `id` during this
+   *  multi-second window. Only re-inserts `session` if `id` is STILL absent
+   *  from `this.sessions` (never overwrites a session that already exists
+   *  again under this id); otherwise logs and leaves it alone. Also
+   *  re-runs `hookBridge.prepareSession` for the surviving old process:
+   *  `kill(id)` below already ran `hookBridge.cleanupSession`, which deletes
+   *  `hook-settings-<id>.json` — the file this same still-alive claude
+   *  process's own `--settings` flag points at — so without regenerating it
+   *  its hooks would silently stop reaching this app. */
+  killAndAwaitExit(id: string, timeoutMs: number): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (!session) return Promise.resolve(true);
+    const pid = session.proc.pid;
+    return new Promise((resolve) => {
+      let done = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (result: boolean): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      session.proc.onExit(() => finish(true));
+      timer = setTimeout(() => {
+        if (done) return;
+        if (pid > 1) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            /* already dead, or not our own child (KeeperClient's own pid is
+               the detached keeper-relayed child) — either way, nothing more
+               to do here but check below */
+          }
+        }
+        setTimeout(() => {
+          if (done) return;
+          // pid <= 1 is never trusted either way — no real child of this
+          // app has that pid, so there's nothing meaningful to probe; treat
+          // it the same as "confirmed still alive" (never assume dead).
+          if (pid <= 1 || this.isPidAlive(pid)) {
+            if (this.sessions.has(id)) {
+              // Item 2 — something else already spawned/reattached a NEW
+              // session under this id during the wait; re-inserting the OLD
+              // one would clobber it. Leave the new one alone.
+              log('pty', 'warn', 'killAndAwaitExit: old process still alive but id was reused — leaving untracked', {
+                id,
+                pid
+              });
+            } else {
+              this.sessions.set(id, session);
+              this.onSessionsChanged?.();
+              // kill(id) already ran hookBridge.cleanupSession, which deleted
+              // hook-settings-<id>.json — the exact file this still-alive
+              // claude process's own `--settings` flag points at (its argv
+              // can't change now that it's already running). Regenerate it
+              // at the SAME path (`prepareSession` always writes to
+              // `hookTmpDir()`/`hook-settings-<id>.json`) so its hooks keep
+              // reaching this app instead of silently going quiet. Only for
+              // a session that actually had one — same `isArceus` allow-list
+              // choice `spawn()` itself makes for this id.
+              if (session.claudeSettingsPath) {
+                this.hookBridge?.prepareSession(
+                  id,
+                  hookTmpDir(),
+                  id === ARCEUS_SESSION_ID ? POKE_TOOL_PERMISSION_RULES : undefined
+                );
+              }
+            }
+            finish(false);
+          } else {
+            finish(true);
+          }
+        }, PtyManager.SIGKILL_GRACE_MS);
+      }, timeoutMs);
+      this.kill(id);
+    });
+  }
+
   /** "Leave them running" quit path (QuitDialog.tsx's "quit" action) — hands
    *  session `id`'s live pty master off to a small detached `ptyKeeper.ts`
    *  helper process instead of killing it, so the underlying CLI survives
