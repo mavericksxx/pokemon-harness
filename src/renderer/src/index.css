@@ -4331,6 +4331,29 @@ body.garden-lowres .garden canvas {
   text-overflow: ellipsis;
 }
 
+/* Outside-write chip (external sessions plan §7 step 5, OutsideWriteChip.tsx)
+ * — same plain-pill shape the old (reverted) stale-argv chip used: muted at
+ * rest, warn-tinted so it reads as "worth a look" without a new color. */
+.roster-card-outside-write-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  height: var(--topbar-icon-size);
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--font-body-sm-size);
+  color: var(--status-working);
+  background: transparent;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.roster-card-outside-write-chip:hover:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+
 .roster-card-tool {
   font-size: var(--font-body-sm-size);
   color: var(--muted);

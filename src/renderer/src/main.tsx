@@ -12,6 +12,7 @@ import {
   startPokeRelayDeliveredListener
 } from './sessions';
 import { autoSummonArceus, startPokeAskListener } from './arceus';
+import { startOutsideWriteGate } from './outsideWriteGate';
 import { createTerminal, applyTerminalTheme } from './pty/terminalRegistry';
 import {
   initAudio,
@@ -260,6 +261,9 @@ async function boot(): Promise<void> {
     startPokeSpawnListener();
     startPokeRelayDeliveredListener();
     startPokeAskListener();
+    // External sessions plan §7 step 5 — outside-write detector's renderer
+    // half (idle gate, chip state, circuit breaker).
+    startOutsideWriteGate();
 
     // xterm measures glyph width once at `term.open()` and never re-measures
     // on a later font swap, so JetBrains Mono must be ready before any
