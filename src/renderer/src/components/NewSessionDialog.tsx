@@ -5,6 +5,7 @@ import { continueSession, startSession } from '@/sessions';
 import { useStore } from '@/store/store';
 import { useAppSettingsStore } from '@/store/appSettingsStore';
 import { useWorkspaceStore } from '@/store/workspaceStore';
+import { useExternalSessionsStore } from '@/store/externalSessionsStore';
 import { pickFreeLine } from '@/scene/garden/showdownArt';
 import { baseStageOf, chainLabel, speciesEntry } from '@/scene/garden/dexData';
 import { PokemonPicker } from './PokemonPicker';
@@ -169,6 +170,14 @@ export function NewSessionDialog({ onClose, continueTarget }: Props): JSX.Elemen
         permissionMode: autoMode ? 'auto' : undefined,
         pokemon
       });
+      // D2 fix (2026-09-26 review): drop the preview and the row right away
+      // on a successful Continue — otherwise the row stays clickable/listed
+      // and a second Continue can spawn a SECOND `claude --resume` onto the
+      // same conversation id, two writers that then reload each other.
+      // `list()`'s own own-id exclusion is still the source of truth (this
+      // is UI latency only) — the next poll independently confirms it.
+      useExternalSessionsStore.getState().setPreviewExternalId(null);
+      useExternalSessionsStore.getState().removeSession(target.id);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -306,7 +315,13 @@ export function NewSessionDialog({ onClose, continueTarget }: Props): JSX.Elemen
           <button
             type="submit"
             className="primary"
-            disabled={busy || (!!continueTarget && continueCheck !== null && (!continueCheck.cwdExists || !continueCheck.transcriptExists))}
+            disabled={
+              busy ||
+              // D10 (2026-09-26 review): disabled while the existence check
+              // is still in flight too, not just once it comes back bad —
+              // otherwise a fast click lands before `continueCheck` resolves.
+              (!!continueTarget && (continueCheck === null || !continueCheck.cwdExists || !continueCheck.transcriptExists))
+            }
           >
             {continueTarget ? (busy ? 'continuing…' : 'Continue') : busy ? 'starting…' : 'start'}
           </button>

@@ -21,15 +21,22 @@
 import { closeSync, openSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
 import type { ExternalTranscriptPage, ExternalTranscriptTurn } from '../shared/externalSessions';
 
-/** Backward-page target size — grown in these increments until either this
- *  many raw lines have been collected or the start of the file is reached. */
+/** Backward-page read increment — grown (by re-reading further back) until
+ *  either this many raw lines have been collected or the start of the file
+ *  is reached. */
 const CHUNK_BYTES = 1024 * 1024;
 /** Stop growing a backward page once at least this many TURNS (post-filter)
- *  have been collected, or after MAX_CHUNKS chunks, whichever comes first —
- *  a long run of skipped meta records must not force reading the whole file
- *  in one page. */
+ *  have been collected, or once MAX_PAGE_BYTES have been read, whichever
+ *  comes first — a long run of skipped meta records must not force reading
+ *  the whole file in one page (2026-09-26 review, D12: a tail heavy with
+ *  tool results could otherwise JSON.parse hundreds of MB synchronously on
+ *  main and freeze the app). */
 const TARGET_TURNS_PER_PAGE = 60;
-const MAX_CHUNKS_PER_PAGE = 24; // hard cap: 24MB per page read, worst case
+const MAX_PAGE_BYTES = 8 * 1024 * 1024; // hard cap: 8MB read per page, worst case
+/** A single JSONL line longer than this is skipped WITHOUT being handed to
+ *  `JSON.parse` at all (D12) — a pathological single line must not be the
+ *  thing that trips MAX_PAGE_BYTES on its own before ever finishing a parse. */
+const MAX_LINE_LENGTH = 1_000_000;
 
 interface RawRecord {
   type?: string;
@@ -43,7 +50,7 @@ interface RawRecord {
 }
 
 function safeParse(line: string): RawRecord | null {
-  if (!line || line.length > 500_000) return null;
+  if (!line || line.length > MAX_LINE_LENGTH) return null;
   try {
     return JSON.parse(line) as RawRecord;
   } catch {
@@ -124,6 +131,21 @@ function recordToTurns(rec: RawRecord): ExternalTranscriptTurn[] {
   return []; // every other record type (meta/system/custom-title/cost-state/...) is skipped
 }
 
+/** Splits a block of complete JSONL lines and parses each into turns —
+ *  shared by `readPage`'s per-chunk parse and `subscribe`'s per-tail parse,
+ *  so a chunk's bytes are only ever handed to `JSON.parse` once (D12). */
+function parseLines(block: string): ExternalTranscriptTurn[] {
+  const turns: ExternalTranscriptTurn[] = [];
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const rec = safeParse(trimmed);
+    if (!rec) continue;
+    turns.push(...recordToTurns(rec));
+  }
+  return turns;
+}
+
 export class ExternalTranscriptService {
   /** Backward pagination — see this file's header. `cursor` is the byte
    *  offset returned by a previous call (or null to start at EOF). Never
@@ -141,41 +163,78 @@ export class ExternalTranscriptService {
       const end = cursor ?? size;
       if (end <= 0) return { turns: [], cursor: null, tailOffset: size };
 
-      let readStart = end;
-      let text = '';
-      let chunks = 0;
+      // `pos` is the read pointer: bytes in [0, pos) remain unread for this
+      // page. `carry` holds a chunk's leading fragment for which no newline
+      // has been found YET (either the whole file's tail landed mid-line at
+      // `end`, or a chunk boundary did) — it's prepended to the NEXT
+      // (further back) read rather than re-parsed on its own, so each byte
+      // is only ever handed to JSON.parse once (D12: the old code re-split
+      // and re-parsed the ENTIRE accumulated buffer on every chunk).
+      let pos = end;
+      let carry = '';
       let turns: ExternalTranscriptTurn[] = [];
+      let bytesRead = 0;
+      let cursorOut: number | null = null;
+      let hitCap = false;
 
-      while (readStart > 0 && chunks < MAX_CHUNKS_PER_PAGE) {
-        const wantLen = Math.min(CHUNK_BYTES, readStart);
-        const nextStart = readStart - wantLen;
+      while (pos > 0) {
+        if (bytesRead >= MAX_PAGE_BYTES) {
+          hitCap = true;
+          break;
+        }
+        const wantLen = Math.min(CHUNK_BYTES, pos);
+        const nextPos = pos - wantLen;
         const buf = Buffer.alloc(wantLen);
-        readSync(fd, buf, 0, wantLen, nextStart);
-        text = buf.toString('utf8') + text;
-        readStart = nextStart;
-        chunks++;
+        readSync(fd, buf, 0, wantLen, nextPos);
+        bytesRead += wantLen;
+        // `buf` (older bytes) then `carry` (the newer, previously-unresolved
+        // fragment) — concatenated in correct file order (older first).
+        const chunkText = buf.toString('utf8') + carry;
+        pos = nextPos;
 
-        // Drop a partial leading line UNLESS we've reached the start of the
-        // file — a chunk boundary can land mid-line.
-        let usable = text;
-        if (readStart > 0) {
-          const firstNl = usable.indexOf('\n');
-          if (firstNl === -1) continue; // no complete line yet — grow the window
-          usable = usable.slice(firstNl + 1);
+        if (pos > 0) {
+          const firstNl = chunkText.indexOf('\n');
+          if (firstNl === -1) {
+            // Still no complete line at the OLDEST edge of this window —
+            // keep the whole thing as carry and read further back. Not
+            // re-parsed until a newline actually shows up.
+            carry = chunkText;
+            continue;
+          }
+          carry = '';
+          const usable = chunkText.slice(firstNl + 1);
+          // The byte offset right after the dropped leading fragment — NOT
+          // `nextPos` (the old bug, D12): that fragment's bytes are still
+          // unread (its true start may be further back still), and a
+          // cursor of `nextPos` would skip past them forever, silently
+          // dropping the record they belong to. A cursor of this boundary
+          // means the NEXT page's window (which reads backward FROM this
+          // point) still covers those bytes as its own trailing edge.
+          cursorOut = nextPos + firstNl + 1;
+          const parsed = parseLines(usable);
+          turns = [...parsed, ...turns];
+          if (turns.length >= TARGET_TURNS_PER_PAGE) break;
+        } else {
+          // Reached the start of the file within this very read — nothing
+          // left to carry forward; the whole remaining text is usable.
+          const parsed = parseLines(chunkText);
+          turns = [...parsed, ...turns];
+          cursorOut = null;
         }
-
-        const lines = usable.split('\n').filter((l) => l.trim().length > 0);
-        turns = [];
-        for (const line of lines) {
-          const rec = safeParse(line);
-          if (!rec) continue;
-          turns.push(...recordToTurns(rec));
-        }
-        if (turns.length >= TARGET_TURNS_PER_PAGE || readStart === 0) break;
       }
 
-      const newCursor = readStart > 0 ? readStart : null;
-      return { turns, cursor: newCursor, tailOffset: size };
+      if (hitCap) {
+        // MAX_PAGE_BYTES reached mid-scan (D12) — return whatever was found
+        // so far. `pos` is already a safe resume point: it's exactly where
+        // the NEXT page's read window would start anyway (this loop only
+        // ever advances `pos` at a real read boundary, never mid-buffer), so
+        // resuming from it re-reads any not-yet-resolved `carry` fragment as
+        // part of that page's own trailing edge, same as the ordinary
+        // no-newline-found continue above.
+        cursorOut = pos > 0 ? pos : null;
+      }
+
+      return { turns, cursor: cursorOut, tailOffset: size };
     } catch {
       return { turns: [], cursor: null, tailOffset: size };
     } finally {
