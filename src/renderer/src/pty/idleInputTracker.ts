@@ -32,7 +32,8 @@ const IDLE_KEYPRESS_MS = 10_000;
  *  Enter-scan below like any other input, which is the safe direction to
  *  err in (worst case, a reload waits a little longer than strictly
  *  necessary; it never discards something typed). */
-const SYNTHETIC_REPLY_RE = /^\x1b(?:\][^\x07]*\x07?|\[[IO]|\[\?[0-9;]*c|\[[0-9;]*R)$/;
+const SYNTHETIC_REPLY_RE =
+  /^\x1b(?:\][^\x07]*\x07?|\[[IO]|\[\?[0-9;]*c|\[[0-9;]*R|\[>[0-9;]*c|P[\s\S]*\x1b\\)$/;
 
 /** Called from `term.onData` for every chunk of raw bytes leaving the
  *  terminal (real keystrokes, a paste, or one of xterm's own synthetic

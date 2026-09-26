@@ -309,14 +309,16 @@ export class ExternalTranscriptService {
       }
 
       if (hitCap && cursorOut === null) {
-        // MAX_PAGE_BYTES reached mid-scan (D12) before ever resolving a
-        // single newline (a pathological run with none) — resume right
-        // after the still-unresolved carry fragment, which starts at `pos`
-        // (bug #2 fix: the previous version unconditionally overwrote a
-        // perfectly good, already-resolved `cursorOut` with a bare `pos`
-        // here; now it's left alone whenever one was already found above,
-        // and this fallback only ever applies when there is none).
-        cursorOut = carry.length > 0 ? pos + carry.length : pos > 0 ? pos : null;
+        // MAX_PAGE_BYTES reached mid-scan before ever resolving a single
+        // newline — a pathological single line over 8MB with no newline in
+        // it at all. `pos + carry.length` (the previous fix) returned this
+        // very read's own start as the cursor, since `carry` by then covers
+        // the exact same span — a NO-OP cursor that traps `loadOlder` in an
+        // infinite loop (2026-09-26 re-review). The line is unparseable
+        // anyway (`safeParse` rejects anything over `MAX_LINE_LENGTH`,
+        // 1_000_000, well under this), so there's nothing to gain by
+        // re-reading it — just resume at `pos`, past it entirely.
+        cursorOut = pos > 0 ? pos : null;
       }
 
       return { turns, cursor: cursorOut, tailOffset: size };
