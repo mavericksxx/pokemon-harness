@@ -82,6 +82,74 @@ function toolSummary(name: string, input: Record<string, unknown> | undefined): 
   }
 }
 
+function truncateForSummary(s: string, n: number): string {
+  const trimmed = s.trim();
+  return trimmed.length > n ? `${trimmed.slice(0, n)}…` : trimmed;
+}
+
+/** Extracts `<tag>...</tag>`'s inner text (non-greedy, dotall via `[\s\S]`),
+ *  or null if `tag` isn't present. */
+function extractTag(text: string, tag: string): string | null {
+  const m = text.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+  return m ? m[1] : null;
+}
+
+/** Classifies a user record's raw text against the CLI's own bracketed
+ *  markup (2026-09-26 review, item 1) — real transcripts interleave genuine
+ *  typed prompts with `<local-command-caveat>`, `<command-name>`,
+ *  `<local-command-stdout>`, `<bash-input>`/`<bash-stdout>`/`<bash-stderr>`,
+ *  `<system-reminder>` and `<task-notification>` records, all inside plain
+ *  `type: 'user'` entries indistinguishable by type alone. Verified against
+ *  every tag prefix actually observed in ~/.claude/projects (see this
+ *  round's report for the scan output) — checked via `startsWith` on the
+ *  TRIMMED text, not a bare substring search, since a `/compact` summary's
+ *  own prose can legitimately mention "bash-input"/"bash-stdout" without
+ *  being one. */
+function classifyUserText(
+  text: string
+): { kind: 'hidden' } | { kind: 'system'; summary: string } | { kind: 'user'; text: string } {
+  const trimmed = text.trim();
+  if (!trimmed) return { kind: 'hidden' };
+  const startsWithTag = (tag: string): boolean => trimmed.startsWith(`<${tag}>`);
+
+  if (startsWithTag('local-command-caveat')) return { kind: 'hidden' };
+
+  if (startsWithTag('command-name') || startsWithTag('command-message')) {
+    const name = extractTag(trimmed, 'command-name');
+    if (name) {
+      const args = extractTag(trimmed, 'command-args')?.trim();
+      return { kind: 'system', summary: args ? `${name} ${args}` : name };
+    }
+  }
+
+  if (startsWithTag('local-command-stdout')) {
+    const inner = extractTag(trimmed, 'local-command-stdout')?.trim();
+    return inner ? { kind: 'system', summary: truncateForSummary(inner, 200) } : { kind: 'hidden' };
+  }
+
+  if (startsWithTag('bash-input')) {
+    const inner = extractTag(trimmed, 'bash-input')?.trim() ?? '';
+    return { kind: 'system', summary: `! ${truncateForSummary(inner, 200)}` };
+  }
+
+  if (startsWithTag('bash-stdout') || startsWithTag('bash-stderr')) {
+    return { kind: 'hidden' };
+  }
+
+  if (startsWithTag('task-notification')) {
+    const summary = extractTag(trimmed, 'summary')?.trim();
+    return { kind: 'system', summary: summary ? `Background task: ${summary}` : 'Background task finished' };
+  }
+
+  // Not a whole-message tag — but real prompt text can still have a
+  // `<system-reminder>` block embedded in the middle (e.g. a session-name
+  // hint appended after the user's own typed text). Strip it out rather
+  // than hiding the whole record, and hide the record only if nothing real
+  // is left once it's gone.
+  const stripped = trimmed.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  return stripped ? { kind: 'user', text: stripped } : { kind: 'hidden' };
+}
+
 /** Turns a single JSONL line's parsed record into 0 or more normalized turns
  *  (an assistant record with several content blocks can yield several). Skips
  *  every meta/queue-operation/tool_result/attachment/sidechain record — see
@@ -95,7 +163,10 @@ function recordToTurns(rec: RawRecord): ExternalTranscriptTurn[] {
   if (rec.type === 'user' && rec.message?.role === 'user') {
     const content = rec.message.content;
     if (typeof content === 'string' && content.trim()) {
-      return [{ kind: 'user', id, at: atMs, text: content.trim() }];
+      const classified = classifyUserText(content);
+      if (classified.kind === 'hidden') return [];
+      if (classified.kind === 'system') return [{ kind: 'system', id, at: atMs, summary: classified.summary }];
+      return [{ kind: 'user', id, at: atMs, text: classified.text }];
     }
     return []; // array content on a user record is a tool_result/attachment echo — skip
   }
@@ -164,14 +235,21 @@ export class ExternalTranscriptService {
       if (end <= 0) return { turns: [], cursor: null, tailOffset: size };
 
       // `pos` is the read pointer: bytes in [0, pos) remain unread for this
-      // page. `carry` holds a chunk's leading fragment for which no newline
-      // has been found YET (either the whole file's tail landed mid-line at
-      // `end`, or a chunk boundary did) — it's prepended to the NEXT
-      // (further back) read rather than re-parsed on its own, so each byte
-      // is only ever handed to JSON.parse once (D12: the old code re-split
-      // and re-parsed the ENTIRE accumulated buffer on every chunk).
+      // page. `carry` holds bytes for which no newline has been found YET —
+      // either the whole file's tail landed mid-line at `end`, or a chunk
+      // boundary did — kept as a raw Buffer (not a string) and PREPENDED
+      // with each further-back read rather than discarded, so a record
+      // split across a chunk boundary is never lost (2026-09-26 re-review,
+      // D12 remaining bug #1: the previous version set `carry = ''` right
+      // after finding a boundary, so continuing the loop silently dropped
+      // that fragment at every INTERNAL chunk boundary, not just at true
+      // page-to-page boundaries). Working in bytes throughout (Buffer.
+      // indexOf(0x0a), not string.indexOf('\n')) also fixes bug #3: a
+      // string index is a UTF-16 code-unit count, which undercounts for any
+      // non-ASCII byte sequence in the fragment and made the cursor land
+      // short of the real boundary.
       let pos = end;
-      let carry = '';
+      let carry = Buffer.alloc(0);
       let turns: ExternalTranscriptTurn[] = [];
       let bytesRead = 0;
       let cursorOut: number | null = null;
@@ -189,49 +267,56 @@ export class ExternalTranscriptService {
         bytesRead += wantLen;
         // `buf` (older bytes) then `carry` (the newer, previously-unresolved
         // fragment) — concatenated in correct file order (older first).
-        const chunkText = buf.toString('utf8') + carry;
+        // `combined` STARTS at file position `nextPos` (this matters for
+        // every offset computed from it below).
+        const combined = Buffer.concat([buf, carry]);
         pos = nextPos;
 
         if (pos > 0) {
-          const firstNl = chunkText.indexOf('\n');
-          if (firstNl === -1) {
+          const nl = combined.indexOf(0x0a); // byte-accurate newline search
+          if (nl === -1) {
             // Still no complete line at the OLDEST edge of this window —
             // keep the whole thing as carry and read further back. Not
             // re-parsed until a newline actually shows up.
-            carry = chunkText;
+            carry = combined;
             continue;
           }
-          carry = '';
-          const usable = chunkText.slice(firstNl + 1);
-          // The byte offset right after the dropped leading fragment — NOT
-          // `nextPos` (the old bug, D12): that fragment's bytes are still
-          // unread (its true start may be further back still), and a
-          // cursor of `nextPos` would skip past them forever, silently
-          // dropping the record they belong to. A cursor of this boundary
-          // means the NEXT page's window (which reads backward FROM this
-          // point) still covers those bytes as its own trailing edge.
-          cursorOut = nextPos + firstNl + 1;
+          // The fragment BEFORE the newline is still unresolved — its true
+          // start may be further back still. Carried forward (not
+          // discarded, see the fix note above) so the NEXT read prepends
+          // even-older bytes to it instead of losing it.
+          carry = combined.subarray(0, nl);
+          const usable = combined.subarray(nl + 1).toString('utf8');
+          // Byte offset right after the dropped/carried fragment — NOT
+          // `nextPos` (the original D12 bug): a cursor of `nextPos` would
+          // skip past those bytes forever. This boundary means the NEXT
+          // PAGE's window (reading backward FROM this point) still covers
+          // them as its own trailing edge, same as `carry` does within this
+          // same page's own loop.
+          cursorOut = nextPos + nl + 1;
           const parsed = parseLines(usable);
           turns = [...parsed, ...turns];
           if (turns.length >= TARGET_TURNS_PER_PAGE) break;
         } else {
           // Reached the start of the file within this very read — nothing
-          // left to carry forward; the whole remaining text is usable.
-          const parsed = parseLines(chunkText);
+          // precedes `combined` in the file, so the ENTIRE thing (including
+          // any carried fragment) is now resolvable.
+          const parsed = parseLines(combined.toString('utf8'));
           turns = [...parsed, ...turns];
           cursorOut = null;
+          carry = Buffer.alloc(0);
         }
       }
 
-      if (hitCap) {
-        // MAX_PAGE_BYTES reached mid-scan (D12) — return whatever was found
-        // so far. `pos` is already a safe resume point: it's exactly where
-        // the NEXT page's read window would start anyway (this loop only
-        // ever advances `pos` at a real read boundary, never mid-buffer), so
-        // resuming from it re-reads any not-yet-resolved `carry` fragment as
-        // part of that page's own trailing edge, same as the ordinary
-        // no-newline-found continue above.
-        cursorOut = pos > 0 ? pos : null;
+      if (hitCap && cursorOut === null) {
+        // MAX_PAGE_BYTES reached mid-scan (D12) before ever resolving a
+        // single newline (a pathological run with none) — resume right
+        // after the still-unresolved carry fragment, which starts at `pos`
+        // (bug #2 fix: the previous version unconditionally overwrote a
+        // perfectly good, already-resolved `cursorOut` with a bare `pos`
+        // here; now it's left alone whenever one was already found above,
+        // and this fallback only ever applies when there is none).
+        cursorOut = carry.length > 0 ? pos + carry.length : pos > 0 ? pos : null;
       }
 
       return { turns, cursor: cursorOut, tailOffset: size };

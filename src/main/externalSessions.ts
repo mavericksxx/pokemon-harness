@@ -95,6 +95,15 @@ interface DesktopRecord {
   model?: string;
   permissionMode?: string;
   isArchived?: boolean;
+  /** 2026-09-26 review, item 3: the Desktop sidecar's OWN `cwd` — root cause
+   *  fix for rows that showed "unknown" as their repo. `readHead` only scans
+   *  the transcript's first ~50 lines for a `cwd` field, and some real
+   *  transcripts (e.g. a Desktop `bridge-session`-only stub with no
+   *  user/assistant records at all) never carry one anywhere in the file.
+   *  Desktop's own record has it independently — read it here and fall back
+   *  to it in `buildSummary` rather than ever printing the literal word
+   *  "unknown". */
+  cwd?: string;
 }
 
 /** What's actually cached by (mtime, size) — the parsed head/tail metadata
@@ -290,7 +299,8 @@ async function loadDesktopRecords(): Promise<Map<string, DesktopRecord>> {
             title: typeof parsed.title === 'string' ? parsed.title : undefined,
             model: typeof parsed.model === 'string' ? parsed.model : undefined,
             permissionMode: typeof parsed.permissionMode === 'string' ? parsed.permissionMode : undefined,
-            isArchived: parsed.isArchived === true
+            isArchived: parsed.isArchived === true,
+            cwd: typeof parsed.cwd === 'string' ? parsed.cwd : undefined
           });
         } catch {
           /* torn/unreadable — skip this one file */
@@ -499,8 +509,15 @@ export class ExternalSessionsService {
       head.firstUserPrompt ??
       basename(dirname(path));
 
-    const cwd = head.cwd ?? '';
-    const repoName = basename(cwd.replace(/\/+$/, '')) || cwd || 'unknown';
+    // 2026-09-26 review, item 3: fall back to the Desktop sidecar's OWN
+    // `cwd` when the transcript's first ~50 lines never carried one (a
+    // `bridge-session`-only stub with no user/assistant records at all,
+    // observed in real data, is the common case) — this is the actual root
+    // cause of "unknown", not just a label to swap. When there's truly no
+    // cwd from EITHER source, `repoName` is left empty so the caller omits
+    // the segment instead of ever printing the literal word "unknown".
+    const cwd = head.cwd ?? desktop?.cwd ?? '';
+    const repoName = cwd ? basename(cwd.replace(/\/+$/, '')) || cwd : '';
 
     const summary: ExternalSessionSummary = {
       id: claudeSessionId,

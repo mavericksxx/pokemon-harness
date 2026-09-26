@@ -134,6 +134,12 @@ function TurnRow({ turn }: { turn: ExternalTranscriptTurn }): JSX.Element {
   if (turn.kind === 'tool') {
     return <div className="transcript-turn transcript-turn-tool">{turn.summary}</div>;
   }
+  // Muted one-liner for the CLI's own bracketed markup — slash-command
+  // echoes, bash-input/stdout, background-task notices (2026-09-26 review,
+  // item 1) — never rendered as raw `<tag>...</tag>` text.
+  if (turn.kind === 'system') {
+    return <div className="transcript-turn transcript-turn-system">{turn.summary}</div>;
+  }
   return (
     <div className={turn.kind === 'user' ? 'transcript-turn transcript-turn-user' : 'transcript-turn transcript-turn-assistant'}>
       <span className="transcript-turn-role">{turn.kind === 'user' ? 'you' : 'claude'}</span>

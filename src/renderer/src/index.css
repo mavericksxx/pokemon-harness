@@ -3527,9 +3527,28 @@ body.garden-lowres .garden canvas {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 10px;
+}
+
+/* Middle segment ellipsizes instead of pushing the fixed-width badge/age out
+ * past the card's right edge (2026-09-26 review, item 2) — a long repo path
+ * or branch name ("scratch-2026-09-25-43…", "pokemon-harness · mas…") used
+ * to clip the age clean off the row, which is the one thing that tells two
+ * same-titled rows apart. */
+.other-session-repo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.other-session-age {
+  flex: none;
+  white-space: nowrap;
 }
 
 .badge {
@@ -3661,6 +3680,17 @@ body.garden-lowres .garden canvas {
   font-size: 11px;
   padding-left: 12px;
   border-left: 2px solid var(--muted-dim);
+}
+
+/* CLI markup normalized into a muted one-liner (2026-09-26 review, item 1) —
+ * slash-command echoes, bash-input, background-task notices. Centered and
+ * italic so it reads as an aside, distinct from both chat text and the
+ * tool-call rail above. */
+.transcript-turn-system {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
 }
 
 .transcript-view-empty {

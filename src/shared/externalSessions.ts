@@ -42,11 +42,15 @@ export interface ExternalSessionsListResult {
 /** One normalized chat turn for the read-only preview (`TranscriptView`).
  *  Tool calls are collapsed to a single descriptive line ("Edited
  *  src/foo.ts", "Ran: npm test") — never rendered as raw tool_use/tool_result
- *  JSON. */
+ *  JSON. `'system'` (2026-09-26 review, item 1) covers the CLI's own
+ *  bracketed markup that otherwise leaks straight into user-record text —
+ *  slash-command echoes, bash-input/stdout, background-task notices — shown
+ *  as a small muted one-liner rather than raw `<tag>...</tag>` text. */
 export type ExternalTranscriptTurn =
   | { kind: 'user'; id: string; at: number; text: string }
   | { kind: 'assistant'; id: string; at: number; text: string }
-  | { kind: 'tool'; id: string; at: number; summary: string };
+  | { kind: 'tool'; id: string; at: number; summary: string }
+  | { kind: 'system'; id: string; at: number; summary: string };
 
 /** One page of turns, oldest-first within the page. `cursor` feeds back into
  *  `externalSessions:readTranscript` to fetch the NEXT (older) page; `null`
