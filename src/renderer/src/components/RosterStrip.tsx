@@ -1,11 +1,33 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useStore, type Session } from '@/store/store';
 import { useActiveWorkspaceSessions } from '@/store/workspaceScope';
 import { useWorkspaceStore } from '@/store/workspaceStore';
+import { useExternalSessionsStore } from '@/store/externalSessionsStore';
 import { AgentRosterCard } from '@/components/AgentRosterCard';
 import { ArceusRosterCard } from '@/components/ArceusRosterCard';
 import { SubagentRosterCard } from '@/components/SubagentRosterCard';
 import { DoubleChevronLeftIcon, DoubleChevronRightIcon } from '@/components/icons';
+
+/** Poll cadence while the "Other sessions" section is expanded (plan §7:
+ *  "refresh on section expand, plus a stat-only poll every ~10s while
+ *  expanded" — the main-side scanner's own per-file mtime/size cache makes
+ *  this poll cheap even against a large ~/.claude/projects tree). */
+const OTHER_SESSIONS_POLL_MS = 10_000;
+
+function repoLabel(s: { repoName: string; gitBranch?: string }): string {
+  return s.gitBranch ? `${s.repoName} · ${s.gitBranch}` : s.repoName;
+}
+
+function relativeAge(atMs: number): string {
+  const deltaS = Math.max(0, Math.floor((Date.now() - atMs) / 1000));
+  if (deltaS < 60) return 'just now';
+  const m = Math.floor(deltaS / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
+}
 
 interface Props {
   onNewSession(): void;
@@ -111,6 +133,37 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
   const setPartyRailOrder = useStore((s) => s.setPartyRailOrder);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+
+  // "Other sessions" (docs/external-sessions-plan.md §7 step 1) — Claude
+  // Code conversations started outside Pokéharness (Desktop's Code tab, or
+  // the plain CLI). Collapsed by default; scanned on expand and re-polled
+  // every ~10s while expanded (main's own per-file cache makes the poll
+  // cheap — see externalSessions.ts's header).
+  const otherSessions = useExternalSessionsStore((s) => s.sessions);
+  const otherSessionsCollapsed = useExternalSessionsStore((s) => s.collapsed);
+  const setOtherSessionsCollapsed = useExternalSessionsStore((s) => s.setCollapsed);
+  const setOtherSessions = useExternalSessionsStore((s) => s.setSessions);
+  const setPreviewExternalId = useExternalSessionsStore((s) => s.setPreviewExternalId);
+
+  useEffect(() => {
+    if (otherSessionsCollapsed) return;
+    let cancelled = false;
+    const refresh = async (): Promise<void> => {
+      const result = await window.api.listExternalSessions();
+      if (!cancelled) setOtherSessions(result.sessions);
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), OTHER_SESSIONS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [otherSessionsCollapsed, setOtherSessions]);
+
+  const otherSessionsSorted = useMemo(
+    () => [...otherSessions].sort((a, b) => b.lastActiveAt - a.lastActiveAt),
+    [otherSessions]
+  );
 
   // Top-level card drag-to-reorder (party-rail rework) — only the "agents"
   // section's cards are draggable (see `renderSession`), never Arceus, a
@@ -257,6 +310,40 @@ export function RosterStrip({ onNewSession }: Props): JSX.Element {
         <ArceusRosterCard variant="medium" ceremonial />
         {topLevelSessions.length > 0 && <div className="party-rail-heading">agents</div>}
         {orderedTopLevelSessions.map((s) => renderSession(s))}
+
+        <button
+          type="button"
+          className="other-sessions-toggle"
+          aria-expanded={!otherSessionsCollapsed}
+          onClick={() => setOtherSessionsCollapsed(!otherSessionsCollapsed)}
+        >
+          <span className={`other-sessions-chevron${otherSessionsCollapsed ? '' : ' expanded'}`} aria-hidden="true">
+            ▸
+          </span>
+          other sessions{otherSessionsSorted.length > 0 ? ` (${otherSessionsSorted.length})` : ''}
+        </button>
+        {!otherSessionsCollapsed &&
+          otherSessionsSorted.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="other-session-row"
+              onClick={() => setPreviewExternalId(s.id)}
+            >
+              <div className="other-session-row-top">
+                {s.live && <span className="other-session-live-dot" aria-hidden="true" />}
+                <span className="other-session-title">{s.title}</span>
+              </div>
+              <div className="other-session-meta">
+                <span className={`badge badge-${s.source}`}>{s.source === 'desktop' ? 'Desktop' : 'CLI'}</span>
+                <span>{repoLabel(s)}</span>
+                <span>{relativeAge(s.lastActiveAt)}</span>
+              </div>
+            </button>
+          ))}
+        {!otherSessionsCollapsed && otherSessionsSorted.length === 0 && (
+          <p className="empty other-sessions-empty">nothing else found.</p>
+        )}
       </div>
       <button type="button" className="party-rail-new" onClick={onNewSession}>
         <span className="party-rail-new-label">+ new agent</span>
