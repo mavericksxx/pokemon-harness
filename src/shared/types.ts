@@ -223,6 +223,10 @@ export interface SessionRecord {
    *  offering reuse-vs-spawn-fresh via `poke-ask`. Absent until the first
    *  such dispatch. */
   lastDispatch?: { at: number; message: string };
+  /** Set when this session continues a conversation started outside Pokéharness (Claude Desktop or the plain CLI). */
+  continuedFrom?: { claudeSessionId: string; source: 'desktop' | 'cli' }
+  /** Claude Code permission mode to restore on resume (e.g. 'auto', 'default'). */
+  permissionMode?: string
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed
@@ -246,6 +250,21 @@ export interface RestoredSession {
 export interface RestoreSnapshot {
   sessions: RestoredSession[];
   selectedId: string | null;
+}
+
+/** External sessions plan §7 step 4 — result of `sessions:reload` (main-side
+ *  `reloadSession`): kill the session's current process, await its real
+ *  exit, then respawn with `claude --resume` against whatever conversation
+ *  id is actually live (never a stale persisted one — see `ipc/sessions.ts`'s
+ *  handler). `ok: false` means nothing was killed or spawned (e.g. the old
+ *  process didn't exit within the timeout, or there was no captured
+ *  conversation id to resume) — the renderer must leave the existing
+ *  terminal untouched rather than showing a disconnected card. */
+export interface ReloadSessionResult {
+  ok: boolean;
+  reason?: string;
+  cwd?: string;
+  claudeSessionId?: string;
 }
 
 /** Result of the launch-time disk restore (Phase 8.5 #1, `app:getDiskRestoreInfo`)

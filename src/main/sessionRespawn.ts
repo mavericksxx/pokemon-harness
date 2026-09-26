@@ -158,6 +158,15 @@ async function resolveEffectiveRespawn(
  *  matching what `startSession` (src/renderer/src/sessions.ts) built the
  *  first time. */
 export function respawnArgs(record: SessionRecord): string[] {
-  if (shouldResume(record)) return ['--resume', record.claudeSessionId as string];
+  if (shouldResume(record)) {
+    const args = ['--resume', record.claudeSessionId as string];
+    // Model/permission-mode may not otherwise survive a `--resume` (external
+    // sessions plan §5) — pass them explicitly when we have them recorded.
+    // `--help`-confirmed flag names: `--model <model>`, `--permission-mode
+    // <mode>` (choices: acceptEdits, auto, bypassPermissions, default, plan).
+    if (record.model) args.push('--model', record.model);
+    if (record.permissionMode) args.push('--permission-mode', record.permissionMode);
+    return args;
+  }
   return buildProviderArgs(record.provider, record.model);
 }
