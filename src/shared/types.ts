@@ -223,6 +223,10 @@ export interface SessionRecord {
    *  offering reuse-vs-spawn-fresh via `poke-ask`. Absent until the first
    *  such dispatch. */
   lastDispatch?: { at: number; message: string };
+  /** Set when this session continues a conversation started outside Pokéharness (Claude Desktop or the plain CLI). */
+  continuedFrom?: { claudeSessionId: string; source: 'desktop' | 'cli' }
+  /** Claude Code permission mode to restore on resume (e.g. 'auto', 'default'). */
+  permissionMode?: string
 }
 
 /** One session restored on boot (`restoreSessions`): its last-checkpointed

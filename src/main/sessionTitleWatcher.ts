@@ -164,7 +164,17 @@ export class SessionTitleWatcher {
    *  (see `tryInitialMark`). */
   constructor(
     private getWebContents: () => WebContents | null,
-    private getSessionTitle: (agentId: string) => string | undefined
+    private getSessionTitle: (agentId: string) => string | undefined,
+    /** External sessions (docs/external-sessions-plan.md §7): returns the
+     *  `continuedFrom.claudeSessionId` for `agentId`'s session, if any. When
+     *  the transcript's OWN conversation id (the `.jsonl` basename) equals
+     *  that value, this session is still the continued outside conversation
+     *  itself — it must never get the 👾 marker, since the whole point of
+     *  the marker is to flag a Pokeharness-BORN conversation, and this one
+     *  wasn't. A `/clear` inside it starts a brand-new transcript whose id no
+     *  longer matches, so that new conversation is marked normally — the
+     *  skip is keyed by conversation id, not agentId, on purpose. */
+    private getContinuedFromClaudeSessionId?: (agentId: string) => string | undefined
   ) {}
 
   start(): void {
@@ -288,6 +298,17 @@ export class SessionTitleWatcher {
       needsInitialMark: false
     };
     this.sessions.set(agentId, s);
+
+    const continuedFromId = this.getContinuedFromClaudeSessionId?.(agentId);
+    if (continuedFromId && continuedFromId === claudeSessionId) {
+      // This transcript IS the continued outside conversation — skip the 👾
+      // stamp entirely (see constructor comment). Still let a real rename's
+      // title surface normally.
+      this.checkAndEmit(agentId, s);
+      this.watchDirFor(agentId, s);
+      this.reconcileTimer();
+      return;
+    }
 
     if (!existsSync(customTitlePath)) {
       // Brand-new session (never renamed, and not a resume of one this
