@@ -6,6 +6,7 @@ import type {
   PtyExit,
   PtyInfo,
   PtyResult,
+  ReloadSessionResult,
   RendererCrashInfo,
   RestoreSnapshot,
   SessionRecord,
@@ -96,6 +97,20 @@ const api = {
    *  plus the last-selected id — called once on boot to re-adopt them after a
    *  crash or a plain reload. */
   restoreSessions: (): Promise<RestoreSnapshot> => ipcRenderer.invoke('sessions:restore'),
+  // External sessions plan §7 step 4 — kill this session's current process,
+  // await its real exit, then respawn via `claude --resume` (main/ipc/
+  // sessions.ts's `sessions:reload`). Caller (arceus.ts-style renderer flow)
+  // still owns recreating the terminal + forcing a repaint afterward.
+  reloadSession: (id: string): Promise<ReloadSessionResult> => ipcRenderer.invoke('sessions:reload', id),
+  // External sessions plan §7 step 5 — main's outsideWriteDetector.ts fires
+  // this whenever a `continuedFrom` session looks like it needs to catch up
+  // to another surface's turns. Single global channel, same reasoning as
+  // `onDelegateHookEvent` above.
+  onOutsideWriteCandidate: (cb: (agentId: string) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, agentId: string): void => cb(agentId);
+    ipcRenderer.on('outsideWrite:candidate', listener);
+    return () => ipcRenderer.removeListener('outsideWrite:candidate', listener);
+  },
   /** Non-null exactly once, right after a launch that respawned at least one
    *  disk-persisted session (Phase 8.5 #1) — see main/index.ts's
    *  `diskRestoreConsumed`. Pulled on boot the same way `getCrashInfo` is. */

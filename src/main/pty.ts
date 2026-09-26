@@ -884,6 +884,43 @@ export class PtyManager {
     }
   }
 
+  /** External sessions plan §7 step 4 (revived from `5bbfe4b`, reverted in
+   *  `c5b4835`) — kills session `id` and resolves only once its underlying
+   *  process has ACTUALLY exited, not merely once the kill signal was sent.
+   *  `kill()` itself is fire-and-forget (a real pty's `.kill()` sends a
+   *  signal the child may take a moment to act on; a `KeeperClient`'s
+   *  `.kill()` just writes a `FRAME_KILL` frame the detached keeper process
+   *  then relays as a `SIGTERM` — see ptyKeeper.ts) — a caller that
+   *  immediately respawns under the same id without waiting risks two
+   *  processes briefly both alive and both appending to the same `--resume`
+   *  transcript file, the exact corruption `restoreFromDisk`'s own dedup
+   *  guards against (see index.ts's 2026-09-17 fix comment). The listener is
+   *  registered on the captured `session.proc` BEFORE `kill()` runs, since a
+   *  `KeeperClient`'s exit can in principle arrive as fast as the socket
+   *  write flushes. Resolves `true` once `onExit` fires. Resolves `false` if
+   *  `timeoutMs` elapses first — the caller must NOT spawn a replacement in
+   *  that case; the old process may still be alive and writing. Resolves
+   *  `true` immediately for an already-unknown id (nothing to wait for). */
+  killAndAwaitExit(id: string, timeoutMs: number): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (!session) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve(false);
+      }, timeoutMs);
+      session.proc.onExit(() => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        resolve(true);
+      });
+      this.kill(id);
+    });
+  }
+
   /** "Leave them running" quit path (QuitDialog.tsx's "quit" action) — hands
    *  session `id`'s live pty master off to a small detached `ptyKeeper.ts`
    *  helper process instead of killing it, so the underlying CLI survives

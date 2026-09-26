@@ -5,8 +5,19 @@ import type { SessionPersistence } from '../sessionPersistence';
 import type { PokeRelay } from '../pokeTools';
 import type { CostWatcher } from '../costWatcher';
 import type { TaskNotificationWatcher } from '../taskNotificationWatcher';
-import type { DiskRestoreInfo, SessionRecord } from '../../shared/types';
+import type { HookBridge } from '../hookBridge';
+import { claudeSessionIdFromTranscriptPath } from '../hookBridge';
+import type { OutsideWriteDetector } from '../outsideWriteDetector';
+import type { DiskRestoreInfo, ReloadSessionResult, SessionRecord } from '../../shared/types';
 import type { WorkspaceSnapshot } from '../../shared/workspaceTypes';
+import { respawnArgs, shouldResume } from '../sessionRespawn';
+import { log } from '../diagnostics';
+
+/** External sessions plan §7 step 4 — how long `sessions:reload` waits for
+ *  the old process to actually exit before giving up rather than risking two
+ *  writers on the same `--resume` transcript (see `killAndAwaitExit`'s own
+ *  comment in pty.ts). */
+const RELOAD_KILL_TIMEOUT_MS = 5000;
 
 export interface SessionsIpcDeps {
   ptyManager: PtyManager;
@@ -14,6 +25,8 @@ export interface SessionsIpcDeps {
   pokeRelay: PokeRelay;
   costWatcher: CostWatcher;
   taskNotificationWatcher: TaskNotificationWatcher;
+  hookBridge: HookBridge;
+  outsideWriteDetector: OutsideWriteDetector;
   notifyStatusTransitions: (sessions: SessionRecord[], selectedId: string | null) => void;
   getSessionRegistry: () => SessionRecord[];
   setSessionRegistry: (sessions: SessionRecord[]) => void;
@@ -33,6 +46,8 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     pokeRelay,
     costWatcher,
     taskNotificationWatcher,
+    hookBridge,
+    outsideWriteDetector,
     notifyStatusTransitions,
     getSessionRegistry,
     setSessionRegistry,
@@ -82,6 +97,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     // See each watcher's own file header for the exact gate.
     costWatcher.onSessionsChecked(sessions);
     taskNotificationWatcher.onSessionsChecked(sessions);
+    outsideWriteDetector.onSessionsChecked(sessions);
     // Regenerates agents/arceus/roster.json (self-serve roster Arceus can read
     // with his own tools) — cheap no-op when nothing roster-relevant changed.
     writeArceusRosterFile(getHarnessHomeDir(), sessions, getWorkspaceRegistry().workspaces);
@@ -125,5 +141,77 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
     if (isDiskRestoreConsumed() || info.count === 0) return null;
     setDiskRestoreConsumed(true);
     return info;
+  });
+
+  // External sessions plan §7 step 4 — kill the session's current process,
+  // AWAIT its real exit, then respawn via `claude --resume`. Never reattach
+  // (this id is definitionally already live under this app, unlike the
+  // stale-keeper-reattach case `5bbfe4b` originally built this pattern for):
+  // the point here is a full kill+resume cycle so the terminal redraws with
+  // whatever another surface appended to the transcript while this session
+  // sat idle (plan §2 item 5, §7 step 5's detector). This app never kills a
+  // session as a side effect of anything else (f58aa3c's hard rule) — this
+  // explicit call (a user-clicked chip, or the auto-reload gate opening) is
+  // the one place that does, and only for `continuedFrom` sessions per the
+  // caller's own scoping.
+  handle('sessions:reload', async (_e, id: string): Promise<ReloadSessionResult> => {
+    const record = getSessionRegistry().find((s) => s.id === id);
+    if (!record) return { ok: false, reason: 'session not found' };
+
+    // Prefer the live-observed conversation id over the persisted one — the
+    // whole point of a reload is to catch up to whatever another surface
+    // just appended, and a stale `claudeSessionId` on the record (this
+    // session hasn't fired a fresh hook since the outside write) would
+    // resume the WRONG conversation. See HookBridge.getLiveTranscriptPath's
+    // own comment.
+    const liveTranscriptPath = hookBridge.getLiveTranscriptPath(id);
+    const liveClaudeSessionId = liveTranscriptPath
+      ? claudeSessionIdFromTranscriptPath(liveTranscriptPath)
+      : undefined;
+    let effectiveRecord = record;
+    if (liveClaudeSessionId && liveClaudeSessionId !== record.claudeSessionId) {
+      log('pty', 'info', 'sessions:reload: live transcript id differs from persisted claudeSessionId — using live id', {
+        id,
+        persisted: record.claudeSessionId,
+        live: liveClaudeSessionId
+      });
+      effectiveRecord = { ...record, claudeSessionId: liveClaudeSessionId };
+    }
+
+    if (!shouldResume(effectiveRecord)) {
+      return { ok: false, reason: "can't safely reload — no captured conversation id to resume" };
+    }
+
+    const exited = await ptyManager.killAndAwaitExit(id, RELOAD_KILL_TIMEOUT_MS);
+    if (!exited) {
+      // Never spawn on top of a process we can't confirm is actually dead —
+      // the two-writers-on-one-transcript hazard this sequence exists to
+      // avoid. Leave the old session untouched; the caller logs/surfaces
+      // this as a failed reload, never a disconnected card.
+      log('pty', 'warn', 'sessions:reload: old process did not exit in time — nothing reloaded', { id });
+      return { ok: false, reason: "the old session didn't stop in time — nothing was reloaded" };
+    }
+
+    const res = ptyManager.spawn({
+      id,
+      cwd: effectiveRecord.cwd,
+      command: effectiveRecord.command,
+      args: respawnArgs(effectiveRecord),
+      provider: effectiveRecord.provider,
+      cols: 100,
+      rows: 30
+    });
+    if (!res.ok) return { ok: false, reason: res.error ?? 'reload failed to spawn' };
+
+    // Signal (c) — our own reload just resumed; its own SessionStart/growth
+    // must never be mistaken for a fresh outside write.
+    outsideWriteDetector.rebaseline(id);
+
+    setSessionRegistry(
+      getSessionRegistry().map((s) =>
+        s.id === id ? { ...s, claudeSessionId: effectiveRecord.claudeSessionId, exitCode: undefined } : s
+      )
+    );
+    return { ok: true, cwd: res.cwd ?? effectiveRecord.cwd, claudeSessionId: effectiveRecord.claudeSessionId };
   });
 }
