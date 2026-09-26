@@ -110,17 +110,33 @@ const POKE_TOOLS_SCRIPT_FILENAME = 'poke-tools.cjs';
  *  decision made before the shell ever tries to resolve/run it — unrelated
  *  to PATH).
  *
- *  UNVERIFIED, flagged rather than silently assumed: this repo has no prior
- *  example of a `Bash(<cmd>:*)` allow-rule matching a BARE, PATH-resolved
- *  command name (poke-delegate, the closest precedent, isn't gated by any
- *  permission-allow rule at all — it relies on auto-mode/manual approval).
- *  This app cannot launch a real `claude` session to confirm empirically.
- *  Needs a live check before this feature is considered fully done: summon
- *  Arceus with auto-mode OFF, ask him to call `poke-ask`, and confirm no
- *  permission prompt appears. If it turns out prefix-matching needs an
- *  absolute path instead of a bare name, `pty.ts`'s PATH-prepend approach
- *  would need to change to something that stamps a resolved path into these
- *  rules per-install. */
+ *  Statically verified against docs.claude.com/en/docs/claude-code/permissions
+ *  (GitHub #35 audit): `Bash(<name>:*)` is sugar for `Bash(<name> *)`, and a
+ *  trailing `*` with a space before it ALSO matches the bare command with no
+ *  arguments — so `Bash(poke-ask:*)` covers a plain `poke-ask` invocation
+ *  with no PATH-resolution requirement of its own; the rule matches on the
+ *  command STRING regardless of whether it later resolves via PATH or an
+ *  absolute path. Docs also confirm Claude Code splits compound commands on
+ *  `&&`/`||`/`;`/`|`/`|&`/`&`/newline and matches each subcommand
+ *  independently, so `cd x && poke-ask ...` would still match on the
+ *  `poke-ask ...` subcommand alone — `ARCEUS_TOOL_CONTRACT`
+ *  (shared/arceus.ts) bans that form anyway, which is harmless belt-and-
+ *  suspenders. The one real gap the docs confirm: an allow rule does NOT
+ *  match past a leading env-var assignment unless the variable is on Claude
+ *  Code's internal known-safe allowlist, so `FOO=1 poke-ask ...` would in
+ *  fact stall on a prompt — `ARCEUS_TOOL_CONTRACT`'s "never `FOO=1
+ *  poke-ask ...`" line is the correct fix for that, already in place.
+ *
+ *  Still UNVERIFIED (needs a live check, this app can't launch a real
+ *  `claude` session to confirm): that Claude Code's actual runtime behavior
+ *  matches the documented semantics above with zero prompt for a real
+ *  `poke-ask`/`poke-spawn`/`poke-relay` call from inside a live Arceus pty.
+ *  Live-check steps: summon Arceus with auto-mode OFF, ask him to trigger
+ *  `poke-ask`, and confirm no permission prompt appears and the command
+ *  resolves (PATH prepend from `pty.ts`'s `spawn()` reaches the Bash tool's
+ *  shell — supported by, but not identical to, the non-Arceus evidence that
+ *  `cli-shims` survives the same prepend-PATH mechanism into a live Bash
+ *  tool's shell snapshot). */
 export const POKE_TOOL_PERMISSION_RULES = ['Bash(poke-ask:*)', 'Bash(poke-spawn:*)', 'Bash(poke-relay:*)'];
 
 /** Cap on one UDS connection's buffered-so-far line (`bind()`'s
