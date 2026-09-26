@@ -68,6 +68,12 @@ export interface HookPayload {
    *  spawn a real interactive `claude` session — see hookRouter.ts) — trusted
    *  on the strength of the public docs instead. */
   tool_use_id?: string;
+  /** Claude Code's own permission mode for this session (e.g. 'default',
+   *  'acceptEdits', 'auto', 'bypassPermissions', 'plan') when the payload
+   *  reports it — captured so a resume/continue can restore it via
+   *  `--permission-mode` (external sessions plan §7 step 0). Unverified
+   *  against every hook event type; present where the CLI includes it. */
+  permission_mode?: string;
   /** External-codex-delegate feature — set only when the hook-invoking
    *  process inherited `POKEHARNESS_DELEGATE_PARENT`/`POKEHARNESS_DELEGATE_
    *  LABEL` from its own env (see hookBridge.ts's HOOK_SHIM). A normal
@@ -77,6 +83,12 @@ export interface HookPayload {
    *  it can never collide with anything Claude/codex's own payload carries. */
   harness_delegate_parent?: string | null;
   harness_delegate_label?: string | null;
+  /** The literal prompt text on a `UserPromptSubmit` payload, per Claude
+   *  Code's public hooks docs. Read main-side only (hookBridge.ts's
+   *  `onUserPromptSubmit` callback, external sessions plan §7 step 5's
+   *  outside-write detector) to recognize which human-prompt transcript
+   *  records are OURS — never forwarded into `HookEvent`/the renderer. */
+  prompt?: string;
 }
 
 /** Normalized event sent to the renderer — one per hook boundary. */
@@ -88,10 +100,16 @@ export interface HookEvent {
   notificationType?: string;
   message?: string;
   source?: string;
-  /** The claude CLI's own session id (`session_id` on the raw payload), when
-   *  present — captured so a SessionStart can stash it on the SessionRecord
-   *  for disk-persisted `claude --resume` respawns (Phase 8.5 #1). */
+  /** The claude CLI's own conversation id — preferably `transcript_path`'s
+   *  basename, falling back to `session_id` (see hookBridge.ts's
+   *  `claudeSessionIdFromPayload`, which is why this isn't simply
+   *  `session_id`) — captured so a SessionStart can stash it on the
+   *  SessionRecord for disk-persisted `claude --resume` respawns (Phase
+   *  8.5 #1). */
   claudeSessionId?: string;
+  /** `permission_mode` off the raw payload, when present — external sessions
+   *  plan §7 step 0: restored on resume via `--permission-mode`. */
+  permissionMode?: string;
   /** `tool_use_id` off the raw payload (see `HookPayload.tool_use_id`) — for
    *  a `Task` PreToolUse this is the one identity available at spawn time,
    *  threaded into the `spawn` battle signal (battleBus.ts) so BattleManager

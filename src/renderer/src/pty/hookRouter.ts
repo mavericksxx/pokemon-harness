@@ -47,6 +47,14 @@ export function isHookAuthoritative(sessionId: string): boolean {
  *  when it fires re-adds the entry. */
 const awaitingSubagentIdle = new Set<string>();
 
+/** External sessions plan §7 step 5's idle gate ("ours") reads this — a
+ *  session gated here is still effectively 'working' even though its last
+ *  `Stop` already flipped `status` to idle, so a reload must wait, exactly
+ *  like this module's own regex-parser authority does. */
+export function isAwaitingSubagentIdle(sessionId: string): boolean {
+  return awaitingSubagentIdle.has(sessionId);
+}
+
 /** Backstop for the `awaitingSubagentIdle` gate above — generous on purpose,
  *  same rationale as this file's own `HOOK_SILENCE_MS`: a session only
  *  leaves `awaitingSubagentIdle` when every outstanding async subagent's
@@ -325,8 +333,23 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
   const update = (patch: Parameters<ReturnType<typeof useStore.getState>['updateSession']>[1]): void =>
     useStore.getState().updateSession(sessionId, patch);
 
+  // Permission mode (external sessions plan §7 step 0) — captured off
+  // whichever hook event happens to carry it (top-level only: a subagent's
+  // `permission_mode` describes ITS OWN scope, not this session's), not just
+  // SessionStart, so a mid-session `/permission-mode` change is picked up
+  // too rather than only whatever was true at the last resume.
+  if (evt.permissionMode && !evt.agent_id) update({ permissionMode: evt.permissionMode });
+
   switch (evt.event) {
     case 'SessionStart':
+      // A nested `claude -p` run launched from inside this session (e.g. via
+      // Bash) inherits POKEHARNESS_AGENT_ID and fires its own SessionStart
+      // with `source: 'startup'` — left unguarded, that would overwrite this
+      // session's OWN claudeSessionId with the nested run's unrelated one. A
+      // real `/clear` sends source 'clear', and post-compact wake sends
+      // 'compact', so gating only 'startup', and only once we already have
+      // an id, can't block either of those legitimate updates.
+      const isNestedStartup = evt.source === 'startup' && !!live.claudeSessionId;
       // claudeSessionId is only ever added, never cleared, here: if a later
       // SessionStart (shouldn't happen mid-session, but be defensive) ever
       // arrived without one, silently dropping an already-captured id would
@@ -336,7 +359,7 @@ export function handleHookEvent(sessionId: string, evt: HookEvent): void {
         tool: undefined,
         toolTarget: undefined,
         station: 'wander',
-        ...(evt.claudeSessionId ? { claudeSessionId: evt.claudeSessionId } : {}),
+        ...(evt.claudeSessionId && !isNestedStartup ? { claudeSessionId: evt.claudeSessionId } : {}),
         // Post-compact wake (item 4): a SessionStart whose `source` is
         // 'compact' is the one Claude Code fires right after it finishes
         // compacting — clear the nap the matching PreCompact set below.
