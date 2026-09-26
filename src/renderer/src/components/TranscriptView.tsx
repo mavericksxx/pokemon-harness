@@ -140,9 +140,17 @@ function TurnRow({ turn }: { turn: ExternalTranscriptTurn }): JSX.Element {
   if (turn.kind === 'system') {
     return <div className="transcript-turn transcript-turn-system">{turn.summary}</div>;
   }
+  // 2026-09-26 re-review, item 2: user and assistant turns must read as
+  // visually distinct at a glance, not just by a small role label — a
+  // tinted, accent-bordered block for the owner's own prompts vs. plain
+  // text for Claude's replies, matching the app's existing "accent = mine"
+  // convention (e.g. `.roster-card.selected`'s border).
+  const isUser = turn.kind === 'user';
   return (
-    <div className={turn.kind === 'user' ? 'transcript-turn transcript-turn-user' : 'transcript-turn transcript-turn-assistant'}>
-      <span className="transcript-turn-role">{turn.kind === 'user' ? 'you' : 'claude'}</span>
+    <div className={isUser ? 'transcript-turn transcript-turn-user' : 'transcript-turn transcript-turn-assistant'}>
+      <span className={isUser ? 'transcript-turn-role transcript-turn-role-user' : 'transcript-turn-role'}>
+        {isUser ? 'You' : 'Claude'}
+      </span>
       <span className="transcript-turn-text">{turn.text}</span>
     </div>
   );

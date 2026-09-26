@@ -1548,6 +1548,22 @@ body.garden-lowres .garden canvas {
    * — the preview covers this pane without unmounting FocusView underneath
    * it. */
   position: relative;
+  /* 2026-09-26 re-review (item 1 root cause): `position: relative` alone
+   * does NOT give this element its own stacking context (that needs an
+   * explicit `z-index`, which this never had) — so `.transcript-view-
+   * overlay`'s `z-index: 2` was being compared against whatever REAL
+   * stacking context happens to exist further up the tree, alongside every
+   * OTHER z-indexed element in the app (FocusView's own find-bar at 10, its
+   * tooltips at 1100, toasts, modals...). None of those are meant to be in
+   * the running for "on top of this specific pane" at all — the overlay's
+   * precedence over FocusView's subtree underneath it was accidental, not
+   * guaranteed, and exactly the kind of gap that can leave pointer/wheel
+   * events landing on the wrong element depending on unrelated app state.
+   * `isolation: isolate` traps ALL of `.drawer`'s own descendants (tabs
+   * header, FocusView's whole subtree, the overlay) into ONE local stacking
+   * context, where the overlay — last DOM child, the only one at this level
+   * with an explicit `z-index` — deterministically wins. */
+  isolation: isolate;
   width: 46%;
   /* Matches gardenSplit.ts's TERMINAL_MIN_PX — 'garden' mode overrides
    * `width` inline (via GardenSplitHandle.tsx's ratio) with a `clamp()`
@@ -3584,6 +3600,18 @@ body.garden-lowres .garden canvas {
   display: flex;
   flex-direction: column;
   background: var(--panel);
+  /* Defensive/explicit (2026-09-26 re-review) — this must never be able to
+   * silently inherit `pointer-events: none` from anywhere above it (nothing
+   * currently sets one on an ancestor, but `pointer-events` DOES inherit,
+   * and this is the one element in the app whose entire job is to intercept
+   * every pointer/wheel event over this pane instead of letting them fall
+   * through to FocusView's terminal underneath). */
+  pointer-events: auto;
+  /* Belt-and-braces alongside `.drawer`'s own `isolation: isolate` above —
+   * this element's height is already fully determined by `inset: 0` against
+   * `.drawer`'s box, but `overflow: hidden` here guarantees nothing it
+   * contains can ever visually or hit-test-wise spill past that box either. */
+  overflow: hidden;
 }
 
 /* Read-only chat preview (TranscriptView.tsx, §7 step 3) — fills
@@ -3660,19 +3688,42 @@ body.garden-lowres .garden canvas {
 }
 
 .transcript-turn-role {
-  display: inline-block;
-  margin-right: 6px;
+  display: block;
+  margin-bottom: 2px;
   color: var(--muted);
   text-transform: uppercase;
   font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
+/* User turns (2026-09-26 re-review, item 2) — a tinted block with a left
+ * accent border, same "accent = the owner's own" convention as
+ * `.roster-card.selected`'s border elsewhere in the app. `--accent-text` is
+ * already the theme-correct token (dark: brand gold; light: darkened for
+ * WCAG contrast — see design/tokens.ts's `accentTextLight`), so this reads
+ * correctly in both themes with no separate light-mode override needed. The
+ * extra `margin-top` (on top of `.transcript-view-list`'s own `gap`) makes a
+ * user prompt always visibly start a new exchange, not just another line in
+ * the same run. */
 .transcript-turn-user {
   color: var(--text);
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent-text);
+  padding: 8px 12px;
+  margin-top: 10px;
 }
 
+.transcript-turn-role-user {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+/* Claude turns — plain text directly on the panel background (no block,
+ * no border), so the contrast with a user turn's tinted block is immediate
+ * rather than needing to read the small role label first. */
 .transcript-turn-assistant {
   color: var(--text-secondary);
+  padding: 0 2px;
 }
 
 .transcript-turn-tool {
