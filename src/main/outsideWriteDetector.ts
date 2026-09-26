@@ -38,7 +38,7 @@ import {
   type FSWatcher
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { log } from './diagnostics';
 import { claudeSessionIdFromTranscriptPath } from './hookBridge';
 import type { SessionRecord } from '../shared/types';
@@ -130,25 +130,46 @@ export class OutsideWriteDetector {
    *
    *  D3 fix: when `claudeSessionId` changes (first registration, Continue,
    *  or a reload/`/clear` under this same agentId), the transcript offset is
-   *  seeded to the CURRENT end of whatever file is already tracked rather
-   *  than 0 — starting at 0 would re-read up to `TRANSCRIPT_TAIL_MAX_BYTES`
-   *  of pre-existing history on the very next scan and misreport all of it
-   *  as a fresh outside write, firing a spurious reload after every Continue
-   *  and every app restart. */
+   *  seeded to the CURRENT end of whatever file ends up tracked rather than
+   *  0 — starting at 0 would re-read up to `TRANSCRIPT_TAIL_MAX_BYTES` of
+   *  pre-existing history on the very next scan and misreport all of it as
+   *  a fresh outside write, firing a spurious reload after every Continue
+   *  and every app restart.
+   *
+   *  Re-review item 4 fix: on an id change, the OLD `transcriptPath` is
+   *  never just carried over as-is — it names the PRE-change conversation
+   *  (a `/clear` opens a brand-new file in the same project directory).
+   *  `noteTranscriptPath` also normally corrects this once the matching
+   *  `SessionStart(clear)` hook's `transcript_path` arrives, but that update
+   *  can lose the race against THIS call: the hook fires synchronously
+   *  main-side (`index.ts`'s `onRawPayload` -> `noteTranscriptPath`),
+   *  usually well before the renderer's `hookRouter.ts` has processed the
+   *  same event, updated the store, and round-tripped a checkpoint back to
+   *  main (`onSessionsChecked` -> here) — so `noteTranscriptPath` typically
+   *  runs FIRST, while `s.claudeSessionId` is STILL the old id, and its own
+   *  basename-must-match guard (see that function's comment) rejects the
+   *  new path outright. By the time THIS call finally updates
+   *  `claudeSessionId`, the correct path has already been dropped, and
+   *  nothing else was ever going to re-offer it. So: on an id change, if an
+   *  old path is tracked, rebuild it as `<same dir>/<newId>.jsonl` (a
+   *  `/clear` never changes the project directory) and seed the offset from
+   *  its size if it happens to exist yet, else 0 — never carry the OLD path
+   *  forward under the NEW id. */
   registerSession(agentId: string, cwd: string, claudeSessionId: string): void {
     const existing = this.sessions.get(agentId);
     if (existing && existing.claudeSessionId === claudeSessionId) {
       existing.cwd = cwd;
       return;
     }
+    let transcriptPath = existing?.transcriptPath;
     let transcriptOffset = 0;
-    const transcriptPath = existing?.transcriptPath;
     if (transcriptPath) {
+      const rebuilt = join(dirname(transcriptPath), `${claudeSessionId}.jsonl`);
+      transcriptPath = rebuilt;
       try {
-        transcriptOffset = statSync(transcriptPath).size;
+        transcriptOffset = statSync(rebuilt).size;
       } catch {
-        /* file gone/unreadable — 0 is the best we can do; the next
-           noteTranscriptPath call will most likely replace it anyway */
+        transcriptOffset = 0; // doesn't exist YET — the next scan/hook will catch it once it does
       }
     }
     this.sessions.set(agentId, {
@@ -277,7 +298,7 @@ export class OutsideWriteDetector {
       } catch {
         continue; // half-written file mid-update — retry next scan
       }
-      if (!entry.sessionId || typeof entry.pid !== 'number') continue;
+      if (!entry.sessionId || typeof entry.pid !== 'number' || entry.pid <= 1) continue; // pid<=1 is never real
       if (!this.isPidAlive(entry.pid)) continue; // D8 — a dead pid's stale registry file
       const list = bySessionId.get(entry.sessionId) ?? [];
       list.push(entry);
@@ -296,10 +317,12 @@ export class OutsideWriteDetector {
       // Signal (a) — foreign went busy -> idle/exited. Already implies
       // "theirs" is idle (that's the transition being detected), so this
       // fires immediately, same as before.
+      let firedA = false;
       if (anyForeignBusy) {
         s.sawForeignBusy = true;
       } else if (s.sawForeignBusy) {
         s.sawForeignBusy = false;
+        firedA = true;
         log('outsideWrite', 'info', 'signal (a): foreign session went busy -> idle/exited', {
           agentId,
           claudeSessionId: s.claudeSessionId
@@ -308,8 +331,22 @@ export class OutsideWriteDetector {
       }
 
       // Signal (b) — scan the transcript tail for a new foreign human
-      // prompt; latch it as pending rather than firing yet (D5).
+      // prompt; latch it as pending rather than firing yet (D5). Run even
+      // when (a) just fired, so the offset still advances — but see below.
       this.scanTranscriptFor(agentId, s);
+
+      // Re-review item 5 — (a) and (b) can both detect the SAME foreign
+      // turn (the busy->idle transition (a) reacts to is usually exactly
+      // the turn whose transcript record (b) would also notice). Cleared
+      // AFTER `scanTranscriptFor` above (which may have just SET it for
+      // this very turn) rather than before it: clearing it earlier would
+      // only suppress a stale latch from a PRIOR tick, not the one this
+      // tick's scan is about to raise for the turn (a) just reported.
+      // Without this, (b)'s own candidate for the same turn fires shortly
+      // after this one, hits the renderer's circuit breaker (one
+      // auto-reload per 3 minutes), and gets stuck showing the chip for the
+      // rest of that window instead of clearing.
+      if (firedA) s.pendingB = false;
 
       // D5 — reconcile any pending (b): only fires once NEITHER side is
       // mid-turn — no foreign entry busy/waiting, AND our transcript file

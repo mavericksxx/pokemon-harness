@@ -891,7 +891,15 @@ export class PtyManager {
 
   /** Whether pid `pid` still names a live process — `kill(pid, 0)` sends no
    *  signal, only probes. `ESRCH` means dead; anything else (e.g. `EPERM`,
-   *  alive but unowned) counts as alive. */
+   *  alive but unowned) counts as alive.
+   *
+   *  CRITICAL fix (re-review item 1): NEVER called with `pid <= 1` — `0`
+   *  means "this process's own process GROUP" and `1` is init, and on POSIX
+   *  `kill()` (signal OR probe) treats them specially. `tryReattach` falls
+   *  back to `meta.pid = 0` when a keeper's meta file is missing, so a
+   *  bogus pid can genuinely reach here; the caller below (`killAndAwaitExit`)
+   *  never lets one this low reach `process.kill` at all — see its own
+   *  comment. */
   private isPidAlive(pid: number): boolean {
     try {
       process.kill(pid, 0);
@@ -925,11 +933,31 @@ export class PtyManager {
    *  prevent. On timeout this now escalates to a direct `SIGKILL` on the
    *  captured pid and gives it one more short grace window: if it's
    *  confirmed dead by then, resolves `true` as normal; if it's SOMEHOW
-   *  still alive (a wedged/zombie process), the session is put BACK into
-   *  `this.sessions` (so it's tracked again, not orphaned) and this resolves
-   *  `false` — the caller must NOT spawn a replacement in that case.
-   *  Resolves `true` immediately for an already-unknown id (nothing to wait
-   *  for). */
+   *  still alive (a wedged/zombie process), the session is re-tracked (see
+   *  below) and this resolves `false` — the caller must NOT spawn a
+   *  replacement in that case. Resolves `true` immediately for an
+   *  already-unknown id (nothing to wait for).
+   *
+   *  CRITICAL fix (re-review item 1): `pid` is only ever escalated to
+   *  `SIGKILL`/probed when `pid > 1` — `tryReattach` falls back to
+   *  `meta.pid = 0` when a keeper's meta file is missing (see that
+   *  function's own comment), and `process.kill(0, 'SIGKILL')` sends the
+   *  signal to THIS APP'S OWN PROCESS GROUP, killing Pokéharness itself and
+   *  every native session with it. A `pid <= 1` (0, or 1/init — never a
+   *  real child of this app either) skips straight to "still alive, don't
+   *  trust it, don't touch it" without calling `process.kill` at all.
+   *
+   *  Re-review item 2: re-tracking on the still-alive path can otherwise
+   *  clobber a NEWER session under the same id — `pty:kill` or
+   *  `restartSessionFresh` may have closed/respawned `id` during this
+   *  multi-second window. Only re-inserts `session` if `id` is STILL absent
+   *  from `this.sessions` (never overwrites a session that already exists
+   *  again under this id); otherwise logs and leaves it alone. Also
+   *  re-runs `hookBridge.prepareSession` for the surviving old process:
+   *  `kill(id)` below already ran `hookBridge.cleanupSession`, which deletes
+   *  `hook-settings-<id>.json` — the file this same still-alive claude
+   *  process's own `--settings` flag points at — so without regenerating it
+   *  its hooks would silently stop reaching this app. */
   killAndAwaitExit(id: string, timeoutMs: number): Promise<boolean> {
     const session = this.sessions.get(id);
     if (!session) return Promise.resolve(true);
@@ -946,20 +974,49 @@ export class PtyManager {
       session.proc.onExit(() => finish(true));
       timer = setTimeout(() => {
         if (done) return;
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {
-          /* already dead, or not our own child (KeeperClient's own pid is
-             the detached keeper-relayed child) — either way, nothing more
-             to do here but check below */
+        if (pid > 1) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            /* already dead, or not our own child (KeeperClient's own pid is
+               the detached keeper-relayed child) — either way, nothing more
+               to do here but check below */
+          }
         }
         setTimeout(() => {
           if (done) return;
-          if (this.isPidAlive(pid)) {
-            // Still alive after SIGKILL — re-track it (kill(id) above
-            // already removed it) rather than leaving it orphaned-but-live.
-            this.sessions.set(id, session);
-            this.onSessionsChanged?.();
+          // pid <= 1 is never trusted either way — no real child of this
+          // app has that pid, so there's nothing meaningful to probe; treat
+          // it the same as "confirmed still alive" (never assume dead).
+          if (pid <= 1 || this.isPidAlive(pid)) {
+            if (this.sessions.has(id)) {
+              // Item 2 — something else already spawned/reattached a NEW
+              // session under this id during the wait; re-inserting the OLD
+              // one would clobber it. Leave the new one alone.
+              log('pty', 'warn', 'killAndAwaitExit: old process still alive but id was reused — leaving untracked', {
+                id,
+                pid
+              });
+            } else {
+              this.sessions.set(id, session);
+              this.onSessionsChanged?.();
+              // kill(id) already ran hookBridge.cleanupSession, which deleted
+              // hook-settings-<id>.json — the exact file this still-alive
+              // claude process's own `--settings` flag points at (its argv
+              // can't change now that it's already running). Regenerate it
+              // at the SAME path (`prepareSession` always writes to
+              // `hookTmpDir()`/`hook-settings-<id>.json`) so its hooks keep
+              // reaching this app instead of silently going quiet. Only for
+              // a session that actually had one — same `isArceus` allow-list
+              // choice `spawn()` itself makes for this id.
+              if (session.claudeSettingsPath) {
+                this.hookBridge?.prepareSession(
+                  id,
+                  hookTmpDir(),
+                  id === ARCEUS_SESSION_ID ? POKE_TOOL_PERMISSION_RULES : undefined
+                );
+              }
+            }
             finish(false);
           } else {
             finish(true);

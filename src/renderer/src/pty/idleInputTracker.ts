@@ -19,26 +19,36 @@ const states = new Map<string, InputState>();
  *  keypress in the last 10s". */
 const IDLE_KEYPRESS_MS = 10_000;
 
-/** Called from `term.onData` for every chunk of raw bytes the user typed. An
- *  Enter (`\r` or `\n`) anywhere in the chunk resets `hasBytesSinceEnter`
- *  for whatever follows it in the SAME chunk (xterm normally sends one key
- *  at a time, so a multi-char chunk is the exception, e.g. a paste) —
- *  conservatively, any Enter in the chunk clears the flag, and any
- *  non-Enter byte after it (or the whole chunk if there's no Enter) sets it
- *  again. */
+/** Re-review item 3 — the ONLY onData chunks treated as "not literally
+ *  typed by the user" (xterm auto-replies fed back through this same
+ *  `onData` path, not real input): an OSC string (colour-query responses
+ *  from `\x1b]10;?\x07`/`\x1b]11;?\x07`), a focus in/out DECSET 1004 report
+ *  (`\x1b[I`/`\x1b[O`), or a Device Attributes / cursor-position reply
+ *  (`\x1b[?…c`, `\x1b[…R`). D14's original fix over-matched EVERY
+ *  ESC-prefixed chunk, which also silently swallowed a real bracketed
+ *  paste (`\x1b[200~…\x1b[201~`, always ESC-prefixed) as "not a draft" —
+ *  auto-reload could then discard a just-pasted draft. Deliberately does
+ *  NOT match arrow/function/paste sequences: those go through the ordinary
+ *  Enter-scan below like any other input, which is the safe direction to
+ *  err in (worst case, a reload waits a little longer than strictly
+ *  necessary; it never discards something typed). */
+const SYNTHETIC_REPLY_RE = /^\x1b(?:\][^\x07]*\x07?|\[[IO]|\[\?[0-9;]*c|\[[0-9;]*R)$/;
+
+/** Called from `term.onData` for every chunk of raw bytes leaving the
+ *  terminal (real keystrokes, a paste, or one of xterm's own synthetic
+ *  auto-replies — see `SYNTHETIC_REPLY_RE`). An Enter (`\r` or `\n`)
+ *  anywhere in the chunk resets `hasBytesSinceEnter` for whatever follows
+ *  it in the SAME chunk (a paste is the one case a chunk carries more than
+ *  one logical "line" at once — the bracketed-paste markers themselves
+ *  contain no `\r`/`\n`, so this naturally treats a paste's own internal
+ *  newlines as this same "reset, then whatever's after is the new draft"
+ *  logic, and the paste's closing marker as part of that final segment). */
 export function noteTypedInput(sessionId: string, data: string): void {
   const s = states.get(sessionId) ?? { hasBytesSinceEnter: false, lastKeypressAt: 0 };
-  // D14 fix: any chunk still counts as recent activity (real arrow-key
-  // navigation should keep the 10s "just active" window alive), but an
-  // ESC-prefixed chunk never counts toward "a draft is in progress" below.
-  // xterm feeds SYNTHETIC replies back through this exact same `onData`
-  // path — an OSC 10/11 colour-query response, a focus in/out DECSET 1004
-  // report — none of which the user actually typed, and a real arrow/
-  // function key is ALSO ESC-prefixed and just as much "not a draft".
-  // Without this, those synthetic replies alone could keep the "ours" idle
-  // gate permanently closed.
+  // Any chunk counts as recent activity, including a synthetic reply and a
+  // real arrow key — both keep the 10s "just active" window alive.
   s.lastKeypressAt = Date.now();
-  if (data.charCodeAt(0) === 0x1b) {
+  if (SYNTHETIC_REPLY_RE.test(data)) {
     states.set(sessionId, s);
     return;
   }
