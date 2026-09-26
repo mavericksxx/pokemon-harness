@@ -3748,6 +3748,20 @@ body.garden-lowres .garden canvas {
   margin: auto;
 }
 
+/* Inline failure state (2026-09-26 re-review) — a slow/huge/deleted
+ * transcript's read failure shows HERE, in the same pane, instead of a
+ * stuck spinner; `.error` is the app's existing error-text style. */
+.transcript-view-error-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.transcript-view-error {
+  max-width: 80%;
+  text-align: center;
+}
+
 /* Subagent/delegate nesting (per-parent disclosure rework) — indented under
  * its parent with a mint left border, replacing the old flat list a global
  * show/hide toggle used to gate. */

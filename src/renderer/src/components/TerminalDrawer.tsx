@@ -201,7 +201,16 @@ export function TerminalDrawer({ onContinueExternal }: Props): JSX.Element | nul
 
       {showPreview && previewSession && (
         <div className="transcript-view-overlay">
+          {/* `key` (2026-09-26 re-review) forces a full remount on every row
+              switch — see TranscriptView.tsx's own header comment for the
+              confirmed-live bug this fixes (switching rows updated the
+              header but left the turn list showing an earlier row's
+              content). This overlay div is a SIBLING of FocusView above,
+              never a descendant of it — TranscriptView's own `onWheel`
+              stopPropagation additionally keeps a wheel gesture over this
+              pane from ever reaching FocusView/the terminal underneath. */}
           <TranscriptView
+            key={previewSession.id}
             session={previewSession}
             onClose={() => setPreviewExternalId(null)}
             onContinue={() => onContinueExternal(previewSession)}
